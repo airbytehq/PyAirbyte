@@ -19,7 +19,7 @@ To generate the documentation, run:
 poetry run generate-docs
 ```
 
-The `generate-docs` CLI command is mapped to the `run()` function of `docs.py` in the root `airbyte-lib` directory.
+The `generate-docs` CLI command is mapped to the `run()` function of `docs/generate.py`.
 
 Documentation pages will be generated in the `docs/generated` folder. The `test_docs.py` test in pytest will automatically update generated content. This updates must be manually committed before docs tests will pass.
 

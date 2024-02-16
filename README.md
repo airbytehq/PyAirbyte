@@ -1,6 +1,6 @@
-# airbyte-lib
+# PyAirbyte
 
-airbyte-lib is a library that allows to run Airbyte syncs embedded into any Python application, without the need to run Airbyte server.
+PyAirbyte is a library that allows to run Airbyte syncs embedded into any Python application, without requiring connectivity to a hosted Airbyte instance.
 
 ## Secrets Management
 
@@ -32,7 +32,7 @@ By default, PyAirbyte will prompt the user for any requested secrets that are no
 
 ## Connector compatibility
 
-To make a connector compatible with airbyte-lib, the following requirements must be met:
+To make a connector compatible with PyAirbyte, the following requirements must be met:
 
 - The connector must be a Python package, with a `pyproject.toml` or a `setup.py` file.
 - In the package, there must be a `run.py` file that contains a `run` method. This method should read arguments from the command line, and run the connector with them, outputting messages to stdout.
