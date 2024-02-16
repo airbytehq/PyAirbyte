@@ -1,4 +1,4 @@
-name: Pytest (all)
+name: Pytest (All)
 
 on:
     push:
