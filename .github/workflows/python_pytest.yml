@@ -1,3 +1,5 @@
+# This workflow will run pytest, prioritizing rebustness over speed.
+# This is in contrast to the 'failfast' workflow, which prioritizes speed over robustness.
 name: Pytest (All)
 
 on:
