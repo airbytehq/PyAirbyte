@@ -1,7 +1,9 @@
-name: Auto-fix Python
+name: Auto-fix when '/autofix' Slash Command is used
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [autofix-command]
 
 jobs:
   python-autofix:
