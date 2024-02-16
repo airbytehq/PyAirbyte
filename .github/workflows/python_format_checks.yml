@@ -7,7 +7,7 @@ on:
   pull_request:
 
 jobs:
-  format-check:
+  python-format-check:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
