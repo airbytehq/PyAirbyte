@@ -7,7 +7,7 @@ on:
     pull_request: {}
 
 jobs:
-  python-lint:
+  pytest:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
