@@ -1,4 +1,4 @@
-name: Check Python Format
+name: Python Format Check
 
 on:
   push:
