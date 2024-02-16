@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import os
 
-import airbyte_lib as ab
+import airbyte as ab
 
 
-# preparation (from airbyte-lib main folder):
+# preparation (from PyAirbyte main folder):
 #   python -m venv .venv-source-test
 #   source .venv-source-test/bin/activate
 #   pip install -e ./tests/integration_tests/fixtures/source-test

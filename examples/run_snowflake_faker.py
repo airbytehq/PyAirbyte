@@ -6,8 +6,8 @@ import os
 
 from google.cloud import secretmanager
 
-import airbyte_lib as ab
-from airbyte_lib.caches import SnowflakeCacheConfig, SnowflakeSQLCache
+import airbyte as ab
+from airbyte.caches import SnowflakeCacheConfig, SnowflakeSQLCache
 
 
 source = ab.get_source(

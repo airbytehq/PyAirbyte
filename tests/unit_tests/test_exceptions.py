@@ -3,7 +3,7 @@
 import inspect
 import pytest
 import inspect
-import airbyte_lib.exceptions as exceptions_module
+import airbyte.exceptions as exceptions_module
 
 def test_exceptions():
     exception_classes = [

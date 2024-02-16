@@ -2,7 +2,7 @@
 
 import pytest
 from sqlalchemy import types
-from airbyte_lib.types import SQLTypeConverter, _get_airbyte_type
+from airbyte.types import SQLTypeConverter, _get_airbyte_type
 
 
 @pytest.mark.parametrize(

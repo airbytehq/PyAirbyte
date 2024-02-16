@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "airbyte-lib"
-description = "AirbyteLib"
+name = "airbyte"
+description = "PyAirbyte"
 version = "0.1.0"
 authors = ["Airbyte <contact@airbyte.io>"]
 readme = "README.md"
-packages = [{include = "airbyte_lib"}]
+packages = [{include = "airbyte"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -167,7 +167,7 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 force-sort-within-sections = false
 lines-after-imports = 2
 known-first-party = ["airbyte_cdk", "airbyte_protocol"]
-known-local-folder = ["airbyte_lib"]
+known-local-folder = ["airbyte"]
 required-imports = ["from __future__ import annotations"]
 known-third-party = []
 section-order = [
@@ -249,7 +249,7 @@ ignore_missing_imports = true  # No stubs yet (😢)
 
 [tool.poetry.scripts]
 generate-docs = "docs:run"
-airbyte-lib-validate-source = "airbyte_lib.validate:run"
+airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
 test = "pytest tests"

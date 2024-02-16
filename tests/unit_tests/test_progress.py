@@ -5,7 +5,7 @@ from textwrap import dedent
 import time
 import pytest
 from freezegun import freeze_time
-from airbyte_lib.progress import ReadProgress, _get_elapsed_time_str, _to_time_str
+from airbyte.progress import ReadProgress, _get_elapsed_time_str, _to_time_str
 from dateutil.tz import tzlocal
 
 # Calculate the offset from UTC in hours

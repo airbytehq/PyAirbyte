@@ -3,8 +3,8 @@
 from gettext import install
 import pytest
 
-from airbyte_lib._factories.connector_factories import get_source
-from airbyte_lib import exceptions as exc
+from airbyte._factories.connector_factories import get_source
+from airbyte import exceptions as exc
 
 
 def test_install_failure_log_pypi():

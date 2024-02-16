@@ -9,21 +9,21 @@ import pdoc
 
 
 def run() -> None:
-    """Generate docs for all public modules in airbyte_lib and save them to docs/generated.
+    """Generate docs for all public modules in airbyte and save them to docs/generated.
 
     Public modules are:
-    * The main airbyte_lib module
-    * All directory modules in airbyte_lib that don't start with an underscore.
+    * The main airbyte module
+    * All directory modules in airbyte that don't start with an underscore.
     """
-    public_modules = ["airbyte_lib"]
+    public_modules = ["airbyte"]
 
     # recursively delete the docs/generated folder if it exists
     if pathlib.Path("docs/generated").exists():
         shutil.rmtree("docs/generated")
 
-    # All folders in `airbyte_lib` that don't start with "_" are treated as public modules.
-    for d in os.listdir("airbyte_lib"):
-        dir_path = pathlib.Path(f"airbyte_lib/{d}")
+    # All folders in `airbyte` that don't start with "_" are treated as public modules.
+    for d in os.listdir("airbyte"):
+        dir_path = pathlib.Path(f"airbyte/{d}")
         if dir_path.is_dir() and not d.startswith("_") and (dir_path / "__init__.py").exists():
             public_modules.append(dir_path)
 

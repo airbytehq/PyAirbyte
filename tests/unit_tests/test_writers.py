@@ -2,8 +2,8 @@
 
 from pathlib import Path
 import pytest
-from airbyte_lib._file_writers.base import FileWriterBase, FileWriterBatchHandle, FileWriterConfigBase
-from airbyte_lib._file_writers.parquet import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers.base import FileWriterBase, FileWriterBatchHandle, FileWriterConfigBase
+from airbyte._file_writers.parquet import ParquetWriter, ParquetWriterConfig
 from numpy import source
 
 
