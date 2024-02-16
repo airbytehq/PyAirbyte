@@ -1,4 +1,4 @@
-name: Pytest (Fail-Fast)
+name: Pytest (Fast Tests Only)
 
 on:
     push:
