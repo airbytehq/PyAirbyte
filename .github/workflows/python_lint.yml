@@ -22,18 +22,8 @@ jobs:
         python-version: 3.9
         cache: 'poetry'
 
-
     - name: Install dependencies
       run: poetry install
 
     - name: Format code
-      run: poetry run ruff format --check .
-
-    - name: Raise error if formatting issues found
-      run: |
-        if [ $? -eq 0 ]; then
-          echo "No formatting issues found."
-        else
-          echo "Formatting issues found. Please run 'poetry run ruff format --check .' to fix them."
-          exit 1
-        fi
+      run: poetry run ruff check .
