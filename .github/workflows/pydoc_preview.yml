@@ -1,4 +1,4 @@
-name: Generate Python Documentation
+name: Test Docs Generation
 
 on:
   push:
@@ -6,8 +6,9 @@ on:
     - main
   pull_request: {}
 
+
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -28,4 +29,10 @@ jobs:
 
     - name: Generate documentation
       run: |
-        pdoc --html --output-dir docs .
+        poetry run generate-docs
+
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        # Upload entire repository
+        path: 'docs/generated'
