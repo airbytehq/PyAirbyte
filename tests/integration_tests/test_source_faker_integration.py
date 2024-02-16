@@ -18,8 +18,8 @@ import viztracer
 
 from airbyte_cdk.models import ConfiguredAirbyteCatalog
 
-import airbyte_lib as ab
-from airbyte_lib import caches
+import airbyte as ab
+from airbyte import caches
 
 
 # Product count is always the same, regardless of faker scale.

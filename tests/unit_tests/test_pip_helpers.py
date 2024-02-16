@@ -1,7 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
 import pytest
-from airbyte_lib._util import github_pip_url, connector_pip_url
+from airbyte._util import github_pip_url, connector_pip_url
 
 @pytest.mark.parametrize('owner, repo, branch_or_ref, package_name, subdirectory, expected', [
     ('airbytehq', 'airbyte', None, None, None, 'git+https://github.com/airbytehq/airbyte.git'),

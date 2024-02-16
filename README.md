@@ -1,6 +1,6 @@
-# airbyte-lib
+# PyAirbyte
 
-airbyte-lib is a library that allows to run Airbyte syncs embedded into any Python application, without the need to run Airbyte server.
+PyAirbyte is a library that allows to run Airbyte syncs embedded into any Python application, without the need to run Airbyte server.
 
 ## Development
 
@@ -25,12 +25,12 @@ AirbyteLib can auto-import secrets from the following sources:
 3. [Google Colab secrets](https://medium.com/@parthdasawant/how-to-use-secrets-in-google-colab-450c38e3ec75).
 4. Manual entry via [`getpass`](https://docs.python.org/3.9/library/getpass.html).
 
-_Note: Additional secret store options may be supported in the future. [More info here.](https://github.com/airbytehq/airbyte-lib-private-beta/discussions/5)_
+_Note: Additional secret store options may be supported in the future. [More info here.](https://github.com/airbytehq/PyAirbyte-private-beta/discussions/5)_
 
 ### Retrieving Secrets
 
 ```python
-from airbyte_lib import get_secret, SecretSource
+from airbyte import get_secret, SecretSource
 
 source = get_connection("source-github")
 source.set_config(
@@ -56,7 +56,7 @@ A unit test validates the documentation is up to date.
 
 ## Connector compatibility
 
-To make a connector compatible with airbyte-lib, the following requirements must be met:
+To make a connector compatible with PyAirbyte, the following requirements must be met:
 * The connector must be a Python package, with a `pyproject.toml` or a `setup.py` file.
 * In the package, there must be a `run.py` file that contains a `run` method. This method should read arguments from the command line, and run the connector with them, outputting messages to stdout.
 * The `pyproject.toml` or `setup.py` file must specify a command line entry point for the `run` method called `source-<connector name>`. This is usually done by adding a `console_scripts` section to the `pyproject.toml` file, or a `entry_points` section to the `setup.py` file. For example:

@@ -9,24 +9,24 @@ from typing import Any
 from unittest.mock import Mock, call, patch
 import tempfile
 from pathlib import Path
-from airbyte_lib.caches.base import SQLCacheBase
+from airbyte.caches.base import SQLCacheBase
 
 from sqlalchemy import column, text
 
-import airbyte_lib as ab
-from airbyte_lib.caches import SnowflakeCacheConfig, SnowflakeSQLCache
+import airbyte as ab
+from airbyte.caches import SnowflakeCacheConfig, SnowflakeSQLCache
 import pandas as pd
 import pytest
 
-from airbyte_lib.caches import PostgresCache, PostgresCacheConfig
-from airbyte_lib import registry
-from airbyte_lib.version import get_version
-from airbyte_lib.results import ReadResult
-from airbyte_lib.datasets import CachedDataset, LazyDataset, SQLDataset
-import airbyte_lib as ab
+from airbyte.caches import PostgresCache, PostgresCacheConfig
+from airbyte import registry
+from airbyte.version import get_version
+from airbyte.results import ReadResult
+from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
+import airbyte as ab
 
-from airbyte_lib.results import ReadResult
-from airbyte_lib import exceptions as exc
+from airbyte.results import ReadResult
+from airbyte import exceptions as exc
 import ulid
 
 
@@ -85,9 +85,9 @@ def test_invalid_config():
 
 def test_ensure_installation_detection():
     """Assert that install isn't called, since the connector is already installed by the fixture."""
-    with patch("airbyte_lib._executor.VenvExecutor.install") as mock_venv_install, \
-         patch("airbyte_lib.source.Source.install") as mock_source_install, \
-         patch("airbyte_lib._executor.VenvExecutor.ensure_installation") as mock_ensure_installed:
+    with patch("airbyte._executor.VenvExecutor.install") as mock_venv_install, \
+         patch("airbyte.source.Source.install") as mock_source_install, \
+         patch("airbyte._executor.VenvExecutor.ensure_installation") as mock_ensure_installed:
         source = ab.get_source(
             "source-test",
             config={"apiKey": 1234},
@@ -143,7 +143,7 @@ def test_version_enforcement(
 
     # We need to initialize the cache before we can patch it.
     _ = registry._get_registry_cache()
-    with patch.dict("airbyte_lib.registry.__cache", {"source-test": patched_entry}, clear=False):
+    with patch.dict("airbyte.registry.__cache", {"source-test": patched_entry}, clear=False):
         if raises:
             with pytest.raises(Exception):
                 source = ab.get_source(
@@ -596,7 +596,7 @@ def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCacheConfig, e
             assert len(expected_test_stream_data[stream_name]) == 0
 
 
-def test_airbyte_lib_version() -> None:
+def test_airbyte_version() -> None:
     assert get_version()
     assert isinstance(get_version(), str)
 
@@ -605,8 +605,8 @@ def test_airbyte_lib_version() -> None:
 
 
 @patch.dict('os.environ', {'DO_NOT_TRACK': ''})
-@patch('airbyte_lib.telemetry.requests')
-@patch('airbyte_lib.telemetry.datetime')
+@patch('airbyte.telemetry.requests')
+@patch('airbyte.telemetry.datetime')
 @pytest.mark.parametrize(
     "raises, api_key, expected_state, expected_number_of_records, request_call_fails, extra_env, expected_flags, cache_type, number_of_records_read",
     [

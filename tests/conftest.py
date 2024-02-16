@@ -11,7 +11,7 @@ import subprocess
 import time
 
 import ulid
-from airbyte_lib.caches.snowflake import SnowflakeCacheConfig
+from airbyte.caches.snowflake import SnowflakeCacheConfig
 
 import docker
 import psycopg2 as psycopg
@@ -21,7 +21,7 @@ from google.cloud import secretmanager
 from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
-from airbyte_lib.caches import PostgresCacheConfig
+from airbyte.caches import PostgresCacheConfig
 
 logger = logging.getLogger(__name__)
 

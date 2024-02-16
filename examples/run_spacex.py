@@ -3,10 +3,10 @@ from __future__ import annotations
 
 from itertools import islice
 
-import airbyte_lib as ab
+import airbyte as ab
 
 
-# preparation (from airbyte-lib main folder):
+# preparation (from PyAirbyte main folder):
 #   python -m venv .venv-source-spacex-api
 #   source .venv-source-spacex-api/bin/activate
 #   pip install -e ../airbyte-integrations/connectors/source-spacex-api

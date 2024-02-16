@@ -4,7 +4,7 @@ import os
 import shutil
 
 import pytest
-from airbyte_lib.validate import validate
+from airbyte.validate import validate
 
 
 @pytest.fixture(scope="module", autouse=True)
