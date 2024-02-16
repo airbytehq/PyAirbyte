@@ -1,5 +1,4 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-
 """A SQL Cache implementation."""
 from __future__ import annotations
 

@@ -1,0 +1,33 @@
+# This workflow will run pytest, prioritizing speed over robustness.
+# This is in contrast to the 'all' workflow, which prioritizes robustness over speed.
+name: Pytest (Fast Tests Only)
+
+on:
+    push:
+      branches:
+      - main
+    pull_request: {}
+
+jobs:
+  pytest-fast:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Run Pytest (Fast Tests Only)
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      run: poetry run pytest -m "not slow and not requires_creds" --exitfirst

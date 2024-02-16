@@ -1,0 +1,40 @@
+name: Auto-fix when '/autofix' Slash Command is used
+
+on:
+  workflow_dispatch: {}
+  repository_dispatch:
+    types: [autofix-command]
+
+jobs:
+  python-autofix:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.9
+        cache: 'poetry'
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Format code
+      run: poetry run ruff format .
+
+    - name: Commit changes
+      run: |
+        git config --global user.name "Airbyte Automation Bot"
+        git config --global user.email "no-reply@airbyte.io"
+        git add .
+        git diff-index --quiet HEAD || git commit -m "Format code with black"
+
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}

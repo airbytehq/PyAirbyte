@@ -10,27 +10,26 @@ packages = [{include = "airbyte"}]
 python = "^3.9"
 
 airbyte-cdk = "^0.58.3"
-# airbyte-protocol-models = "^1.0.1"  # Conflicts with airbyte-cdk # TODO: delete or resolve
+duckdb-engine = "^0.10.0"
 jsonschema = "3.2.0"
 orjson = "^3.9.10"
 overrides = "^7.4.0"
 pandas = "2.1.4" # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
+pendulum = "<=3.0.0"
 psycopg2-binary = "^2.9.9"
+# psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
+# Psycopg3 is not supported in SQLAlchemy 1.x:
+pyarrow = "^14.0.2"
+pydantic = "<=2.0"
+python-dotenv = "^1.0.1"
 python-ulid = "^2.2.0"
-types-pyyaml = "^6.0.12.12"
-ulid = "^1.1"
-sqlalchemy = "1.4.51"
+requests = "^2.31.0"
+rich = "^13.7.0"
 snowflake-connector-python = "3.6.0"
 snowflake-sqlalchemy = "^1.5.1"
-duckdb-engine = "^0.10.0"
-requests = "^2.31.0"
-pyarrow = "^14.0.2"
-
-# Psycopg3 is not supported in SQLAlchemy 1.x:
-# psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
-rich = "^13.7.0"
-pendulum = "<=3.0.0"
-python-dotenv = "^1.0.1"
+sqlalchemy = "1.4.51"
+types-pyyaml = "^6.0.12.12"
+ulid = "^1.1"
 
 
 [tool.poetry.group.dev.dependencies]
