@@ -8,6 +8,7 @@ on:
 
 jobs:
   pytest:
+    name: Pytest (All, Python ${{ matrix.python-version }})
     # Don't run on forks
     if: github.repository_owner == 'airbytehq'
 
