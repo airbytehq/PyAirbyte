@@ -1,13 +1,13 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
-"""Read and write strategies for AirbyteLib."""
+"""Read and write strategies for PyAirbyte."""
 from __future__ import annotations
 
 from enum import Enum
 
 
 class WriteStrategy(str, Enum):
-    """Read strategies for AirbyteLib."""
+    """Read strategies for PyAirbyte."""
 
     MERGE = "merge"
     """Merge new records with existing records.

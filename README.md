@@ -4,7 +4,7 @@ airbyte-lib is a library that allows to run Airbyte syncs embedded into any Pyth
 
 ## Secrets Management
 
-AirbyteLib can auto-import secrets from the following sources:
+PyAirbyte can auto-import secrets from the following sources:
 
 1. Environment variables.
 2. Variables defined in a local `.env` ("Dotenv") file.
@@ -26,9 +26,9 @@ source.set_config(
 )
 ```
 
-The `get_secret()` function accepts an optional `source` argument of enum type `SecretSource`. If omitted or set to `SecretSource.ANY`, AirbyteLib will search all available secrets sources. If `source` is set to a specific source, then only that source will be checked. If a list of `SecretSource` entries is passed, then the sources will be checked using the provided ordering.
+The `get_secret()` function accepts an optional `source` argument of enum type `SecretSource`. If omitted or set to `SecretSource.ANY`, PyAirbyte will search all available secrets sources. If `source` is set to a specific source, then only that source will be checked. If a list of `SecretSource` entries is passed, then the sources will be checked using the provided ordering.
 
-By default, AirbyteLib will prompt the user for any requested secrets that are not provided via other secret managers. You can disable this prompt by passing `prompt=False` to `get_secret()`.
+By default, PyAirbyte will prompt the user for any requested secrets that are not provided via other secret managers. You can disable this prompt by passing `prompt=False` to `get_secret()`.
 
 ## Connector compatibility
 
@@ -80,7 +80,7 @@ For a more lightweight check, the `--validate-install-only` flag can be used. Th
 
 ## Contributing
 
-To learn how you can contribute to AirbyteLib, please see our [AirbyteLib Contributors Guide](./CONTRIBUTING.md).
+To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./CONTRIBUTING.md).
 
 ## Changelog
 

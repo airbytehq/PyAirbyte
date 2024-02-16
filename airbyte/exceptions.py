@@ -106,7 +106,7 @@ class AirbyteError(Exception):
         return f"{class_name}({properties_str})"
 
 
-# AirbyteLib Internal Errors (these are probably bugs)
+# PyAirbyte Internal Errors (these are probably bugs)
 
 
 @dataclass
@@ -117,12 +117,12 @@ class AirbyteLibInternalError(AirbyteError):
     help_url = NEW_ISSUE_URL
 
 
-# AirbyteLib Input Errors (replaces ValueError for user input)
+# PyAirbyte Input Errors (replaces ValueError for user input)
 
 
 @dataclass
 class AirbyteLibInputError(AirbyteError, ValueError):
-    """The input provided to AirbyteLib did not match expected validation rules.
+    """The input provided to PyAirbyte did not match expected validation rules.
 
     This inherits from ValueError so that it can be used as a drop-in replacement for
     ValueError in the Airbyte Lib API.
@@ -146,7 +146,7 @@ class AirbyteLibNoStreamsSelectedError(AirbyteLibInputError):
     available_streams: list[str] | None = None
 
 
-# AirbyteLib Cache Errors
+# PyAirbyte Cache Errors
 
 
 class AirbyteLibCacheError(AirbyteError):

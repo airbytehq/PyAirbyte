@@ -1,6 +1,6 @@
-# Contributing to AirbyteLib
+# Contributing to PyAirbyte
 
-Learn how you can become a contributor to AirbyteLib.
+Learn how you can become a contributor to PyAirbyte.
 
 ## Development
 
@@ -28,7 +28,7 @@ Documentation pages will be generated in the `docs/generated` folder. The `test_
 - In your PR:
   - Bump the version in `pyproject.toml`
   - Add a changelog entry to the table below
-- Once the PR is merged, go to Github and trigger the `Publish AirbyteLib Manually` workflow. This will publish the new version to PyPI.
+- Once the PR is merged, go to Github and trigger the `Publish PyAirbyte Manually` workflow. This will publish the new version to PyPI.
 
 ## Versioning
 
