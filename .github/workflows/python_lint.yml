@@ -1,0 +1,40 @@
+name: Lint Python
+
+on:
+    push:
+      branches:
+      - main
+    pull_request:
+
+jobs:
+  format-check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: 3.9
+        cache: 'poetry'
+
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Format code
+      run: poetry run ruff format --check .
+
+    - name: Raise error if formatting issues found
+      run: |
+        if [ $? -eq 0 ]; then
+          echo "No formatting issues found."
+        else
+          echo "Formatting issues found. Please run 'poetry run ruff format --check .' to fix them."
+          exit 1
+        fi
