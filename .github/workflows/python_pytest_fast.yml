@@ -26,4 +26,6 @@ jobs:
       run: poetry install
 
     - name: Run Pytest
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: poetry run pytest -m "not slow" --exitfirst
