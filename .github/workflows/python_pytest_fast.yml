@@ -28,4 +28,4 @@ jobs:
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest -m "not slow" --exitfirst
+      run: poetry run pytest -m "not slow and not requires_creds" --exitfirst
