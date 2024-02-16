@@ -27,7 +27,7 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    - name: Run Pytest
+    - name: Run Pytest (Fast Tests Only)
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: poetry run pytest -m "not slow and not requires_creds" --exitfirst
