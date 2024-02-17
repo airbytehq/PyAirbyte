@@ -1,10 +1,16 @@
 [tool.poetry]
 name = "airbyte"
 description = "PyAirbyte"
-version = "0.1.0"
 authors = ["Airbyte <contact@airbyte.io>"]
 readme = "README.md"
 packages = [{include = "airbyte"}]
+
+# This project uses dynamic versioning
+# https://github.com/mtkennerly/poetry-dynamic-versioning
+version = "0.0.0"
+
+[tool.poetry-dynamic-versioning]
+enable = true
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -48,12 +54,11 @@ google-cloud-secret-manager = "^2.17.0"
 types-requests = "2.31.0.4"
 freezegun = "^1.4.0"
 airbyte-source-faker = "^6.0.0"
-viztracer = "^0.16.2"
 tomli = "^2.0"
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
 markers = [
@@ -247,7 +252,7 @@ module = [
 ignore_missing_imports = true  # No stubs yet (😢)
 
 [tool.poetry.scripts]
-generate-docs = "docs:run"
+generate-docs = "docs.generate:run"
 airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]

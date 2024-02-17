@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""Secrets management for AirbyteLib."""
+"""Secrets management for PyAirbyte."""
 from __future__ import annotations
 
 import contextlib

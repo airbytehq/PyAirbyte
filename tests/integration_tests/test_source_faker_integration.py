@@ -11,12 +11,11 @@ import os
 import sys
 import shutil
 from pathlib import Path
+import typing
 
 import pytest
 import ulid
-import viztracer
 
-from airbyte_cdk.models import ConfiguredAirbyteCatalog
 
 import airbyte as ab
 from airbyte import caches
@@ -131,7 +130,7 @@ def test_faker_pks(
 ) -> None:
     """Test that the append strategy works as expected."""
 
-    catalog: ConfiguredAirbyteCatalog = source_faker_seed_a.configured_catalog
+    catalog = source_faker_seed_a.configured_catalog
 
     assert catalog.streams[0].primary_key
     assert catalog.streams[1].primary_key
