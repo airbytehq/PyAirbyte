@@ -22,13 +22,13 @@ jobs:
           # Configure which types are allowed (newline-delimited).
           # See: https://github.com/commitizen/conventional-commit-types/blob/master/index.json
           types: |
-            fix
-            feat
-            docs
-            ci
-            chore
-            build
-            test
+            Fix
+            Feat
+            Docs
+            CI
+            Chore
+            Build
+            Test
 
           # # We don't use scopes as of now
           # scopes: |
