@@ -89,7 +89,7 @@ class Document(BaseModel):
                 initial_indent=' ' * 4,
                 subsequent_indent=' ' * 4,
                 break_long_words=False,
-            )}"
+            )}\n"
             for key, value in record.items()
             if key in document_fields
         )
