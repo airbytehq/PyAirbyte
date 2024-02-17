@@ -1,6 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
-"""All exceptions used in the Airbyte Lib.
+"""All exceptions used in the PyAirbyte.
 
 This design is modeled after structlog's exceptions, in that we bias towards auto-generated
 property prints rather than sentence-like string concatenation.
@@ -111,7 +111,7 @@ class AirbyteError(Exception):
 
 @dataclass
 class AirbyteLibInternalError(AirbyteError):
-    """An internal error occurred in Airbyte Lib."""
+    """An internal error occurred in PyAirbyte."""
 
     guidance = "Please consider reporting this error to the Airbyte team."
     help_url = NEW_ISSUE_URL
@@ -125,7 +125,7 @@ class AirbyteLibInputError(AirbyteError, ValueError):
     """The input provided to PyAirbyte did not match expected validation rules.
 
     This inherits from ValueError so that it can be used as a drop-in replacement for
-    ValueError in the Airbyte Lib API.
+    ValueError in the PyAirbyte API.
     """
 
     # TODO: Consider adding a help_url that links to the auto-generated API reference.
