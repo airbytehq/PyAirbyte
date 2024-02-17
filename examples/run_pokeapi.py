@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""A simple test of AirbyteLib, using the PokeAPI source connector.
+"""A simple test of PyAirbyte, using the PokeAPI source connector.
 
 Usage (from PyAirbyte root directory):
 > poetry run python ./examples/run_pokeapi.py

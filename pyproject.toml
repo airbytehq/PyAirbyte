@@ -48,7 +48,6 @@ google-cloud-secret-manager = "^2.17.0"
 types-requests = "2.31.0.4"
 freezegun = "^1.4.0"
 airbyte-source-faker = "^6.0.0"
-viztracer = "^0.16.2"
 tomli = "^2.0"
 
 [build-system]
@@ -247,7 +246,7 @@ module = [
 ignore_missing_imports = true  # No stubs yet (😢)
 
 [tool.poetry.scripts]
-generate-docs = "docs:run"
+generate-docs = "docs.generate:run"
 airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
