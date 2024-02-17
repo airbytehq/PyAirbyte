@@ -9,12 +9,8 @@ from __future__ import annotations
 from collections.abc import Generator
 import os
 import sys
-import shutil
-from pathlib import Path
 
 import pytest
-
-from airbyte_cdk.models import ConfiguredAirbyteCatalog
 
 import airbyte as ab
 from airbyte import caches
