@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "PyAirbyte"
+name = "airbyte"
 description = "PyAirbyte"
 authors = ["Airbyte <contact@airbyte.io>"]
 readme = "README.md"
