@@ -16,7 +16,7 @@ _Note: Additional secret store options may be supported in the future. [More inf
 ### Retrieving Secrets
 
 ```python
-from airbyte_lib import get_secret, SecretSource
+from airbyte import get_secret, SecretSource
 
 source = get_connection("source-github")
 source.set_config(
