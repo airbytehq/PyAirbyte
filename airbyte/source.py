@@ -47,6 +47,7 @@ if TYPE_CHECKING:
 
     from airbyte._executor import Executor
     from airbyte.caches import SQLCacheBase
+    from airbyte.documents import Document
 
 
 @contextmanager
@@ -341,6 +342,10 @@ class Source:
             )
         )
         return LazyDataset(iterator)
+
+    def get_documents(self, stream: str) -> Iterable[Document]:
+        """Read a stream from the connector and return the records as documents."""
+        return self.get_records(stream).as_documents()
 
     def check(self) -> None:
         """Call check on the connector.
