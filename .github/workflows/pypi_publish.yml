@@ -1,0 +1,37 @@
+name: Publish to PyPi
+
+on:
+  release:
+    types: [published]
+
+  workflow_dispatch:
+
+jobs:
+  publish-to-pypi:
+    runs-on: ubuntu-latest
+    environment:
+      name: PyPi
+      url: https://pypi.org/p/airbyte
+    permissions:
+      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Build package
+      run: poetry build
+
+    - name: Publish package
+      uses: pypa/gh-action-pypi-publish@release/v1
