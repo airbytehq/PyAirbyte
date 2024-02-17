@@ -2,8 +2,8 @@ name: Publish Documentation Site
 
 on:
   push:
-    # branches:
-    #   # - main  # TODO: uncomment
+    branches:
+    - main
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
