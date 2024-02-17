@@ -18,6 +18,16 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 
+def _to_title_case(name: str, /) -> str:
+    """Convert a string to title case.
+
+    Unlike Python's built-in `str.title` method, this function doesn't lowercase the rest of the
+    string. This is useful for converting "snake_case" to "Title Case" without negatively affecting
+    strings that are already in title case or camel case.
+    """
+    return " ".join(word[0].upper() + word[1:] for word in name.split("_"))
+
+
 class Document(BaseModel):
     """A PyAirbyte document is a specific projection on top of a record.
 
@@ -71,9 +81,9 @@ class Document(BaseModel):
         # Short content is rendered as a single line, while long content is rendered as a indented
         # multi-line string with a 100 character width.
         content = "\n".join(
-            f"{key}: {value}"
-            if len(value) > MAX_SINGLE_LINE_LENGTH
-            else f"{key}: \n{textwrap.wrap(
+            f"{_to_title_case(key)}: {value}"
+            if len(value) < MAX_SINGLE_LINE_LENGTH
+            else f"{_to_title_case(key)}: \n{textwrap.wrap(
                 value,
                 width=100,
                 initial_indent=' ' * 4,
