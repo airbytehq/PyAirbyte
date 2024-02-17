@@ -1,6 +1,11 @@
-# This workflow will run pytest, prioritizing rebustness over speed.
-# This is in contrast to the 'failfast' workflow, which prioritizes speed over robustness.
-name: Pytest (All)
+# This workflow will run pytest.
+#
+# There are two jobs which run in parallel:
+# 1. pytest-fast: Run fast tests only, and fail fast so the dev knows asap if they broke something.
+# 2. pytest: Run all tests, across multiple python versions.
+#
+# Note that pytest-fast also skips tests that require credentials, allowing it to run on forks.
+name: Run Tests
 
 on:
     push:
@@ -9,6 +14,31 @@ on:
     pull_request: {}
 
 jobs:
+  pytest-fast:
+    name: Pytest (Fast)
+    runs-on: ubuntu-latest
+    steps:
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
+
+    # Job-specific step(s):
+    - name: Run Pytest (Fast Tests Only)
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      run: poetry run pytest -m "not slow and not requires_creds" --durations=5 --exitfirst
+
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }})
     # Don't run on forks
@@ -26,6 +56,7 @@ jobs:
       fail-fast: false
 
     steps:
+    # Common steps:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
@@ -37,10 +68,10 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'poetry'
-
     - name: Install dependencies
       run: poetry install
 
+    # Job-specific step(s):
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}

@@ -1,4 +1,4 @@
-name: Python Lint Check
+name: Run Linters
 
 on:
     push:
@@ -7,9 +7,11 @@ on:
     pull_request: {}
 
 jobs:
-  python-lint:
+  ruff-lint-check:
+    name: Ruff Lint Check
     runs-on: ubuntu-latest
     steps:
+    # Common steps:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
@@ -22,8 +24,48 @@ jobs:
         python-version: '3.10'
         cache: 'poetry'
 
-    - name: Install dependencies
-      run: poetry install
-
+    # Job-specifc step(s):
     - name: Format code
       run: poetry run ruff check .
+
+  ruff-format-check:
+    name: Ruff Format Check
+    runs-on: ubuntu-latest
+    steps:
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+
+    # Job-specifc step(s):
+    - name: Check code format
+      run: poetry run ruff format --check .
+
+  mypy-check:
+    name: MyPy Check
+    runs-on: ubuntu-latest
+    steps:
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+
+    # Job-specifc step(s):
+    - name: Check code format
+      run: poetry run ruff format --check .
