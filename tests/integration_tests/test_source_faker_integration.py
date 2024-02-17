@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 import ulid
-import viztracer
 
 from airbyte_cdk.models import ConfiguredAirbyteCatalog
 
