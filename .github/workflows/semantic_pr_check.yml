@@ -1,0 +1,45 @@
+name: "Verify Semantic PR Title"
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+
+permissions:
+  pull-requests: read
+
+jobs:
+  validate_pr_title:
+    name: Validate PR title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Configure which types are allowed (newline-delimited).
+          # See: https://github.com/commitizen/conventional-commit-types/blob/master/index.json
+          types: |
+            fix
+            feat
+            docs
+            ci
+            chore
+            build
+            test
+
+          # # We don't use scopes as of now
+          # scopes: |
+          #   core
+          #   ui
+          #   JIRA-\d+
+
+          # Require capitalization for the first letter of the subject.
+          subjectPattern: ^[A-Z].*$
+          # The variables `subject` and `title` can be used within the message.
+          subjectPatternError: |
+            The subject "{subject}" found in the pull request title "{title}"
+            didn't match the configured pattern. Please ensure that the subject
+            start with an uppercase character.
