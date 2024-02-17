@@ -3,6 +3,8 @@
 # There are two jobs which run in parallel:
 # 1. pytest-fast: Run fast tests only, and fail fast so the dev knows asap if they broke something.
 # 2. pytest: Run all tests, across multiple python versions.
+#
+# Note that pytest-fast also skips tests that require credentials, allowing it to run on forks.
 name: Pytest
 
 on:
@@ -16,11 +18,10 @@ jobs:
     name: Pytest (Fast)
     runs-on: ubuntu-latest
     steps:
-    - &checkout_code
-      name: Checkout code
+    # Common steps:
+    - name: Checkout code
       uses: actions/checkout@v4
-    - &setup_poetry
-      name: Set up Poetry
+    - name: Set up Poetry
       uses: Gr1N/setup-poetry@v8
       with:
         poetry-version: "1.7.1"
@@ -29,11 +30,10 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
-
-    - &install_dependencies
-      name: Install dependencies
+    - name: Install dependencies
       run: poetry install
 
+    # Job-specific step(s):
     - name: Run Pytest (Fast Tests Only)
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
@@ -56,16 +56,22 @@ jobs:
       fail-fast: false
 
     steps:
-    - *checkout_code
-    - *setup_poetry
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
-    - *install_dependencies
-
+    # Job-specific step(s):
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
