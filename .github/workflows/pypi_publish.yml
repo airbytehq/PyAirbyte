@@ -14,9 +14,12 @@ jobs:
       url: https://pypi.org/p/airbyte
     permissions:
       id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
+      contents: write  # Needed to upload artifacts to the release
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v8
       with:
@@ -26,6 +29,9 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+
+    - name: Install poetry-dynamic-versioning
+      run: pip install poetry-dynamic-versioning
 
     - name: Install dependencies
       run: poetry install
