@@ -9,10 +9,6 @@ import pdoc
 
 import airbyte as ab
 
-import typing
-
-typing.TYPE_CHECKING = True
-
 
 def run() -> None:
     """Generate docs for all public modules in airbyte_lib and save them to docs/generated.
