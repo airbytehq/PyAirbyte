@@ -1,6 +1,6 @@
 # PyAirbyte
 
-PyAirbyte is a library that allows to run Airbyte syncs embedded into any Python application, without requiring connectivity to a hosted Airbyte instance.
+PyAirbyte brings the power of Airbyte to every Python developer.
 
 ## Secrets Management
 
