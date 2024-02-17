@@ -25,10 +25,17 @@ Documentation pages will be generated in the `docs/generated` folder. The `test_
 
 ## Release
 
-- In your PR:
-  - Bump the version in `pyproject.toml`
-  - Add a changelog entry to the table below
-- Once the PR is merged, go to Github and trigger the `Publish PyAirbyte Manually` workflow. This will publish the new version to PyPI.
+Releases are published automatically to PyPi in response to a "published" event on a GitHub Release Tag.
+
+To publish to PyPi, simply [create a GitHub Release](https://github.com/airbytehq/PyAirbyte/releases/new) with the correct version. Once you publish the release on GitHub it will automatically trigger a PyPi publish workflow in GitHub actions.
+
+> **Warning**
+> 
+> Be careful - "Cmd+Enter" will not 'save' but will instead 'publish'. (If you want to save a draft, use the mouse. 😅)
+
+> **Note**
+> 
+> There is no version to bump. Version is calculated during build and publish, using the [poetry-dynamic-versioning](https://github.com/mtkennerly/poetry-dynamic-versioning) plugin.
 
 ## Versioning
 
