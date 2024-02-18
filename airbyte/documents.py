@@ -20,7 +20,7 @@ Assuming a stream like GitHub Issues, the `document_rendering` annotation might 
 }
 ```
 
-Note that the `document_rendering` annotation is optional.
+Note that the `airbyte_document_rendering` annotation is optional.
 """
 from __future__ import annotations
 
