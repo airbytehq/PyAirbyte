@@ -5,7 +5,7 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import jsonschema
 import pendulum
@@ -95,7 +95,7 @@ class Source:
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
-            self.set_streams(streams)
+            self.select_streams(streams)
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -115,11 +115,19 @@ class Source:
         """
         self._selected_stream_names = self.get_available_streams()
 
-    def select_streams(self, streams: list[str]) -> None:
+    def select_streams(self, streams: Literal["*"] | list[str]) -> None:
         """Select the stream names that should be read from the connector.
 
         Currently, if this is not set, all streams will be read.
         """
+        if streams == "*":
+            self.select_all_streams()
+            return
+
+        if isinstance(streams, str):
+            # If a single stream is provided, convert it to a one-item list
+            streams = [streams]
+
         available_streams = self.get_available_streams()
         for stream in streams:
             if stream not in available_streams:
