@@ -92,17 +92,6 @@ class SQLCacheBase(CacheConfigBase):
         ...
 
 
-class GenericSQLCacheConfig(SQLCacheBase):
-    """Allows configuring 'sql_alchemy_url' directly."""
-
-    sql_alchemy_url: str
-
-    @overrides
-    def get_sql_alchemy_url(self) -> str:
-        """Returns a SQL Alchemy URL."""
-        return self.sql_alchemy_url
-
-
 class SQLCacheInstanceBase(RecordProcessor):
     """A base class to be used for SQL Caches.
 
