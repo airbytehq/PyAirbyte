@@ -981,5 +981,5 @@ class SQLCacheBase(RecordProcessor):
         }
 
     @abc.abstractmethod
-    def get_telemetry_info(self) -> CacheTelemetryInfo:
+    def _get_telemetry_info(self) -> CacheTelemetryInfo:
         pass

@@ -424,7 +424,7 @@ class Source:
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        source_tracking_information = self.executor.get_telemetry_info()
+        source_tracking_information = self.executor._get_telemetry_info()
         send_telemetry(source_tracking_information, cache_info, SyncState.STARTED)
         sync_failed = False
         self._processed_records = 0  # Reset the counter before we start
@@ -567,7 +567,7 @@ class Source:
         cache.process_airbyte_messages(
             self._tally_records(
                 self._read(
-                    cache.get_telemetry_info(),
+                    cache._get_telemetry_info(),
                     state=state,
                 ),
             ),

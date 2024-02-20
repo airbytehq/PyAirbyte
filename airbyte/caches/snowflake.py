@@ -161,5 +161,5 @@ class SnowflakeSQLCache(SQLCacheBase):
         )
 
     @overrides
-    def get_telemetry_info(self) -> CacheTelemetryInfo:
+    def _get_telemetry_info(self) -> CacheTelemetryInfo:
         return CacheTelemetryInfo("snowflake")
