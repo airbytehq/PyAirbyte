@@ -562,7 +562,7 @@ class Source:
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),
         )
-        state = cache.get_state() if not force_full_refresh else None
+        state = cache._get_state() if not force_full_refresh else None
         print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
         cache.process_airbyte_messages(
             self._tally_records(

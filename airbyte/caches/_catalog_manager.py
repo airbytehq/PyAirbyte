@@ -90,7 +90,7 @@ class CatalogManager:
         engine = self._engine
         Base.metadata.create_all(engine)
 
-    def save_state(
+    def _save_state(
         self,
         source_name: str,
         state: AirbyteStateMessage,
@@ -113,7 +113,7 @@ class CatalogManager:
             )
             session.commit()
 
-    def get_state(
+    def _get_state(
         self,
         source_name: str,
         streams: list[str],

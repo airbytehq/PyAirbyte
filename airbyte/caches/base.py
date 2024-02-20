@@ -197,13 +197,27 @@ class SQLCacheInstanceBase(RecordProcessor):
 
         return self._engine
 
-    def _init_connection_settings(self, connection: Connection) -> None:
-        """This is called automatically whenever a new connection is created.
+    @overrides
+    def register_source(
+        self,
+        source_name: str,
+        incoming_source_catalog: ConfiguredAirbyteCatalog,
+        stream_names: set[str],
+    ) -> None:
+        """Register the source with the cache.
 
-        By default this is a no-op. Subclasses can use this to set connection settings, such as
-        timezone, case-sensitivity settings, and other session-level variables.
+        We use stream_names to determine which streams will receive data, and
+        we only register the stream if is expected to receive data.
+
+        This method is called by the source when it is initialized.
         """
-        pass
+        self._source_name = source_name
+        self._ensure_schema_exists()
+        super().register_source(
+            source_name,
+            incoming_source_catalog,
+            stream_names=stream_names,
+        )
 
     @contextmanager
     def get_sql_connection(self) -> Generator[sqlalchemy.engine.Connection, None, None]:
@@ -246,26 +260,6 @@ class SQLCacheInstanceBase(RecordProcessor):
         """Return the main table object for the stream."""
         return self._get_table_by_name(self.get_sql_table_name(stream_name))
 
-    def _get_table_by_name(
-        self,
-        table_name: str,
-        *,
-        force_refresh: bool = False,
-    ) -> sqlalchemy.Table:
-        """Return a table object from a table name.
-
-        To prevent unnecessary round-trips to the database, the table is cached after the first
-        query. To ignore the cache and force a refresh, set 'force_refresh' to True.
-        """
-        if force_refresh or table_name not in self._cached_table_definitions:
-            self._cached_table_definitions[table_name] = sqlalchemy.Table(
-                table_name,
-                sqlalchemy.MetaData(schema=self.config.schema_name),
-                autoload_with=self.get_sql_engine(),
-            )
-
-        return self._cached_table_definitions[table_name]
-
     @final
     @property
     def streams(
@@ -297,6 +291,34 @@ class SQLCacheInstanceBase(RecordProcessor):
         return pd.read_sql_table(table_name, engine)
 
     # Protected members (non-public interface):
+
+    def _init_connection_settings(self, connection: Connection) -> None:
+        """This is called automatically whenever a new connection is created.
+
+        By default this is a no-op. Subclasses can use this to set connection settings, such as
+        timezone, case-sensitivity settings, and other session-level variables.
+        """
+        pass
+
+    def _get_table_by_name(
+        self,
+        table_name: str,
+        *,
+        force_refresh: bool = False,
+    ) -> sqlalchemy.Table:
+        """Return a table object from a table name.
+
+        To prevent unnecessary round-trips to the database, the table is cached after the first
+        query. To ignore the cache and force a refresh, set 'force_refresh' to True.
+        """
+        if force_refresh or table_name not in self._cached_table_definitions:
+            self._cached_table_definitions[table_name] = sqlalchemy.Table(
+                table_name,
+                sqlalchemy.MetaData(schema=self.config.schema_name),
+                autoload_with=self.get_sql_engine(),
+            )
+
+        return self._cached_table_definitions[table_name]
 
     def _ensure_schema_exists(
         self,
@@ -597,13 +619,13 @@ class SQLCacheInstanceBase(RecordProcessor):
                 message="Catalog manager should exist but does not.",
             )
         if state_messages and self._source_name:
-            self._catalog_manager.save_state(
+            self._catalog_manager._save_state(
                 source_name=self._source_name,
                 stream_name=stream_name,
                 state=state_messages[-1],
             )
 
-    def get_state(self) -> list[dict]:
+    def _get_state(self) -> list[dict]:
         """Return the current state of the source."""
         if not self._source_name:
             return []
@@ -612,7 +634,7 @@ class SQLCacheInstanceBase(RecordProcessor):
                 message="Catalog manager should exist but does not.",
             )
         return (
-            self._catalog_manager.get_state(self._source_name, list(self._streams_with_data)) or []
+            self._catalog_manager._get_state(self._source_name, list(self._streams_with_data)) or []
         )
 
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
@@ -943,28 +965,6 @@ class SQLCacheInstanceBase(RecordProcessor):
     ) -> bool:
         """Return true if the given table exists."""
         return table_name in self._get_tables_list()
-
-    @overrides
-    def register_source(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        stream_names: set[str],
-    ) -> None:
-        """Register the source with the cache.
-
-        We use stream_names to determine which streams will receive data, and
-        we only register the stream if is expected to receive data.
-
-        This method is called by the source when it is initialized.
-        """
-        self._source_name = source_name
-        self._ensure_schema_exists()
-        super().register_source(
-            source_name,
-            incoming_source_catalog,
-            stream_names=stream_names,
-        )
 
     @property
     @overrides

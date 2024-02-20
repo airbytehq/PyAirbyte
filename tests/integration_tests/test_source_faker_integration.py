@@ -222,7 +222,7 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache.get_state() == []
+    assert not duckdb_cache._get_state() == []
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
@@ -251,7 +251,7 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert not second_cache.get_state() == []
+    assert not second_cache._get_state() == []
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
