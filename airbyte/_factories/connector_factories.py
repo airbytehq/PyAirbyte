@@ -4,7 +4,7 @@ from __future__ import annotations
 import shutil
 import warnings
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
