@@ -83,39 +83,6 @@ class DuckDBCacheInstance(SQLCacheBase):
 
         Path(config.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # TODO: Delete or rewrite this method after DuckDB adds support for primary key inspection.
-    # @overrides
-    # def _merge_temp_table_to_final_table(
-    #     self,
-    #     stream_name: str,
-    #     temp_table_name: str,
-    #     final_table_name: str,
-    # ) -> None:
-    #     """Merge the temp table into the main one.
-
-    #     This implementation requires MERGE support in the SQL DB.
-    #     Databases that do not support this syntax can override this method.
-    #     """
-    #     if not self._get_primary_keys(stream_name):
-    #         raise exc.AirbyteLibInternalError(
-    #             message="Primary keys not found. Cannot run merge updates without primary keys.",
-    #             context={
-    #                 "stream_name": stream_name,
-    #             },
-    #         )
-
-    #     _ = stream_name
-    #     final_table = self._fully_qualified(final_table_name)
-    #     staging_table = self._fully_qualified(temp_table_name)
-    #     self._execute_sql(
-    #         # https://duckdb.org/docs/sql/statements/insert.html
-    #         # NOTE: This depends on primary keys being set properly in the final table.
-    #         f"""
-    #         INSERT OR REPLACE INTO {final_table} BY NAME
-    #         (SELECT * FROM {staging_table})
-    #         """
-    #     )
-
     @overrides
     def _ensure_compatible_table_schema(
         self,
@@ -136,22 +103,6 @@ class DuckDBCacheInstance(SQLCacheBase):
 
         # TODO: Add validation for primary keys after DuckDB adds support for primary key
         #       inspection: https://github.com/Mause/duckdb_engine/issues/594
-        #       This is a problem because DuckDB implicitly joins on primary keys during MERGE.
-        # pk_cols = self._get_primary_keys(stream_name)
-        # table = self.get_sql_table(table_name)
-        # table_pk_cols = table.primary_key.columns.keys()
-        # if set(pk_cols) != set(table_pk_cols):
-        #     if raise_on_error:
-        #         raise exc.AirbyteLibCacheTableValidationError(
-        #             violation="Primary keys do not match.",
-        #             context={
-        #                 "stream_name": stream_name,
-        #                 "table_name": table_name,
-        #                 "expected": pk_cols,
-        #                 "found": table_pk_cols,
-        #             },
-        #         )
-        #     return False
 
         return True
 
