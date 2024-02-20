@@ -25,7 +25,7 @@ warnings.filterwarnings(
 
 
 class DuckDBCache(SQLCacheConfigBase, ParquetWriterConfig):
-    """Configuration for the DuckDB cache.
+    """A DuckDB cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
     """
@@ -54,8 +54,10 @@ class DuckDBCache(SQLCacheConfigBase, ParquetWriterConfig):
         # Return the file name without the extension
         return str(self.db_path).split("/")[-1].split(".")[0]
 
+    _instance: DuckDBCacheInstance | None = None
 
-class DuckDBCacheBase(SQLCacheBase):
+
+class DuckDBCacheInstance(SQLCacheBase):
     """A DuckDB implementation of the cache.
 
     Parquet is used for local file storage before bulk loading.
@@ -65,6 +67,7 @@ class DuckDBCacheBase(SQLCacheBase):
 
     config_class = DuckDBCache
     supports_merge_insert = False
+    file_writer_class = ParquetWriter
 
     @overrides
     def get_telemetry_info(self) -> CacheTelemetryInfo:
@@ -79,17 +82,6 @@ class DuckDBCacheBase(SQLCacheBase):
             return
 
         Path(config.db_path).parent.mkdir(parents=True, exist_ok=True)
-
-
-class DuckDBCacheInstance(DuckDBCacheBase):
-    """A DuckDB implementation of the cache.
-
-    Parquet is used for local file storage before bulk loading.
-    Unlike the Snowflake implementation, we can't use the COPY command to load data
-    so we insert as values instead.
-    """
-
-    file_writer_class = ParquetWriter
 
     # TODO: Delete or rewrite this method after DuckDB adds support for primary key inspection.
     # @overrides
