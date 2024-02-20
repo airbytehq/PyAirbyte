@@ -15,7 +15,7 @@ from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
 from airbyte.caches.base import (
     RecordDedupeMode,
     SQLCacheInstanceBase,
-    SQLCacheConfigBase,
+    SQLCacheBase,
 )
 from airbyte.telemetry import CacheTelemetryInfo
 from airbyte.types import SQLTypeConverter
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
-class SnowflakeCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class SnowflakeCacheConfig(SQLCacheBase, ParquetWriterConfig):
     """Configuration for the Snowflake cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.

@@ -12,7 +12,7 @@ from typing import cast
 from overrides import overrides
 
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
-from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheConfigBase
+from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheBase
 from airbyte.telemetry import CacheTelemetryInfo
 
 
@@ -24,7 +24,7 @@ warnings.filterwarnings(
 )
 
 
-class DuckDBCache(SQLCacheConfigBase, ParquetWriterConfig):
+class DuckDBCache(SQLCacheBase, ParquetWriterConfig):
     """A DuckDB cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.

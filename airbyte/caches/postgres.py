@@ -7,11 +7,11 @@ from __future__ import annotations
 from overrides import overrides
 
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
-from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheConfigBase
+from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheBase
 from airbyte.telemetry import CacheTelemetryInfo
 
 
-class PostgresCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class PostgresCacheConfig(SQLCacheBase, ParquetWriterConfig):
     """Configuration for the Postgres cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.

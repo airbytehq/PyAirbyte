@@ -68,7 +68,7 @@ class SQLRuntimeError(Exception):
     """Raised when an SQL operation fails."""
 
 
-class SQLCacheConfigBase(CacheConfigBase):
+class SQLCacheBase(CacheConfigBase):
     """Same as a regular config except it exposes the 'get_sql_alchemy_url()' method."""
 
     schema_name: str = "airbyte_raw"
@@ -92,7 +92,7 @@ class SQLCacheConfigBase(CacheConfigBase):
         ...
 
 
-class GenericSQLCacheConfig(SQLCacheConfigBase):
+class GenericSQLCacheConfig(SQLCacheBase):
     """Allows configuring 'sql_alchemy_url' directly."""
 
     sql_alchemy_url: str
@@ -110,7 +110,7 @@ class SQLCacheInstanceBase(RecordProcessor):
     """
 
     type_converter_class: type[SQLTypeConverter] = SQLTypeConverter
-    config_class: type[SQLCacheConfigBase]
+    config_class: type[SQLCacheBase]
     file_writer_class: type[FileWriterBase]
 
     supports_merge_insert = False
@@ -121,10 +121,10 @@ class SQLCacheInstanceBase(RecordProcessor):
     @final  # We don't want subclasses to have to override the constructor.
     def __init__(
         self,
-        config: SQLCacheConfigBase | None = None,
+        config: SQLCacheBase | None = None,
         file_writer: FileWriterBase | None = None,
     ) -> None:
-        self.config: SQLCacheConfigBase
+        self.config: SQLCacheBase
         self._engine: Engine | None = None
         self._connection_to_reuse: Connection | None = None
         super().__init__(config)
