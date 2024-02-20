@@ -5,7 +5,7 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import jsonschema
 import pendulum
@@ -76,7 +76,7 @@ class Source:
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        streams: list[str] | None = None,
+        streams: str | list[str] | None = None,
         *,
         validate: bool = False,
     ) -> None:
@@ -115,8 +115,11 @@ class Source:
         """
         self._selected_stream_names = self.get_available_streams()
 
-    def select_streams(self, streams: Literal["*"] | list[str]) -> None:
+    def select_streams(self, streams: str | list[str]) -> None:
         """Select the stream names that should be read from the connector.
+
+        Args:
+        - streams: A list of stream names to select. If set to "*", all streams will be selected.
 
         Currently, if this is not set, all streams will be read.
         """

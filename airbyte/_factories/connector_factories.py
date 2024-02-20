@@ -42,7 +42,7 @@ def get_source(
     name: str,
     config: dict[str, Any] | None = None,
     *,
-    streams: Literal["*"] | list[str] | None = None,
+    streams: str | list[str] | None = None,
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
