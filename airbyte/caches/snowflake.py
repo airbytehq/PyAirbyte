@@ -14,7 +14,7 @@ from snowflake.sqlalchemy import URL, VARIANT
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
 from airbyte.caches.base import (
     RecordDedupeMode,
-    SQLCacheBase,
+    SQLCacheInstanceBase,
     SQLCacheConfigBase,
 )
 from airbyte.telemetry import CacheTelemetryInfo
@@ -86,7 +86,7 @@ class SnowflakeTypeConverter(SQLTypeConverter):
         return sql_type
 
 
-class SnowflakeSQLCache(SQLCacheBase):
+class SnowflakeSQLCache(SQLCacheInstanceBase):
     """A Snowflake implementation of the cache.
 
     Parquet is used for local file storage before bulk loading.

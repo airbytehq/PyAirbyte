@@ -12,12 +12,12 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Engine
 
-    from airbyte.caches import SQLCacheBase
+    from airbyte.caches import SQLCacheInstanceBase
 
 
 class ReadResult(Mapping[str, CachedDataset]):
     def __init__(
-        self, processed_records: int, cache: SQLCacheBase, processed_streams: list[str]
+        self, processed_records: int, cache: SQLCacheInstanceBase, processed_streams: list[str]
     ) -> None:
         self.processed_records = processed_records
         self._cache = cache
@@ -52,5 +52,5 @@ class ReadResult(Mapping[str, CachedDataset]):
         }
 
     @property
-    def cache(self) -> SQLCacheBase:
+    def cache(self) -> SQLCacheInstanceBase:
         return self._cache

@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
     from airbyte._executor import Executor
-    from airbyte.caches import SQLCacheBase
+    from airbyte.caches import SQLCacheInstanceBase
 
 
 @contextmanager
@@ -511,7 +511,7 @@ class Source:
 
     def read(
         self,
-        cache: SQLCacheBase | None = None,
+        cache: SQLCacheInstanceBase | None = None,
         *,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,

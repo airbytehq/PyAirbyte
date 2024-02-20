@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from airbyte._file_writers import ParquetWriterConfig
-from airbyte.caches.base import SQLCacheBase, SQLCacheConfigBase
+from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheConfigBase
 from airbyte.caches.duckdb import DuckDBCacheBase, DuckDBCache
 
 
@@ -39,7 +39,7 @@ def test_duck_db_cache_config_get_database_name():
     assert config.get_database_name() == 'test_db'
 
 def test_duck_db_cache_base_inheritance():
-    assert issubclass(DuckDBCacheBase, SQLCacheBase)
+    assert issubclass(DuckDBCacheBase, SQLCacheInstanceBase)
 
 def test_duck_db_cache_config_default_schema_name():
     config = DuckDBCache(db_path='test_path')

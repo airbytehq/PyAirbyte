@@ -12,7 +12,7 @@ from typing import cast
 from overrides import overrides
 
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
-from airbyte.caches.base import SQLCacheBase, SQLCacheConfigBase
+from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheConfigBase
 from airbyte.telemetry import CacheTelemetryInfo
 
 
@@ -57,7 +57,7 @@ class DuckDBCache(SQLCacheConfigBase, ParquetWriterConfig):
     _instance: DuckDBCacheInstance | None = None
 
 
-class DuckDBCacheInstance(SQLCacheBase):
+class DuckDBCacheInstance(SQLCacheInstanceBase):
     """A DuckDB implementation of the cache.
 
     Parquet is used for local file storage before bulk loading.

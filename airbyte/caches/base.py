@@ -103,7 +103,7 @@ class GenericSQLCacheConfig(SQLCacheConfigBase):
         return self.sql_alchemy_url
 
 
-class SQLCacheBase(RecordProcessor):
+class SQLCacheInstanceBase(RecordProcessor):
     """A base class to be used for SQL Caches.
 
     Optionally we can use a file cache to store the data in parquet files.

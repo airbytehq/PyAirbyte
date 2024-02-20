@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Selectable, Table
     from sqlalchemy.sql import ClauseElement
 
-    from airbyte.caches import SQLCacheBase
+    from airbyte.caches import SQLCacheInstanceBase
 
 
 class SQLDataset(DatasetBase):
@@ -29,12 +29,12 @@ class SQLDataset(DatasetBase):
 
     def __init__(
         self,
-        cache: SQLCacheBase,
+        cache: SQLCacheInstanceBase,
         stream_name: str,
         query_statement: Selectable,
     ) -> None:
         self._length: int | None = None
-        self._cache: SQLCacheBase = cache
+        self._cache: SQLCacheInstanceBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
         super().__init__()
@@ -98,7 +98,7 @@ class CachedDataset(SQLDataset):
     underlying table as a SQLAlchemy Table object.
     """
 
-    def __init__(self, cache: SQLCacheBase, stream_name: str) -> None:
+    def __init__(self, cache: SQLCacheInstanceBase, stream_name: str) -> None:
         self._sql_table: Table = cache.get_sql_table(stream_name)
         super().__init__(
             cache=cache,

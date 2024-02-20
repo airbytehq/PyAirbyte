@@ -9,7 +9,7 @@ from typing import Any
 from unittest.mock import Mock, call, patch
 import tempfile
 from pathlib import Path
-from airbyte.caches.base import SQLCacheBase
+from airbyte.caches.base import SQLCacheInstanceBase
 
 from sqlalchemy import column, text
 
@@ -199,7 +199,7 @@ def test_file_write_and_cleanup() -> None:
         assert len(list(Path(temp_dir_2).glob("*.parquet"))) == 3, "Expected files to exist"
 
 
-def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SQLCacheBase, streams: list[str] = None):
+def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SQLCacheInstanceBase, streams: list[str] = None):
     for stream_name in streams or expected_test_stream_data.keys():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(

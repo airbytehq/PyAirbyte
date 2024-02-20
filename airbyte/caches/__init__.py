@@ -1,7 +1,7 @@
 """Base module for all caches."""
 from __future__ import annotations
 
-from airbyte.caches.base import SQLCacheBase
+from airbyte.caches.base import SQLCacheInstanceBase
 from airbyte.caches.duckdb import DuckDBCacheInstance, DuckDBCache
 from airbyte.caches.postgres import PostgresCache, PostgresCacheConfig
 from airbyte.caches.snowflake import SnowflakeCacheConfig, SnowflakeSQLCache
@@ -13,7 +13,7 @@ __all__ = [
     "DuckDBCache",
     "PostgresCache",
     "PostgresCacheConfig",
-    "SQLCacheBase",
+    "SQLCacheInstanceBase",
     "SnowflakeCacheConfig",
     "SnowflakeSQLCache",
 ]
