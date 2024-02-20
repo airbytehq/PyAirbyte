@@ -67,5 +67,5 @@ jobs:
         cache: 'poetry'
 
     # Job-specifc step(s):
-    - name: Check code format
+    - name: Check MyPy typing
       run: poetry run mypy .
