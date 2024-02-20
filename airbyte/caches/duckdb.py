@@ -54,8 +54,6 @@ class DuckDBCache(SQLCacheConfigBase, ParquetWriterConfig):
         # Return the file name without the extension
         return str(self.db_path).split("/")[-1].split(".")[0]
 
-    _instance: DuckDBCacheInstance | None = None
-
 
 class DuckDBCacheInstance(SQLCacheInstanceBase):
     """A DuckDB implementation of the cache.
