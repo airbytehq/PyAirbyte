@@ -60,6 +60,7 @@ class SnowflakeCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
             )
         )
 
+    @overrides
     def get_database_name(self) -> str:
         """Return the name of the database."""
         return self.database

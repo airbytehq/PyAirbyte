@@ -30,6 +30,7 @@ class PostgresCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
         """Return the SQLAlchemy URL to use."""
         return f"postgresql+psycopg2://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
 
+    @overrides
     def get_database_name(self) -> str:
         """Return the name of the database."""
         return self.database

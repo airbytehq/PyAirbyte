@@ -2,15 +2,15 @@
 from __future__ import annotations
 
 from airbyte.caches.base import SQLCacheBase
-from airbyte.caches.duckdb import DuckDBCache, DuckDBCacheConfig
+from airbyte.caches.duckdb import DuckDBCacheInstance, DuckDBCache
 from airbyte.caches.postgres import PostgresCache, PostgresCacheConfig
 from airbyte.caches.snowflake import SnowflakeCacheConfig, SnowflakeSQLCache
 
 
 # We export these classes for easy access: `airbyte.caches...`
 __all__ = [
+    "DuckDBCacheInstance",
     "DuckDBCache",
-    "DuckDBCacheConfig",
     "PostgresCache",
     "PostgresCacheConfig",
     "SQLCacheBase",

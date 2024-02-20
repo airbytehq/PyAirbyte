@@ -289,13 +289,13 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
-    cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
+    cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
 
     source.read(cache)
 
-    same_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
-    different_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="different_prefix_"))
-    no_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix=None))
+    same_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
+    different_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_"))
+    no_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix=None))
 
     # validate that the cache with the same prefix has the data as expected, while the other two are empty
     assert_cache_data(expected_test_stream_data, same_prefix_cache)
@@ -307,9 +307,9 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     source.read(different_prefix_cache)
     source.read(no_prefix_cache)
 
-    second_same_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
-    second_different_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="different_prefix_"))
-    second_no_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix=None))
+    second_same_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
+    second_different_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_"))
+    second_no_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix=None))
 
     # validate that the first cache still has full data, while the other two have partial data
     assert_cache_data(expected_test_stream_data, second_same_prefix_cache)

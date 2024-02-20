@@ -96,9 +96,9 @@ def source_faker_seed_b() -> ab.Source:
 
 
 @pytest.fixture(scope="function")
-def duckdb_cache() -> Generator[caches.DuckDBCache, None, None]:
+def duckdb_cache() -> Generator[caches.DuckDBCacheInstance, None, None]:
     """Fixture to return a fresh cache."""
-    cache: caches.DuckDBCache = ab.new_local_cache()
+    cache: caches.DuckDBCacheInstance = ab.new_local_cache()
     yield cache
     # TODO: Delete cache DB file after test is complete.
     return
@@ -115,7 +115,7 @@ def postgres_cache(new_pg_cache_config) -> Generator[caches.PostgresCache, None,
 
 @pytest.fixture
 def all_cache_types(
-    duckdb_cache: ab.DuckDBCache,
+    duckdb_cache: ab.DuckDBCacheInstance,
     postgres_cache: ab.PostgresCache,
 ):
     _ = postgres_cache
@@ -126,7 +126,7 @@ def all_cache_types(
 
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
-    duckdb_cache: ab.DuckDBCache,
+    duckdb_cache: ab.DuckDBCacheInstance,
 ) -> None:
     """Test that the append strategy works as expected."""
 
@@ -143,7 +143,7 @@ def test_faker_pks(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.DuckDBCache,
+    all_cache_types: ab.DuckDBCacheInstance,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -158,7 +158,7 @@ def test_replace_strategy(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.DuckDBCache,
+    all_cache_types: ab.DuckDBCacheInstance,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -174,7 +174,7 @@ def test_merge_strategy(
     strategy: str,
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    all_cache_types: ab.DuckDBCache,
+    all_cache_types: ab.DuckDBCacheInstance,
 ) -> None:
     """Test that the merge strategy works as expected.
 
@@ -208,7 +208,7 @@ def test_merge_strategy(
 def test_incremental_sync(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    duckdb_cache: ab.DuckDBCache,
+    duckdb_cache: ab.DuckDBCacheInstance,
 ) -> None:
     config_a = source_faker_seed_a.get_config()
     config_b = source_faker_seed_b.get_config()
@@ -268,8 +268,8 @@ def test_incremental_state_prefix_isolation(
     source_faker_seed_a.set_config(config_a)
     cache_name = str(ulid.ULID())
     db_path = Path(f"./.cache/{cache_name}.duckdb")
-    cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
-    different_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="different_prefix_"))
+    cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
+    different_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_"))
 
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2

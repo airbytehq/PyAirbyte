@@ -24,7 +24,7 @@ warnings.filterwarnings(
 )
 
 
-class DuckDBCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class DuckDBCache(SQLCacheConfigBase, ParquetWriterConfig):
     """Configuration for the DuckDB cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
@@ -45,6 +45,7 @@ class DuckDBCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
         # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
         return f"duckdb:///{self.db_path!s}"
 
+    @overrides
     def get_database_name(self) -> str:
         """Return the name of the database."""
         if self.db_path == ":memory:":
@@ -62,7 +63,7 @@ class DuckDBCacheBase(SQLCacheBase):
     so we insert as values instead.
     """
 
-    config_class = DuckDBCacheConfig
+    config_class = DuckDBCache
     supports_merge_insert = False
 
     @overrides
@@ -72,7 +73,7 @@ class DuckDBCacheBase(SQLCacheBase):
     @overrides
     def _setup(self) -> None:
         """Create the database parent folder if it doesn't yet exist."""
-        config = cast(DuckDBCacheConfig, self.config)
+        config = cast(DuckDBCache, self.config)
 
         if config.db_path == ":memory:":
             return
@@ -80,7 +81,7 @@ class DuckDBCacheBase(SQLCacheBase):
         Path(config.db_path).parent.mkdir(parents=True, exist_ok=True)
 
 
-class DuckDBCache(DuckDBCacheBase):
+class DuckDBCacheInstance(DuckDBCacheBase):
     """A DuckDB implementation of the cache.
 
     Parquet is used for local file storage before bulk loading.
