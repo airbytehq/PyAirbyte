@@ -42,6 +42,7 @@ def get_source(
     name: str,
     config: dict[str, Any] | None = None,
     *,
+    streams: str | list[str] | None = None,
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
@@ -53,6 +54,9 @@ def get_source(
         name: connector name
         config: connector config - if not provided, you need to set it later via the set_config
             method.
+        streams: list of stream names to select for reading. If set to "*", all streams will be
+            selected. If not provided, you can set it later via the `select_streams()` or
+            `select_all_streams()` method.
         version: connector version - if not provided, the currently installed version will be used.
             If no version is installed, the latest available version will be used. The version can
             also be set to "latest" to force the use of the latest available version.
@@ -88,6 +92,7 @@ def get_source(
         return Source(
             name=name,
             config=config,
+            streams=streams,
             executor=PathExecutor(
                 name=name,
                 path=local_executable,
