@@ -81,6 +81,17 @@ class SQLCacheBase(CacheConfigBase):
     table_suffix: str = ""
     """A suffix to add to all table names."""
 
+    _sql_processor: SQLCacheInstanceBase | None = None
+
+    def processor(self) -> SQLCacheInstanceBase:
+        """Return the SQL processor instance."""
+        if self._sql_processor is None:
+            self._sql_processor = self._create_processor()
+        return self._sql_processor
+
+    def _create_processor(self) -> SQLCacheInstanceBase:
+        return SQLCacheInstanceBase(self)
+
     @abc.abstractmethod
     def get_sql_alchemy_url(self) -> str:
         """Returns a SQL Alchemy URL."""
@@ -90,6 +101,27 @@ class SQLCacheBase(CacheConfigBase):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         ...
+
+    @final
+    @property
+    def streams(
+        self,
+    ) -> dict[str, CachedDataset]:
+        """Return a temporary table name."""
+        result = {}
+        for stream_name in self._streams_with_data:
+            result[stream_name] = CachedDataset(self, stream_name)
+
+        return result
+
+    def __getitem__(self, stream: str) -> DatasetBase:
+        return self.streams[stream]
+
+    def __contains__(self, stream: str) -> bool:
+        return stream in self._streams_with_data
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._streams_with_data)
 
 
 class SQLCacheInstanceBase(RecordProcessor):
@@ -127,15 +159,6 @@ class SQLCacheInstanceBase(RecordProcessor):
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
-
-    def __getitem__(self, stream: str) -> DatasetBase:
-        return self.streams[stream]
-
-    def __contains__(self, stream: str) -> bool:
-        return stream in self._streams_with_data
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._streams_with_data)
 
     # Public interface:
 
@@ -248,18 +271,6 @@ class SQLCacheInstanceBase(RecordProcessor):
     ) -> sqlalchemy.Table:
         """Return the main table object for the stream."""
         return self._get_table_by_name(self.get_sql_table_name(stream_name))
-
-    @final
-    @property
-    def streams(
-        self,
-    ) -> dict[str, CachedDataset]:
-        """Return a temporary table name."""
-        result = {}
-        for stream_name in self._streams_with_data:
-            result[stream_name] = CachedDataset(self, stream_name)
-
-        return result
 
     # Read methods:
 
