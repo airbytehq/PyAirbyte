@@ -5,17 +5,21 @@ Usage:
     poetry run python examples/run_integ_test_source.py source-faker
 
 """
+from __future__ import annotations
 
 import json
+import os
 import sys
+from typing import Any
 
 from google.cloud import secretmanager
 
 import airbyte as ab
 
-def get_integ_test_config(secret_name: str):
+
+def get_integ_test_config(secret_name: str) -> dict[str, Any]:
     if "GCP_GSM_CREDENTIALS" not in os.environ:
-        raise Exception(
+        raise Exception(  # noqa: TRY002, TRY003
             f"GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets for '{connector_name}'. "
             "Make sure they are set up as described: "
             "https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/README.md#get-gsm-access"
@@ -31,24 +35,26 @@ def get_integ_test_config(secret_name: str):
     )
 
 
-def main(connector_name: str, secret_name: str | None):
-    config = get_integ_test_config(connector_name)
+def main(connector_name: str, secret_name: str | None) -> None:
+    config = get_integ_test_config(secret_name)
     source = ab.get_source(
         connector_name,
         config=config,
         install_if_missing=True,
-        streams="*",
     )
+    source.select_all_streams()
+    cache = ab.new_local_cache()
     try:
-        read_result = source.read()
+        read_result = source.read(cache=cache)
         print(
             f"Read from `{connector_name}` was successful. ",
-            f"Cache results were saved to: {read_result.cache.cache_dir}"
+            f"Cache results were saved to: {cache.cache_dir}",
+            f"Streams list: {', '.join(read_result.streams.keys())}",
         )
     except Exception as ex:
         print(
             f"Read from `{connector_name}` failed. ",
-            f"Cache files are located at: {read_result.cache.cache_dir}"
+            f"Cache files are located at: {cache.cache_dir}",
         )
         sys.exit(1)
 
