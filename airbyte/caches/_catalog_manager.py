@@ -26,8 +26,8 @@ from airbyte import exceptions as exc
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
-STREAMS_TABLE_NAME = "_airbytelib_streams"
-STATE_TABLE_NAME = "_airbytelib_state"
+STREAMS_TABLE_NAME = "_airbyte_streams"
+STATE_TABLE_NAME = "_airbyte_state"
 
 GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
 
@@ -90,7 +90,7 @@ class CatalogManager:
         engine = self._engine
         Base.metadata.create_all(engine)
 
-    def _save_state(
+    def save_state(
         self,
         source_name: str,
         state: AirbyteStateMessage,
@@ -113,7 +113,7 @@ class CatalogManager:
             )
             session.commit()
 
-    def _get_state(
+    def get_state(
         self,
         source_name: str,
         streams: list[str],

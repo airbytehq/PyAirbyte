@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
     from airbyte._executor import Executor
-    from airbyte.caches import SQLCacheInstanceBase
+    from airbyte.caches import SQLCacheBase
 
 
 @contextmanager
@@ -511,7 +511,7 @@ class Source:
 
     def read(
         self,
-        cache: SQLCacheInstanceBase | None = None,
+        cache: SQLCacheBase | None = None,
         *,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
@@ -557,17 +557,24 @@ class Source:
                 available_streams=self.get_available_streams(),
             )
 
-        cache.register_source(
+        cache.processor.register_source(
             source_name=self.name,
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),
         )
-        state = cache._get_state() if not force_full_refresh else None
+        state = (
+            cache.processor._catalog_manager.get_state(
+                source_name=self.name,
+                streams=self._selected_stream_names,
+            )
+            if not force_full_refresh
+            else None
+        )
         print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
-        cache.process_airbyte_messages(
+        cache.processor.process_airbyte_messages(
             self._tally_records(
                 self._read(
-                    cache._get_telemetry_info(),
+                    cache.processor._get_telemetry_info(),
                     state=state,
                 ),
             ),

@@ -29,8 +29,6 @@ class ParquetWriterConfig(FileWriterConfigBase):
 class ParquetWriter(FileWriterBase):
     """A Parquet cache implementation."""
 
-    config_class = ParquetWriterConfig
-
     def get_new_cache_file_path(
         self,
         stream_name: str,

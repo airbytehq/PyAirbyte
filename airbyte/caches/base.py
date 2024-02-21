@@ -6,13 +6,14 @@ import abc
 import enum
 from contextlib import contextmanager
 from functools import cached_property
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 import pandas as pd
 import pyarrow as pa
 import sqlalchemy
 import ulid
 from overrides import overrides
+from pydantic import PrivateAttr
 from sqlalchemy import (
     Column,
     Table,
@@ -39,7 +40,7 @@ from airbyte.types import SQLTypeConverter
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterator
+    from collections.abc import Generator
     from pathlib import Path
 
     from sqlalchemy.engine import Connection, Engine
@@ -68,70 +69,10 @@ class SQLRuntimeError(Exception):
     """Raised when an SQL operation fails."""
 
 
-class SQLCacheBase(CacheConfigBase):
-    """Same as a regular config except it exposes the 'get_sql_alchemy_url()' method."""
-
-    schema_name: str = "airbyte_raw"
-
-    table_prefix: str | None = None
-    """ A prefix to add to all table names.
-    If 'None', a prefix will be created based on the source name.
-    """
-
-    table_suffix: str = ""
-    """A suffix to add to all table names."""
-
-    _sql_processor: SQLCacheInstanceBase | None = None
-
-    def processor(self) -> SQLCacheInstanceBase:
-        """Return the SQL processor instance."""
-        if self._sql_processor is None:
-            self._sql_processor = self._create_processor()
-        return self._sql_processor
-
-    def _create_processor(self) -> SQLCacheInstanceBase:
-        return SQLCacheInstanceBase(self)
-
-    @abc.abstractmethod
-    def get_sql_alchemy_url(self) -> str:
-        """Returns a SQL Alchemy URL."""
-        ...
-
-    @abc.abstractmethod
-    def get_database_name(self) -> str:
-        """Return the name of the database."""
-        ...
-
-    @final
-    @property
-    def streams(
-        self,
-    ) -> dict[str, CachedDataset]:
-        """Return a temporary table name."""
-        result = {}
-        for stream_name in self._streams_with_data:
-            result[stream_name] = CachedDataset(self, stream_name)
-
-        return result
-
-    def __getitem__(self, stream: str) -> DatasetBase:
-        return self.streams[stream]
-
-    def __contains__(self, stream: str) -> bool:
-        return stream in self._streams_with_data
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self._streams_with_data)
-
-
 class SQLCacheInstanceBase(RecordProcessor):
-    """A base class to be used for SQL Caches.
-
-    Optionally we can use a file cache to store the data in parquet files.
-    """
+    """A base class to be used for SQL Caches."""
 
     type_converter_class: type[SQLTypeConverter] = SQLTypeConverter
-    config_class: type[SQLCacheBase]
     file_writer_class: type[FileWriterBase]
 
     supports_merge_insert = False
@@ -142,13 +83,12 @@ class SQLCacheInstanceBase(RecordProcessor):
     @final  # We don't want subclasses to have to override the constructor.
     def __init__(
         self,
-        config: SQLCacheBase | None = None,
+        config: SQLCacheBase,
         file_writer: FileWriterBase | None = None,
     ) -> None:
-        self.config: SQLCacheBase
         self._engine: Engine | None = None
         self._connection_to_reuse: Connection | None = None
-        super().__init__(config)
+        super().__init__(config, catalog_manager=None)
         self._ensure_schema_exists()
         self._catalog_manager = CatalogManager(
             engine=self.get_sql_engine(),
@@ -279,7 +219,7 @@ class SQLCacheInstanceBase(RecordProcessor):
         stream_name: str,
     ) -> CachedDataset:
         """Uses SQLAlchemy to select all rows from the table."""
-        return CachedDataset(self, stream_name)
+        return CachedDataset(self.config, stream_name)
 
     def get_pandas_dataframe(
         self,
@@ -619,23 +559,11 @@ class SQLCacheInstanceBase(RecordProcessor):
                 message="Catalog manager should exist but does not.",
             )
         if state_messages and self._source_name:
-            self._catalog_manager._save_state(
+            self._catalog_manager.save_state(
                 source_name=self._source_name,
                 stream_name=stream_name,
                 state=state_messages[-1],
             )
-
-    def _get_state(self) -> list[dict]:
-        """Return the current state of the source."""
-        if not self._source_name:
-            return []
-        if not self._catalog_manager:
-            raise exc.AirbyteLibInternalError(
-                message="Catalog manager should exist but does not.",
-            )
-        return (
-            self._catalog_manager._get_state(self._source_name, list(self._streams_with_data)) or []
-        )
 
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
         """Execute the given SQL statement."""
@@ -983,3 +911,69 @@ class SQLCacheInstanceBase(RecordProcessor):
     @abc.abstractmethod
     def _get_telemetry_info(self) -> CacheTelemetryInfo:
         pass
+
+
+class SQLCacheBase(CacheConfigBase):
+    """Same as a regular config except it exposes the 'get_sql_alchemy_url()' method."""
+
+    schema_name: str = "airbyte_raw"
+
+    table_prefix: str | None = None
+    """ A prefix to add to all table names.
+    If 'None', a prefix will be created based on the source name.
+    """
+
+    table_suffix: str = ""
+    """A suffix to add to all table names."""
+
+    _sql_processor_class: type[SQLCacheInstanceBase] = PrivateAttr()
+    _sql_processor: SQLCacheInstanceBase | None = PrivateAttr(default=None)
+
+    @final
+    @property
+    def processor(self) -> SQLCacheInstanceBase:
+        """Return the SQL processor instance."""
+        if self._sql_processor is None:
+            self._sql_processor = self._sql_processor_class(config=self)
+        return self._sql_processor
+
+    @final
+    def get_sql_engine(self) -> Engine:
+        """Return a new SQL engine to use."""
+        return self.processor.get_sql_engine()
+
+    @abc.abstractmethod
+    def get_sql_alchemy_url(self) -> str:
+        """Returns a SQL Alchemy URL."""
+        ...
+
+    @abc.abstractmethod
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        ...
+
+    @final
+    @property
+    def streams(
+        self,
+    ) -> dict[str, CachedDataset]:
+        """Return a temporary table name."""
+        result = {}
+        for stream_name in self._streams_with_data:
+            result[stream_name] = CachedDataset(self, stream_name)
+
+        return result
+
+    def __getitem__(self, stream: str) -> DatasetBase:
+        return self.streams[stream]
+
+    def __contains__(self, stream: str) -> bool:
+        return stream in self._streams_with_data
+
+    def __iter__(self) -> Generator[tuple[str, Any], None, None]:
+        return ((name, dataset) for name, dataset in self.streams.items())
+
+    @property
+    def _streams_with_data(self) -> set[str]:
+        """Return a list of known streams."""
+        return self.processor._streams_with_data

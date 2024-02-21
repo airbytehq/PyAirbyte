@@ -33,6 +33,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
+from airbyte.config import CacheConfigBase
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
 
@@ -41,7 +42,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
     from airbyte.caches._catalog_manager import CatalogManager
-    from airbyte.config import CacheConfigBase
 
 
 DEFAULT_BATCH_SIZE = 10_000
@@ -59,32 +59,29 @@ class AirbyteMessageParsingError(Exception):
 class RecordProcessor(abc.ABC):
     """Abstract base class for classes which can process input records."""
 
-    config_class: type[CacheConfigBase]
     skip_finalize_step: bool = False
     _expected_streams: set[str]
 
     def __init__(
         self,
-        config: CacheConfigBase | dict | None,
+        config: CacheConfigBase,
         *,
         catalog_manager: CatalogManager | None = None,
     ) -> None:
-        if isinstance(config, dict):
-            config = self.config_class(**config)
-
-        self.config = config or self.config_class()
-        if not isinstance(self.config, self.config_class):
-            err_msg = (
-                f"Expected config class of type '{self.config_class.__name__}'.  "
-                f"Instead found '{type(self.config).__name__}'."
+        self.config = config
+        if not isinstance(self.config, CacheConfigBase):
+            raise exc.AirbyteLibInputError(
+                message=(
+                    f"Expected config class of type 'CacheConfigBase'.  "
+                    f"Instead received type '{type(self.config).__name__}'."
+                ),
             )
-            raise TypeError(err_msg)
 
         self.source_catalog: ConfiguredAirbyteCatalog | None = None
         self._source_name: str | None = None
 
-        self._pending_batches: dict[str, dict[str, Any]] = defaultdict(lambda: {}, {})
-        self._finalized_batches: dict[str, dict[str, Any]] = defaultdict(lambda: {}, {})
+        self._pending_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
+        self._finalized_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
         self._finalized_state_messages: dict[

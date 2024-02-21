@@ -11,7 +11,6 @@ import os
 import sys
 import shutil
 from pathlib import Path
-import typing
 
 import pytest
 import ulid
@@ -96,9 +95,9 @@ def source_faker_seed_b() -> ab.Source:
 
 
 @pytest.fixture(scope="function")
-def duckdb_cache() -> Generator[caches.DuckDBCacheInstance, None, None]:
+def duckdb_cache() -> Generator[caches.DuckDBCache, None, None]:
     """Fixture to return a fresh cache."""
-    cache: caches.DuckDBCacheInstance = ab.new_local_cache()
+    cache: caches.DuckDBCache = ab.new_local_cache()
     yield cache
     # TODO: Delete cache DB file after test is complete.
     return
@@ -107,15 +106,14 @@ def duckdb_cache() -> Generator[caches.DuckDBCacheInstance, None, None]:
 @pytest.fixture(scope="function")
 def postgres_cache(new_pg_cache_config) -> Generator[caches.PostgresCache, None, None]:
     """Fixture to return a fresh cache."""
-    cache: caches.PostgresCache = caches.PostgresCache(config=new_pg_cache_config)
-    yield cache
+    yield new_pg_cache_config
     # TODO: Delete cache DB file after test is complete.
     return
 
 
 @pytest.fixture
 def all_cache_types(
-    duckdb_cache: ab.DuckDBCacheInstance,
+    duckdb_cache: ab.DuckDBCache,
     postgres_cache: ab.PostgresCache,
 ):
     _ = postgres_cache
@@ -126,7 +124,7 @@ def all_cache_types(
 
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
-    duckdb_cache: ab.DuckDBCacheInstance,
+    duckdb_cache: ab.DuckDBCache,
 ) -> None:
     """Test that the append strategy works as expected."""
 
@@ -136,8 +134,8 @@ def test_faker_pks(
     assert catalog.streams[1].primary_key
 
     read_result = source_faker_seed_a.read(duckdb_cache, write_strategy="append")
-    assert read_result.cache._get_primary_keys("products") == ["id"]
-    assert read_result.cache._get_primary_keys("purchases") == ["id"]
+    assert read_result.cache.processor._get_primary_keys("products") == ["id"]
+    assert read_result.cache.processor._get_primary_keys("purchases") == ["id"]
 
 
 @pytest.mark.slow
@@ -222,7 +220,7 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache._get_state() == []
+    assert not duckdb_cache._catalog_manager._get_state() == []
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
@@ -251,7 +249,7 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert not second_cache._get_state() == []
+    assert second_cache._catalog_manager and second_cache._catalog_manager._get_state()
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 

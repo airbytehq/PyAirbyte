@@ -10,9 +10,10 @@ from textwrap import dedent, indent
 from typing import cast
 
 from overrides import overrides
+from pydantic import PrivateAttr
 
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
-from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheBase
+from airbyte.caches.base import SQLCacheBase, SQLCacheInstanceBase
 from airbyte.telemetry import CacheTelemetryInfo
 
 
@@ -24,37 +25,6 @@ warnings.filterwarnings(
 )
 
 
-class DuckDBCache(SQLCacheBase, ParquetWriterConfig):
-    """A DuckDB cache.
-
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
-    """
-
-    db_path: Path | str
-    """Normally db_path is a Path object.
-
-    There are some cases, such as when connecting to MotherDuck, where it could be a string that
-    is not also a path, such as "md:" to connect the user's default MotherDuck DB.
-    """
-    schema_name: str = "main"
-    """The name of the schema to write to. Defaults to "main"."""
-
-    @overrides
-    def get_sql_alchemy_url(self) -> str:
-        """Return the SQLAlchemy URL to use."""
-        # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
-        return f"duckdb:///{self.db_path!s}"
-
-    @overrides
-    def get_database_name(self) -> str:
-        """Return the name of the database."""
-        if self.db_path == ":memory:":
-            return "memory"
-
-        # Return the file name without the extension
-        return str(self.db_path).split("/")[-1].split(".")[0]
-
-
 class DuckDBCacheInstance(SQLCacheInstanceBase):
     """A DuckDB implementation of the cache.
 
@@ -63,7 +33,6 @@ class DuckDBCacheInstance(SQLCacheInstanceBase):
     so we insert as values instead.
     """
 
-    config_class = DuckDBCache
     supports_merge_insert = False
     file_writer_class = ParquetWriter
 
@@ -145,3 +114,36 @@ class DuckDBCacheInstance(SQLCacheInstanceBase):
         )
         self._execute_sql(insert_statement)
         return temp_table_name
+
+
+class DuckDBCache(SQLCacheBase, ParquetWriterConfig):
+    """A DuckDB cache.
+
+    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    """
+
+    db_path: Path | str
+    """Normally db_path is a Path object.
+
+    There are some cases, such as when connecting to MotherDuck, where it could be a string that
+    is not also a path, such as "md:" to connect the user's default MotherDuck DB.
+    """
+    schema_name: str = "main"
+    """The name of the schema to write to. Defaults to "main"."""
+
+    _sql_processor_class = PrivateAttr(DuckDBCacheInstance)
+
+    @overrides
+    def get_sql_alchemy_url(self) -> str:
+        """Return the SQLAlchemy URL to use."""
+        # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
+        return f"duckdb:///{self.db_path!s}"
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        if self.db_path == ":memory:":
+            return "memory"
+
+        # Return the file name without the extension
+        return str(self.db_path).split("/")[-1].split(".")[0]

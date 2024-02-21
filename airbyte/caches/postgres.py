@@ -7,11 +7,30 @@ from __future__ import annotations
 from overrides import overrides
 
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
-from airbyte.caches.base import SQLCacheInstanceBase, SQLCacheBase
+from airbyte.caches.base import SQLCacheBase, SQLCacheInstanceBase
 from airbyte.telemetry import CacheTelemetryInfo
 
 
-class PostgresCacheConfig(SQLCacheBase, ParquetWriterConfig):
+class PostgresCacheInstance(SQLCacheInstanceBase):
+    """A Postgres implementation of the cache.
+
+    Parquet is used for local file storage before bulk loading.
+    Unlike the Snowflake implementation, we can't use the COPY command to load data
+    so we insert as values instead.
+
+    TOOD: Add optimized bulk load path for Postgres. Could use an alternate file writer
+    or another import method. (Relatively low priority, since for now it works fine as-is.)
+    """
+
+    file_writer_class = ParquetWriter
+    supports_merge_insert = False  # TODO: Add native implementation for merge insert
+
+    @overrides
+    def _get_telemetry_info(self) -> CacheTelemetryInfo:
+        return CacheTelemetryInfo("postgres")
+
+
+class PostgresCache(SQLCacheBase, ParquetWriterConfig):
     """Configuration for the Postgres cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
@@ -22,6 +41,8 @@ class PostgresCacheConfig(SQLCacheBase, ParquetWriterConfig):
     username: str
     password: str
     database: str
+
+    _sql_processor_class = PostgresCacheInstance
 
     # Already defined in base class: `schema_name`
 
@@ -34,23 +55,3 @@ class PostgresCacheConfig(SQLCacheBase, ParquetWriterConfig):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         return self.database
-
-
-class PostgresCache(SQLCacheInstanceBase):
-    """A Postgres implementation of the cache.
-
-    Parquet is used for local file storage before bulk loading.
-    Unlike the Snowflake implementation, we can't use the COPY command to load data
-    so we insert as values instead.
-
-    TOOD: Add optimized bulk load path for Postgres. Could use an alternate file writer
-    or another import method. (Relatively low priority, since for now it works fine as-is.)
-    """
-
-    config_class = PostgresCacheConfig
-    file_writer_class = ParquetWriter
-    supports_merge_insert = False  # TODO: Add native implementation for merge insert
-
-    @overrides
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        return CacheTelemetryInfo("postgres")

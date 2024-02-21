@@ -83,8 +83,7 @@ def source_faker_seed_b() -> ab.Source:
 @pytest.fixture(scope="function")
 def snowflake_cache(snowflake_config) -> Generator[caches.SnowflakeCache, None, None]:
     """Fixture to return a fresh cache."""
-    cache: caches.SnowflakeCache = caches.SnowflakeSQLCache(snowflake_config)
-    yield cache
+    yield snowflake_config
     # TODO: Delete cache DB file after test is complete.
     return
 

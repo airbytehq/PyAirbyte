@@ -14,7 +14,7 @@ from airbyte.caches.base import SQLCacheInstanceBase
 from sqlalchemy import column, text
 
 import airbyte as ab
-from airbyte.caches import SnowflakeCacheConfig, SnowflakeSQLCache
+from airbyte.caches import SnowflakeCache
 import pandas as pd
 import pytest
 
@@ -723,7 +723,7 @@ def test_sync_to_snowflake(snowflake_config: SnowflakeCacheConfig, expected_test
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = SnowflakeSQLCache(config=snowflake_config)
+    cache = SnowflakeCache(config=snowflake_config)
 
     result: ReadResult = source.read(cache)
 

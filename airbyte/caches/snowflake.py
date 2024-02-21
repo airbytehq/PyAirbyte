@@ -14,8 +14,8 @@ from snowflake.sqlalchemy import URL, VARIANT
 from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
 from airbyte.caches.base import (
     RecordDedupeMode,
-    SQLCacheInstanceBase,
     SQLCacheBase,
+    SQLCacheInstanceBase,
 )
 from airbyte.telemetry import CacheTelemetryInfo
 from airbyte.types import SQLTypeConverter
@@ -27,43 +27,6 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
-class SnowflakeCacheConfig(SQLCacheBase, ParquetWriterConfig):
-    """Configuration for the Snowflake cache.
-
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
-    """
-
-    account: str
-    username: str
-    password: str
-    warehouse: str
-    database: str
-    role: str
-
-    dedupe_mode = RecordDedupeMode.APPEND
-
-    # Already defined in base class:
-    # schema_name: str
-
-    @overrides
-    def get_sql_alchemy_url(self) -> str:
-        """Return the SQLAlchemy URL to use."""
-        return str(
-            URL(
-                account=self.account,
-                user=self.username,
-                password=self.password,
-                database=self.database,
-                warehouse=self.warehouse,
-                schema=self.schema_name,
-                role=self.role,
-            )
-        )
-
-    @overrides
-    def get_database_name(self) -> str:
-        """Return the name of the database."""
-        return self.database
 
 
 class SnowflakeTypeConverter(SQLTypeConverter):
@@ -86,13 +49,12 @@ class SnowflakeTypeConverter(SQLTypeConverter):
         return sql_type
 
 
-class SnowflakeSQLCache(SQLCacheInstanceBase):
+class SnowflakeSQLCacheInstance(SQLCacheInstanceBase):
     """A Snowflake implementation of the cache.
 
     Parquet is used for local file storage before bulk loading.
     """
 
-    config_class = SnowflakeCacheConfig
     file_writer_class = ParquetWriter
     type_converter_class = SnowflakeTypeConverter
 
@@ -163,3 +125,44 @@ class SnowflakeSQLCache(SQLCacheInstanceBase):
     @overrides
     def _get_telemetry_info(self) -> CacheTelemetryInfo:
         return CacheTelemetryInfo("snowflake")
+
+
+class SnowflakeCache(SQLCacheBase, ParquetWriterConfig):
+    """Configuration for the Snowflake cache.
+
+    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    """
+
+    account: str
+    username: str
+    password: str
+    warehouse: str
+    database: str
+    role: str
+
+    dedupe_mode = RecordDedupeMode.APPEND
+
+    _sql_processor_class = SnowflakeSQLCacheInstance
+
+    # Already defined in base class:
+    # schema_name: str
+
+    @overrides
+    def get_sql_alchemy_url(self) -> str:
+        """Return the SQLAlchemy URL to use."""
+        return str(
+            URL(
+                account=self.account,
+                user=self.username,
+                password=self.password,
+                database=self.database,
+                warehouse=self.warehouse,
+                schema=self.schema_name,
+                role=self.role,
+            )
+        )
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        return self.database
