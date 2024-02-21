@@ -13,7 +13,7 @@ from google.cloud import secretmanager
 
 import airbyte as ab
 
-def get_integ_test_config(connector_name: str):
+def get_integ_test_config(secret_name: str):
     if "GCP_GSM_CREDENTIALS" not in os.environ:
         raise Exception(
             f"GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets for '{connector_name}'. "
@@ -26,12 +26,12 @@ def get_integ_test_config(connector_name: str):
     )
     return json.loads(
         secret_client.access_secret_version(
-            name=f"projects/dataline-integration-testing/secrets/{connector_name.upper()}/versions/latest"
+            name=f"projects/dataline-integration-testing/secrets/{secret_name}/versions/latest"
         ).payload.data.decode("UTF-8")
     )
 
 
-def main(connector_name: str):
+def main(connector_name: str, secret_name: str | None):
     config = get_integ_test_config(connector_name)
     source = ab.get_source(
         connector_name,
@@ -56,4 +56,6 @@ def main(connector_name: str):
 if __name__ == "__main__":
     # Get first arg from CLI
     connector_name = sys.argv[1]
-    main(connector_name)
+    # TODO: We can optionally take a second arg to override the default secret name.
+    secret_name = f"SECRET_{connector_name.upper()}__CREDS"
+    main(connector_name, secret_name)
