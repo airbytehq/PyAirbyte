@@ -11,7 +11,7 @@ from typing import cast
 
 from overrides import overrides
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers import JsonlWriter, JsonlWriterConfig
 from airbyte.caches.base import SQLCacheBase, SQLCacheConfigBase
 from airbyte.telemetry import CacheTelemetryInfo
 
@@ -24,10 +24,10 @@ warnings.filterwarnings(
 )
 
 
-class DuckDBCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class DuckDBCacheConfig(SQLCacheConfigBase, JsonlWriterConfig):
     """Configuration for the DuckDB cache.
 
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    Also inherits config from the JsonlWriter, which is responsible for writing files to disk.
     """
 
     db_path: Path | str
@@ -88,7 +88,7 @@ class DuckDBCache(DuckDBCacheBase):
     so we insert as values instead.
     """
 
-    file_writer_class = ParquetWriter
+    file_writer_class = JsonlWriter
 
     # TODO: Delete or rewrite this method after DuckDB adds support for primary key inspection.
     # @overrides
@@ -195,8 +195,9 @@ class DuckDBCache(DuckDBCacheBase):
             )
             SELECT
                 {columns_list_str}
-            FROM read_parquet(
+            FROM read_json_auto(
                 [{files_list}],
+                format = 'newline_delimited',
                 union_by_name = true
             )
             """

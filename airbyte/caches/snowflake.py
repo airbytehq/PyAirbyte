@@ -11,7 +11,7 @@ import sqlalchemy
 from overrides import overrides
 from snowflake.sqlalchemy import URL, VARIANT
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers import JsonlWriter, JsonlWriterConfig
 from airbyte.caches.base import (
     RecordDedupeMode,
     SQLCacheBase,
@@ -27,10 +27,10 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
 
 
-class SnowflakeCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class SnowflakeCacheConfig(SQLCacheConfigBase, JsonlWriterConfig):
     """Configuration for the Snowflake cache.
 
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    Also inherits config from the JsonlWriter, which is responsible for writing files to disk.
     """
 
     account: str
@@ -92,7 +92,7 @@ class SnowflakeSQLCache(SQLCacheBase):
     """
 
     config_class = SnowflakeCacheConfig
-    file_writer_class = ParquetWriter
+    file_writer_class = JsonlWriter
     type_converter_class = SnowflakeTypeConverter
 
     @overrides
@@ -134,7 +134,7 @@ class SnowflakeSQLCache(SQLCacheBase):
                 FROM {internal_sf_stage_name}
             )
             FILES = ( {files_list} )
-            FILE_FORMAT = ( TYPE = PARQUET )
+            FILE_FORMAT = ( TYPE = JSON )
             ;
             """
         )

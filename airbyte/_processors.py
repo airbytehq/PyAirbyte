@@ -17,6 +17,7 @@ import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast, final
 
+import pandas as pd
 import pyarrow as pa
 import ulid
 
@@ -35,6 +36,7 @@ from airbyte import exceptions as exc
 from airbyte._util import protocol_util
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
+from airbyte.types import _get_pyarrow_type
 
 
 if TYPE_CHECKING:
@@ -177,17 +179,26 @@ class RecordProcessor(abc.ABC):
             )
 
         stream_batches: dict[str, list[dict]] = defaultdict(list, {})
-
+        pyarrow_schemas: dict[str, pa.Schema] = {}
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
                 record_msg = cast(AirbyteRecordMessage, message.record)
                 stream_name = record_msg.stream
+                if stream_name not in pyarrow_schemas:
+                    pyarrow_schemas[stream_name] = pa.schema(
+                        fields=[
+                            (prop_name, _get_pyarrow_type(prop_def))
+                            for prop_name, prop_def in self._get_stream_json_schema(stream_name)[
+                                "properties"
+                            ].items()
+                        ]
+                    )
                 stream_batch = stream_batches[stream_name]
                 stream_batch.append(protocol_util.airbyte_record_message_to_dict(record_msg))
-
                 if len(stream_batch) >= max_batch_size:
-                    record_batch = pa.Table.from_pylist(stream_batch)
+                    batch_df = pd.DataFrame(stream_batch)
+                    record_batch = pa.Table.from_pandas(batch_df)
                     self._process_batch(stream_name, record_batch)
                     progress.log_batch_written(stream_name, len(stream_batch))
                     stream_batch.clear()
@@ -215,7 +226,8 @@ class RecordProcessor(abc.ABC):
 
         # We are at the end of the stream. Process whatever else is queued.
         for stream_name, stream_batch in stream_batches.items():
-            record_batch = pa.Table.from_pylist(stream_batch)
+            batch_df = pd.DataFrame(stream_batch)
+            record_batch = pa.Table.from_pandas(batch_df)
             self._process_batch(stream_name, record_batch)
             progress.log_batch_written(stream_name, len(stream_batch))
 
