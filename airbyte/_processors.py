@@ -404,7 +404,7 @@ class RecordProcessor(abc.ABC):
         """Return the column definitions for the given stream."""
         return pa.schema(
             fields=[
-                (prop_name, _get_pyarrow_type(prop_def))
+                pa.field(prop_name, _get_pyarrow_type(prop_def))
                 for prop_name, prop_def in self._get_stream_json_schema(stream_name)[
                     "properties"
                 ].items()

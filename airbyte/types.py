@@ -84,10 +84,6 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
 def _get_pyarrow_type(  # noqa: PLR0911  # Too many return statements
     json_schema_property_def: dict[str, str | dict | list],
 ) -> pa.DataType:
-    airbyte_type = cast(str, json_schema_property_def.get("airbyte_type", None))
-    if airbyte_type:
-        return airbyte_type, None
-
     json_schema_type = json_schema_property_def.get("type", None)
     json_schema_format = json_schema_property_def.get("format", None)
 
@@ -124,7 +120,7 @@ def _get_pyarrow_type(  # noqa: PLR0911  # Too many return statements
         return pa.struct(
             fields={
                 k: _get_pyarrow_type(v)
-                for k, v in json_schema_property_def.get("properties", {}).items()
+                for k, v in cast(dict, json_schema_property_def.get("properties", {})).items()
             }
         )
 
