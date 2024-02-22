@@ -2,7 +2,9 @@
 
 
 Usage:
-    poetry run python examples/run_integ_test_source.py source-faker
+    poetry run python examples/run_integ_test_source.py source-coin-api
+    poetry run python examples/run_integ_test_source.py source-klaviyo
+    poetry run python examples/run_integ_test_source.py source-google-analytics-v4
 
 """
 from __future__ import annotations
@@ -56,13 +58,13 @@ def main(
         read_result = source.read(cache=cache)
         print(
             f"Read from `{connector_name}` was successful. ",
-            f"Cache results were saved to: {cache.config.cache_dir}",
+            f"Cache results were saved to: {cache.cache_dir}",
             f"Streams list: {', '.join(read_result.streams.keys())}",
         )
     except Exception:
         print(
             f"Read from `{connector_name}` failed. ",
-            f"Cache files are located at: {cache.config.cache_dir}",
+            f"Cache files are located at: {cache.cache_dir}",
         )
         raise
 
