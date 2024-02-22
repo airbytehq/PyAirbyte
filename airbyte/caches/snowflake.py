@@ -12,10 +12,7 @@ from airbyte.caches.base import CacheBase
 
 
 class SnowflakeCache(CacheBase):
-    """Configuration for the Snowflake cache.
-
-    Also inherits config from the JsonlWriterConfig, which is responsible for writing files to disk.
-    """
+    """Configuration for the Snowflake cache."""
 
     account: str
     username: str

@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from airbyte import caches, datasets, registry, secrets
 from airbyte._factories.cache_factories import get_default_cache, new_local_cache
 from airbyte._factories.connector_factories import get_source
 from airbyte.caches import DuckDBCache
@@ -16,13 +17,20 @@ from airbyte.source import Source
 
 
 __all__ = [
-    "CachedDataset",
-    "DuckDBCache",
+    # Modules
+    "caches",
+    "datasets",
+    "registry",
+    "secrets",
+    # Factories
     "get_available_connectors",
-    "get_source",
     "get_default_cache",
     "get_secret",
+    "get_source",
     "new_local_cache",
+    # Classes
+    "CachedDataset",
+    "DuckDBCache",
     "ReadResult",
     "SecretSource",
     "Source",

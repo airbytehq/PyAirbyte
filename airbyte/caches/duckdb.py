@@ -25,10 +25,7 @@ warnings.filterwarnings(
 
 
 class DuckDBCache(CacheBase):
-    """A DuckDB cache.
-
-    Also inherits config from the JsonlWriterConfig, which is responsible for writing files to disk.
-    """
+    """A DuckDB cache."""
 
     db_path: Path | str
     """Normally db_path is a Path object.

@@ -45,12 +45,6 @@ def add_venv_bin_to_path(monkeypatch):
     monkeypatch.setenv('PATH', new_path)
 
 
-def test_which_source_faker() -> None:
-    """Test that source-faker is available on PATH."""
-    assert shutil.which("source-faker") is not None, \
-        f"Can't find source-faker on PATH: {os.environ['PATH']}"
-
-
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
@@ -115,13 +109,20 @@ def postgres_cache(new_pg_cache_config) -> Generator[caches.PostgresCache, None,
 @pytest.fixture
 def all_cache_types(
     duckdb_cache: ab.DuckDBCache,
-    postgres_cache: ab.PostgresCache,
+    postgres_cache: ab.caches.PostgresCache,
 ):
     _ = postgres_cache
     return [
         duckdb_cache,
         postgres_cache,
     ]
+
+
+def test_which_source_faker() -> None:
+    """Test that source-faker is available on PATH."""
+    assert shutil.which("source-faker") is not None, \
+        f"Can't find source-faker on PATH: {os.environ['PATH']}"
+
 
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
@@ -142,7 +143,7 @@ def test_faker_pks(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.DuckDBSqlProcessor,
+    all_cache_types: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -157,7 +158,7 @@ def test_replace_strategy(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.DuckDBSqlProcessor,
+    all_cache_types: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -173,7 +174,7 @@ def test_merge_strategy(
     strategy: str,
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    all_cache_types: ab.DuckDBSqlProcessor,
+    all_cache_types: ab.caches.CacheBase,
 ) -> None:
     """Test that the merge strategy works as expected.
 
@@ -207,7 +208,7 @@ def test_merge_strategy(
 def test_incremental_sync(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    duckdb_cache: ab.DuckDBSqlProcessor,
+    duckdb_cache: ab.caches.CacheBase,
 ) -> None:
     config_a = source_faker_seed_a.get_config()
     config_b = source_faker_seed_b.get_config()

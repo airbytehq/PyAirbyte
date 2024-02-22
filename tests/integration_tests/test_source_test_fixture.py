@@ -18,7 +18,7 @@ from airbyte.caches import SnowflakeCache
 import pandas as pd
 import pytest
 
-from airbyte.caches import PostgresCache, PostgresCacheConfig
+from airbyte.caches import PostgresCache
 from airbyte import registry
 from airbyte.version import get_version
 from airbyte.results import ReadResult
@@ -292,13 +292,13 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
-    cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
+    cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
 
     source.read(cache)
 
-    same_prefix_cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
-    different_prefix_cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_"))
-    no_prefix_cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix=None))
+    same_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
+    different_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the cache with the same prefix has the data as expected, while the other two are empty
     assert_cache_data(expected_test_stream_data, same_prefix_cache)
@@ -310,9 +310,9 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     source.read(different_prefix_cache)
     source.read(no_prefix_cache)
 
-    second_same_prefix_cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
-    second_different_prefix_cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_"))
-    second_no_prefix_cache = ab.DuckDBSqlProcessor(config=ab.DuckDBCache(db_path=db_path, table_prefix=None))
+    second_same_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
+    second_different_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    second_no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the first cache still has full data, while the other two have partial data
     assert_cache_data(expected_test_stream_data, second_same_prefix_cache)
@@ -569,7 +569,7 @@ def test_check_fail_on_missing_config(method_call):
     with pytest.raises(exc.AirbyteConnectorConfigurationMissingError):
         method_call(source)
 
-def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCacheConfig, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -700,7 +700,7 @@ def test_tracking(
     ])
 
 
-def test_sync_to_postgres(new_pg_cache_config: PostgresCacheConfig, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_to_postgres(new_pg_cache_config: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
@@ -722,7 +722,7 @@ def test_sync_to_postgres(new_pg_cache_config: PostgresCacheConfig, expected_tes
 
 @pytest.mark.slow
 @pytest.mark.requires_creds
-def test_sync_to_snowflake(snowflake_config: SnowflakeCacheConfig, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_to_snowflake(snowflake_config: SnowflakeCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
