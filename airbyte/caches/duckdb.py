@@ -181,12 +181,22 @@ class DuckDBCache(DuckDBCacheBase):
             stream_name=stream_name,
             batch_id=batch_id,
         )
-        columns_list = [
-            self._quote_identifier(c)
-            for c in list(self._get_sql_column_definitions(stream_name).keys())
-        ]
-        columns_list_str = indent("\n, ".join(columns_list), "    ")
+        columns_list = list(self._get_sql_column_definitions(stream_name=stream_name).keys())
+        columns_list_str = indent(
+            "\n, ".join([self._quote_identifier(c) for c in columns_list]),
+            "    ",
+        )
         files_list = ", ".join([f"'{f!s}'" for f in files])
+        columns_type_map = indent(
+            "\n, ".join(
+                [
+                    f"{self._quote_identifier(c)}: "
+                    f"{self._get_sql_column_definitions(stream_name)[c]!s}"
+                    for c in columns_list
+                ]
+            ),
+            "    ",
+        )
         insert_statement = dedent(
             f"""
             INSERT INTO {self.config.schema_name}.{temp_table_name}
@@ -198,7 +208,8 @@ class DuckDBCache(DuckDBCacheBase):
             FROM read_json_auto(
                 [{files_list}],
                 format = 'newline_delimited',
-                union_by_name = true
+                union_by_name = true,
+                columns = {{ { columns_type_map } }}
             )
             """
         )

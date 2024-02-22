@@ -659,27 +659,25 @@ class SQLCacheBase(RecordProcessor):
         """
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
         for file_path in files:
-            with pa.parquet.ParquetFile(file_path) as pf:
-                record_batch = pf.read()
-                dataframe = record_batch.to_pandas()
+            dataframe = pd.read_json(file_path, lines=True)
 
-                # Pandas will auto-create the table if it doesn't exist, which we don't want.
-                if not self._table_exists(temp_table_name):
-                    raise exc.AirbyteLibInternalError(
-                        message="Table does not exist after creation.",
-                        context={
-                            "temp_table_name": temp_table_name,
-                        },
-                    )
-
-                dataframe.to_sql(
-                    temp_table_name,
-                    self.get_sql_alchemy_url(),
-                    schema=self.config.schema_name,
-                    if_exists="append",
-                    index=False,
-                    dtype=self._get_sql_column_definitions(stream_name),
+            # Pandas will auto-create the table if it doesn't exist, which we don't want.
+            if not self._table_exists(temp_table_name):
+                raise exc.AirbyteLibInternalError(
+                    message="Table does not exist after creation.",
+                    context={
+                        "temp_table_name": temp_table_name,
+                    },
                 )
+
+            dataframe.to_sql(
+                temp_table_name,
+                self.get_sql_alchemy_url(),
+                schema=self.config.schema_name,
+                if_exists="append",
+                index=False,
+                dtype=self._get_sql_column_definitions(stream_name),
+            )
         return temp_table_name
 
     @final
