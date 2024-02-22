@@ -6,12 +6,17 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 from textwrap import dedent, indent
+from typing import TYPE_CHECKING
 
 from overrides import overrides
 
 from airbyte._processors.file import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
 from airbyte.telemetry import CacheTelemetryInfo
+
+
+if TYPE_CHECKING:
+    from airbyte.caches.duckdb import DuckDBCache
 
 
 # Suppress warnings from DuckDB about reflection on indices.
@@ -32,6 +37,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
 
     supports_merge_insert = False
     file_writer_class = JsonlWriter
+    cache: DuckDBCache
 
     @overrides
     def _setup(self) -> None:

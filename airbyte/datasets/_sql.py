@@ -120,7 +120,7 @@ class CachedDataset(SQLDataset):
 
     def to_sql_table(self) -> Table:
         if self._sql_table is None:
-            self._sql_table: Table = self.cache.processor.get_sql_table(self.stream_name)
+            self._sql_table: Table = self._cache.processor.get_sql_table(self.stream_name)
 
         return self._sql_table
 
