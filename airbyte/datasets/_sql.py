@@ -101,10 +101,17 @@ class CachedDataset(SQLDataset):
     """
 
     def __init__(self, cache: CacheBase, stream_name: str) -> None:
+        """We construct the query statement by selecting all columns from the table.
+
+        This prevents the need to scan the table schema to construct the query statement.
+        """
+        table_name = cache.processor.get_sql_table_name(stream_name)
+        schema_name = cache.schema_name
+        query = select("*").select_from(text(f"{schema_name}.{table_name}"))
         super().__init__(
             cache=cache,
             stream_name=stream_name,
-            query_statement=self._sql_table.select(),
+            query_statement=query,
         )
 
     @overrides

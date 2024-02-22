@@ -73,6 +73,11 @@ class CatalogManager:
         assert self._source_catalog is not None
 
     @property
+    def stream_names(self) -> list[str]:
+        """Return the names of all streams in the cache."""
+        return [stream.stream.name for stream in self.source_catalog.streams]
+
+    @property
     def source_catalog(self) -> ConfiguredAirbyteCatalog:
         """Return the source catalog.
 

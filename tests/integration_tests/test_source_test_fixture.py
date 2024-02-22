@@ -423,7 +423,7 @@ def test_cached_dataset(
     not_a_stream_name = "not_a_stream"
 
     # Check that the stream appears in mapping-like attributes
-    assert stream_name in result.cache._expected_streams
+    assert stream_name in result.cache.processor._expected_streams
     assert stream_name in result
     assert stream_name in result.cache
     assert stream_name in result.cache.streams
@@ -569,7 +569,7 @@ def test_check_fail_on_missing_config(method_call):
     with pytest.raises(exc.AirbyteConnectorConfigurationMissingError):
         method_call(source)
 
-def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_with_merge_to_postgres(new_pg_cache: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -580,15 +580,13 @@ def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCache, expecte
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = PostgresCache(config=new_pg_cache_config)
-
     # Read twice to test merge strategy
-    result: ReadResult = source.read(cache)
-    result: ReadResult = source.read(cache)
+    result: ReadResult = source.read(new_pg_cache)
+    result: ReadResult = source.read(new_pg_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(cache[stream_name]) > 0:
+        if len(new_pg_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -700,17 +698,18 @@ def test_tracking(
     ])
 
 
-def test_sync_to_postgres(new_pg_cache_config: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_to_postgres(
+    new_pg_cache: PostgresCache,
+    expected_test_stream_data: dict[str, list[dict[str, str | int]]],
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = PostgresCache(config=new_pg_cache_config)
-
-    result: ReadResult = source.read(cache)
+    result: ReadResult = source.read(new_pg_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(cache[stream_name]) > 0:
+        if len(new_pg_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -722,17 +721,15 @@ def test_sync_to_postgres(new_pg_cache_config: PostgresCache, expected_test_stre
 
 @pytest.mark.slow
 @pytest.mark.requires_creds
-def test_sync_to_snowflake(snowflake_config: SnowflakeCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_to_snowflake(new_snowflake_cache: SnowflakeCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = SnowflakeCache(config=snowflake_config)
-
-    result: ReadResult = source.read(cache)
+    result: ReadResult = source.read(new_snowflake_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(cache[stream_name]) > 0:
+        if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),

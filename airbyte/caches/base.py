@@ -75,7 +75,10 @@ class CacheBase(BaseModel):
     ) -> dict[str, CachedDataset]:
         """Return a temporary table name."""
         result = {}
-        for stream_name in self.processor.expected_streams:
+        stream_names = (
+            self.processor.expected_streams | set(self.processor._catalog_manager.stream_names)  # noqa: SLF001
+        )
+        for stream_name in stream_names:
             result[stream_name] = CachedDataset(self, stream_name)
 
         return result

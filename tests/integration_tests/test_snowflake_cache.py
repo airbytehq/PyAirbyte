@@ -80,14 +80,6 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
-@pytest.fixture(scope="function")
-def snowflake_cache(snowflake_config) -> Generator[caches.SnowflakeCache, None, None]:
-    """Fixture to return a fresh cache."""
-    yield snowflake_config
-    # TODO: Delete cache DB file after test is complete.
-    return
-
-
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")

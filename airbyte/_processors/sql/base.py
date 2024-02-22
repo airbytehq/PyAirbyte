@@ -214,7 +214,9 @@ class SqlProcessorBase(RecordProcessor):
         stream_name: str,
     ) -> sqlalchemy.Table:
         """Return the main table object for the stream."""
-        return self._get_table_by_name(self.get_sql_table_name(stream_name))
+        return self._get_table_by_name(
+            self.get_sql_table_name(stream_name),
+        )
 
     # Read methods:
 
@@ -249,13 +251,30 @@ class SqlProcessorBase(RecordProcessor):
         table_name: str,
         *,
         force_refresh: bool = False,
+        shallow_okay: bool = False,
     ) -> sqlalchemy.Table:
         """Return a table object from a table name.
+
+        If 'shallow_okay' is True, the table will be returned without requiring properties to
+        be read from the database.
 
         To prevent unnecessary round-trips to the database, the table is cached after the first
         query. To ignore the cache and force a refresh, set 'force_refresh' to True.
         """
+        if force_refresh and shallow_okay:
+            raise exc.AirbyteLibInternalError(
+                message="Cannot force refresh and use shallow query at the same time."
+            )
+
         if force_refresh or table_name not in self._cached_table_definitions:
+            if shallow_okay:
+                # Return a shallow instance, without column declarations. Do not cache
+                # the table definition in this case.
+                return sqlalchemy.Table(
+                    table_name,
+                    sqlalchemy.MetaData(schema=self.cache.schema_name),
+                )
+
             self._cached_table_definitions[table_name] = sqlalchemy.Table(
                 table_name,
                 sqlalchemy.MetaData(schema=self.cache.schema_name),
