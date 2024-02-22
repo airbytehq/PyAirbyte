@@ -2,7 +2,11 @@
 
 
 Usage:
-    poetry run python examples/run_integ_test_source.py source-faker
+    poetry run python examples/run_integ_test_source.py source-coin-api
+    poetry run python examples/run_integ_test_source.py source-github
+    poetry run python examples/run_integ_test_source.py source-google-analytics-v4
+    poetry run python examples/run_integ_test_source.py source-klaviyo
+    poetry run python examples/run_integ_test_source.py source-shopify
 
 """
 from __future__ import annotations
@@ -15,6 +19,20 @@ from typing import Any
 from google.cloud import secretmanager
 
 import airbyte as ab
+
+
+def get_secret_name(connector_name: str) -> str:
+    """Get the secret name for the given connector.
+
+    Some names are hard-coded, if the naming convention is not followed.
+    """
+    if connector_name.lower() == "source-google-analytics-v4":
+        return "SECRET_SOURCE_GOOGLE_ANALYTICS_V4_CLOUD__CREDS"
+
+    if connector_name.lower() == "source-shopify":
+        return "SECRET_SOURCE-SHOPIFY__CREDS"
+
+    return f"SECRET_{connector_name.upper()}_CREDS"
 
 
 def get_integ_test_config(secret_name: str) -> dict[str, Any]:
@@ -56,13 +74,13 @@ def main(
         read_result = source.read(cache=cache)
         print(
             f"Read from `{connector_name}` was successful. ",
-            f"Cache results were saved to: {cache.config.cache_dir}",
+            f"Cache results were saved to: {cache.cache_dir}",
             f"Streams list: {', '.join(read_result.streams.keys())}",
         )
     except Exception:
         print(
             f"Read from `{connector_name}` failed. ",
-            f"Cache files are located at: {cache.config.cache_dir}",
+            f"Cache files are located at: {cache.cache_dir}",
         )
         raise
 
@@ -75,5 +93,5 @@ if __name__ == "__main__":
     if streams_csv:
         streams = streams_csv.split(",")
     # TODO: We can optionally take a second arg to override the default secret name.
-    secret_name = f"SECRET_{connector_name.upper()}__CREDS"
+    secret_name = get_secret_name(connector_name)
     main(connector_name, streams=streams, secret_name=secret_name)

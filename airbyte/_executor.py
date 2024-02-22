@@ -65,7 +65,7 @@ class Executor(ABC):
         pass
 
     @abstractmethod
-    def get_telemetry_info(self) -> SourceTelemetryInfo:
+    def _get_telemetry_info(self) -> SourceTelemetryInfo:
         pass
 
     @abstractmethod
@@ -388,7 +388,7 @@ class VenvExecutor(Executor):
         with _stream_from_subprocess([str(connector_path), *args]) as stream:
             yield from stream
 
-    def get_telemetry_info(self) -> SourceTelemetryInfo:
+    def _get_telemetry_info(self) -> SourceTelemetryInfo:
         return SourceTelemetryInfo(
             name=self.name,
             type=SourceType.VENV,
@@ -449,7 +449,7 @@ class PathExecutor(Executor):
         with _stream_from_subprocess([str(self.path), *args]) as stream:
             yield from stream
 
-    def get_telemetry_info(self) -> SourceTelemetryInfo:
+    def _get_telemetry_info(self) -> SourceTelemetryInfo:
         return SourceTelemetryInfo(
             str(self.name),
             SourceType.LOCAL_INSTALL,

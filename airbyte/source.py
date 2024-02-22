@@ -27,9 +27,9 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._factories.cache_factories import get_default_cache
 from airbyte._util import protocol_util
 from airbyte._util.text_util import lower_case_set  # Internal utility functions
+from airbyte.caches.factories import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
     from airbyte._executor import Executor
-    from airbyte.caches import SQLCacheBase
+    from airbyte.caches import CacheBase
 
 
 @contextmanager
@@ -435,7 +435,7 @@ class Source:
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        source_tracking_information = self.executor.get_telemetry_info()
+        source_tracking_information = self.executor._get_telemetry_info()  # noqa: SLF001
         send_telemetry(source_tracking_information, cache_info, SyncState.STARTED)
         sync_failed = False
         self._processed_records = 0  # Reset the counter before we start
@@ -522,7 +522,7 @@ class Source:
 
     def read(
         self,
-        cache: SQLCacheBase | None = None,
+        cache: CacheBase | None = None,
         *,
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
@@ -574,17 +574,27 @@ class Source:
                 available_streams=self.get_available_streams(),
             )
 
-        cache.register_source(
+        cache.processor.register_source(
             source_name=self.name,
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),
         )
-        state = cache.get_state() if not force_full_refresh else None
+        if not cache.processor._catalog_manager:  # noqa: SLF001
+            raise exc.AirbyteLibInternalError(message="Catalog manager should exist but does not.")
+
+        state = (
+            cache.processor._catalog_manager.get_state(  # noqa: SLF001
+                source_name=self.name,
+                streams=self._selected_stream_names,
+            )
+            if not force_full_refresh
+            else None
+        )
         print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
-        cache.process_airbyte_messages(
+        cache.processor.process_airbyte_messages(
             self._tally_records(
                 self._read(
-                    cache.get_telemetry_info(),
+                    cache.processor._get_telemetry_info(),  # noqa: SLF001
                     state=state,
                 ),
             ),

@@ -7,7 +7,7 @@ import os
 from google.cloud import secretmanager
 
 import airbyte as ab
-from airbyte.caches import SnowflakeCacheConfig, SnowflakeSQLCache
+from airbyte.caches import SnowflakeCache
 
 
 source = ab.get_source(
@@ -26,15 +26,13 @@ secret = json.loads(
     ).payload.data.decode("UTF-8")
 )
 
-cache = SnowflakeSQLCache(
-    SnowflakeCacheConfig(
-        account=secret["account"],
-        username=secret["username"],
-        password=secret["password"],
-        database=secret["database"],
-        warehouse=secret["warehouse"],
-        role=secret["role"],
-    )
+cache = SnowflakeCache(
+    account=secret["account"],
+    username=secret["username"],
+    password=secret["password"],
+    database=secret["database"],
+    warehouse=secret["warehouse"],
+    role=secret["role"],
 )
 
 source.check()

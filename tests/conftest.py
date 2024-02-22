@@ -11,7 +11,7 @@ import subprocess
 import time
 
 import ulid
-from airbyte.caches.snowflake import SnowflakeCacheConfig
+from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
 import psycopg2 as psycopg
@@ -21,7 +21,7 @@ from google.cloud import secretmanager
 from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
-from airbyte.caches import PostgresCacheConfig
+from airbyte.caches import PostgresCache
 
 logger = logging.getLogger(__name__)
 
@@ -153,12 +153,12 @@ def pg_dsn():
 
 
 @pytest.fixture
-def new_pg_cache_config(pg_dsn):
+def new_pg_cache(pg_dsn):
     """Fixture to return a fresh cache.
 
     Each test that uses this fixture will get a unique table prefix.
     """
-    config = PostgresCacheConfig(
+    config = PostgresCache(
         host=pg_dsn,
         port=PYTEST_POSTGRES_PORT,
         username="postgres",
@@ -173,7 +173,7 @@ def new_pg_cache_config(pg_dsn):
 
 
 @pytest.fixture
-def snowflake_config():
+def new_snowflake_cache():
     if "GCP_GSM_CREDENTIALS" not in os.environ:
         raise Exception("GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets for Snowflake. Make sure they are set up as described: https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/README.md#get-gsm-access")
     secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
@@ -184,7 +184,7 @@ def snowflake_config():
             name="projects/dataline-integration-testing/secrets/AIRBYTE_LIB_SNOWFLAKE_CREDS/versions/latest"
         ).payload.data.decode("UTF-8")
     )
-    config = SnowflakeCacheConfig(
+    config = SnowflakeCache(
         account=secret["account"],
         username=secret["username"],
         password=secret["password"],
