@@ -7,8 +7,7 @@ import abc
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, final
 
-import ulid
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, PrivateAttr
 
 from airbyte.datasets._sql import CachedDataset
 

@@ -7,7 +7,6 @@ import warnings
 from typing import TYPE_CHECKING
 
 from overrides import overrides
-from pydantic import PrivateAttr
 
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte.caches.base import CacheBase
