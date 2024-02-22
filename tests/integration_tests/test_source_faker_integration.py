@@ -220,7 +220,7 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache._catalog_manager._get_state() == []
+    assert not duckdb_cache.processor._catalog_manager.get_state("source-faker") == []
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
@@ -249,7 +249,8 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert second_cache._catalog_manager and second_cache._catalog_manager._get_state()
+    assert second_cache.processor._catalog_manager and \
+        second_cache.processor._catalog_manager.get_state("source-faker")
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
@@ -266,8 +267,8 @@ def test_incremental_state_prefix_isolation(
     source_faker_seed_a.set_config(config_a)
     cache_name = str(ulid.ULID())
     db_path = Path(f"./.cache/{cache_name}.duckdb")
-    cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="prefix_"))
-    different_prefix_cache = ab.DuckDBCacheInstance(config=ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_"))
+    cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
+    different_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
 
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2

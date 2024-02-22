@@ -40,7 +40,7 @@ def test_duck_db_cache_config_get_database_name():
     assert config.get_database_name() == 'test_db'
 
 def test_duck_db_cache_base_inheritance():
-    assert issubclass(DuckDBCache, SQLCacheInstanceBase)
+    assert issubclass(DuckDBCache, SQLCacheBase)
 
 def test_duck_db_cache_config_default_schema_name():
     config = DuckDBCache(db_path='test_path')
@@ -58,4 +58,4 @@ def test_duck_db_cache_config_inheritance_from_sql_cache_config_base():
     assert issubclass(DuckDBCache, SQLCacheBase)
 
 def test_duck_db_cache_config_inheritance_from_parquet_writer_config():
-    assert issubclass(DuckDBCacheConfig, JsonlWriterConfig)
+    assert issubclass(DuckDBCache, JsonlWriterConfig)

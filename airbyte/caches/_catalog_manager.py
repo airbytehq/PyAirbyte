@@ -116,19 +116,17 @@ class CatalogManager:
     def get_state(
         self,
         source_name: str,
-        streams: list[str],
+        streams: list[str] | None = None,
     ) -> list[dict] | None:
         self._ensure_internal_tables()
         engine = self._engine
         with Session(engine) as session:
-            states = (
-                session.query(StreamState)
-                .filter(
-                    StreamState.source_name == source_name,
-                    StreamState.stream_name.in_([*streams, *GLOBAL_STATE_STREAM_NAMES]),
+            query = session.query(StreamState).filter(StreamState.source_name == source_name)
+            if streams:
+                query = query.filter(
+                    StreamState.stream_name.in_([*streams, *GLOBAL_STATE_STREAM_NAMES])
                 )
-                .all()
-            )
+            states = query.all()
             if not states:
                 return None
             # Only return the states if the table name matches what the current cache
