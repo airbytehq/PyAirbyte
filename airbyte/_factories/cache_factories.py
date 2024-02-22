@@ -15,9 +15,10 @@ def get_default_cache() -> DuckDBCache:
     Cache files are stored in the `.cache` directory, relative to the current
     working directory.
     """
-
+    cache_dir = Path("./.cache/default_cache")
     return DuckDBCache(
-        db_path="./.cache/default_cache_db.duckdb",
+        db_path=cache_dir / "default_cache.duckdb",
+        cache_dir=cache_dir,
     )
 
 

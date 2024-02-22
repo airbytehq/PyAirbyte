@@ -123,7 +123,7 @@ def test_replace_strategy(
 def test_merge_strategy(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    snowflake_cache: ab.DuckDBCacheInstance,
+    snowflake_cache: ab.DuckDBSqlProcessor,
 ) -> None:
     """Test that the merge strategy works as expected.
 

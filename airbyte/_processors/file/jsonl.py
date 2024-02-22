@@ -1,20 +1,19 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-
 """A Parquet cache implementation."""
+
 from __future__ import annotations
 
 import gzip
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import orjson
 import ulid
 from overrides import overrides
 
-from airbyte._file_writers.base import (
+from airbyte._processors.file.base import (
     FileWriterBase,
     FileWriterBatchHandle,
-    FileWriterConfigBase,
 )
 
 
@@ -22,16 +21,8 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
 
-class JsonlWriterConfig(FileWriterConfigBase):
-    """Configuration for the Snowflake cache."""
-
-    # Inherits `cache_dir` from base class
-
-
 class JsonlWriter(FileWriterBase):
     """A Jsonl cache implementation."""
-
-    config_class = JsonlWriterConfig
 
     def get_new_cache_file_path(
         self,
@@ -40,8 +31,7 @@ class JsonlWriter(FileWriterBase):
     ) -> Path:
         """Return a new cache file path for the given stream."""
         batch_id = batch_id or str(ulid.ULID())
-        config: JsonlWriterConfig = cast(JsonlWriterConfig, self.config)
-        target_dir = Path(config.cache_dir)
+        target_dir = Path(self.cache.cache_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / f"{stream_name}_{batch_id}.jsonl.gz"
 

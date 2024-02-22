@@ -141,7 +141,7 @@ def test_faker_pks(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.DuckDBCacheInstance,
+    all_cache_types: ab.DuckDBSqlProcessor,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -156,7 +156,7 @@ def test_replace_strategy(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.DuckDBCacheInstance,
+    all_cache_types: ab.DuckDBSqlProcessor,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -172,7 +172,7 @@ def test_merge_strategy(
     strategy: str,
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    all_cache_types: ab.DuckDBCacheInstance,
+    all_cache_types: ab.DuckDBSqlProcessor,
 ) -> None:
     """Test that the merge strategy works as expected.
 
@@ -206,7 +206,7 @@ def test_merge_strategy(
 def test_incremental_sync(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    duckdb_cache: ab.DuckDBCacheInstance,
+    duckdb_cache: ab.DuckDBSqlProcessor,
 ) -> None:
     config_a = source_faker_seed_a.get_config()
     config_b = source_faker_seed_b.get_config()

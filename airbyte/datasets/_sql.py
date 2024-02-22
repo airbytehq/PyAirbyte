@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""SQL datasets class."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -17,7 +19,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Selectable, Table
     from sqlalchemy.sql import ClauseElement
 
-    from airbyte.caches.base import SQLCacheBase
+    from airbyte.caches.base import CacheBase
 
 
 class SQLDataset(DatasetBase):
@@ -29,12 +31,12 @@ class SQLDataset(DatasetBase):
 
     def __init__(
         self,
-        cache: SQLCacheBase,
+        cache: CacheBase,
         stream_name: str,
         query_statement: Selectable,
     ) -> None:
         self._length: int | None = None
-        self._cache: SQLCacheBase = cache
+        self._cache: CacheBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
         super().__init__()
@@ -98,7 +100,7 @@ class CachedDataset(SQLDataset):
     underlying table as a SQLAlchemy Table object.
     """
 
-    def __init__(self, cache: SQLCacheBase, stream_name: str) -> None:
+    def __init__(self, cache: CacheBase, stream_name: str) -> None:
         self._sql_table: Table = cache.processor.get_sql_table(stream_name)
         super().__init__(
             cache=cache,

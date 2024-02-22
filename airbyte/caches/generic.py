@@ -1,13 +1,14 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """A Generic SQL Cache implementation."""
+
 from __future__ import annotations
 
 from overrides import overrides
 
-from airbyte.caches.base import SQLCacheBase
+from airbyte.caches.base import CacheBase
 
 
-class GenericSQLCacheConfig(SQLCacheBase):
+class GenericSQLCacheConfig(CacheBase):
     """Allows configuring 'sql_alchemy_url' directly."""
 
     sql_alchemy_url: str

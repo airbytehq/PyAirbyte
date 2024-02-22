@@ -1,8 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Abstract base class for Processors, including SQL and File writers.
 
-"""Define abstract base class for Processors, including Caches and File writers.
-
-Processors can all take input from STDIN or a stream of Airbyte messages.
+Processors can take input from STDIN or a stream of Airbyte messages.
 
 Caches will pass their input to the File Writer. They share a common base class so certain
 abstractions like "write" and "finalize" can be handled in either layer, or both.
@@ -34,7 +33,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
-from airbyte.config import CacheConfigBase
+from airbyte.caches.base import CacheBase
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
 from airbyte.types import _get_pyarrow_type
@@ -62,20 +61,20 @@ class RecordProcessor(abc.ABC):
     """Abstract base class for classes which can process input records."""
 
     skip_finalize_step: bool = False
-    _expected_streams: set[str]
 
     def __init__(
         self,
-        config: CacheConfigBase,
+        cache: CacheBase,
         *,
         catalog_manager: CatalogManager | None = None,
     ) -> None:
-        self.config = config
-        if not isinstance(self.config, CacheConfigBase):
+        self._expected_streams: set[str] | None = None
+        self.cache: CacheBase = cache
+        if not isinstance(self.cache, CacheBase):
             raise exc.AirbyteLibInputError(
                 message=(
-                    f"Expected config class of type 'CacheConfigBase'.  "
-                    f"Instead received type '{type(self.config).__name__}'."
+                    f"Expected config class of type 'CacheBase'.  "
+                    f"Instead received type '{type(self.cache).__name__}'."
                 ),
             )
 
@@ -94,6 +93,11 @@ class RecordProcessor(abc.ABC):
         self._catalog_manager: CatalogManager | None = catalog_manager
         self._setup()
 
+    @property
+    def expected_streams(self) -> set[str]:
+        """Return the expected stream names."""
+        return self._expected_streams or set()
+
     def register_source(
         self,
         source_name: str,
@@ -111,11 +115,6 @@ class RecordProcessor(abc.ABC):
             incoming_stream_names=stream_names,
         )
         self._expected_streams = stream_names
-
-    @property
-    def _streams_with_data(self) -> set[str]:
-        """Return a list of known streams."""
-        return self._pending_batches.keys() | self._finalized_batches.keys()
 
     @final
     def process_stdin(
@@ -213,7 +212,7 @@ class RecordProcessor(abc.ABC):
 
         all_streams = list(self._pending_batches.keys())
         # Add empty streams to the streams list, so we create a destination table for it
-        for stream_name in self._expected_streams:
+        for stream_name in self.expected_streams:
             if stream_name not in all_streams:
                 if DEBUG_MODE:
                     print(f"Stream {stream_name} has no data")
