@@ -9,7 +9,6 @@ from functools import cached_property
 from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
-import pyarrow as pa
 import sqlalchemy
 import ulid
 from overrides import overrides
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
     from pathlib import Path
 
+    import pyarrow as pa
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
@@ -545,17 +545,6 @@ class SQLCacheBase(RecordProcessor):
               although this is a fairly rare edge case we can ignore in V1.
         """
         with self._finalizing_batches(stream_name) as batches_to_finalize:
-            if not batches_to_finalize:
-                return {}
-
-            files: list[Path] = []
-            # Get a list of all files to finalize from all pending batches.
-            for batch_handle in batches_to_finalize.values():
-                batch_handle = cast(FileWriterBatchHandle, batch_handle)
-                files += batch_handle.files
-            # Use the max batch ID as the batch ID for table names.
-            max_batch_id = max(batches_to_finalize.keys())
-
             # Make sure the target schema and target table exist.
             self._ensure_schema_exists()
             final_table_name = self._ensure_final_table_exists(
@@ -566,6 +555,18 @@ class SQLCacheBase(RecordProcessor):
                 stream_name=stream_name,
                 raise_on_error=True,
             )
+
+            if not batches_to_finalize:
+                # If there are no batches to finalize, return after ensuring the table exists.
+                return {}
+
+            files: list[Path] = []
+            # Get a list of all files to finalize from all pending batches.
+            for batch_handle in batches_to_finalize.values():
+                batch_handle = cast(FileWriterBatchHandle, batch_handle)
+                files += batch_handle.files
+            # Use the max batch ID as the batch ID for table names.
+            max_batch_id = max(batches_to_finalize.keys())
 
             temp_table_name = self._write_files_to_new_table(
                 files=files,
@@ -659,27 +660,25 @@ class SQLCacheBase(RecordProcessor):
         """
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
         for file_path in files:
-            with pa.parquet.ParquetFile(file_path) as pf:
-                record_batch = pf.read()
-                dataframe = record_batch.to_pandas()
+            dataframe = pd.read_json(file_path, lines=True)
 
-                # Pandas will auto-create the table if it doesn't exist, which we don't want.
-                if not self._table_exists(temp_table_name):
-                    raise exc.AirbyteLibInternalError(
-                        message="Table does not exist after creation.",
-                        context={
-                            "temp_table_name": temp_table_name,
-                        },
-                    )
-
-                dataframe.to_sql(
-                    temp_table_name,
-                    self.get_sql_alchemy_url(),
-                    schema=self.config.schema_name,
-                    if_exists="append",
-                    index=False,
-                    dtype=self._get_sql_column_definitions(stream_name),
+            # Pandas will auto-create the table if it doesn't exist, which we don't want.
+            if not self._table_exists(temp_table_name):
+                raise exc.AirbyteLibInternalError(
+                    message="Table does not exist after creation.",
+                    context={
+                        "temp_table_name": temp_table_name,
+                    },
                 )
+
+            dataframe.to_sql(
+                temp_table_name,
+                self.get_sql_alchemy_url(),
+                schema=self.config.schema_name,
+                if_exists="append",
+                index=False,
+                dtype=self._get_sql_column_definitions(stream_name),
+            )
         return temp_table_name
 
     @final
@@ -959,6 +958,11 @@ class SQLCacheBase(RecordProcessor):
         This method is called by the source when it is initialized.
         """
         self._source_name = source_name
+        self.file_writer.register_source(
+            source_name,
+            incoming_source_catalog,
+            stream_names=stream_names,
+        )
         self._ensure_schema_exists()
         super().register_source(
             source_name,

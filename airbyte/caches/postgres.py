@@ -6,15 +6,15 @@ from __future__ import annotations
 
 from overrides import overrides
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers import JsonlWriter, JsonlWriterConfig
 from airbyte.caches.base import SQLCacheBase, SQLCacheConfigBase
 from airbyte.telemetry import CacheTelemetryInfo
 
 
-class PostgresCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class PostgresCacheConfig(SQLCacheConfigBase, JsonlWriterConfig):
     """Configuration for the Postgres cache.
 
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    Also inherits config from the JsonlWriter, which is responsible for writing files to disk.
     """
 
     host: str
@@ -47,7 +47,7 @@ class PostgresCache(SQLCacheBase):
     """
 
     config_class = PostgresCacheConfig
-    file_writer_class = ParquetWriter
+    file_writer_class = JsonlWriter
     supports_merge_insert = False  # TODO: Add native implementation for merge insert
 
     @overrides

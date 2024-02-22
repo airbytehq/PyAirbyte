@@ -11,7 +11,7 @@ from typing import cast
 
 from overrides import overrides
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers import JsonlWriter, JsonlWriterConfig
 from airbyte.caches.base import SQLCacheBase, SQLCacheConfigBase
 from airbyte.telemetry import CacheTelemetryInfo
 
@@ -24,10 +24,10 @@ warnings.filterwarnings(
 )
 
 
-class DuckDBCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+class DuckDBCacheConfig(SQLCacheConfigBase, JsonlWriterConfig):
     """Configuration for the DuckDB cache.
 
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    Also inherits config from the JsonlWriter, which is responsible for writing files to disk.
     """
 
     db_path: Path | str
@@ -88,7 +88,7 @@ class DuckDBCache(DuckDBCacheBase):
     so we insert as values instead.
     """
 
-    file_writer_class = ParquetWriter
+    file_writer_class = JsonlWriter
 
     # TODO: Delete or rewrite this method after DuckDB adds support for primary key inspection.
     # @overrides
@@ -181,12 +181,22 @@ class DuckDBCache(DuckDBCacheBase):
             stream_name=stream_name,
             batch_id=batch_id,
         )
-        columns_list = [
-            self._quote_identifier(c)
-            for c in list(self._get_sql_column_definitions(stream_name).keys())
-        ]
-        columns_list_str = indent("\n, ".join(columns_list), "    ")
+        columns_list = list(self._get_sql_column_definitions(stream_name=stream_name).keys())
+        columns_list_str = indent(
+            "\n, ".join([self._quote_identifier(c) for c in columns_list]),
+            "    ",
+        )
         files_list = ", ".join([f"'{f!s}'" for f in files])
+        columns_type_map = indent(
+            "\n, ".join(
+                [
+                    f"{self._quote_identifier(c)}: "
+                    f"{self._get_sql_column_definitions(stream_name)[c]!s}"
+                    for c in columns_list
+                ]
+            ),
+            "    ",
+        )
         insert_statement = dedent(
             f"""
             INSERT INTO {self.config.schema_name}.{temp_table_name}
@@ -195,9 +205,11 @@ class DuckDBCache(DuckDBCacheBase):
             )
             SELECT
                 {columns_list_str}
-            FROM read_parquet(
+            FROM read_json_auto(
                 [{files_list}],
-                union_by_name = true
+                format = 'newline_delimited',
+                union_by_name = true,
+                columns = {{ { columns_type_map } }}
             )
             """
         )
