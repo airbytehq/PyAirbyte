@@ -101,7 +101,6 @@ class CachedDataset(SQLDataset):
     """
 
     def __init__(self, cache: CacheBase, stream_name: str) -> None:
-        self._sql_table: Table = cache.processor.get_sql_table(stream_name)
         super().__init__(
             cache=cache,
             stream_name=stream_name,
@@ -113,6 +112,9 @@ class CachedDataset(SQLDataset):
         return self._cache.processor.get_pandas_dataframe(self._stream_name)
 
     def to_sql_table(self) -> Table:
+        if self._sql_table is None:
+            self._sql_table: Table = self.cache.processor.get_sql_table(self.stream_name)
+
         return self._sql_table
 
     def __eq__(self, value: object) -> bool:
