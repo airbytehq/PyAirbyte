@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from airbyte._file_writers import ParquetWriterConfig
+from airbyte._file_writers import JsonlWriterConfig
 from airbyte.caches.base import SQLCacheBase, SQLCacheConfigBase
 from airbyte.caches.duckdb import DuckDBCacheBase, DuckDBCacheConfig
 
@@ -28,7 +28,7 @@ def test_get_sql_alchemy_url_with_default_schema_name():
 
 def test_duck_db_cache_config_inheritance():
     assert issubclass(DuckDBCacheConfig, SQLCacheConfigBase)
-    assert issubclass(DuckDBCacheConfig, ParquetWriterConfig)
+    assert issubclass(DuckDBCacheConfig, JsonlWriterConfig)
 
 def test_duck_db_cache_config_get_sql_alchemy_url():
     config = DuckDBCacheConfig(db_path='test_path', schema_name='test_schema')
@@ -57,4 +57,4 @@ def test_duck_db_cache_config_inheritance_from_sql_cache_config_base():
     assert issubclass(DuckDBCacheConfig, SQLCacheConfigBase)
 
 def test_duck_db_cache_config_inheritance_from_parquet_writer_config():
-    assert issubclass(DuckDBCacheConfig, ParquetWriterConfig)
+    assert issubclass(DuckDBCacheConfig, JsonlWriterConfig)

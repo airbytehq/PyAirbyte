@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import gzip
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import orjson
-import pyarrow as pa
 import ulid
 from overrides import overrides
 
@@ -17,6 +16,10 @@ from airbyte._file_writers.base import (
     FileWriterBatchHandle,
     FileWriterConfigBase,
 )
+
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 class JsonlWriterConfig(FileWriterConfigBase):

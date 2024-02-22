@@ -9,7 +9,6 @@ from functools import cached_property
 from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
-import pyarrow as pa
 import sqlalchemy
 import ulid
 from overrides import overrides
@@ -42,6 +41,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterator
     from pathlib import Path
 
+    import pyarrow as pa
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
