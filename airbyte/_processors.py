@@ -207,13 +207,6 @@ class RecordProcessor(abc.ABC):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
-        # Add empty streams to the dictionary, so we create a destination table for it
-        for stream_name in self._expected_streams:
-            if stream_name not in stream_batches:
-                if DEBUG_MODE:
-                    print(f"Stream {stream_name} has no data")
-                stream_batches[stream_name] = []
-
         # We are at the end of the stream. Process whatever else is queued.
         for stream_name, stream_batch in stream_batches.items():
             batch_df = pd.DataFrame(stream_batch)
@@ -221,8 +214,16 @@ class RecordProcessor(abc.ABC):
             self._process_batch(stream_name, record_batch)
             progress.log_batch_written(stream_name, len(stream_batch))
 
+        all_streams = list(self._pending_batches.keys())
+        # Add empty streams to the streams list, so we create a destination table for it
+        for stream_name in self._expected_streams:
+            if stream_name not in all_streams:
+                if DEBUG_MODE:
+                    print(f"Stream {stream_name} has no data")
+                all_streams.append(stream_name)
+
         # Finalize any pending batches
-        for stream_name in list(self._pending_batches.keys()):
+        for stream_name in all_streams:
             self._finalize_batches(stream_name, write_strategy=write_strategy)
             progress.log_stream_finalized(stream_name)
 

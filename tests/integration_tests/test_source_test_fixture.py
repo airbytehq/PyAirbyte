@@ -195,8 +195,11 @@ def test_file_write_and_cleanup() -> None:
         _ = source.read(cache_w_cleanup)
         _ = source.read(cache_wo_cleanup)
 
-        assert len(list(Path(temp_dir_1).glob("*.parquet"))) == 0, "Expected files to be cleaned up"
-        assert len(list(Path(temp_dir_2).glob("*.parquet"))) == 3, "Expected files to exist"
+        # We expect all files to be cleaned up:
+        assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, "Expected files to be cleaned up"
+
+        # There are three streams, but only two of them have data:
+        assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2, "Expected files to exist"
 
 
 def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SQLCacheBase, streams: list[str] = None):

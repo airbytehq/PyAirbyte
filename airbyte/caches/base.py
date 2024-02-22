@@ -545,17 +545,6 @@ class SQLCacheBase(RecordProcessor):
               although this is a fairly rare edge case we can ignore in V1.
         """
         with self._finalizing_batches(stream_name) as batches_to_finalize:
-            if not batches_to_finalize:
-                return {}
-
-            files: list[Path] = []
-            # Get a list of all files to finalize from all pending batches.
-            for batch_handle in batches_to_finalize.values():
-                batch_handle = cast(FileWriterBatchHandle, batch_handle)
-                files += batch_handle.files
-            # Use the max batch ID as the batch ID for table names.
-            max_batch_id = max(batches_to_finalize.keys())
-
             # Make sure the target schema and target table exist.
             self._ensure_schema_exists()
             final_table_name = self._ensure_final_table_exists(
@@ -566,6 +555,18 @@ class SQLCacheBase(RecordProcessor):
                 stream_name=stream_name,
                 raise_on_error=True,
             )
+
+            if not batches_to_finalize:
+                # If there are no batches to finalize, return after ensuring the table exists.
+                return {}
+
+            files: list[Path] = []
+            # Get a list of all files to finalize from all pending batches.
+            for batch_handle in batches_to_finalize.values():
+                batch_handle = cast(FileWriterBatchHandle, batch_handle)
+                files += batch_handle.files
+            # Use the max batch ID as the batch ID for table names.
+            max_batch_id = max(batches_to_finalize.keys())
 
             temp_table_name = self._write_files_to_new_table(
                 files=files,
@@ -957,6 +958,11 @@ class SQLCacheBase(RecordProcessor):
         This method is called by the source when it is initialized.
         """
         self._source_name = source_name
+        self.file_writer.register_source(
+            source_name,
+            incoming_source_catalog,
+            stream_names=stream_names,
+        )
         self._ensure_schema_exists()
         super().register_source(
             source_name,
