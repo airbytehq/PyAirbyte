@@ -76,7 +76,7 @@ class Source:
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        streams: list[str] | None = None,
+        streams: str | list[str] | None = None,
         *,
         validate: bool = False,
     ) -> None:
@@ -95,7 +95,7 @@ class Source:
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
-            self.set_streams(streams)
+            self.select_streams(streams)
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -115,11 +115,22 @@ class Source:
         """
         self._selected_stream_names = self.get_available_streams()
 
-    def select_streams(self, streams: list[str]) -> None:
+    def select_streams(self, streams: str | list[str]) -> None:
         """Select the stream names that should be read from the connector.
+
+        Args:
+        - streams: A list of stream names to select. If set to "*", all streams will be selected.
 
         Currently, if this is not set, all streams will be read.
         """
+        if streams == "*":
+            self.select_all_streams()
+            return
+
+        if isinstance(streams, str):
+            # If a single stream is provided, convert it to a one-item list
+            streams = [streams]
+
         available_streams = self.get_available_streams()
         for stream in streams:
             if stream not in available_streams:
@@ -513,6 +524,7 @@ class Source:
         self,
         cache: SQLCacheBase | None = None,
         *,
+        streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
     ) -> ReadResult:
@@ -524,6 +536,8 @@ class Source:
                 one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
                 of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
+            streams: Optional if already set. A list of stream names to select for reading. If set
+                to "*", all streams will be selected.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option
                 must be True when using the "replace" strategy.
@@ -550,6 +564,9 @@ class Source:
                         "available_strategies": [s.value for s in WriteStrategy],
                     },
                 ) from None
+
+        if streams:
+            self.select_streams(streams)
 
         if not self._selected_stream_names:
             raise exc.AirbyteLibNoStreamsSelectedError(

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from overrides import overrides
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers import JsonlWriter, JsonlWriterConfig
 from airbyte.caches.base import SQLCacheBase, SQLCacheInstanceBase
 from airbyte.telemetry import CacheTelemetryInfo
 
@@ -14,7 +14,7 @@ from airbyte.telemetry import CacheTelemetryInfo
 class PostgresCacheInstance(SQLCacheInstanceBase):
     """A Postgres implementation of the cache.
 
-    Parquet is used for local file storage before bulk loading.
+    Jsonl is used for local file storage before bulk loading.
     Unlike the Snowflake implementation, we can't use the COPY command to load data
     so we insert as values instead.
 
@@ -22,7 +22,7 @@ class PostgresCacheInstance(SQLCacheInstanceBase):
     or another import method. (Relatively low priority, since for now it works fine as-is.)
     """
 
-    file_writer_class = ParquetWriter
+    file_writer_class = JsonlWriter
     supports_merge_insert = False  # TODO: Add native implementation for merge insert
 
     @overrides
@@ -30,10 +30,10 @@ class PostgresCacheInstance(SQLCacheInstanceBase):
         return CacheTelemetryInfo("postgres")
 
 
-class PostgresCache(SQLCacheBase, ParquetWriterConfig):
+class PostgresCache(SQLCacheBase, JsonlWriterConfig):
     """Configuration for the Postgres cache.
 
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    Also inherits config from the JsonlWriter, which is responsible for writing files to disk.
     """
 
     host: str
@@ -43,8 +43,6 @@ class PostgresCache(SQLCacheBase, ParquetWriterConfig):
     database: str
 
     _sql_processor_class = PostgresCacheInstance
-
-    # Already defined in base class: `schema_name`
 
     @overrides
     def get_sql_alchemy_url(self) -> str:

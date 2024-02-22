@@ -1,6 +1,12 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
-"""A Parquet cache implementation."""
+"""A Parquet cache implementation.
+
+NOTE: Parquet is a strongly typed columnar storage format, which has known issues when applied to
+variable schemas, schemas with indeterminate types, and schemas that have empty data nodes.
+This implementation is deprecated for now in favor of jsonl.gz, and may be removed or revamped in
+the future.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -81,8 +87,20 @@ class ParquetWriter(FileWriterBase):
             for col in missing_columns:
                 record_batch = record_batch.append_column(col, null_array)
 
-        with parquet.ParquetWriter(output_file_path, schema=record_batch.schema) as writer:
-            writer.write_table(record_batch)
+        try:
+            with parquet.ParquetWriter(output_file_path, schema=record_batch.schema) as writer:
+                writer.write_table(record_batch)
+        except Exception as e:
+            raise exc.AirbyteLibInternalError(
+                message=f"Failed to write record batch to Parquet file: {e}",
+                context={
+                    "stream_name": stream_name,
+                    "batch_id": batch_id,
+                    "output_file_path": output_file_path,
+                    "schema": record_batch.schema,
+                    "record_batch": record_batch,
+                },
+            ) from e
 
         batch_handle = FileWriterBatchHandle()
         batch_handle.files.append(output_file_path)

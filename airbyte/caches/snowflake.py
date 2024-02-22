@@ -11,7 +11,7 @@ import sqlalchemy
 from overrides import overrides
 from snowflake.sqlalchemy import URL, VARIANT
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+from airbyte._file_writers import JsonlWriter, JsonlWriterConfig
 from airbyte.caches.base import (
     RecordDedupeMode,
     SQLCacheBase,
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sqlalchemy.engine import Connection
-
 
 
 
@@ -55,7 +54,7 @@ class SnowflakeSQLCacheInstance(SQLCacheInstanceBase):
     Parquet is used for local file storage before bulk loading.
     """
 
-    file_writer_class = ParquetWriter
+    file_writer_class = JsonlWriter
     type_converter_class = SnowflakeTypeConverter
 
     @overrides
@@ -97,7 +96,7 @@ class SnowflakeSQLCacheInstance(SQLCacheInstanceBase):
                 FROM {internal_sf_stage_name}
             )
             FILES = ( {files_list} )
-            FILE_FORMAT = ( TYPE = PARQUET )
+            FILE_FORMAT = ( TYPE = JSON )
             ;
             """
         )
@@ -127,10 +126,10 @@ class SnowflakeSQLCacheInstance(SQLCacheInstanceBase):
         return CacheTelemetryInfo("snowflake")
 
 
-class SnowflakeCache(SQLCacheBase, ParquetWriterConfig):
+class SnowflakeCache(SQLCacheBase, JsonlWriterConfig):
     """Configuration for the Snowflake cache.
 
-    Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
+    Also inherits config from the JsonlWriterConfig, which is responsible for writing files to disk.
     """
 
     account: str
