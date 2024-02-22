@@ -5,16 +5,16 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
 
 from overrides import overrides
 
 from airbyte._processors.base import BatchHandle, RecordProcessor
-from airbyte.caches.base import CacheBase
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pyarrow as pa
 
     from airbyte_protocol.models import (
@@ -31,15 +31,6 @@ class FileWriterBatchHandle(BatchHandle):
     """The file writer batch handle is a list of Path objects."""
 
     files: list[Path] = field(default_factory=list)
-
-
-class FileWriterConfigBase(CacheBase):
-    """Configuration for the Snowflake cache."""
-
-    cache_dir: Path = Path("./.cache/files/")
-    """The directory to store cache files in."""
-    cleanup: bool = True
-    """Whether to clean up temporary files after processing a batch."""
 
 
 class FileWriterBase(RecordProcessor, abc.ABC):

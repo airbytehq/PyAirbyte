@@ -4,16 +4,12 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING
+from pathlib import Path  # noqa: TCH003  # Used in Pydantic init
 
 from overrides import overrides
 
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte.caches.base import CacheBase
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 # Suppress warnings from DuckDB about reflection on indices.

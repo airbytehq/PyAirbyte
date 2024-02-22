@@ -20,15 +20,8 @@ from airbyte import exceptions as exc
 from airbyte._processors.file.base import (
     FileWriterBase,
     FileWriterBatchHandle,
-    FileWriterConfigBase,
 )
 from airbyte._util.text_util import lower_case_set
-
-
-class ParquetWriterConfig(FileWriterConfigBase):
-    """Configuration for the Snowflake cache."""
-
-    # Inherits `cache_dir` from base class
 
 
 class ParquetWriter(FileWriterBase):
@@ -41,8 +34,7 @@ class ParquetWriter(FileWriterBase):
     ) -> Path:
         """Return a new cache file path for the given stream."""
         batch_id = batch_id or str(ulid.ULID())
-        config: ParquetWriterConfig = cast(ParquetWriterConfig, self.cache)
-        target_dir = Path(config.cache_dir)
+        target_dir = Path(self.cache.cache_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / f"{stream_name}_{batch_id}.parquet"
 

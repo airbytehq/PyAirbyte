@@ -18,8 +18,10 @@ import ulid
 
 
 import airbyte as ab
-from airbyte import caches
-
+from airbyte.caches.base import CacheBase
+from airbyte.caches.duckdb import DuckDBCache
+from airbyte.caches.postgres import PostgresCache
+from airbyte.caches.factories import new_local_cache, get_default_cache
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -90,16 +92,16 @@ def source_faker_seed_b() -> ab.Source:
 
 
 @pytest.fixture(scope="function")
-def duckdb_cache() -> Generator[caches.DuckDBCache, None, None]:
+def duckdb_cache() -> Generator[DuckDBCache, None, None]:
     """Fixture to return a fresh cache."""
-    cache: caches.DuckDBCache = ab.new_local_cache()
+    cache: DuckDBCache = new_local_cache()
     yield cache
     # TODO: Delete cache DB file after test is complete.
     return
 
 
 @pytest.fixture(scope="function")
-def postgres_cache(new_pg_cache_config) -> Generator[caches.PostgresCache, None, None]:
+def postgres_cache(new_pg_cache_config) -> Generator[PostgresCache, None, None]:
     """Fixture to return a fresh cache."""
     yield new_pg_cache_config
     # TODO: Delete cache DB file after test is complete.
@@ -108,8 +110,8 @@ def postgres_cache(new_pg_cache_config) -> Generator[caches.PostgresCache, None,
 
 @pytest.fixture
 def all_cache_types(
-    duckdb_cache: ab.DuckDBCache,
-    postgres_cache: ab.caches.PostgresCache,
+    duckdb_cache: DuckDBCache,
+    postgres_cache: PostgresCache,
 ):
     _ = postgres_cache
     return [
@@ -124,9 +126,15 @@ def test_which_source_faker() -> None:
         f"Can't find source-faker on PATH: {os.environ['PATH']}"
 
 
+def test_duckdb_cache(duckdb_cache: DuckDBCache) -> None:
+    """Test that the duckdb cache is available."""
+    assert duckdb_cache
+    assert isinstance(duckdb_cache, DuckDBCache)
+
+
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
-    duckdb_cache: ab.DuckDBCache,
+    duckdb_cache: DuckDBCache,
 ) -> None:
     """Test that the append strategy works as expected."""
 
@@ -143,7 +151,7 @@ def test_faker_pks(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.caches.CacheBase,
+    all_cache_types: CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -158,7 +166,7 @@ def test_replace_strategy(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: ab.caches.CacheBase,
+    all_cache_types: CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
     for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
@@ -174,7 +182,7 @@ def test_merge_strategy(
     strategy: str,
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    all_cache_types: ab.caches.CacheBase,
+    all_cache_types: CacheBase,
 ) -> None:
     """Test that the merge strategy works as expected.
 
@@ -208,7 +216,7 @@ def test_merge_strategy(
 def test_incremental_sync(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    duckdb_cache: ab.caches.CacheBase,
+    duckdb_cache: CacheBase,
 ) -> None:
     config_a = source_faker_seed_a.get_config()
     config_b = source_faker_seed_b.get_config()
@@ -243,10 +251,10 @@ def test_incremental_state_cache_persistence(
     source_faker_seed_a.set_config(config_a)
     source_faker_seed_b.set_config(config_b)
     cache_name = str(ulid.ULID())
-    cache = ab.new_local_cache(cache_name)
+    cache = new_local_cache(cache_name)
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
-    second_cache = ab.new_local_cache(cache_name)
+    second_cache = new_local_cache(cache_name)
     # The state should be persisted across cache instances.
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
@@ -269,8 +277,8 @@ def test_incremental_state_prefix_isolation(
     source_faker_seed_a.set_config(config_a)
     cache_name = str(ulid.ULID())
     db_path = Path(f"./.cache/{cache_name}.duckdb")
-    cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
-    different_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    cache = DuckDBCache(db_path=db_path, table_prefix="prefix_")
+    different_prefix_cache = DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
 
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
