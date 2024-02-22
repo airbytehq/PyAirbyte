@@ -354,6 +354,7 @@ class RecordProcessor(abc.ABC):
         By default this is a no-op but subclasses can override this method to prepare
         any necessary resources.
         """
+        pass
 
     def _teardown(self) -> None:
         """Teardown the processor resources.

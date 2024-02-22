@@ -4,18 +4,14 @@
 from __future__ import annotations
 
 import warnings
+from pathlib import Path
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING
 
 from overrides import overrides
 
 from airbyte._processors.file import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
 from airbyte.telemetry import CacheTelemetryInfo
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 # Suppress warnings from DuckDB about reflection on indices.
@@ -37,15 +33,13 @@ class DuckDBSqlProcessor(SqlProcessorBase):
     supports_merge_insert = False
     file_writer_class = JsonlWriter
 
-    # @overrides
-    # def _setup(self) -> None:
-    #     """Create the database parent folder if it doesn't yet exist."""
-    #     config = cast(DuckDBCache, self.config)
+    @overrides
+    def _setup(self) -> None:
+        """Create the database parent folder if it doesn't yet exist."""
+        if self.cache.db_path == ":memory:":
+            return
 
-    #     if config.db_path == ":memory:":
-    #         return
-
-    #     Path(config.db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.cache.db_path).parent.mkdir(parents=True, exist_ok=True)
 
     @overrides
     def _ensure_compatible_table_schema(
