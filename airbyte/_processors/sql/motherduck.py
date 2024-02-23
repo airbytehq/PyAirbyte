@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""A DuckDB implementation of the cache."""
+"""A MotherDuck implementation of the cache, built on the DuckDB implementation."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from overrides import overrides
 
 from airbyte._processors.file import JsonlWriter
-from airbyte._processors.sql.base import SqlProcessorBase
+from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 
 
 if TYPE_CHECKING:
@@ -24,13 +24,8 @@ warnings.filterwarnings(
 )
 
 
-class MotherDuckSqlProcessor(SqlProcessorBase):
-    """A DuckDB implementation of the cache.
-
-    Jsonl is used for local file storage before bulk loading.
-    Unlike the Snowflake implementation, we can't use the COPY command to load data
-    so we insert as values instead.
-    """
+class MotherDuckSqlProcessor(DuckDBSqlProcessor):
+    """A cache implementation for MotherDuck."""
 
     supports_merge_insert = False
     file_writer_class = JsonlWriter
