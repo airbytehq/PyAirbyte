@@ -1,4 +1,11 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""A sample execution script which loads data from `source-faker` to a MotherDuck-backed cache.
+
+Usage (from repo root):
+    poetry install
+    poetry run python examples/run_faker_to_motherduck.py
+"""
+
 from __future__ import annotations
 
 import airbyte as ab
