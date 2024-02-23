@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import abc
 import enum
 from contextlib import contextmanager
 from functools import cached_property
@@ -52,7 +51,6 @@ if TYPE_CHECKING:
         ConfiguredAirbyteCatalog,
     )
 
-    from airbyte._util.telemetry import CacheTelemetryInfo
     from airbyte.caches.base import CacheBase
 
 
@@ -915,7 +913,3 @@ class SqlProcessorBase(RecordProcessor):
     ) -> bool:
         """Return true if the given table exists."""
         return table_name in self._get_tables_list()
-
-    @abc.abstractmethod
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        pass

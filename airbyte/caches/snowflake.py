@@ -7,7 +7,7 @@ from overrides import overrides
 from snowflake.sqlalchemy import URL
 
 from airbyte._processors.sql.base import RecordDedupeMode
-from airbyte._processors.sql.snowflake import SnowflakeSQLSqlProcessor
+from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor
 from airbyte.caches.base import CacheBase
 
 
@@ -23,7 +23,7 @@ class SnowflakeCache(CacheBase):
 
     dedupe_mode = RecordDedupeMode.APPEND
 
-    _sql_processor_class = SnowflakeSQLSqlProcessor
+    _sql_processor_class = SnowflakeSqlProcessor
 
     # Already defined in base class:
     # schema_name: str

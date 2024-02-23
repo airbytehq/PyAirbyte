@@ -12,7 +12,6 @@ from overrides import overrides
 
 from airbyte._processors.file import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
-from airbyte._util.telemetry import CacheTelemetryInfo
 
 
 if TYPE_CHECKING:
@@ -123,7 +122,3 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         )
         self._execute_sql(insert_statement)
         return temp_table_name
-
-    @overrides
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        return CacheTelemetryInfo("duckdb")
