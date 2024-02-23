@@ -79,7 +79,7 @@ class CacheTelemetryInfo:
     type: str
 
     @classmethod
-    def from_cache(cls, cache: CacheBase) -> CacheTelemetryInfo:  # noqa: ANN102
+    def from_cache(cls, cache: CacheBase | None) -> CacheTelemetryInfo:  # noqa: ANN102
         if not cache:
             return cls(type="streaming")
 
@@ -132,7 +132,7 @@ def get_env_flags() -> dict[str, Any]:
 
 def send_telemetry(
     source: Source,
-    cache: CacheBase,
+    cache: CacheBase | None,
     state: SyncState,
     number_of_records: int | None = None,
 ) -> None:
