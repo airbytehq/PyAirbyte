@@ -52,13 +52,17 @@ HASH_SEED = "PyAirbyte:"
 
 
 def one_way_hash(string_to_hash: Any) -> str:
+    """Return a one-way hash of the given string.
+
+    To ensure a unique domain of hashes, we prepend a seed to the string before hashing.
+    """
     return hashlib.sha256((HASH_SEED + str(string_to_hash)).encode()).hexdigest()
 
 
-# This key corresponds globally to the "PyAirbyte" application
 PYAIRBYTE_APP_TRACKING_KEY = (
     os.environ.get("AIRBYTE_TRACKING_KEY", "") or "cukeSffc0G6gFQehKDhhzSurDzVSZ2OP"
 )
+"""This key corresponds globally to the "PyAirbyte" application."""
 
 PYAIRBYTE_SESSION_ID = str(ulid.ULID())
 """Unique identifier for the current invocation of PyAirbyte.
@@ -112,6 +116,22 @@ def is_colab() -> bool:
     return bool(get_colab_release_version())
 
 
+def is_jupyter() -> bool:
+    """Return True if running in a Jupyter notebook or qtconsole."""
+    try:
+        shell = get_ipython().__class__.__name__
+    except NameError:
+        return False  # If 'get_ipython' undefined, we're probably in a standard Python interpreter.
+
+    if shell == "ZMQInteractiveShell":
+        return True  # Jupyter notebook or qtconsole.
+
+    if shell == "TerminalInteractiveShell":
+        return False  # Terminal running IPython
+
+    return False  # Other type (?)
+
+
 def get_flags() -> dict[str, Any]:
     flags: dict[str, bool] = {
         "CI": is_ci(),
@@ -134,9 +154,18 @@ def get_notebook_name_hash() -> str | None:
     return None
 
 
+def get_vscode_notebook_name_hash() -> str | None:
+    with suppress(Exception):
+        import IPython
+
+        return Path(IPython.extract_module_locals()[1]["__vsc_ipynb_file__"]).name
+
+    return None
+
+
 def get_python_script_name_hash() -> str | None:
     try:
-        script_name = sys.argv[0]
+        script_name: str = sys.argv[0]  # When running a python script, this is the script name.
     except Exception:
         return None
 
@@ -147,7 +176,12 @@ def get_python_script_name_hash() -> str | None:
 
 
 def get_application_hash() -> str | None:
-    return get_notebook_name_hash() or get_python_script_name_hash() or None
+    return (
+        get_notebook_name_hash()
+        or get_python_script_name_hash()
+        or get_vscode_notebook_name_hash()
+        or None
+    )
 
 
 def get_python_version() -> str:
