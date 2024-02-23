@@ -606,19 +606,19 @@ def test_airbyte_version() -> None:
 
 
 @patch.dict('os.environ', {'DO_NOT_TRACK': ''})
-@patch('airbyte.telemetry.requests')
-@patch('airbyte.telemetry.datetime')
+@patch('airbyte._util.telemetry.requests')
+@patch('airbyte._util.telemetry.datetime')
 @pytest.mark.parametrize(
     "raises, api_key, expected_state, expected_number_of_records, request_call_fails, extra_env, expected_flags, cache_type, number_of_records_read",
     [
-        pytest.param(pytest.raises(Exception), "test_fail_during_sync", "failed", 1, False, {"CI": ""}, {"CI": False}, "duckdb", None, id="fail_during_sync"),
-        pytest.param(does_not_raise(), "test", "succeeded", 3, False, {"CI": ""}, {"CI": False}, "duckdb", None, id="succeed_during_sync"),
-        pytest.param(does_not_raise(), "test", "succeeded", 3, True, {"CI": ""}, {"CI": False}, "duckdb", None,id="fail_request_without_propagating"),
-        pytest.param(does_not_raise(), "test", "succeeded", 3, False, {"CI": ""}, {"CI": False}, "duckdb", None,id="falsy_ci_flag"),
+        pytest.param(pytest.raises(Exception), "test_fail_during_sync", "failed", 1, False, {"CI": ""}, {}, "duckdb", None, id="fail_during_sync"),
+        pytest.param(does_not_raise(), "test", "succeeded", 3, False, {"CI": ""}, {}, "duckdb", None, id="succeed_during_sync"),
+        pytest.param(does_not_raise(), "test", "succeeded", 3, True, {"CI": ""}, {}, "duckdb", None,id="fail_request_without_propagating"),
+        pytest.param(does_not_raise(), "test", "succeeded", 3, False, {"CI": ""}, {}, "duckdb", None,id="falsy_ci_flag"),
         pytest.param(does_not_raise(), "test", "succeeded", 3, False, {"CI": "true"}, {"CI": True}, "duckdb", None,id="truthy_ci_flag"),
-        pytest.param(pytest.raises(Exception), "test_fail_during_sync", "failed", 1,  False, {"CI": ""}, {"CI": False}, "streaming", 3, id="streaming_fail_during_sync"),
-        pytest.param(does_not_raise(), "test", "succeeded", 2,  False, {"CI": ""}, {"CI": False}, "streaming", 2, id="streaming_succeed"),
-        pytest.param(does_not_raise(), "test", "succeeded", 1,  False, {"CI": ""}, {"CI": False}, "streaming", 1, id="streaming_partial_read"),
+        pytest.param(pytest.raises(Exception), "test_fail_during_sync", "failed", 1,  False, {"CI": ""}, {}, "streaming", 3, id="streaming_fail_during_sync"),
+        pytest.param(does_not_raise(), "test", "succeeded", 2,  False, {"CI": ""}, {}, "streaming", 2, id="streaming_succeed"),
+        pytest.param(does_not_raise(), "test", "succeeded", 1,  False, {"CI": ""}, {}, "streaming", 1, id="streaming_partial_read"),
     ],
 )
 def test_tracking(
@@ -661,23 +661,32 @@ def test_tracking(
                 source.read(cache)
 
     mock_post.assert_has_calls([
-            call("https://api.segment.io/v1/track",
+        call(
+            "https://api.segment.io/v1/track",
             auth=("cukeSffc0G6gFQehKDhhzSurDzVSZ2OP", ""),
             json={
-                "anonymousId": "airbyte-lib-user",
-                "event": "sync",
-                "properties": {
-                    "version": get_version(),
-                    "source": {'name': 'source-test', 'version': '0.0.1', 'type': 'venv'},
-                    "state": "started",
-                    "cache": {"type": cache_type},
-                    "ip": "0.0.0.0",
-                    "flags": expected_flags
-                },
-                "timestamp": "2021-01-01T00:00:00.000000",
+                'anonymousId': 'airbyte-lib-user',
+                'event': 'sync',
+                'timestamp': '2021-01-01T00:00:00.000000',
+                'properties': {
+                    'session_id': '01HQA7CYZTT9S2S25397KJP49A',
+                    'source': {
+                        'name': 'source-test',
+                        'executor_type': 'VenvExecutor',
+                        'version': '0.0.1',
+                    },
+                    'cache': {'type': 'DuckDBCache'},
+                    'state': "started",
+                    'version': '0.0.0',
+                    'python_version': '3.10.12 (CPython)',
+                    'os': 'Darwin',
+                    'application_hash': '46d4f7bf13805130b477f8691a3ba5b8786453474b1d5ecb06510d7ea72fe4c0',
+                    'ip': '0.0.0.0',
+                    'flags': {'CI': True},
+                }
             }
         ),
-    call(
+        call(
             "https://api.segment.io/v1/track",
             auth=("cukeSffc0G6gFQehKDhhzSurDzVSZ2OP", ""),
             json={
