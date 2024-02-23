@@ -37,7 +37,7 @@ def is_colab() -> bool:
 def is_jupyter() -> bool:
     """Return True if running in a Jupyter notebook or qtconsole."""
     try:
-        shell = get_ipython().__class__.__name__  # type: ignore
+        shell = get_ipython().__class__.__name__  # type: ignore  # noqa: PGH003
     except NameError:
         return False  # If 'get_ipython' undefined, we're probably in a standard Python interpreter.
 

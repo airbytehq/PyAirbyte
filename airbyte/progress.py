@@ -7,7 +7,6 @@ import datetime
 import math
 import sys
 import time
-from ast import Module
 from contextlib import suppress
 from enum import Enum, auto
 from typing import cast
@@ -27,7 +26,7 @@ try:
     IS_NOTEBOOK = True
 
 except ImportError:
-    ipy_display = None  # type: ignore
+    ipy_display = None  # type: ignore  # noqa: PGH003  # Ignore type mismatch.
     IS_NOTEBOOK = False
 
 
