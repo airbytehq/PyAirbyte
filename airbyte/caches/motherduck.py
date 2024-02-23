@@ -3,15 +3,19 @@ from __future__ import annotations
 
 from overrides import overrides
 
-from airbyte.caches.duckdb import DuckDBCacheBase, DuckDBCacheConfig
+from airbyte._processors.sql.motherduck import MotherDuckSqlProcessor
+from airbyte.caches.duckdb import DuckDBCache
 
 
-class MotherDuckCacheConfig(DuckDBCacheConfig):
-    """Configuration for the MotherDuck cache."""
+class MotherDuckCache(DuckDBCache):
+    """Cache that uses MotherDuck for external persistent storage."""
 
     db_path = "md:"
     database: str
     api_key: str
+
+    _sql_processor_class = MotherDuckSqlProcessor
+    _sql_processor: MotherDuckSqlProcessor
 
     @overrides
     def get_sql_alchemy_url(self) -> str:
@@ -23,9 +27,3 @@ class MotherDuckCacheConfig(DuckDBCacheConfig):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         return self.database
-
-
-class MotherDuckCache(DuckDBCacheBase):
-    """A cache implementation for the MotherDuck service, built on DuckDB."""
-
-    config_class = MotherDuckCacheConfig
