@@ -2,34 +2,34 @@
 
 """A BigQuery implementation of the cache."""
 
-from airbyte._file_writers import ParquetWriter, ParquetWriterConfig
+import urllib
 
+# if TYPE_CHECKING:
+from pathlib import Path
+from typing import TYPE_CHECKING, final
+
+import pandas as pd
+import pandas_gbq
+import pyarrow as pa
+import sqlalchemy
+from google.oauth2 import service_account
 from overrides import overrides
+
+from airbyte import exceptions as exc
+from airbyte._processors.file import ParquetWriter, ParquetWriterConfig
 from airbyte.caches.base import (
     SQLCacheBase,
     SQLCacheConfigBase,
 )
-from typing import final
-from typing import TYPE_CHECKING
-
 from airbyte.telemetry import CacheTelemetryInfo
 from airbyte.types import SQLTypeConverter
-import sqlalchemy
-from sqlalchemy.engine.reflection import Inspector
-import urllib
-
-import pandas as pd
-import pyarrow as pa
-
-from airbyte import exceptions as exc
-from google.oauth2 import service_account
-import pandas_gbq
-
-#if TYPE_CHECKING:
-from pathlib import Path
 
 
-class BigQueryCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
+if TYPE_CHECKING:
+    from sqlalchemy.engine.reflection import Inspector
+
+
+class BigQueryCacheConfig(SQLCache):
     """Configuration for the BigQuery cache.
 
     Also inherits config from the ParquetWriter, which is responsible for writing files to disk.
@@ -46,7 +46,7 @@ class BigQueryCacheConfig(SQLCacheConfigBase, ParquetWriterConfig):
         """Return the SQLAlchemy URL to use."""
         credentials_path_encoded = urllib.parse.quote(self.credentials_path)
         return f"bigquery://{self.project!s}?credentials_path={credentials_path_encoded}"
-    
+
 
     def get_database_name(self) -> str:
         """Return the name of the database. For BigQuery, this is the schema/dataset name."""
@@ -72,11 +72,11 @@ class BigQueryConverter(SQLTypeConverter):
             return "String"
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
             return "INT64"
-             
-        return sql_type.__class__.__name__
-    
 
-class BigQueryCache(SQLCacheBase):
+        return sql_type.__class__.__name__
+
+
+class BigQuerySqlProcessor(SqlProcessorBase):
     """A BigQuery implementation of the cache.
     """
 
@@ -98,7 +98,7 @@ class BigQueryCache(SQLCacheBase):
     def _quote_identifier(self, identifier: str) -> str:
         """Return the identifier name as is. BigQuery does not require quoting identifiers"""
         return f'{identifier}'
-    
+
     @final
     @overrides
     def get_telemetry_info(self) -> CacheTelemetryInfo:
@@ -129,9 +129,9 @@ class BigQueryCache(SQLCacheBase):
                             "temp_table_name": temp_table_name,
                         },
                     )
-                
+
                 credentials = service_account.Credentials.from_service_account_file(self.config.credentials_path)
-                
+
                 # timestamp columns need to be converted to datetime to work with pandas_gbq
                 # to-do: generalize the following to all columns of column type. This change is to test specically with faker source.
                 dataframe['created_at'] = pd.to_datetime(dataframe['created_at'])
@@ -141,22 +141,22 @@ class BigQueryCache(SQLCacheBase):
 
                 pandas_gbq.to_gbq(
                     dataframe=dataframe,
-                    destination_table=f'airbyte_raw.{temp_table_name}',
-                    project_id='dataline-integration-testing',
-                    if_exists='append',  
+                    destination_table=f"airbyte_raw.{temp_table_name}",
+                    project_id="dataline-integration-testing",
+                    if_exists="append",
                     credentials=credentials,
-                    #table_schema=columns_definition_gbq
+                    # table_schema=columns_definition_gbq
                 )
         return temp_table_name
-    
+
     @final
     @overrides
     def _get_tables_list(
         self,
         ) -> list[str]:
         """
-            For bigquery, {schema_name}.{table_name} is returned, so we need to 
-            strip the schema name in front of the table name, if it exists.
+        For bigquery, {schema_name}.{table_name} is returned, so we need to
+        strip the schema name in front of the table name, if it exists.
         """
         with self.get_sql_connection() as conn:
             inspector: Inspector = sqlalchemy.inspect(conn)
