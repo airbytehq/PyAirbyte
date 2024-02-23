@@ -7,6 +7,7 @@ import datetime
 import math
 import sys
 import time
+from ast import Module
 from contextlib import suppress
 from enum import Enum, auto
 from typing import cast
@@ -19,12 +20,14 @@ from rich.markdown import Markdown as RichMarkdown
 DEFAULT_REFRESHES_PER_SECOND = 2
 IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case we can use Rich.
 
+
 try:
-    IS_NOTEBOOK = True
     from IPython import display as ipy_display
 
+    IS_NOTEBOOK = True
+
 except ImportError:
-    ipy_display = None
+    ipy_display = None  # type: ignore
     IS_NOTEBOOK = False
 
 
@@ -312,6 +315,7 @@ class ReadProgress:
 
         if self.style == ProgressStyle.IPYTHON:
             # We're in a notebook so use the IPython display.
+            assert ipy_display is not None
             ipy_display.clear_output(wait=True)
             ipy_display.display(ipy_display.Markdown(status_message))
 

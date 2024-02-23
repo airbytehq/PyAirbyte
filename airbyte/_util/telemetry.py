@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 import requests
 import ulid
 
+from airbyte import exceptions as exc
 from airbyte._util import meta
 from airbyte.version import get_version
 
@@ -67,6 +68,7 @@ PYAIRBYTE_SESSION_ID = str(ulid.ULID())
 This is used to determine the order of operations within a specific session.
 It is not a unique identifier for the user.
 """
+
 
 class SyncState(str, Enum):
     STARTED = "started"
@@ -114,7 +116,7 @@ def one_way_hash(
 
 @lru_cache
 def get_env_flags() -> dict[str, Any]:
-    flags: dict[str, bool] = {
+    flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
         "NOTEBOOK_RUNTIME": (
             "GOOGLE_COLAB"
@@ -126,8 +128,8 @@ def get_env_flags() -> dict[str, Any]:
             else False
         ),
     }
-    # Drop these flags if value is False
-    return {k: v for k, v in flags.items() if v is False}
+    # Drop these flags if value is False or None
+    return {k: v for k, v in flags.items() if v is not None and v is not False}
 
 
 def send_telemetry(
@@ -135,29 +137,38 @@ def send_telemetry(
     cache: CacheBase | None,
     state: SyncState,
     number_of_records: int | None = None,
+    exception: Exception | None = None,
 ) -> None:
     # If DO_NOT_TRACK is set, we don't send any telemetry
     if os.environ.get("DO_NOT_TRACK"):
         return
 
+    payload_props = {
+        "session_id": PYAIRBYTE_SESSION_ID,
+        "source": asdict(SourceTelemetryInfo.from_source(source)),
+        "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
+        "state": state,
+        "version": get_version(),
+        "python_version": meta.get_python_version(),
+        "os": meta.get_os(),
+        # explicitly set to 0.0.0.0 to avoid leaking IP addresses
+        "application_hash": one_way_hash(meta.get_application_name()),
+        "ip": "0.0.0.0",
+        "flags": get_env_flags(),
+    }
+
+    if exception:
+        if isinstance(exception, exc.AirbyteError):
+            payload_props["exception"] = exception.safe_logging_dict()
+        else:
+            payload_props["exception"] = {"class": type(exception).__name__}
+
     current_time: str = datetime.datetime.utcnow().isoformat()  # noqa: DTZ003 # prefer now() over utcnow()
     payload: dict[str, Any] = {
         "anonymousId": "airbyte-lib-user",
         "event": "sync",
-        "properties": {
-            "session_id": PYAIRBYTE_SESSION_ID,
-            "source": asdict(SourceTelemetryInfo.from_source(source)),
-            "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
-            "state": state,
-            "version": get_version(),
-            "python_version": meta.get_python_version(),
-            "os": meta.get_os(),
-            # explicitly set to 0.0.0.0 to avoid leaking IP addresses
-            "application_hash": one_way_hash(meta.get_application_hash()),
-            "ip": "0.0.0.0",
-            "flags": get_env_flags(),
-        },
         "timestamp": current_time,
+        "properties": payload_props,
     }
     if number_of_records is not None:
         payload["properties"]["number_of_records"] = number_of_records

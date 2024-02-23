@@ -10,7 +10,7 @@ import sys
 from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
-from platform import freedesktop_os_release, python_implementation, python_version, system
+from platform import python_implementation, python_version, system
 
 import requests
 
@@ -37,7 +37,7 @@ def is_colab() -> bool:
 def is_jupyter() -> bool:
     """Return True if running in a Jupyter notebook or qtconsole."""
     try:
-        shell = get_ipython().__class__.__name__
+        shell = get_ipython().__class__.__name__  # type: ignore
     except NameError:
         return False  # If 'get_ipython' undefined, we're probably in a standard Python interpreter.
 
@@ -63,6 +63,7 @@ def get_notebook_name() -> str | None:
     return None
 
 
+@lru_cache
 def get_vscode_notebook_name() -> str | None:
     with suppress(Exception):
         import IPython
@@ -72,6 +73,10 @@ def get_vscode_notebook_name() -> str | None:
         ).name
 
     return None
+
+
+def is_vscode_notebook() -> bool:
+    return get_vscode_notebook_name() is not None
 
 
 def get_python_script_name() -> str | None:
@@ -87,7 +92,7 @@ def get_python_script_name() -> str | None:
 
 
 @lru_cache
-def get_application_hash() -> str | None:
+def get_application_name() -> str | None:
     return get_notebook_name() or get_python_script_name() or get_vscode_notebook_name() or None
 
 
@@ -99,4 +104,4 @@ def get_os() -> str:
     if is_colab():
         return f"Google Colab ({get_colab_release_version()})"
 
-    return f"{system()} ({freedesktop_os_release()})"
+    return f"{system()}"

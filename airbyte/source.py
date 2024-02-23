@@ -501,7 +501,7 @@ class Source:
     def _log_sync_success(
         self,
         *,
-        cache: CacheBase,
+        cache: CacheBase | None,
     ) -> None:
         """Log the success of a sync operation."""
         print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
@@ -515,7 +515,7 @@ class Source:
     def _log_sync_failure(
         self,
         *,
-        cache: CacheBase,
+        cache: CacheBase | None,
         exception: Exception,
     ) -> None:
         """Log the failure of a sync operation."""
@@ -524,7 +524,7 @@ class Source:
             state=SyncState.FAILED,
             source=self,
             cache=cache,
-            record_count=self._processed_records,
+            number_of_records=self._processed_records,
             exception=exception,
         )
 
