@@ -14,6 +14,7 @@ from airbyte.registry import get_available_connectors
 from airbyte.results import ReadResult
 from airbyte.secrets import SecretSource, get_secret
 from airbyte.source import Source
+from airbyte.caches.bigquery import BigQueryCache, BigQueryCacheConfig
 
 
 __all__ = [
@@ -34,6 +35,8 @@ __all__ = [
     "ReadResult",
     "SecretSource",
     "Source",
+    "BigQueryCacheConfig",
+    "BigQueryCache",
 ]
 
 __docformat__ = "google"

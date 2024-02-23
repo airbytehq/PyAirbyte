@@ -13,14 +13,16 @@ version = "0.0.0"
 enable = true
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">=3.9,<3.13"
 
 airbyte-cdk = "^0.58.3"
 duckdb-engine = "^0.10.0"
+google-auth = "^2.28.1"
 jsonschema = "3.2.0"
 orjson = "^3.9.10"
 overrides = "^7.4.0"
 pandas = "2.1.4" # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
+pandas-gbq = "0.21.0"
 pendulum = "<=3.0.0"
 psycopg2-binary = "^2.9.9"
 # psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
@@ -36,6 +38,7 @@ snowflake-sqlalchemy = "^1.5.1"
 sqlalchemy = "1.4.51"
 types-pyyaml = "^6.0.12.12"
 ulid = "^1.1"
+sqlalchemy-bigquery = "1.9.0"
 
 
 [tool.poetry.group.dev.dependencies]
