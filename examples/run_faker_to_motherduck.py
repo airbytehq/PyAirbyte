@@ -29,7 +29,7 @@ source = ab.get_source(
 
 cache = MotherDuckCache(
     database="airbyte_test",
-    schema_name="airbyte_test",
+    schema_name="faker_data",
     api_key=MOTHERDUCK_API_KEY,
 )
 
