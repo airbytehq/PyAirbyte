@@ -20,8 +20,10 @@ class MotherDuckCache(DuckDBCache):
     @overrides
     def get_sql_alchemy_url(self) -> str:
         """Return the SQLAlchemy URL to use."""
-        # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
-        return f"duckdb:///md:{self.api_key}@{self.database}"
+        return (
+            f"duckdb:///md:{self.database}"
+            f"?schema={self.schema_name}&motherduck_token={self.api_key}"
+        )
 
     @overrides
     def get_database_name(self) -> str:
