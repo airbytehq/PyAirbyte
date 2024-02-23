@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from overrides import overrides
+from pydantic import Field
 
 from airbyte._processors.sql.motherduck import MotherDuckSqlProcessor
 from airbyte.caches.duckdb import DuckDBCache
@@ -10,12 +11,11 @@ from airbyte.caches.duckdb import DuckDBCache
 class MotherDuckCache(DuckDBCache):
     """Cache that uses MotherDuck for external persistent storage."""
 
-    db_path = "md:"
+    db_path: str = Field(default="md:")
     database: str
     api_key: str
 
     _sql_processor_class = MotherDuckSqlProcessor
-    _sql_processor: MotherDuckSqlProcessor
 
     @overrides
     def get_sql_alchemy_url(self) -> str:
