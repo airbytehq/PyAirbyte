@@ -33,36 +33,33 @@ from __future__ import annotations
 import datetime
 import hashlib
 import os
-import sys
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from enum import Enum
-from pathlib import Path
-from platform import freedesktop_os_release, python_implementation, python_version, system
-from typing import Any
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any
 
 import requests
 import ulid
 
+from airbyte._util import meta
 from airbyte.version import get_version
+
+
+if TYPE_CHECKING:
+    from airbyte.caches.base import CacheBase
+    from airbyte.source import Source
 
 
 HASH_SEED = "PyAirbyte:"
 """Additional seed for randomizing one-way hashed strings."""
 
 
-def one_way_hash(string_to_hash: Any) -> str:
-    """Return a one-way hash of the given string.
-
-    To ensure a unique domain of hashes, we prepend a seed to the string before hashing.
-    """
-    return hashlib.sha256((HASH_SEED + str(string_to_hash)).encode()).hexdigest()
-
-
 PYAIRBYTE_APP_TRACKING_KEY = (
     os.environ.get("AIRBYTE_TRACKING_KEY", "") or "cukeSffc0G6gFQehKDhhzSurDzVSZ2OP"
 )
 """This key corresponds globally to the "PyAirbyte" application."""
+
 
 PYAIRBYTE_SESSION_ID = str(ulid.ULID())
 """Unique identifier for the current invocation of PyAirbyte.
@@ -71,23 +68,6 @@ This is used to determine the order of operations within a specific session.
 It is not a unique identifier for the user.
 """
 
-COLAB_SESSION_URL = "https://colab.research.google.com/get_session"
-"""URL to get the current Google Colab session information."""
-
-
-class SourceType(str, Enum):
-    VENV = "venv"
-    LOCAL_INSTALL = "local_install"
-
-
-@dataclass
-class CacheTelemetryInfo:
-    type: str
-
-
-streaming_cache_info = CacheTelemetryInfo("streaming")
-
-
 class SyncState(str, Enum):
     STARTED = "started"
     FAILED = "failed"
@@ -95,109 +75,64 @@ class SyncState(str, Enum):
 
 
 @dataclass
+class CacheTelemetryInfo:
+    type: str
+
+    @classmethod
+    def from_cache(cls, cache: CacheBase) -> CacheTelemetryInfo:  # noqa: ANN102
+        if not cache:
+            return cls(type="streaming")
+
+        return cls(type=type(cache).__name__)
+
+
+@dataclass
 class SourceTelemetryInfo:
     name: str
-    type: SourceType
+    executor_type: str
     version: str | None
 
-
-def get_colab_release_version() -> str | None:
-    if "COLAB_RELEASE_TAG" in os.environ:
-        return os.environ["COLAB_RELEASE_TAG"]
-
-    return None
-
-
-def is_ci() -> bool:
-    return "CI" in os.environ
+    @classmethod
+    def from_source(cls, source: Source) -> SourceTelemetryInfo:  # noqa: ANN102
+        return cls(
+            name=source.name,
+            executor_type=type(source.executor).__name__,
+            version=source.executor.reported_version,
+        )
 
 
-def is_colab() -> bool:
-    return bool(get_colab_release_version())
+def one_way_hash(
+    string_to_hash: Any,  # noqa: ANN401  # Allow Any type
+    /,
+) -> str:
+    """Return a one-way hash of the given string.
+
+    To ensure a unique domain of hashes, we prepend a seed to the string before hashing.
+    """
+    return hashlib.sha256((HASH_SEED + str(string_to_hash)).encode()).hexdigest()
 
 
-def is_jupyter() -> bool:
-    """Return True if running in a Jupyter notebook or qtconsole."""
-    try:
-        shell = get_ipython().__class__.__name__
-    except NameError:
-        return False  # If 'get_ipython' undefined, we're probably in a standard Python interpreter.
-
-    if shell == "ZMQInteractiveShell":
-        return True  # Jupyter notebook or qtconsole.
-
-    if shell == "TerminalInteractiveShell":
-        return False  # Terminal running IPython
-
-    return False  # Other type (?)
-
-
-def get_flags() -> dict[str, Any]:
+@lru_cache
+def get_env_flags() -> dict[str, Any]:
     flags: dict[str, bool] = {
-        "CI": is_ci(),
-        "GOOGLE_COLAB": is_colab(),
+        "CI": meta.is_ci(),
+        "NOTEBOOK_RUNTIME": (
+            "GOOGLE_COLAB"
+            if meta.is_colab()
+            else "JUPYTER"
+            if meta.is_jupyter()
+            else "VS_CODE"
+            if meta.is_vscode_notebook()
+            else False
+        ),
     }
     # Drop these flags if value is False
     return {k: v for k, v in flags.items() if v is False}
 
 
-def get_notebook_name_hash() -> str | None:
-    if is_colab():
-        session_info = requests.get(COLAB_SESSION_URL).json()
-        if session_info and "name" in session_info:
-            return one_way_hash(session_info["name"])
-
-    notebook_name = os.environ.get("AIRBYTE_NOTEBOOK_NAME", None)
-    if notebook_name:
-        return one_way_hash(notebook_name)
-
-    return None
-
-
-def get_vscode_notebook_name_hash() -> str | None:
-    with suppress(Exception):
-        import IPython
-
-        return Path(IPython.extract_module_locals()[1]["__vsc_ipynb_file__"]).name
-
-    return None
-
-
-def get_python_script_name_hash() -> str | None:
-    try:
-        script_name: str = sys.argv[0]  # When running a python script, this is the script name.
-    except Exception:
-        return None
-
-    if script_name:
-        return one_way_hash(Path(script_name).name)
-
-    return None
-
-
-def get_application_hash() -> str | None:
-    return (
-        get_notebook_name_hash()
-        or get_python_script_name_hash()
-        or get_vscode_notebook_name_hash()
-        or None
-    )
-
-
-def get_python_version() -> str:
-    return f"{python_version()} ({python_implementation()})"
-
-
-def get_os() -> str:
-    if is_colab():
-        return f"Google Colab ({get_colab_release_version()})"
-
-    return f"{system()} ({freedesktop_os_release()})"
-
-
 def send_telemetry(
-    source_info: SourceTelemetryInfo,
-    cache_info: CacheTelemetryInfo,
+    source: Source,
+    cache: CacheBase,
     state: SyncState,
     number_of_records: int | None = None,
 ) -> None:
@@ -210,16 +145,17 @@ def send_telemetry(
         "anonymousId": "airbyte-lib-user",
         "event": "sync",
         "properties": {
-            "version": get_version(),
-            "python_version": get_python_version(),
-            "os": get_os(),
+            "session_id": PYAIRBYTE_SESSION_ID,
+            "source": asdict(SourceTelemetryInfo.from_source(source)),
+            "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
             "state": state,
-            "source": asdict(source_info),
-            "cache": asdict(cache_info),
+            "version": get_version(),
+            "python_version": meta.get_python_version(),
+            "os": meta.get_os(),
             # explicitly set to 0.0.0.0 to avoid leaking IP addresses
-            "application_hash": get_application_hash(),
+            "application_hash": one_way_hash(meta.get_application_hash()),
             "ip": "0.0.0.0",
-            "flags": get_flags(),
+            "flags": get_env_flags(),
         },
         "timestamp": current_time,
     }
