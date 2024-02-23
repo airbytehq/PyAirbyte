@@ -520,6 +520,46 @@ class Source:
             yield message
             progress.log_records_read(self._processed_records)
 
+    def log_sync_start(
+        self,
+        cache: CacheBase,
+    ) -> None:
+        """Log the start of a sync operation."""
+        print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
+        send_telemetry(
+            source_info=self,
+            cache_info=cache,
+            state=SyncState.STARTED,
+        )
+
+    def log_sync_success(
+        self,
+        cache: CacheBase,
+        record_count: int,
+    ) -> None:
+        """Log the success of a sync operation."""
+        print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
+        send_telemetry(
+            source_info=self,
+            cache_info=cache,
+            state=SyncState.SUCCEEDED,
+            number_of_records=record_count,
+        )
+
+    def log_sync_failure(
+        self,
+        cache: CacheBase,
+        exception: Exception,
+    ) -> None:
+        """Log the failure of a sync operation."""
+        print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
+        send_telemetry(
+            source_info=self,
+            cache_info=cache,
+            state=SyncState.FAILED,
+            exception=exception,
+        )
+
     def read(
         self,
         cache: CacheBase | None = None,
@@ -590,16 +630,33 @@ class Source:
             if not force_full_refresh
             else None
         )
-        print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
-        cache.processor.process_airbyte_messages(
-            self._tally_records(
-                self._read(
-                    cache.processor._get_telemetry_info(),  # noqa: SLF001
-                    state=state,
-                ),
-            ),
-            write_strategy=write_strategy,
+        self.log_sync_start(
+            source=self,
+            cache=cache,
         )
+        try:
+            cache.processor.process_airbyte_messages(
+                self._tally_records(
+                    self._read(
+                        cache.processor._get_telemetry_info(),  # noqa: SLF001
+                        state=state,
+                    ),
+                ),
+                write_strategy=write_strategy,
+            )
+            self.log_sync_success(
+                source=self,
+                cache=cache,
+            )
+        except Exception as ex:
+            self.log_sync_failure(
+                source=self,
+                cache=cache,
+                exception=ex,
+            )
+            raise exc.AirbyteConnectorFailedError(
+                log_text=self._last_log_messages,
+            ) from ex
         print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
 
         return ReadResult(
