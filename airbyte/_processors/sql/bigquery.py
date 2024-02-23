@@ -23,6 +23,8 @@ from airbyte.types import SQLTypeConverter
 if TYPE_CHECKING:
     from sqlalchemy.engine.reflection import Inspector
 
+    from airbyte.caches.bigquery import BigQueryCache
+
 
 class BigQueryTypeConverter(SQLTypeConverter):
     """A class to convert types for BigQuery."""
@@ -34,8 +36,8 @@ class BigQueryTypeConverter(SQLTypeConverter):
     ) -> sqlalchemy.types.TypeEngine:
         """Convert a value to a SQL type.
 
-        We first call the parent class method to get the type. Then if the type is VARCHAR or BIGINT, we
-        replace it with respective BigQuery types.
+        We first call the parent class method to get the type. Then if the type is VARCHAR or
+        BIGINT, we replace it with respective BigQuery types.
         """
         sql_type = super().to_sql_type(json_schema_property_def)
         # to-do: replace hardcoded return types with some sort of snowflake Variant equivalent
@@ -53,6 +55,8 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     file_writer_class = JsonlWriter
     type_converter_class = BigQueryTypeConverter
 
+    cache: BigQueryCache
+
     @final
     @overrides
     def _fully_qualified(
@@ -60,7 +64,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         table_name: str,
     ) -> str:
         """Return the fully qualified name of the given table."""
-        return f"`{self.config.schema_name}.{table_name!s}`"
+        return f"`{self.cache.schema_name}.{table_name!s}`"
 
     @final
     @overrides
@@ -70,7 +74,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
     @final
     @overrides
-    def get_telemetry_info(self) -> CacheTelemetryInfo:
+    def _get_telemetry_info(self) -> CacheTelemetryInfo:
         return CacheTelemetryInfo("bigquery")
 
     def _write_files_to_new_table(
@@ -100,11 +104,12 @@ class BigQuerySqlProcessor(SqlProcessorBase):
                     )
 
                 credentials = service_account.Credentials.from_service_account_file(
-                    self.config.credentials_path
+                    self.cache.credentials_path
                 )
 
                 # timestamp columns need to be converted to datetime to work with pandas_gbq
-                # to-do: generalize the following to all columns of column type. This change is to test specically with faker source.
+                # to-do: generalize the following to all columns of column type. This change is to
+                # test specically with faker source.
                 dataframe["created_at"] = pd.to_datetime(dataframe["created_at"])
                 dataframe["updated_at"] = pd.to_datetime(dataframe["updated_at"])
 
@@ -131,8 +136,8 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         """
         with self.get_sql_connection() as conn:
             inspector: Inspector = sqlalchemy.inspect(conn)
-            tables = inspector.get_table_names(schema=self.config.schema_name)
-            schema_prefix = f"{self.config.schema_name}."
+            tables = inspector.get_table_names(schema=self.cache.schema_name)
+            schema_prefix = f"{self.cache.schema_name}."
             return [
                 table.replace(schema_prefix, "", 1) if table.startswith(schema_prefix) else table
                 for table in tables

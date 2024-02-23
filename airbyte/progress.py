@@ -26,7 +26,7 @@ IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case w
 ipy_display: ModuleType | None
 try:
     IS_NOTEBOOK = True
-    from IPython import display as ipy_display  # type: ignore  # noqa: PGH003
+    from IPython import display as ipy_display
 
 except ImportError:
     ipy_display = None

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from airbyte import caches, datasets, registry, secrets
 from airbyte._factories.connector_factories import get_source
+from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.factories import get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
@@ -14,7 +15,6 @@ from airbyte.registry import get_available_connectors
 from airbyte.results import ReadResult
 from airbyte.secrets import SecretSource, get_secret
 from airbyte.source import Source
-from airbyte.caches.bigquery import BigQueryCache, BigQueryCacheConfig
 
 
 __all__ = [
@@ -30,13 +30,12 @@ __all__ = [
     "get_source",
     "new_local_cache",
     # Classes
+    "BigQueryCache",
     "CachedDataset",
     "DuckDBCache",
     "ReadResult",
     "SecretSource",
     "Source",
-    "BigQueryCacheConfig",
-    "BigQueryCache",
 ]
 
 __docformat__ = "google"
