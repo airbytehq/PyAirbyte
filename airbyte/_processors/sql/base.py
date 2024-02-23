@@ -52,8 +52,8 @@ if TYPE_CHECKING:
         ConfiguredAirbyteCatalog,
     )
 
+    from airbyte._util.telemetry import CacheTelemetryInfo
     from airbyte.caches.base import CacheBase
-    from airbyte.telemetry import CacheTelemetryInfo
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.

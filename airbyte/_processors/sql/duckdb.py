@@ -12,7 +12,7 @@ from overrides import overrides
 
 from airbyte._processors.file import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
-from airbyte.telemetry import CacheTelemetryInfo
+from airbyte._util.telemetry import CacheTelemetryInfo
 
 
 if TYPE_CHECKING:

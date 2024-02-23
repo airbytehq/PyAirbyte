@@ -12,7 +12,7 @@ from snowflake.sqlalchemy import VARIANT
 
 from airbyte._processors.file.jsonl import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
-from airbyte.telemetry import CacheTelemetryInfo
+from airbyte._util.telemetry import CacheTelemetryInfo
 from airbyte.types import SQLTypeConverter
 
 

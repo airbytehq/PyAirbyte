@@ -28,18 +28,18 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
+from airbyte._util.telemetry import (
+    CacheTelemetryInfo,
+    SyncState,
+    send_telemetry,
+    streaming_cache_info,
+)
 from airbyte._util.text_util import lower_case_set  # Internal utility functions
 from airbyte.caches.factories import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
-from airbyte.telemetry import (
-    CacheTelemetryInfo,
-    SyncState,
-    send_telemetry,
-    streaming_cache_info,
-)
 
 
 if TYPE_CHECKING:

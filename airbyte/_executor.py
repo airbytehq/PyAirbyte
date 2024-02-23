@@ -13,8 +13,8 @@ from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 from rich import print
 
 from airbyte import exceptions as exc
+from airbyte._util.telemetry import SourceTelemetryInfo, SourceType
 from airbyte.registry import ConnectorMetadata
-from airbyte.telemetry import SourceTelemetryInfo, SourceType
 
 
 if TYPE_CHECKING:
