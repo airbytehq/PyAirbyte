@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""SQL datasets class."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -17,7 +19,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Selectable, Table
     from sqlalchemy.sql import ClauseElement
 
-    from airbyte.caches import SQLCacheBase
+    from airbyte.caches.base import CacheBase
 
 
 class SQLDataset(DatasetBase):
@@ -29,12 +31,12 @@ class SQLDataset(DatasetBase):
 
     def __init__(
         self,
-        cache: SQLCacheBase,
+        cache: CacheBase,
         stream_name: str,
         query_statement: Selectable,
     ) -> None:
         self._length: int | None = None
-        self._cache: SQLCacheBase = cache
+        self._cache: CacheBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
         super().__init__()
@@ -44,7 +46,7 @@ class SQLDataset(DatasetBase):
         return self._stream_name
 
     def __iter__(self) -> Iterator[Mapping[str, Any]]:
-        with self._cache.get_sql_connection() as conn:
+        with self._cache.processor.get_sql_connection() as conn:
             for row in conn.execute(self._query_statement):
                 # Access to private member required because SQLAlchemy doesn't expose a public API.
                 # https://pydoc.dev/sqlalchemy/latest/sqlalchemy.engine.row.RowMapping.html
@@ -57,13 +59,13 @@ class SQLDataset(DatasetBase):
         """
         if self._length is None:
             count_query = select([func.count()]).select_from(self._query_statement.alias())
-            with self._cache.get_sql_connection() as conn:
+            with self._cache.processor.get_sql_connection() as conn:
                 self._length = conn.execute(count_query).scalar()
 
         return self._length
 
     def to_pandas(self) -> DataFrame:
-        return self._cache.get_pandas_dataframe(self._stream_name)
+        return self._cache.processor.get_pandas_dataframe(self._stream_name)
 
     def with_filter(self, *filter_expressions: ClauseElement | str) -> SQLDataset:
         """Filter the dataset by a set of column values.
@@ -98,19 +100,28 @@ class CachedDataset(SQLDataset):
     underlying table as a SQLAlchemy Table object.
     """
 
-    def __init__(self, cache: SQLCacheBase, stream_name: str) -> None:
-        self._sql_table: Table = cache.get_sql_table(stream_name)
+    def __init__(self, cache: CacheBase, stream_name: str) -> None:
+        """We construct the query statement by selecting all columns from the table.
+
+        This prevents the need to scan the table schema to construct the query statement.
+        """
+        table_name = cache.processor.get_sql_table_name(stream_name)
+        schema_name = cache.schema_name
+        query = select("*").select_from(text(f"{schema_name}.{table_name}"))
         super().__init__(
             cache=cache,
             stream_name=stream_name,
-            query_statement=self._sql_table.select(),
+            query_statement=query,
         )
 
     @overrides
     def to_pandas(self) -> DataFrame:
-        return self._cache.get_pandas_dataframe(self._stream_name)
+        return self._cache.processor.get_pandas_dataframe(self._stream_name)
 
     def to_sql_table(self) -> Table:
+        if self._sql_table is None:
+            self._sql_table: Table = self._cache.processor.get_sql_table(self.stream_name)
+
         return self._sql_table
 
     def __eq__(self, value: object) -> bool:

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import cast
 
+import pyarrow as pa
 import sqlalchemy
 from rich import print
 
@@ -77,6 +78,61 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
         return "array", None
 
     err_msg = f"Could not determine airbyte type from JSON schema type: {json_schema_property_def}"
+    raise SQLTypeConversionError(err_msg)
+
+
+def _get_pyarrow_type(  # noqa: PLR0911  # Too many return statements
+    json_schema_property_def: dict[str, str | dict | list],
+) -> pa.DataType:
+    json_schema_type = json_schema_property_def.get("type", None)
+    json_schema_format = json_schema_property_def.get("format", None)
+
+    # if json_schema_type is an array of two strings with one of them being null, pick the other one
+    # this strategy is often used by connectors to indicate a field might not be set all the time
+    if isinstance(json_schema_type, list):
+        non_null_types = [t for t in json_schema_type if t != "null"]
+        if len(non_null_types) == 1:
+            json_schema_type = non_null_types[0]
+
+    if json_schema_type == "string":
+        if json_schema_format == "date":
+            return pa.date64()
+
+        if json_schema_format == "date-time":
+            return pa.timestamp("ns")
+
+        if json_schema_format == "time":
+            return pa.timestamp("ns")
+
+    if json_schema_type == "string":
+        return pa.string()
+
+    if json_schema_type == "number":
+        return pa.float64()
+
+    if json_schema_type == "integer":
+        return pa.int64()
+
+    if json_schema_type == "boolean":
+        return pa.bool_()
+
+    if json_schema_type == "object":
+        return pa.struct(
+            fields={
+                k: _get_pyarrow_type(v)
+                for k, v in cast(dict, json_schema_property_def.get("properties", {})).items()
+            }
+        )
+
+    if json_schema_type == "array":
+        items_def = json_schema_property_def.get("items", None)
+        if isinstance(items_def, dict):
+            subtype: pa.DataType = _get_pyarrow_type(items_def)
+            return pa.list_(subtype)
+
+        return pa.list_(pa.string())
+
+    err_msg = f"Could not determine PyArrow type from JSON schema type: {json_schema_property_def}"
     raise SQLTypeConversionError(err_msg)
 
 

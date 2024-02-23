@@ -16,7 +16,7 @@ _Note: Additional secret store options may be supported in the future. [More inf
 ### Retrieving Secrets
 
 ```python
-from airbyte_lib import get_secret, SecretSource
+from airbyte import get_secret, SecretSource
 
 source = get_connection("source-github")
 source.set_config(
@@ -82,9 +82,6 @@ For a more lightweight check, the `--validate-install-only` flag can be used. Th
 
 To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./CONTRIBUTING.md).
 
-## Changelog
+## Changelog and Release Notes
 
-| Version     | PR                                                         | Description                                                                                                       |
-| ----------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| 0.1.0  | [#35184](https://github.com/airbytehq/airbyte/pull/35184) | Beta Release 0.1.0 |
-| 0.1.0dev.2   | [#34111](https://github.com/airbytehq/airbyte/pull/34111)  | Initial publish - add publish workflow                                                                            |
+For a version history and list of all changes, please see our [GitHub Releases](https://github.com/airbytehq/PyAirbyte/releases) page.

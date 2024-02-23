@@ -11,19 +11,14 @@ import airbyte as ab
 
 
 def run() -> None:
-    """Generate docs for all public modules in airbyte_lib and save them to docs/generated.
-
-    Public modules are:
-    * The main airbyte_lib module
-    * All directory modules in airbyte_lib that don't start with an underscore.
-    """
-    public_modules = ["airbyte"]
+    """Generate docs for all public modules in AirbyteLib and save them to docs/generated."""
+    public_modules = []
 
     # recursively delete the docs/generated folder if it exists
     if pathlib.Path("docs/generated").exists():
         shutil.rmtree("docs/generated")
 
-    # All files and folders in `airbyte_lib` that don't start with "_" are treated as public.
+    # All files and folders that don't start with "_" are treated as public.
     for submodule in os.listdir("airbyte"):
         submodule_path = pathlib.Path(f"airbyte/{submodule}")
         if not submodule.startswith("_"):
@@ -31,8 +26,10 @@ def run() -> None:
 
     pdoc.render.configure(
         template_directory="docs",
-        show_source=False,
-        search=False,
+        show_source=True,
+        search=True,
+        logo="https://docs.airbyte.com/img/logo-dark.png",
+        favicon="https://docs.airbyte.com/img/favicon.png",
     )
     pdoc.pdoc(
         *public_modules,
