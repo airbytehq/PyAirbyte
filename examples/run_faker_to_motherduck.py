@@ -26,6 +26,8 @@ source = ab.get_source(
     config={"count": 10000, "seed": 0, "parallelism": 1, "always_updated": False},
     install_if_missing=True,
 )
+source.check()
+source.select_all_streams()
 
 cache = MotherDuckCache(
     database="airbyte_test",
@@ -33,9 +35,6 @@ cache = MotherDuckCache(
     api_key=MOTHERDUCK_API_KEY,
 )
 
-source.check()
-
-source.select_all_streams()
 result = source.read(cache=cache)
 
 for name, records in result.streams.items():
