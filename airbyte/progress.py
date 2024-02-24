@@ -25,10 +25,12 @@ IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case w
 
 ipy_display: ModuleType | None
 try:
-    IS_NOTEBOOK = True
+    # Default to IS_NOTEBOOK=False if a TTY is detected.
+    IS_NOTEBOOK = not sys.stdout.isatty()
     from IPython import display as ipy_display
 
 except ImportError:
+    # If IPython is not installed, then we're definitely not in a notebook.
     ipy_display = None
     IS_NOTEBOOK = False
 
