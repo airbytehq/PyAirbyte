@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import math
 import sys
 import time
@@ -25,11 +26,13 @@ IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case w
 
 ipy_display: ModuleType | None
 try:
-    from IPython import display as ipy_display  # type: ignore  # noqa: PGH003
-    IS_NOTEBOOK = True
+    # Default to IS_NOTEBOOK=False if a TTY is detected.
+    IS_NOTEBOOK = not sys.stdout.isatty()
+    ipy_display = importlib.import_module("IPython.display")
 
 except ImportError:
-    ipy_display = None  # type: ignore  # noqa: PGH003  # Ignore type mismatch.
+    # If IPython is not installed, then we're definitely not in a notebook.
+    ipy_display = None
     IS_NOTEBOOK = False
 
 
