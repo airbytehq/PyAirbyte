@@ -1,6 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-
 """A BigQuery implementation of the cache."""
+
 from __future__ import annotations
 
 import urllib
@@ -17,6 +17,7 @@ class BigQueryCache(CacheBase):
     """The BigQuery cache implementation."""
 
     project_name: str
+    dataset_name: str = "airbyte_raw"
     credentials_path: str
 
     _sql_processor_class: type[BigQuerySqlProcessor] = BigQuerySqlProcessor
@@ -25,6 +26,11 @@ class BigQueryCache(CacheBase):
     def get_database_name(self) -> str:
         """Return the name of the database. For BigQuery, this is the schema/dataset name."""
         return self.schema_name
+
+    @property
+    def schema_name(self) -> str:
+        """Return the name of the schema/dataset."""
+        return self.dataset_name
 
     @overrides
     def get_sql_alchemy_url(self) -> str:
