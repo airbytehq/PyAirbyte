@@ -435,9 +435,6 @@ class SqlProcessorBase(RecordProcessor):
         column_definition_str: str,
         primary_keys: list[str] | None = None,
     ) -> None:
-        if DEBUG_MODE:
-            assert table_name not in self._get_tables_list(), f"Table {table_name} already exists."
-
         if primary_keys:
             pk_str = ", ".join(primary_keys)
             column_definition_str += f",\n  PRIMARY KEY ({pk_str})"
@@ -448,11 +445,6 @@ class SqlProcessorBase(RecordProcessor):
         )
         """
         _ = self._execute_sql(cmd)
-        if DEBUG_MODE:
-            tables_list = self._get_tables_list()
-            assert (
-                table_name in tables_list
-            ), f"Table {table_name} was not created. Found: {tables_list}"
 
     def _normalize_column_name(
         self,
@@ -804,8 +796,8 @@ class SqlProcessorBase(RecordProcessor):
         columns = {self._quote_identifier(c) for c in self._get_sql_column_definitions(stream_name)}
         pk_columns = {self._quote_identifier(c) for c in self._get_primary_keys(stream_name)}
         non_pk_columns = columns - pk_columns
-        join_clause = "{nl} AND ".join(f"tmp.{pk_col} = final.{pk_col}" for pk_col in pk_columns)
-        set_clause = "{nl}    ".join(f"{col} = tmp.{col}" for col in non_pk_columns)
+        join_clause = f"{nl} AND ".join(f"tmp.{pk_col} = final.{pk_col}" for pk_col in pk_columns)
+        set_clause = f"{nl}  , ".join(f"{col} = tmp.{col}" for col in non_pk_columns)
         self._execute_sql(
             f"""
             MERGE INTO {self._fully_qualified(final_table_name)} final
@@ -908,12 +900,14 @@ class SqlProcessorBase(RecordProcessor):
             conn.execute(update_stmt)
             conn.execute(insert_new_records_stmt)
 
-    @final
     def _table_exists(
         self,
         table_name: str,
     ) -> bool:
-        """Return true if the given table exists."""
+        """Return true if the given table exists.
+
+        Subclasses may override this method to provide a more efficient implementation.
+        """
         return table_name in self._get_tables_list()
 
     @abc.abstractmethod
