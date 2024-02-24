@@ -79,7 +79,6 @@ class SqlProcessorBase(RecordProcessor):
 
     # Constructor:
 
-    @final  # We don't want subclasses to have to override the constructor.
     def __init__(
         self,
         cache: CacheBase,

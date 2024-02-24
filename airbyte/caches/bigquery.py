@@ -22,15 +22,14 @@ class BigQueryCache(CacheBase):
 
     _sql_processor_class: type[BigQuerySqlProcessor] = BigQuerySqlProcessor
 
+    def __post_init__(self) -> None:
+        """Initialize the BigQuery cache."""
+        self.schema_name = self.dataset_name
+
     @overrides
     def get_database_name(self) -> str:
-        """Return the name of the database. For BigQuery, this is the schema/dataset name."""
-        return self.schema_name
-
-    @property
-    def schema_name(self) -> str:
-        """Return the name of the schema/dataset."""
-        return self.dataset_name
+        """Return the name of the database. For BigQuery, this is the project name."""
+        return self.project_name
 
     @overrides
     def get_sql_alchemy_url(self) -> str:

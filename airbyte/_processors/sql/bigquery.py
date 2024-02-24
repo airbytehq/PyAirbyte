@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path  # noqa: TCH003 # Pydantic needs this import to be explicit
+from pathlib import Path
 from typing import TYPE_CHECKING, final
 
 import sqlalchemy
