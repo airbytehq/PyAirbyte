@@ -37,7 +37,7 @@ bigquery_destination_secret = json.loads(
 def main() -> None:
     source = ab.get_source(
         "source-faker",
-        config={"count": 10, "seed": 0, "parallelism": 1, "always_updated": False},
+        config={"count": 1000, "seed": 0, "parallelism": 1, "always_updated": False},
         install_if_missing=True,
     )
     source.check()
