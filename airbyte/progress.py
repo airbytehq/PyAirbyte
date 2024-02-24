@@ -9,20 +9,23 @@ import sys
 import time
 from contextlib import suppress
 from enum import Enum, auto
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
 
+if TYPE_CHECKING:
+    from types import ModuleType
+
+
 DEFAULT_REFRESHES_PER_SECOND = 2
 IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case we can use Rich.
 
-
+ipy_display: ModuleType | None
 try:
-    from IPython import display as ipy_display
-
+    from IPython import display as ipy_display  # type: ignore  # noqa: PGH003
     IS_NOTEBOOK = True
 
 except ImportError:
@@ -312,7 +315,7 @@ class ReadProgress:
 
         status_message = self._get_status_message()
 
-        if self.style == ProgressStyle.IPYTHON:
+        if self.style == ProgressStyle.IPYTHON and ipy_display is not None:
             # We're in a notebook so use the IPython display.
             assert ipy_display is not None
             ipy_display.clear_output(wait=True)
