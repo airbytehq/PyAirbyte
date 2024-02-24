@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import TYPE_CHECKING, Callable
 
+from pytz import utc
 from sqlalchemy import Column, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 
 from airbyte_protocol.models import (
     AirbyteStateMessage,
@@ -50,7 +51,9 @@ class StreamState(Base):  # type: ignore[valid-type,misc]
     stream_name = Column(String)
     table_name = Column(String, primary_key=True)
     state_json = Column(String)
-    last_updated = Column(DateTime(timezone=True), onupdate=func.now(), default=func.now())
+    last_updated = Column(
+        DateTime(timezone=True), onupdate=datetime.now(utc), default=datetime.now(utc)
+    )
 
 
 class CatalogManager:
