@@ -1,15 +1,14 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-
 """A BigQuery implementation of the cache."""
+
 from __future__ import annotations
 
 from pathlib import Path  # noqa: TCH003 # Pydantic needs this import to be explicit
 from typing import TYPE_CHECKING, final
 
-import pandas as pd
-import pandas_gbq
-import pyarrow as pa
 import sqlalchemy
+from google.api_core.exceptions import NotFound
+from google.cloud import bigquery
 from google.oauth2 import service_account
 from overrides import overrides
 
@@ -23,6 +22,8 @@ from airbyte.types import SQLTypeConverter
 if TYPE_CHECKING:
     from sqlalchemy.engine.reflection import Inspector
 
+    from airbyte._processors.file.base import FileWriterBase
+    from airbyte.caches.base import CacheBase
     from airbyte.caches.bigquery import BigQueryCache
 
 
@@ -54,8 +55,14 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
     file_writer_class = JsonlWriter
     type_converter_class = BigQueryTypeConverter
+    supports_merge_insert = True
 
     cache: BigQueryCache
+
+    def __init__(self, cache: CacheBase, file_writer: FileWriterBase | None = None) -> None:
+        self._credentials: service_account.Credentials | None = None
+        self._schema_exists: bool | None = None
+        super().__init__(cache, file_writer)
 
     @final
     @overrides
@@ -64,7 +71,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         table_name: str,
     ) -> str:
         """Return the fully qualified name of the given table."""
-        return f"`{self.cache.schema_name}.{table_name!s}`"
+        return f"`{self.cache.schema_name}`.`{table_name!s}`"
 
     @final
     @overrides
@@ -89,50 +96,103 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         to improve performance.
         """
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
+
+        # Specify the table ID (in the format `project_id.dataset_id.table_id`)
+        table_id = f"{self.cache.project_name}.{self.cache.dataset_name}.{temp_table_name}"
+
+        # Initialize a BigQuery client
+        client = bigquery.Client(credentials=self._get_credentials())
+
         for file_path in files:
-            with pa.parquet.ParquetFile(file_path) as pf:
-                record_batch = pf.read()
-                dataframe = record_batch.to_pandas()
-
-                # Pandas will auto-create the table if it doesn't exist, which we don't want.
-                if not self._table_exists(temp_table_name):
-                    raise exc.AirbyteLibInternalError(
-                        message="Table does not exist after creation.",
-                        context={
-                            "temp_table_name": temp_table_name,
-                        },
-                    )
-
-                credentials = service_account.Credentials.from_service_account_file(
-                    self.cache.credentials_path
+            with Path.open(file_path, "rb") as source_file:
+                load_job = client.load_table_from_file(  # Make an API request
+                    file_obj=source_file,
+                    destination=table_id,
+                    job_config=bigquery.LoadJobConfig(
+                        source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+                        schema=[
+                            bigquery.SchemaField(name, field_type=str(type_))
+                            for name, type_ in self._get_sql_column_definitions(
+                                stream_name=stream_name
+                            ).items()
+                        ],
+                    ),
                 )
+            _ = load_job.result()  # Wait for the job to complete
 
-                # timestamp columns need to be converted to datetime to work with pandas_gbq
-                # to-do: generalize the following to all columns of column type. This change is to
-                # test specically with faker source.
-                dataframe["created_at"] = pd.to_datetime(dataframe["created_at"])
-                dataframe["updated_at"] = pd.to_datetime(dataframe["updated_at"])
-
-                print(dataframe)
-
-                pandas_gbq.to_gbq(
-                    dataframe=dataframe,
-                    destination_table=f"airbyte_raw.{temp_table_name}",
-                    project_id="dataline-integration-testing",
-                    if_exists="append",
-                    credentials=credentials,
-                    # table_schema=columns_definition_gbq
-                )
         return temp_table_name
+
+    def _ensure_schema_exists(
+        self,
+    ) -> None:
+        """Ensure the target schema exists.
+
+        We override the default implementation because BigQuery is very slow at scanning schemas.
+
+        This implementation simply calls "CREATE SCHEMA IF NOT EXISTS" and ignores any errors.
+        """
+        if self._schema_exists:
+            return
+
+        sql = f"CREATE SCHEMA IF NOT EXISTS {self.cache.schema_name}"
+        try:
+            self._execute_sql(sql)
+        except Exception as ex:
+            # Ignore schema exists errors.
+            if "already exists" not in str(ex):
+                raise
+
+        self._schema_exists = True
+
+    def _get_credentials(self) -> service_account.Credentials:
+        """Return the GCP credentials."""
+        if self._credentials is None:
+            self._credentials = service_account.Credentials.from_service_account_file(
+                self.cache.credentials_path
+            )
+
+        return self._credentials
+
+    def _table_exists(
+        self,
+        table_name: str,
+    ) -> bool:
+        """Return true if the given table exists.
+
+        We override the default implementation because BigQuery is very slow at scanning tables.
+        """
+        client = bigquery.Client(credentials=self._get_credentials())
+        table_id = f"{self.cache.project_name}.{self.cache.dataset_name}.{table_name}"
+        try:
+            client.get_table(table_id)
+        except NotFound:
+            return False
+
+        except ValueError as ex:
+            raise exc.AirbyteLibInputError(
+                message="Invalid project name or dataset name.",
+                context={
+                    "table_id": table_id,
+                    "table_name": table_name,
+                    "project_name": self.cache.project_name,
+                    "dataset_name": self.cache.dataset_name,
+                },
+            ) from ex
+
+        return True
 
     @final
     @overrides
     def _get_tables_list(
         self,
     ) -> list[str]:
-        """
+        """Get the list of available tables in the schema.
+
         For bigquery, {schema_name}.{table_name} is returned, so we need to
         strip the schema name in front of the table name, if it exists.
+
+        Warning: This method is slow for BigQuery, as it needs to scan all tables in the dataset.
+        It has been observed to take 30+ seconds in some cases.
         """
         with self.get_sql_connection() as conn:
             inspector: Inspector = sqlalchemy.inspect(conn)
