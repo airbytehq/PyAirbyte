@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import math
 import sys
 import time
@@ -27,7 +28,7 @@ ipy_display: ModuleType | None
 try:
     # Default to IS_NOTEBOOK=False if a TTY is detected.
     IS_NOTEBOOK = not sys.stdout.isatty()
-    from IPython import display as ipy_display
+    ipy_display = importlib.import_module("IPython.display")
 
 except ImportError:
     # If IPython is not installed, then we're definitely not in a notebook.
