@@ -40,6 +40,7 @@ sqlalchemy = "1.4.51"
 sqlalchemy-bigquery = "1.9.0"
 types-pyyaml = "^6.0.12.12"
 ulid = "^1.1"
+segment-analytics-python = "^2.3.2"
 
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
@@ -58,6 +59,7 @@ types-requests = "2.31.0.4"
 freezegun = "^1.4.0"
 airbyte-source-faker = "^6.0.0"
 tomli = "^2.0"
+responses = "^0.25.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]

@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 import ulid
+from segment import analytics
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
@@ -68,6 +69,10 @@ PYAIRBYTE_SESSION_ID = str(ulid.ULID())
 This is used to determine the order of operations within a specific session.
 It is not a unique identifier for the user.
 """
+
+
+DO_NOT_TRACK = "DO_NOT_TRACK"
+"""Environment variable to opt-out of telemetry."""
 
 
 class SyncState(str, Enum):
@@ -140,10 +145,13 @@ def send_telemetry(
     exception: Exception | None = None,
 ) -> None:
     # If DO_NOT_TRACK is set, we don't send any telemetry
-    if os.environ.get("DO_NOT_TRACK"):
+    if os.environ.get(DO_NOT_TRACK):
         return
 
-    payload_props = {
+    analytics.write_key = PYAIRBYTE_APP_TRACKING_KEY
+    analytics.send = DO_NOT_TRACK not in os.environ  # Disable analytics if DO_NOT_TRACK is set
+
+    payload_props: dict[str, str | int | dict] = {
         "session_id": PYAIRBYTE_SESSION_ID,
         "source": asdict(SourceTelemetryInfo.from_source(source)),
         "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
@@ -151,33 +159,36 @@ def send_telemetry(
         "version": get_version(),
         "python_version": meta.get_python_version(),
         "os": meta.get_os(),
-        # explicitly set to 0.0.0.0 to avoid leaking IP addresses
         "application_hash": one_way_hash(meta.get_application_name()),
-        "ip": "0.0.0.0",
         "flags": get_env_flags(),
     }
-
     if exception:
         if isinstance(exception, exc.AirbyteError):
             payload_props["exception"] = exception.safe_logging_dict()
         else:
             payload_props["exception"] = {"class": type(exception).__name__}
 
-    current_time: str = datetime.datetime.utcnow().isoformat()  # noqa: DTZ003 # prefer now() over utcnow()
-    payload: dict[str, Any] = {
-        "anonymousId": "airbyte-lib-user",
-        "event": "sync",
-        "timestamp": current_time,
-        "properties": payload_props,
-    }
     if number_of_records is not None:
-        payload["properties"]["number_of_records"] = number_of_records
+        payload_props["number_of_records"] = number_of_records
 
-    # Suppress exceptions if host is unreachable or network is unavailable
-    with suppress(Exception):
-        # Do not handle the response, we don't want to block the execution
-        _ = requests.post(
-            "https://api.segment.io/v1/track",
-            auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
-            json=payload,
-        )
+    analytics.track(
+        anonymous_id=PYAIRBYTE_SESSION_ID,
+        event="sync",
+        timestamp=datetime.datetime.utcnow(),  # noqa: DTZ003
+        properties=payload_props,
+    )
+
+    # # This is a backup in case we decide to revert to using the REST API.
+    # # Suppress exceptions if host is unreachable or network is unavailable
+    # with suppress(Exception):
+    #     # Do not handle the response, we don't want to block the execution
+    #     _ = requests.post(
+    #         "https://api.segment.io/v1/track",
+    #         auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
+    #         json={
+    #             "anonymousId": "airbyte-lib-user",
+    #             "event": "sync",
+    #             "properties": payload_props,
+    #             "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
+    #         },
+    #     )
