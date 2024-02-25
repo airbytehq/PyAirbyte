@@ -26,7 +26,6 @@ secret_client = secretmanager.SecretManagerServiceClient.from_service_account_in
     json.loads(os.environ["GCP_GSM_CREDENTIALS"])
 )
 
-# to-do: make sure database & account id are read from PY_AIRBYTE_BIGQUERY_CREDS
 bigquery_destination_secret = json.loads(
     secret_client.access_secret_version(
         name="projects/dataline-integration-testing/secrets/SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS/versions/latest"
