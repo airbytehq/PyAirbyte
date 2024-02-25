@@ -42,7 +42,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
         self,
         stream_name: str,
         batch_id: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> FileWriterBatchHandle:
         """Process a record batch.
 
@@ -55,7 +55,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
         self,
         stream_name: str,
         batch_id: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> FileWriterBatchHandle:
         """Write a batch of records to the cache.
 

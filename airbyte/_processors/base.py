@@ -184,7 +184,9 @@ class RecordProcessor(abc.ABC):
                 stream_batch.append(protocol_util.airbyte_record_message_to_dict(record_msg))
                 if len(stream_batch) >= max_batch_size:
                     batch_df = pd.DataFrame(stream_batch)
-                    record_batch = pa.Table.from_pandas(batch_df)
+                    record_batch = pa.Table.from_pandas(
+                        batch_df
+                    )  # TODO: Refactor to remove dependency on pyarrow
                     self._process_batch(stream_name, record_batch)
                     progress.log_batch_written(stream_name, len(stream_batch))
                     stream_batch.clear()
@@ -206,7 +208,9 @@ class RecordProcessor(abc.ABC):
         # We are at the end of the stream. Process whatever else is queued.
         for stream_name, stream_batch in stream_batches.items():
             batch_df = pd.DataFrame(stream_batch)
-            record_batch = pa.Table.from_pandas(batch_df)
+            record_batch = pa.Table.from_pandas(
+                batch_df
+            )  # TODO: Refactor to remove dependency on pyarrow
             self._process_batch(stream_name, record_batch)
             progress.log_batch_written(stream_name, len(stream_batch))
 
@@ -227,7 +231,7 @@ class RecordProcessor(abc.ABC):
     def _process_batch(
         self,
         stream_name: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> tuple[str, Any, Exception | None]:
         """Process a single batch.
 
@@ -252,7 +256,7 @@ class RecordProcessor(abc.ABC):
         self,
         stream_name: str,
         batch_id: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> BatchHandle:
         """Process a single batch.
 

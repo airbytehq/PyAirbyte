@@ -41,7 +41,7 @@ class ParquetWriter(FileWriterBase):
     def _get_missing_columns(
         self,
         stream_name: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> list[str]:
         """Return a list of columns that are missing in the batch.
 
@@ -62,7 +62,7 @@ class ParquetWriter(FileWriterBase):
         self,
         stream_name: str,
         batch_id: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> FileWriterBatchHandle:
         """Process a record batch.
 

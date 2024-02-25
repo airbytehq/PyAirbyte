@@ -40,7 +40,7 @@ class JsonlWriter(FileWriterBase):
         self,
         stream_name: str,
         batch_id: str,
-        record_batch: pa.Table,
+        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
     ) -> FileWriterBatchHandle:
         """Process a record batch.
 
