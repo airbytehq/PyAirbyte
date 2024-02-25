@@ -111,7 +111,9 @@ class AirbyteError(Exception):
         We avoid any properties which could potentially contain PII.
         """
         result = {
+            # The class name is safe to log:
             "class": self.__class__.__name__,
+            # We discourage interpolated strings in 'message' so that this should never contain PII:
             "message": self.get_message(),
         }
         safe_attrs = ["connector_name", "stream_name", "violation", "exit_code"]
