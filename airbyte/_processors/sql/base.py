@@ -41,7 +41,6 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    import pyarrow as pa
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
@@ -485,23 +484,22 @@ class SqlProcessorBase(RecordProcessor):
         # columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
         return columns
 
-    @overrides
-    def _write_batch(
-        self,
-        stream_name: str,
-        batch_id: str,
-        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    ) -> FileWriterBatchHandle:
-        """Process a record batch.
+    # TODO: Delete if not needed.
+    # @overrides
+    # def _write_batch(
+    #     self,
+    #     stream_name: str,
+    #     batch_id: str,
+    #     record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
+    # ) -> FileWriterBatchHandle:
+    #     """Process a record batch.
 
-        Return the path to the cache file.
-        """
-        return self.file_writer.write_batch(stream_name, batch_id, record_batch)
+    #     Return the path to the cache file.
+    #     """
+    #     return self.file_writer.write_batch(stream_name, batch_id, record_batch)
 
     def _cleanup_batch(
         self,
-        stream_name: str,
-        batch_id: str,
         batch_handle: BatchHandle,
     ) -> None:
         """Clean up the cache.
@@ -510,7 +508,7 @@ class SqlProcessorBase(RecordProcessor):
 
         Subclasses should call super() if they override this method.
         """
-        self.file_writer.cleanup_batch(stream_name, batch_id, batch_handle)
+        self.file_writer.cleanup_batch(batch_handle)
 
     @final
     @overrides
@@ -518,7 +516,7 @@ class SqlProcessorBase(RecordProcessor):
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
-    ) -> dict[str, BatchHandle]:
+    ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
 
         This is a generic 'final' implementation, which should not be overridden.
@@ -543,15 +541,15 @@ class SqlProcessorBase(RecordProcessor):
 
             if not batches_to_finalize:
                 # If there are no batches to finalize, return after ensuring the table exists.
-                return {}
+                return []
 
             files: list[Path] = []
             # Get a list of all files to finalize from all pending batches.
-            for batch_handle in batches_to_finalize.values():
+            for batch_handle in batches_to_finalize:
                 batch_handle = cast(FileWriterBatchHandle, batch_handle)
                 files += batch_handle.files
             # Use the max batch ID as the batch ID for table names.
-            max_batch_id = max(batches_to_finalize.keys())
+            max_batch_id = max([batch.batch_id for batch in batches_to_finalize])
 
             temp_table_name = self._write_files_to_new_table(
                 files=files,

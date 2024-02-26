@@ -4,55 +4,37 @@
 from __future__ import annotations
 
 import gzip
-from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, cast
 
 import orjson
-import ulid
-from overrides import overrides
 
 from airbyte._processors.file.base import (
     FileWriterBase,
-    FileWriterBatchHandle,
 )
 
 
 if TYPE_CHECKING:
-    import pyarrow as pa
+    from pathlib import Path
+
+    pass
 
 
 class JsonlWriter(FileWriterBase):
     """A Jsonl cache implementation."""
 
-    def get_new_cache_file_path(
+    default_cache_file_suffix = ".jsonl.gz"
+
+    def _open_new_file(
         self,
         stream_name: str,
-        batch_id: str | None = None,  # ULID of the batch
-    ) -> Path:
-        """Return a new cache file path for the given stream."""
-        batch_id = batch_id or str(ulid.ULID())
-        target_dir = Path(self.cache.cache_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        return target_dir / f"{stream_name}_{batch_id}.jsonl.gz"
+    ) -> tuple[Path, IO[bytes]]:
+        """Open a new file for writing."""
+        file_path = self._get_new_cache_file_path(stream_name)
+        return file_path, cast(IO[bytes], gzip.open(file_path, "w"))
 
-    @overrides
-    def _write_batch(
+    def _write_record_dict(
         self,
-        stream_name: str,
-        batch_id: str,
-        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    ) -> FileWriterBatchHandle:
-        """Process a record batch.
-
-        Return the path to the cache file.
-        """
-        _ = batch_id  # unused
-        output_file_path = self.get_new_cache_file_path(stream_name)
-
-        with gzip.open(output_file_path, "w") as jsonl_file:
-            for record in record_batch.to_pylist():
-                jsonl_file.write(orjson.dumps(record) + b"\n")
-
-        batch_handle = FileWriterBatchHandle()
-        batch_handle.files.append(output_file_path)
-        return batch_handle
+        record_dict: dict,
+        open_file_writer: gzip.GzipFile | IO[bytes],
+    ) -> None:
+        open_file_writer.write(orjson.dumps(record_dict) + b"\n")

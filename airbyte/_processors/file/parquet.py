@@ -27,16 +27,7 @@ from airbyte._util.text_util import lower_case_set
 class ParquetWriter(FileWriterBase):
     """A Parquet cache implementation."""
 
-    def get_new_cache_file_path(
-        self,
-        stream_name: str,
-        batch_id: str | None = None,  # ULID of the batch
-    ) -> Path:
-        """Return a new cache file path for the given stream."""
-        batch_id = batch_id or str(ulid.ULID())
-        target_dir = Path(self.cache.cache_dir)
-        target_dir.mkdir(parents=True, exist_ok=True)
-        return target_dir / f"{stream_name}_{batch_id}.parquet"
+    default_cache_file_suffix = ".parquet"
 
     def _get_missing_columns(
         self,
@@ -57,42 +48,43 @@ class ParquetWriter(FileWriterBase):
             if col.lower() not in lower_case_set(record_batch.schema.names)
         ]
 
-    @overrides
-    def _write_batch(
-        self,
-        stream_name: str,
-        batch_id: str,
-        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    ) -> FileWriterBatchHandle:
-        """Process a record batch.
+    # TODO: Delete if not needed
+    # @overrides
+    # def _write_batch(
+    #     self,
+    #     stream_name: str,
+    #     batch_id: str,
+    #     record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
+    # ) -> FileWriterBatchHandle:
+    #     """Process a record batch.
 
-        Return the path to the cache file.
-        """
-        _ = batch_id  # unused
-        output_file_path = self.get_new_cache_file_path(stream_name)
+    #     Return the path to the cache file.
+    #     """
+    #     _ = batch_id  # unused
+    #     output_file_path = self._get_new_cache_file_path(stream_name)
 
-        missing_columns = self._get_missing_columns(stream_name, record_batch)
-        if missing_columns:
-            # We need to append columns with the missing column name(s) and a null type
-            null_array = cast(pa.Array, pa.array([None] * len(record_batch), type=pa.null()))
-            for col in missing_columns:
-                record_batch = record_batch.append_column(col, null_array)
+    #     missing_columns = self._get_missing_columns(stream_name, record_batch)
+    #     if missing_columns:
+    #         # We need to append columns with the missing column name(s) and a null type
+    #         null_array = cast(pa.Array, pa.array([None] * len(record_batch), type=pa.null()))
+    #         for col in missing_columns:
+    #             record_batch = record_batch.append_column(col, null_array)
 
-        try:
-            with parquet.ParquetWriter(output_file_path, schema=record_batch.schema) as writer:
-                writer.write_table(record_batch)
-        except Exception as e:
-            raise exc.AirbyteLibInternalError(
-                message=f"Failed to write record batch to Parquet file: {e}",
-                context={
-                    "stream_name": stream_name,
-                    "batch_id": batch_id,
-                    "output_file_path": output_file_path,
-                    "schema": record_batch.schema,
-                    "record_batch": record_batch,
-                },
-            ) from e
+    #     try:
+    #         with parquet.ParquetWriter(output_file_path, schema=record_batch.schema) as writer:
+    #             writer.write_table(record_batch)
+    #     except Exception as e:
+    #         raise exc.AirbyteLibInternalError(
+    #             message=f"Failed to write record batch to Parquet file: {e}",
+    #             context={
+    #                 "stream_name": stream_name,
+    #                 "batch_id": batch_id,
+    #                 "output_file_path": output_file_path,
+    #                 "schema": record_batch.schema,
+    #                 "record_batch": record_batch,
+    #             },
+    #         ) from e
 
-        batch_handle = FileWriterBatchHandle()
-        batch_handle.files.append(output_file_path)
-        return batch_handle
+    #     batch_handle = FileWriterBatchHandle()
+    #     batch_handle.files.append(output_file_path)
+    #     return batch_handle

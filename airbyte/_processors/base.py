@@ -16,9 +16,9 @@ import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast, final
 
-import pandas as pd
 import pyarrow as pa
 import ulid
+from pydantic import BaseModel
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -32,7 +32,6 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import protocol_util
 from airbyte.caches.base import CacheBase
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
@@ -49,8 +48,11 @@ DEFAULT_BATCH_SIZE = 10_000
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
 
 
-class BatchHandle:
-    pass
+class BatchHandle(BaseModel):
+    """A handle for a batch of records."""
+
+    stream_name: str
+    batch_id: str
 
 
 class AirbyteMessageParsingError(Exception):
@@ -59,6 +61,8 @@ class AirbyteMessageParsingError(Exception):
 
 class RecordProcessor(abc.ABC):
     """Abstract base class for classes which can process input records."""
+
+    MAX_BATCH_SIZE: int = DEFAULT_BATCH_SIZE
 
     skip_finalize_step: bool = False
 
@@ -81,8 +85,9 @@ class RecordProcessor(abc.ABC):
         self.source_catalog: ConfiguredAirbyteCatalog | None = None
         self._source_name: str | None = None
 
-        self._pending_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
-        self._finalized_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
+        self._active_batches: dict[str, BatchHandle] = {}
+        self._pending_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
+        self._finalized_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
         self._finalized_state_messages: dict[
@@ -120,17 +125,13 @@ class RecordProcessor(abc.ABC):
     def process_stdin(
         self,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
-        *,
-        max_batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         """Process the input stream from stdin.
 
         Return a list of summaries for testing.
         """
         input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
-        self.process_input_stream(
-            input_stream, write_strategy=write_strategy, max_batch_size=max_batch_size
-        )
+        self.process_input_stream(input_stream, write_strategy=write_strategy)
 
     @final
     def _airbyte_messages_from_buffer(
@@ -145,8 +146,6 @@ class RecordProcessor(abc.ABC):
         self,
         input_stream: io.TextIOBase,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
-        *,
-        max_batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         """Parse the input stream and process data in batches.
 
@@ -156,7 +155,18 @@ class RecordProcessor(abc.ABC):
         self.process_airbyte_messages(
             messages,
             write_strategy=write_strategy,
-            max_batch_size=max_batch_size,
+        )
+
+    def _process_record_message(
+        self,
+        record_msg: AirbyteRecordMessage,
+    ) -> tuple[str, BatchHandle]:
+        """Write a record to the cache.
+
+        This method is called for each record message, before the batch is written.
+        """
+        raise NotImplementedError(
+            "Subclasses must implement the _process_record_message() method.",
         )
 
     @final
@@ -164,8 +174,6 @@ class RecordProcessor(abc.ABC):
         self,
         messages: Iterable[AirbyteMessage],
         write_strategy: WriteStrategy,
-        *,
-        max_batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         """Process a stream of Airbyte messages."""
         if not isinstance(write_strategy, WriteStrategy):
@@ -174,22 +182,11 @@ class RecordProcessor(abc.ABC):
                 context={"write_strategy": write_strategy},
             )
 
-        stream_batches: dict[str, list[dict]] = defaultdict(list, {})
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
                 record_msg = cast(AirbyteRecordMessage, message.record)
-                stream_name = record_msg.stream
-                stream_batch = stream_batches[stream_name]
-                stream_batch.append(protocol_util.airbyte_record_message_to_dict(record_msg))
-                if len(stream_batch) >= max_batch_size:
-                    batch_df = pd.DataFrame(stream_batch)
-                    record_batch = pa.Table.from_pandas(
-                        batch_df
-                    )  # TODO: Refactor to remove dependency on pyarrow
-                    self._process_batch(stream_name, record_batch)
-                    progress.log_batch_written(stream_name, len(stream_batch))
-                    stream_batch.clear()
+                self._process_record_message(record_msg)
 
             elif message.type is Type.STATE:
                 state_msg = cast(AirbyteStateMessage, message.state)
@@ -206,15 +203,9 @@ class RecordProcessor(abc.ABC):
                 pass
 
         # We are at the end of the stream. Process whatever else is queued.
-        for stream_name, stream_batch in stream_batches.items():
-            batch_df = pd.DataFrame(stream_batch)
-            record_batch = pa.Table.from_pandas(
-                batch_df
-            )  # TODO: Refactor to remove dependency on pyarrow
-            self._process_batch(stream_name, record_batch)
-            progress.log_batch_written(stream_name, len(stream_batch))
+        self._flush_active_batches()
 
-        all_streams = list(self._pending_batches.keys())
+        all_streams = list(set(self._pending_batches.keys()) | set(self._finalized_batches.keys()))
         # Add empty streams to the streams list, so we create a destination table for it
         for stream_name in self.expected_streams:
             if stream_name not in all_streams:
@@ -227,46 +218,28 @@ class RecordProcessor(abc.ABC):
             self._finalize_batches(stream_name, write_strategy=write_strategy)
             progress.log_stream_finalized(stream_name)
 
-    @final
-    def _process_batch(
+    def _flush_active_batches(
+        self,
+    ) -> None:
+        """Flush active batches for all streams."""
+        for stream_name in self._active_batches:
+            self._flush_active_batch(stream_name)
+
+    def _flush_active_batch(
         self,
         stream_name: str,
-        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    ) -> tuple[str, Any, Exception | None]:
-        """Process a single batch.
+    ) -> None:
+        """Flush the active batch for the given stream.
 
-        Returns a tuple of the batch ID, batch handle, and an exception if one occurred.
+        This entails moving the active batch to the pending batches, closing any open files, and
+        logging the batch as written.
         """
-        batch_id = self._new_batch_id()
-        batch_handle = self._write_batch(
-            stream_name,
-            batch_id,
-            record_batch,
-        ) or self._get_batch_handle(stream_name, batch_id)
-
-        if self.skip_finalize_step:
-            self._finalized_batches[stream_name][batch_id] = batch_handle
-        else:
-            self._pending_batches[stream_name][batch_id] = batch_handle
-
-        return batch_id, batch_handle, None
-
-    @abc.abstractmethod
-    def _write_batch(
-        self,
-        stream_name: str,
-        batch_id: str,
-        record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    ) -> BatchHandle:
-        """Process a single batch.
-
-        Returns a batch handle, such as a path or any other custom reference.
-        """
+        raise NotImplementedError(
+            "Subclasses must implement the _flush_active_batch() method.",
+        )
 
     def _cleanup_batch(  # noqa: B027  # Intentionally empty, not abstract
         self,
-        stream_name: str,
-        batch_id: str,
         batch_handle: BatchHandle,
     ) -> None:
         """Clean up the cache.
@@ -282,24 +255,23 @@ class RecordProcessor(abc.ABC):
         """Return a new batch handle."""
         return str(ulid.ULID())
 
-    def _get_batch_handle(
+    def _new_batch(
         self,
         stream_name: str,
-        batch_id: str | None = None,  # ULID of the batch
-    ) -> str:
-        """Return a new batch handle.
+    ) -> BatchHandle:
+        """Create and return a new batch handle.
 
         By default this is a concatenation of the stream name and batch ID.
         However, any Python object can be returned, such as a Path object.
         """
-        batch_id = batch_id or self._new_batch_id()
-        return f"{stream_name}_{batch_id}"
+        batch_id = self._new_batch_id()
+        return BatchHandle(stream_name=stream_name, batch_id=batch_id)
 
     def _finalize_batches(
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
-    ) -> dict[str, BatchHandle]:
+    ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
 
         Returns a mapping of batch IDs to batch handles, for processed batches.
@@ -331,13 +303,15 @@ class RecordProcessor(abc.ABC):
     def _finalizing_batches(
         self,
         stream_name: str,
-    ) -> Generator[dict[str, BatchHandle], str, None]:
+    ) -> Generator[list[BatchHandle], str, None]:
         """Context manager to use for finalizing batches, if applicable.
 
         Returns a mapping of batch IDs to batch handles, for those processed batches.
         """
-        batches_to_finalize = self._pending_batches[stream_name].copy()
-        state_messages_to_finalize = self._pending_state_messages[stream_name].copy()
+        batches_to_finalize: list[BatchHandle] = self._pending_batches[stream_name].copy()
+        state_messages_to_finalize: list[AirbyteStateMessage] = self._pending_state_messages[
+            stream_name
+        ].copy()
         self._pending_batches[stream_name].clear()
         self._pending_state_messages[stream_name].clear()
 
@@ -346,11 +320,11 @@ class RecordProcessor(abc.ABC):
         self._finalize_state_messages(stream_name, state_messages_to_finalize)
         progress.log_batches_finalized(stream_name, len(batches_to_finalize))
 
-        self._finalized_batches[stream_name].update(batches_to_finalize)
+        self._finalized_batches[stream_name] += batches_to_finalize
         self._finalized_state_messages[stream_name] += state_messages_to_finalize
 
-        for batch_id, batch_handle in batches_to_finalize.items():
-            self._cleanup_batch(stream_name, batch_id, batch_handle)
+        for batch_handle in batches_to_finalize:
+            self._cleanup_batch(batch_handle)
 
     def _setup(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Create the database.
@@ -365,11 +339,14 @@ class RecordProcessor(abc.ABC):
 
         By default, the base implementation simply calls _cleanup_batch() for all pending batches.
         """
-        for stream_name, pending_batches in self._pending_batches.items():
-            for batch_id, batch_handle in pending_batches.items():
+        batch_lists: list[list[BatchHandle]] = list(self._pending_batches.values()) + list(
+            self._finalized_batches.values()
+        )
+
+        # TODO: flatten lists and remove nested 'for'
+        for batch_list in batch_lists:
+            for batch_handle in batch_list:
                 self._cleanup_batch(
-                    stream_name=stream_name,
-                    batch_id=batch_id,
                     batch_handle=batch_handle,
                 )
 
