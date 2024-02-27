@@ -6,7 +6,7 @@ from pathlib import Path
 import ulid
 
 from airbyte import exceptions as exc
-from airbyte.caches.duckdb import DuckDBCache, DuckDBCacheConfig
+from airbyte.caches.duckdb import DuckDBCache
 
 
 def get_default_cache() -> DuckDBCache:
@@ -15,10 +15,11 @@ def get_default_cache() -> DuckDBCache:
     Cache files are stored in the `.cache` directory, relative to the current
     working directory.
     """
-    config = DuckDBCacheConfig(
-        db_path="./.cache/default_cache_db.duckdb",
+    cache_dir = Path("./.cache/default_cache")
+    return DuckDBCache(
+        db_path=cache_dir / "default_cache.duckdb",
+        cache_dir=cache_dir,
     )
-    return DuckDBCache(config=config)
 
 
 def new_local_cache(
@@ -55,9 +56,8 @@ def new_local_cache(
     if not isinstance(cache_dir, Path):
         cache_dir = Path(cache_dir)
 
-    config = DuckDBCacheConfig(
+    return DuckDBCache(
         db_path=cache_dir / f"db_{cache_name}.duckdb",
         cache_dir=cache_dir,
         cleanup=cleanup,
     )
-    return DuckDBCache(config=config)

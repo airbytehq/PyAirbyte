@@ -1,8 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Abstract base class for Processors, including SQL and File writers.
 
-"""Define abstract base class for Processors, including Caches and File writers.
-
-Processors can all take input from STDIN or a stream of Airbyte messages.
+Processors can take input from STDIN or a stream of Airbyte messages.
 
 Caches will pass their input to the File Writer. They share a common base class so certain
 abstractions like "write" and "finalize" can be handled in either layer, or both.
@@ -17,6 +16,7 @@ import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast, final
 
+import pandas as pd
 import pyarrow as pa
 import ulid
 
@@ -33,15 +33,16 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
+from airbyte.caches.base import CacheBase
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
+from airbyte.types import _get_pyarrow_type
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
     from airbyte.caches._catalog_manager import CatalogManager
-    from airbyte.config import CacheConfigBase
 
 
 DEFAULT_BATCH_SIZE = 10_000
@@ -59,32 +60,29 @@ class AirbyteMessageParsingError(Exception):
 class RecordProcessor(abc.ABC):
     """Abstract base class for classes which can process input records."""
 
-    config_class: type[CacheConfigBase]
     skip_finalize_step: bool = False
-    _expected_streams: set[str]
 
     def __init__(
         self,
-        config: CacheConfigBase | dict | None,
+        cache: CacheBase,
         *,
         catalog_manager: CatalogManager | None = None,
     ) -> None:
-        if isinstance(config, dict):
-            config = self.config_class(**config)
-
-        self.config = config or self.config_class()
-        if not isinstance(self.config, self.config_class):
-            err_msg = (
-                f"Expected config class of type '{self.config_class.__name__}'.  "
-                f"Instead found '{type(self.config).__name__}'."
+        self._expected_streams: set[str] | None = None
+        self.cache: CacheBase = cache
+        if not isinstance(self.cache, CacheBase):
+            raise exc.AirbyteLibInputError(
+                message=(
+                    f"Expected config class of type 'CacheBase'.  "
+                    f"Instead received type '{type(self.cache).__name__}'."
+                ),
             )
-            raise TypeError(err_msg)
 
         self.source_catalog: ConfiguredAirbyteCatalog | None = None
         self._source_name: str | None = None
 
-        self._pending_batches: dict[str, dict[str, Any]] = defaultdict(lambda: {}, {})
-        self._finalized_batches: dict[str, dict[str, Any]] = defaultdict(lambda: {}, {})
+        self._pending_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
+        self._finalized_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
         self._finalized_state_messages: dict[
@@ -94,6 +92,11 @@ class RecordProcessor(abc.ABC):
 
         self._catalog_manager: CatalogManager | None = catalog_manager
         self._setup()
+
+    @property
+    def expected_streams(self) -> set[str]:
+        """Return the expected stream names."""
+        return self._expected_streams or set()
 
     def register_source(
         self,
@@ -112,11 +115,6 @@ class RecordProcessor(abc.ABC):
             incoming_stream_names=stream_names,
         )
         self._expected_streams = stream_names
-
-    @property
-    def _streams_with_data(self) -> set[str]:
-        """Return a list of known streams."""
-        return self._pending_batches.keys() | self._finalized_batches.keys()
 
     @final
     def process_stdin(
@@ -177,7 +175,6 @@ class RecordProcessor(abc.ABC):
             )
 
         stream_batches: dict[str, list[dict]] = defaultdict(list, {})
-
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
@@ -185,9 +182,9 @@ class RecordProcessor(abc.ABC):
                 stream_name = record_msg.stream
                 stream_batch = stream_batches[stream_name]
                 stream_batch.append(protocol_util.airbyte_record_message_to_dict(record_msg))
-
                 if len(stream_batch) >= max_batch_size:
-                    record_batch = pa.Table.from_pylist(stream_batch)
+                    batch_df = pd.DataFrame(stream_batch)
+                    record_batch = pa.Table.from_pandas(batch_df)
                     self._process_batch(stream_name, record_batch)
                     progress.log_batch_written(stream_name, len(stream_batch))
                     stream_batch.clear()
@@ -206,21 +203,23 @@ class RecordProcessor(abc.ABC):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
-        # Add empty streams to the dictionary, so we create a destination table for it
-        for stream_name in self._expected_streams:
-            if stream_name not in stream_batches:
-                if DEBUG_MODE:
-                    print(f"Stream {stream_name} has no data")
-                stream_batches[stream_name] = []
-
         # We are at the end of the stream. Process whatever else is queued.
         for stream_name, stream_batch in stream_batches.items():
-            record_batch = pa.Table.from_pylist(stream_batch)
+            batch_df = pd.DataFrame(stream_batch)
+            record_batch = pa.Table.from_pandas(batch_df)
             self._process_batch(stream_name, record_batch)
             progress.log_batch_written(stream_name, len(stream_batch))
 
+        all_streams = list(self._pending_batches.keys())
+        # Add empty streams to the streams list, so we create a destination table for it
+        for stream_name in self.expected_streams:
+            if stream_name not in all_streams:
+                if DEBUG_MODE:
+                    print(f"Stream {stream_name} has no data")
+                all_streams.append(stream_name)
+
         # Finalize any pending batches
-        for stream_name in list(self._pending_batches.keys()):
+        for stream_name in all_streams:
             self._finalize_batches(stream_name, write_strategy=write_strategy)
             progress.log_stream_finalized(stream_name)
 
@@ -355,6 +354,7 @@ class RecordProcessor(abc.ABC):
         By default this is a no-op but subclasses can override this method to prepare
         any necessary resources.
         """
+        pass
 
     def _teardown(self) -> None:
         """Teardown the processor resources.
@@ -394,3 +394,17 @@ class RecordProcessor(abc.ABC):
     ) -> dict[str, Any]:
         """Return the column definitions for the given stream."""
         return self._get_stream_config(stream_name).stream.json_schema
+
+    def _get_stream_pyarrow_schema(
+        self,
+        stream_name: str,
+    ) -> pa.Schema:
+        """Return the column definitions for the given stream."""
+        return pa.schema(
+            fields=[
+                pa.field(prop_name, _get_pyarrow_type(prop_def))
+                for prop_name, prop_def in self._get_stream_json_schema(stream_name)[
+                    "properties"
+                ].items()
+            ]
+        )

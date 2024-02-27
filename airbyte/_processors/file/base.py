@@ -1,21 +1,20 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-
-"""Define abstract base class for File Writers, which write and read from file storage."""
+"""Abstract base class for File Writers, which write and read from file storage."""
 
 from __future__ import annotations
 
 import abc
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
 
 from overrides import overrides
 
-from airbyte._processors import BatchHandle, RecordProcessor
-from airbyte.config import CacheConfigBase
+from airbyte._processors.base import BatchHandle, RecordProcessor
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     import pyarrow as pa
 
     from airbyte_protocol.models import (
@@ -34,20 +33,8 @@ class FileWriterBatchHandle(BatchHandle):
     files: list[Path] = field(default_factory=list)
 
 
-class FileWriterConfigBase(CacheConfigBase):
-    """Configuration for the Snowflake cache."""
-
-    cache_dir: Path = Path("./.cache/files/")
-    """The directory to store cache files in."""
-    cleanup: bool = True
-    """Whether to clean up temporary files after processing a batch."""
-
-
 class FileWriterBase(RecordProcessor, abc.ABC):
     """A generic base implementation for a file-based cache."""
-
-    config_class = FileWriterConfigBase
-    config: FileWriterConfigBase
 
     @abc.abstractmethod
     @overrides
@@ -91,7 +78,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
 
         This method is a no-op if the `cleanup` config option is set to False.
         """
-        if self.config.cleanup:
+        if self.cache.cleanup:
             batch_handle = cast(FileWriterBatchHandle, batch_handle)
             _ = stream_name, batch_id
             for file_path in batch_handle.files:

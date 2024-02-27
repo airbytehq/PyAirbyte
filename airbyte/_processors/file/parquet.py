@@ -1,6 +1,11 @@
-# Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+# Copyright (c) 2023 Airbyte, Inc., all rights reserved
+"""A Parquet file writer implementation.
 
-"""A Parquet cache implementation."""
+NOTE: Parquet is a strongly typed columnar storage format, which has known issues when applied to
+variable schemas, schemas with indeterminate types, and schemas that have empty data nodes.
+This implementation is deprecated for now in favor of jsonl.gz, and may be removed or revamped in
+the future.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -12,24 +17,15 @@ from overrides import overrides
 from pyarrow import parquet
 
 from airbyte import exceptions as exc
-from airbyte._file_writers.base import (
+from airbyte._processors.file.base import (
     FileWriterBase,
     FileWriterBatchHandle,
-    FileWriterConfigBase,
 )
 from airbyte._util.text_util import lower_case_set
 
 
-class ParquetWriterConfig(FileWriterConfigBase):
-    """Configuration for the Snowflake cache."""
-
-    # Inherits `cache_dir` from base class
-
-
 class ParquetWriter(FileWriterBase):
     """A Parquet cache implementation."""
-
-    config_class = ParquetWriterConfig
 
     def get_new_cache_file_path(
         self,
@@ -38,8 +34,7 @@ class ParquetWriter(FileWriterBase):
     ) -> Path:
         """Return a new cache file path for the given stream."""
         batch_id = batch_id or str(ulid.ULID())
-        config: ParquetWriterConfig = cast(ParquetWriterConfig, self.config)
-        target_dir = Path(config.cache_dir)
+        target_dir = Path(self.cache.cache_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / f"{stream_name}_{batch_id}.parquet"
 
@@ -83,8 +78,20 @@ class ParquetWriter(FileWriterBase):
             for col in missing_columns:
                 record_batch = record_batch.append_column(col, null_array)
 
-        with parquet.ParquetWriter(output_file_path, schema=record_batch.schema) as writer:
-            writer.write_table(record_batch)
+        try:
+            with parquet.ParquetWriter(output_file_path, schema=record_batch.schema) as writer:
+                writer.write_table(record_batch)
+        except Exception as e:
+            raise exc.AirbyteLibInternalError(
+                message=f"Failed to write record batch to Parquet file: {e}",
+                context={
+                    "stream_name": stream_name,
+                    "batch_id": batch_id,
+                    "output_file_path": output_file_path,
+                    "schema": record_batch.schema,
+                    "record_batch": record_batch,
+                },
+            ) from e
 
         batch_handle = FileWriterBatchHandle()
         batch_handle.files.append(output_file_path)

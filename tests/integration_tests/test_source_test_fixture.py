@@ -9,16 +9,16 @@ from typing import Any
 from unittest.mock import Mock, call, patch
 import tempfile
 from pathlib import Path
-from airbyte.caches.base import SQLCacheBase
+from airbyte._processors.sql.base import SqlProcessorBase
 
 from sqlalchemy import column, text
 
 import airbyte as ab
-from airbyte.caches import SnowflakeCacheConfig, SnowflakeSQLCache
+from airbyte.caches import SnowflakeCache
 import pandas as pd
 import pytest
 
-from airbyte.caches import PostgresCache, PostgresCacheConfig
+from airbyte.caches import PostgresCache
 from airbyte import registry
 from airbyte.version import get_version
 from airbyte.results import ReadResult
@@ -195,11 +195,14 @@ def test_file_write_and_cleanup() -> None:
         _ = source.read(cache_w_cleanup)
         _ = source.read(cache_wo_cleanup)
 
-        assert len(list(Path(temp_dir_1).glob("*.parquet"))) == 0, "Expected files to be cleaned up"
-        assert len(list(Path(temp_dir_2).glob("*.parquet"))) == 3, "Expected files to exist"
+        # We expect all files to be cleaned up:
+        assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, "Expected files to be cleaned up"
+
+        # There are three streams, but only two of them have data:
+        assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2, "Expected files to exist"
 
 
-def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SQLCacheBase, streams: list[str] = None):
+def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SqlProcessorBase, streams: list[str] = None):
     for stream_name in streams or expected_test_stream_data.keys():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -289,13 +292,13 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
-    cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
+    cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
 
     source.read(cache)
 
-    same_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
-    different_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="different_prefix_"))
-    no_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix=None))
+    same_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
+    different_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the cache with the same prefix has the data as expected, while the other two are empty
     assert_cache_data(expected_test_stream_data, same_prefix_cache)
@@ -307,9 +310,9 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     source.read(different_prefix_cache)
     source.read(no_prefix_cache)
 
-    second_same_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="prefix_"))
-    second_different_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix="different_prefix_"))
-    second_no_prefix_cache = ab.DuckDBCache(config=ab.DuckDBCacheConfig(db_path=db_path, table_prefix=None))
+    second_same_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="prefix_")
+    second_different_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    second_no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the first cache still has full data, while the other two have partial data
     assert_cache_data(expected_test_stream_data, second_same_prefix_cache)
@@ -420,7 +423,7 @@ def test_cached_dataset(
     not_a_stream_name = "not_a_stream"
 
     # Check that the stream appears in mapping-like attributes
-    assert stream_name in result.cache._streams_with_data
+    assert stream_name in result.cache.processor._expected_streams
     assert stream_name in result
     assert stream_name in result.cache
     assert stream_name in result.cache.streams
@@ -566,7 +569,7 @@ def test_check_fail_on_missing_config(method_call):
     with pytest.raises(exc.AirbyteConnectorConfigurationMissingError):
         method_call(source)
 
-def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCacheConfig, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_with_merge_to_postgres(new_pg_cache: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -577,15 +580,13 @@ def test_sync_with_merge_to_postgres(new_pg_cache_config: PostgresCacheConfig, e
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = PostgresCache(config=new_pg_cache_config)
-
     # Read twice to test merge strategy
-    result: ReadResult = source.read(cache)
-    result: ReadResult = source.read(cache)
+    result: ReadResult = source.read(new_pg_cache)
+    result: ReadResult = source.read(new_pg_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(cache[stream_name]) > 0:
+        if len(new_pg_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -697,17 +698,18 @@ def test_tracking(
     ])
 
 
-def test_sync_to_postgres(new_pg_cache_config: PostgresCacheConfig, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_to_postgres(
+    new_pg_cache: PostgresCache,
+    expected_test_stream_data: dict[str, list[dict[str, str | int]]],
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = PostgresCache(config=new_pg_cache_config)
-
-    result: ReadResult = source.read(cache)
+    result: ReadResult = source.read(new_pg_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(cache[stream_name]) > 0:
+        if len(new_pg_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -719,17 +721,15 @@ def test_sync_to_postgres(new_pg_cache_config: PostgresCacheConfig, expected_tes
 
 @pytest.mark.slow
 @pytest.mark.requires_creds
-def test_sync_to_snowflake(snowflake_config: SnowflakeCacheConfig, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_to_snowflake(new_snowflake_cache: SnowflakeCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    cache = SnowflakeSQLCache(config=snowflake_config)
-
-    result: ReadResult = source.read(cache)
+    result: ReadResult = source.read(new_snowflake_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(cache[stream_name]) > 0:
+        if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
