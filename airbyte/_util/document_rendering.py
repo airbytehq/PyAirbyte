@@ -1,3 +1,4 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Methods for converting Airbyte records into documents."""
 from __future__ import annotations
 
