@@ -1,3 +1,4 @@
+"""This examples script demonstrates how to render documents from a source."""
 from __future__ import annotations
 
 import rich
@@ -22,5 +23,4 @@ for doc in read_result["issues"].to_documents(
     # cursor_property="updated_at",
     render_metadata=True,
 ):
-    # print(str(doc))
     rich.print(rich.markdown.Markdown(str(doc) + "\n\n" + str("-" * 40)))
