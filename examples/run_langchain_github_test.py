@@ -21,3 +21,4 @@ rendering = ab.documents.DocumentRenderer(
 
 for doc in rendering.render_documents(read_result["issues"]):
     print(str(doc))
+    print("-" * 80)
