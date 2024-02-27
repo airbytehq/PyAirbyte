@@ -30,10 +30,7 @@ class ReadResult(Mapping[str, CachedDataset]):
         if stream not in self._processed_streams:
             raise KeyError(stream)
 
-        return CachedDataset(
-            cache=self._cache,
-            stream_name=stream,
-        )
+        return CachedDataset(self._cache, stream)
 
     def __contains__(self, stream: object) -> bool:
         if not isinstance(stream, str):
