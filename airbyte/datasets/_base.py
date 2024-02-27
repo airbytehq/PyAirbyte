@@ -2,16 +2,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
 
-from airbyte.documents import Document, DocumentRenderer
+from airbyte._util.document_rendering import DocumentRenderer
 
 
 if TYPE_CHECKING:
     from airbyte_protocol.models import ConfiguredAirbyteStream
+
+    from airbyte.documents import Document
 
 
 class DatasetBase(ABC):

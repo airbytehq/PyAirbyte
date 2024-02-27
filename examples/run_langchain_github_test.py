@@ -24,16 +24,3 @@ for doc in read_result["issues"].to_documents(
 ):
     # print(str(doc))
     rich.print(rich.markdown.Markdown(str(doc) + "\n\n" + str("-" * 40)))
-
-# rendering = ab.documents.DocumentRenderer(
-#     title_property="title",
-#     content_properties=["body"],
-#     metadata_properties=["state"],
-#     primary_key_properties=["id"],
-#     cursor_property="updated_at",
-#     render_frontmatter=True,
-# )
-
-# for doc in rendering.render_documents(read_result["issues"]):
-#     rich.print(rich.markdown.Markdown(str(doc)))
-#     rich.print(rich.markdown.Markdown("-" * 80))
