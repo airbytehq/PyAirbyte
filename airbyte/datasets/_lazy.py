@@ -33,7 +33,3 @@ class LazyDataset(DatasetBase):
 
     def __next__(self) -> Mapping[str, Any]:
         return next(self._iterator)
-
-    def _stream_metadata(self) -> ConfiguredAirbyteStream:
-        """Return the stream metadata."""
-        pass
