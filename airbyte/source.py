@@ -352,7 +352,10 @@ class Source:
                 ),
             )
         )
-        return LazyDataset(iterator)
+        return LazyDataset(
+            iterator,
+            stream_metadata=configured_stream,
+        )
 
     def get_documents(
         self,
