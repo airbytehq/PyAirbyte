@@ -1,5 +1,5 @@
 import airbyte as ab
-
+import rich
 
 read_result = ab.get_source(
     "source-github",
@@ -20,5 +20,5 @@ rendering = ab.documents.DocumentRenderer(
 )
 
 for doc in rendering.render_documents(read_result["issues"]):
-    print(str(doc))
-    print("-" * 80)
+    rich.print(rich.markdown.Markdown(str(doc)))
+    rich.print(rich.markdown.Markdown("-" * 80))
