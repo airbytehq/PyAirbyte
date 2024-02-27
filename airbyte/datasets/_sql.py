@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, cast
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
 
+from airbyte_protocol.models import ConfiguredAirbyteStream
+
 from airbyte.datasets._base import DatasetBase
 
 
@@ -39,7 +41,9 @@ class SQLDataset(DatasetBase):
         self._cache: CacheBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
-        super().__init__()
+        super().__init__(
+            stream_metadata=cache.processor._get_stream_config(stream_name),
+        )
 
     @property
     def stream_name(self) -> str:
@@ -100,7 +104,11 @@ class CachedDataset(SQLDataset):
     underlying table as a SQLAlchemy Table object.
     """
 
-    def __init__(self, cache: CacheBase, stream_name: str) -> None:
+    def __init__(
+        self,
+        cache: CacheBase,
+        stream_name: str,
+    ) -> None:
         """We construct the query statement by selecting all columns from the table.
 
         This prevents the need to scan the table schema to construct the query statement.
