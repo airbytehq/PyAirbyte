@@ -1,18 +1,13 @@
 """Methods for converting Airbyte records into documents."""
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-import yaml
 from pydantic import BaseModel
 
 
 if TYPE_CHECKING:
     import datetime
-    from collections.abc import Iterable
-
-    from airbyte_protocol.models import ConfiguredAirbyteStream
 
 
 MAX_SINGLE_LINE_LENGTH = 60
