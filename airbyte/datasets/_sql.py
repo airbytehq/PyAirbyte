@@ -3,13 +3,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
-
-from airbyte_protocol.models import ConfiguredAirbyteStream
 
 from airbyte.datasets._base import DatasetBase
 
