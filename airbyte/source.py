@@ -354,9 +354,29 @@ class Source:
         )
         return LazyDataset(iterator)
 
-    def get_documents(self, stream: str) -> Iterable[Document]:
-        """Read a stream from the connector and return the records as documents."""
-        return self.get_records(stream).as_documents()
+    def get_documents(
+        self,
+        stream: str,
+        title_property: str | None = None,
+        content_properties: list[str] | None = None,
+        metadata_properties: list[str] | None = None,
+        *,
+        render_metadata: bool = False,
+    ) -> Iterable[Document]:
+        """Read a stream from the connector and return the records as documents.
+
+        If metadata_properties is not set, all properties that are not content will be added to
+        the metadata.
+
+        If render_metadata is True, metadata will be rendered in the document, as well as the
+        the main content.
+        """
+        return self.get_records(stream).to_documents(
+            title_property=title_property,
+            content_properties=content_properties,
+            metadata_properties=metadata_properties,
+            render_metadata=render_metadata,
+        )
 
     def check(self) -> None:
         """Call check on the connector.

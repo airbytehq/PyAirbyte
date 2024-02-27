@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
 
-from airbyte.documents import Document
+from airbyte.documents import Document, DocumentRenderer
 
 
 if TYPE_CHECKING:
@@ -35,9 +35,26 @@ class DatasetBase(ABC):
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
 
-    def to_documents(self) -> Iterable[Document]:
-        """Return the iterator of documents."""
-        return Document.from_records(
-            records=self.__iter__(),
-            stream_metadata=self._stream_metadata,
+    def to_documents(
+        self,
+        title_property: str | None = None,
+        content_properties: list[str] | None = None,
+        metadata_properties: list[str] | None = None,
+        *,
+        render_metadata: bool = False,
+    ) -> Iterable[Document]:
+        """Return the iterator of documents.
+
+        If metadata_properties is not set, all properties that are not content will be added to
+        the metadata.
+
+        If render_metadata is True, metadata will be rendered in the document, as well as the
+        the main content. Otherwise, metadata will be attached to the document but not rendered.
+        """
+        renderer = DocumentRenderer(
+            title_property=title_property,
+            content_properties=content_properties,
+            metadata_properties=metadata_properties,
+            render_metadata=render_metadata,
         )
+        yield from renderer.render_documents(self)
