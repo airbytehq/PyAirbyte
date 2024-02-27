@@ -19,16 +19,16 @@ class LazyDataset(DatasetBase):
 
     def __init__(
         self,
-        iterator: Iterator[Mapping[str, Any]],
+        iterator: Iterator[dict[str, Any]],
         stream_metadata: ConfiguredAirbyteStream,
     ) -> None:
-        self._iterator: Iterator[Mapping[str, Any]] = iterator
+        self._iterator: Iterator[dict[str, Any]] = iterator
         super().__init__(
             stream_metadata=stream_metadata,
         )
 
     @overrides
-    def __iter__(self) -> Iterator[Mapping[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         return self._iterator
 
     def __next__(self) -> Mapping[str, Any]:

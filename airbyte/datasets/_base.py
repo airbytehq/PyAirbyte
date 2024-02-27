@@ -21,7 +21,7 @@ class DatasetBase(ABC):
         self._stream_metadata = stream_metadata
 
     @abstractmethod
-    def __iter__(self) -> Iterator[Mapping[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         """Return the iterator of records."""
         raise NotImplementedError
 
