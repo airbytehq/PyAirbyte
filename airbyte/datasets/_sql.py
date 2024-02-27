@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from overrides import overrides
@@ -39,18 +38,22 @@ class SQLDataset(DatasetBase):
         self._cache: CacheBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
-        super().__init__()
+        super().__init__(
+            stream_metadata=cache.processor._get_stream_config(  # noqa: SLF001 # Member is private until we have a public API for it.
+                stream_name=stream_name
+            ),
+        )
 
     @property
     def stream_name(self) -> str:
         return self._stream_name
 
-    def __iter__(self) -> Iterator[Mapping[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         with self._cache.processor.get_sql_connection() as conn:
             for row in conn.execute(self._query_statement):
                 # Access to private member required because SQLAlchemy doesn't expose a public API.
                 # https://pydoc.dev/sqlalchemy/latest/sqlalchemy.engine.row.RowMapping.html
-                yield cast(Mapping[str, Any], row._mapping)  # noqa: SLF001
+                yield cast(dict[str, Any], row._mapping)  # noqa: SLF001
 
     def __len__(self) -> int:
         """Return the number of records in the dataset.
@@ -100,7 +103,11 @@ class CachedDataset(SQLDataset):
     underlying table as a SQLAlchemy Table object.
     """
 
-    def __init__(self, cache: CacheBase, stream_name: str) -> None:
+    def __init__(
+        self,
+        cache: CacheBase,
+        stream_name: str,
+    ) -> None:
         """We construct the query statement by selecting all columns from the table.
 
         This prevents the need to scan the table schema to construct the query statement.
