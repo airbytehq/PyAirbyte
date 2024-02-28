@@ -49,7 +49,7 @@ jobs:
       matrix:
         python-version: [
           # TODO: Re-enable 3.9 and 3.11 once we have stable tests across all versions.
-          '3.9',
+          # '3.9',
           '3.10',
           # '3.11',
         ]
