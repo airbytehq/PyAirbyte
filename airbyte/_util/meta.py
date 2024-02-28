@@ -15,7 +15,7 @@ from platform import python_implementation, python_version, system
 import requests
 
 
-COLAB_SESSION_URL = "https://colab.research.google.com/get_session"
+COLAB_SESSION_URL = "http://172.28.0.12:9000/api/sessions"
 """URL to get the current Google Colab session information."""
 
 
@@ -35,7 +35,10 @@ def is_colab() -> bool:
 
 
 def is_jupyter() -> bool:
-    """Return True if running in a Jupyter notebook or qtconsole."""
+    """Return True if running in a Jupyter notebook or qtconsole.
+
+    Will return False in Colab (use is_colab() instead).
+    """
     try:
         shell = get_ipython().__class__.__name__  # type: ignore  # noqa: PGH003
     except NameError:
@@ -52,7 +55,12 @@ def is_jupyter() -> bool:
 
 def get_notebook_name() -> str | None:
     if is_colab():
-        session_info = requests.get(COLAB_SESSION_URL).json()
+        response = requests.get(COLAB_SESSION_URL)
+        if response.status_code == 200:  # noqa: PLR2004  # Magic number
+            session_info = response.json()
+        else:
+            # Unexpected status code
+            session_info = None
         if session_info and "name" in session_info:
             return session_info["name"]
 
