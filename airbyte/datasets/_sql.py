@@ -123,13 +123,12 @@ class CachedDataset(SQLDataset):
 
     @overrides
     def to_pandas(self) -> DataFrame:
+        """Return the underlying dataset data as a pandas DataFrame."""
         return self._cache.processor.get_pandas_dataframe(self._stream_name)
 
     def to_sql_table(self) -> Table:
-        if self._sql_table is None:
-            self._sql_table: Table = self._cache.processor.get_sql_table(self.stream_name)
-
-        return self._sql_table
+        """Return the underlying SQL table as a SQLAlchemy Table object."""
+        return self._cache.processor.get_sql_table(self.stream_name)
 
     def __eq__(self, value: object) -> bool:
         """Return True if the value is a CachedDataset with the same cache and stream name.
