@@ -2,17 +2,28 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator, Mapping
-from typing import Any, cast
+from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
+
+from airbyte._util.document_rendering import DocumentRenderer
+
+
+if TYPE_CHECKING:
+    from airbyte_protocol.models import ConfiguredAirbyteStream
+
+    from airbyte.documents import Document
 
 
 class DatasetBase(ABC):
     """Base implementation for all datasets."""
 
+    def __init__(self, stream_metadata: ConfiguredAirbyteStream) -> None:
+        self._stream_metadata = stream_metadata
+
     @abstractmethod
-    def __iter__(self) -> Iterator[Mapping[str, Any]]:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         """Return the iterator of records."""
         raise NotImplementedError
 
@@ -25,3 +36,27 @@ class DatasetBase(ABC):
         # expects an iterator of dict objects. This cast is safe because we know
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
+
+    def to_documents(
+        self,
+        title_property: str | None = None,
+        content_properties: list[str] | None = None,
+        metadata_properties: list[str] | None = None,
+        *,
+        render_metadata: bool = False,
+    ) -> Iterable[Document]:
+        """Return the iterator of documents.
+
+        If metadata_properties is not set, all properties that are not content will be added to
+        the metadata.
+
+        If render_metadata is True, metadata will be rendered in the document, as well as the
+        the main content. Otherwise, metadata will be attached to the document but not rendered.
+        """
+        renderer = DocumentRenderer(
+            title_property=title_property,
+            content_properties=content_properties,
+            metadata_properties=metadata_properties,
+            render_metadata=render_metadata,
+        )
+        yield from renderer.render_documents(self)
