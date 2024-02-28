@@ -320,6 +320,7 @@ class ReadProgress:
 
         if self.style == ProgressStyle.IPYTHON and ipy_display is not None:
             # We're in a notebook so use the IPython display.
+            assert ipy_display is not None
             ipy_display.clear_output(wait=True)
             ipy_display.display(ipy_display.Markdown(status_message))
 

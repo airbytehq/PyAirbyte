@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import abc
 import enum
 from contextlib import contextmanager
 from functools import cached_property
@@ -53,7 +52,6 @@ if TYPE_CHECKING:
     )
 
     from airbyte.caches.base import CacheBase
-    from airbyte.telemetry import CacheTelemetryInfo
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
@@ -908,7 +906,3 @@ class SqlProcessorBase(RecordProcessor):
         Subclasses may override this method to provide a more efficient implementation.
         """
         return table_name in self._get_tables_list()
-
-    @abc.abstractmethod
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        pass

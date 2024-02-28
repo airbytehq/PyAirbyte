@@ -15,7 +15,6 @@ from overrides import overrides
 from airbyte import exceptions as exc
 from airbyte._processors.file.jsonl import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
-from airbyte.telemetry import CacheTelemetryInfo
 from airbyte.types import SQLTypeConverter
 
 
@@ -78,11 +77,6 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     def _quote_identifier(self, identifier: str) -> str:
         """Return the identifier name as is. BigQuery does not require quoting identifiers"""
         return f"{identifier}"
-
-    @final
-    @overrides
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        return CacheTelemetryInfo("bigquery")
 
     def _write_files_to_new_table(
         self,

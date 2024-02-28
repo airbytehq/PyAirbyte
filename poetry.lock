@@ -2155,6 +2155,25 @@ security = ["itsdangerous (>=2.0)"]
 yaml = ["pyyaml (>=6.0.1)"]
 
 [[package]]
+name = "responses"
+version = "0.25.0"
+description = "A utility library for mocking out the `requests` Python library."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "responses-0.25.0-py3-none-any.whl", hash = "sha256:2f0b9c2b6437db4b528619a77e5d565e4ec2a9532162ac1a131a83529db7be1a"},
+    {file = "responses-0.25.0.tar.gz", hash = "sha256:01ae6a02b4f34e39bffceb0fc6786b67a25eae919c6368d05eabc8d9576c2a66"},
+]
+
+[package.dependencies]
+pyyaml = "*"
+requests = ">=2.30.0,<3.0"
+urllib3 = ">=1.25.10,<3.0"
+
+[package.extras]
+tests = ["coverage (>=6.0.0)", "flake8", "mypy", "pytest (>=7.0.0)", "pytest-asyncio", "pytest-cov", "pytest-httpserver", "tomli", "tomli-w", "types-PyYAML", "types-requests"]
+
+[[package]]
 name = "rich"
 version = "13.7.0"
 description = "Render rich text, tables, progress bars, syntax highlighting, markdown and more to the terminal"
@@ -2319,6 +2338,26 @@ files = [
     {file = "ruff-0.1.15-py3-none-win_arm64.whl", hash = "sha256:9a933dfb1c14ec7a33cceb1e49ec4a16b51ce3c20fd42663198746efc0427360"},
     {file = "ruff-0.1.15.tar.gz", hash = "sha256:f6dfa8c1b21c913c326919056c390966648b680966febcb796cc9d1aaab8564e"},
 ]
+
+[[package]]
+name = "segment-analytics-python"
+version = "2.3.2"
+description = "The hassle-free way to integrate analytics into any python application."
+optional = false
+python-versions = ">=3.6.0"
+files = [
+    {file = "segment-analytics-python-2.3.2.tar.gz", hash = "sha256:9321b1e03b0129fa69edba0b38c63c2de229db91abe7f849e3df015b8fbc1c36"},
+    {file = "segment_analytics_python-2.3.2-py2.py3-none-any.whl", hash = "sha256:0ba881e019c396f17b4e0a66117691a189a555bc13da47de69cb8db8e3adecad"},
+]
+
+[package.dependencies]
+backoff = ">=2.1,<3.0"
+PyJWT = ">=2.8.0,<2.9.0"
+python-dateutil = ">=2.2,<3.0"
+requests = ">=2.7,<3.0"
+
+[package.extras]
+test = ["flake8 (==3.7.9)", "mock (==2.0.0)", "pylint (==2.8.0)"]
 
 [[package]]
 name = "setuptools"

@@ -105,6 +105,24 @@ class AirbyteError(Exception):
         )
         return f"{class_name}({properties_str})"
 
+    def safe_logging_dict(self) -> dict[str, Any]:
+        """Return a dictionary of the exception's properties which is safe for logging.
+
+        We avoid any properties which could potentially contain PII.
+        """
+        result = {
+            # The class name is safe to log:
+            "class": self.__class__.__name__,
+            # We discourage interpolated strings in 'message' so that this should never contain PII:
+            "message": self.get_message(),
+        }
+        safe_attrs = ["connector_name", "stream_name", "violation", "exit_code"]
+        for attr in safe_attrs:
+            if hasattr(self, attr):
+                result[attr] = getattr(self, attr)
+
+        return result
+
 
 # PyAirbyte Internal Errors (these are probably bugs)
 
