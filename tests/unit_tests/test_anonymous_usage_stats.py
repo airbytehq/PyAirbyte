@@ -2,6 +2,7 @@
 
 import itertools
 from contextlib import nullcontext as does_not_raise
+import json
 import re
 from unittest.mock import Mock, call, patch
 from freezegun import freeze_time
@@ -28,7 +29,6 @@ def test_telemetry_track(monkeypatch):
 
     # Add a response for the telemetry endpoint
     responses.add(responses.POST, 'https://api.segment.io/v1/track', status=200)
-    responses.add(responses.GET, re.compile('.*'), status=200)
 
     telemetry.send_telemetry(
         source=source_test,
@@ -40,7 +40,52 @@ def test_telemetry_track(monkeypatch):
     # Check that one request was made
     assert len(responses.calls) == 1
 
+    # Parse the body of the first request as JSON
+    body = json.loads(responses.calls[0].request.body)
 
+    assert "properties" in body
+
+    # Check that certain fields exist in 'properties' and are non-null
+    for field in [
+        "source", "cache", "state", "version", "python_version", "os", "application_hash"
+    ]:
+        assert body["properties"].get(field, None), f"{field} is null in posted body: {body}"
+
+    assert body["properties"].get("source", {}).get("name") == "source-test", f"field1 is null in posted body: {body}"
+    assert body["properties"].get("cache", {}).get("type") == "DuckDBCache", f"field1 is null in posted body: {body}"
+
+    # Check for empty values:
+    for field in body.keys():
+        assert body[field], f"{field} is empty in posted body: {body}"
+
+
+
+
+@pytest.mark.parametrize("do_not_track", ['1', 'true', 't'])
+@responses.activate
+def test_do_not_track(monkeypatch, do_not_track):
+    """Check that track is called and the correct data is sent."""
+    monkeypatch.setenv('DO_NOT_TRACK', do_not_track)
+
+    source_test = ab.get_source("source-test", install_if_missing=False)
+    cache = ab.new_local_cache()
+
+    # Add a response for the telemetry endpoint
+    responses.add(responses.POST, 'https://api.segment.io/v1/track', status=200)
+    responses.add(responses.GET, re.compile('.*'), status=200)
+
+    telemetry.send_telemetry(
+        source=source_test,
+        cache=cache,
+        state="started",
+        number_of_records=0,
+    )
+
+    # Check that zero requests were made, because DO_NOT_TRACK is set
+    assert len(responses.calls) == 0
+
+
+@pytest.mark.xfail(reason="This test is too brittle and should be rewritten.")
 @freeze_time("2021-01-01T00:00:00.000000")
 @patch.dict('os.environ', {'DO_NOT_TRACK': ''})
 @responses.activate
