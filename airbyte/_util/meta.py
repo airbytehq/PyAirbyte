@@ -30,10 +30,12 @@ def is_ci() -> bool:
     return "CI" in os.environ
 
 
+@lru_cache
 def is_colab() -> bool:
     return bool(get_colab_release_version())
 
 
+@lru_cache
 def is_jupyter() -> bool:
     """Return True if running in a Jupyter notebook or qtconsole.
 
@@ -53,20 +55,18 @@ def is_jupyter() -> bool:
     return False  # Other type (?)
 
 
+@lru_cache
 def get_notebook_name() -> str | None:
     if is_colab():
-        response = requests.get(COLAB_SESSION_URL)
-        if response.status_code == 200:  # noqa: PLR2004  # Magic number
-            session_info = response.json()
-        else:
-            # Unexpected status code
-            session_info = None
+        session_info = None
+        response = None
+        with suppress(Exception):
+            response = requests.get(COLAB_SESSION_URL)
+            if response.status_code == 200:  # noqa: PLR2004  # Magic number
+                session_info = response.json()
+
         if session_info and "name" in session_info:
             return session_info["name"]
-
-    notebook_name = os.environ.get("AIRBYTE_NOTEBOOK_NAME", None)
-    if notebook_name:
-        return notebook_name
 
     return None
 
@@ -87,11 +87,11 @@ def is_vscode_notebook() -> bool:
     return get_vscode_notebook_name() is not None
 
 
+@lru_cache
 def get_python_script_name() -> str | None:
-    try:
-        script_name: str = sys.argv[0]  # When running a python script, this is the script name.
-    except Exception:
-        return None
+    script_name = None
+    with suppress(Exception):
+        script_name = sys.argv[0]  # When running a python script, this is the script name.
 
     if script_name:
         return Path(script_name).name
