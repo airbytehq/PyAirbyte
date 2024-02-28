@@ -23,7 +23,7 @@ google-cloud-bigquery = "^3.17.2"
 jsonschema = "3.2.0"
 orjson = "^3.9.10"
 overrides = "^7.4.0"
-pandas = "2.1.4" # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
+pandas = ">=2.1.4,!=2.2.0,<3.0" # 2.2.0 breaks sqlalchemy interop
 pendulum = "<=3.0.0"
 psycopg2-binary = "^2.9.9"
 # psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
