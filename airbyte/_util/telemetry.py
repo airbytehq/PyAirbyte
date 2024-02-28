@@ -41,7 +41,6 @@ from typing import TYPE_CHECKING, Any
 
 import requests
 import ulid
-from segment import analytics
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
@@ -86,7 +85,7 @@ class CacheTelemetryInfo:
     type: str
 
     @classmethod
-    def from_cache(cls, cache: CacheBase | None) -> CacheTelemetryInfo:  # noqa: ANN102
+    def from_cache(cls, cache: CacheBase | None) -> CacheTelemetryInfo:
         if not cache:
             return cls(type="streaming")
 
@@ -100,7 +99,7 @@ class SourceTelemetryInfo:
     version: str | None
 
     @classmethod
-    def from_source(cls, source: Source) -> SourceTelemetryInfo:  # noqa: ANN102
+    def from_source(cls, source: Source) -> SourceTelemetryInfo:
         return cls(
             name=source.name,
             executor_type=type(source.executor).__name__,
@@ -148,9 +147,6 @@ def send_telemetry(
     if os.environ.get(DO_NOT_TRACK):
         return
 
-    analytics.write_key = PYAIRBYTE_APP_TRACKING_KEY
-    analytics.send = DO_NOT_TRACK not in os.environ  # Disable analytics if DO_NOT_TRACK is set
-
     payload_props: dict[str, str | int | dict] = {
         "session_id": PYAIRBYTE_SESSION_ID,
         "source": asdict(SourceTelemetryInfo.from_source(source)),
@@ -171,24 +167,16 @@ def send_telemetry(
     if number_of_records is not None:
         payload_props["number_of_records"] = number_of_records
 
-    analytics.track(
-        anonymous_id=PYAIRBYTE_SESSION_ID,
-        event="sync",
-        timestamp=datetime.datetime.utcnow(),  # noqa: DTZ003
-        properties=payload_props,
-    )
-
-    # # This is a backup in case we decide to revert to using the REST API.
-    # # Suppress exceptions if host is unreachable or network is unavailable
-    # with suppress(Exception):
-    #     # Do not handle the response, we don't want to block the execution
-    #     _ = requests.post(
-    #         "https://api.segment.io/v1/track",
-    #         auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
-    #         json={
-    #             "anonymousId": "airbyte-lib-user",
-    #             "event": "sync",
-    #             "properties": payload_props,
-    #             "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
-    #         },
-    #     )
+    # Suppress exceptions if host is unreachable or network is unavailable
+    with suppress(Exception):
+        # Do not handle the response, we don't want to block the execution
+        _ = requests.post(
+            "https://api.segment.io/v1/track",
+            auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
+            json={
+                "anonymousId": "airbyte-lib-user",
+                "event": "sync",
+                "properties": payload_props,
+                "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
+            },
+        )

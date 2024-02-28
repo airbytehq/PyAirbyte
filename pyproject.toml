@@ -39,7 +39,6 @@ snowflake-sqlalchemy = "^1.5.1"
 sqlalchemy = "1.4.51"
 types-pyyaml = "^6.0.12.12"
 ulid = "^1.1"
-segment-analytics-python = "^2.3.2"
 
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
