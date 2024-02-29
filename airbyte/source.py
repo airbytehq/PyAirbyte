@@ -5,6 +5,7 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import jsonschema
@@ -227,6 +228,35 @@ class Source:
         raise exc.AirbyteConnectorMissingSpecError(
             log_text=self._last_log_messages,
         )
+
+    def example_spec(self, to_file: bool | None = None) -> dict | None:
+        """Generate an example configuration file based on the current spec.
+
+        This function generates a JSON file with an example configuration for the
+        current connector. If `to_file` is True or a non-empty string, the file will
+        be written to the given path. Otherwise, the function will return the
+        specification as a dictionary.
+
+        Args:
+            to_file (bool or str, optional): Whether to write the specification to a file.
+                Defaults to None. If set to True or a non-empty string, will generate
+                an example config and write it to the given path. Otherwise, will return
+                the spec as a dictionary.
+
+        Returns:
+            dict or None: The generated configuration as a dictionary, or None if
+                the spec was written to a file.
+        """
+        spec = self._get_spec(force_refresh=True).connectionSpecification["properties"]
+        if to_file:
+            if isinstance(to_file, str):
+                path = to_file
+            else:
+                path = "example_config.json"
+            with Path(path).open("w") as f:
+                f.write(json.dumps(spec, indent=4))
+            return None
+        return spec
 
     @property
     def _yaml_spec(self) -> str:
