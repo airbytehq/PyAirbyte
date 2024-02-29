@@ -239,8 +239,8 @@ class Source:
 
         Args:
             to_file (bool or str, optional): Whether to write the specification to a file.
-                Defaults to None. If set to True or a non-empty string, will generate
-                an example config and write it to the given path. Otherwise, will return
+                Defaults to None. If set to True will generate
+                an example config and write it to `example_config.json`. Otherwise, will return
                 the spec as a dictionary.
 
         Returns:
@@ -249,10 +249,7 @@ class Source:
         """
         spec = self._get_spec(force_refresh=True).connectionSpecification["properties"]
         if to_file:
-            if isinstance(to_file, str):
-                path = to_file
-            else:
-                path = "example_config.json"
+            path = "example_config.json"
             with Path(path).open("w") as f:
                 f.write(json.dumps(spec, indent=4))
             return None
