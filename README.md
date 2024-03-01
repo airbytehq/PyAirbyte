@@ -2,7 +2,6 @@
 
 PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provides a set of utilities to use Airbyte connectors in Python. It is meant to be used in situations where setting up an Airbyte server or cloud account is not possible or desirable. 
 
-# Table of Contents
 - [Getting Started](#getting-started)
 - [Secrets Management](#secrets-management)
 - [Connector compatibility](#connector-compatibility)
