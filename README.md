@@ -102,22 +102,22 @@ To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contribu
 
 ## Frequently asked Questions 
 
-**1.Does PyAirbyte replace Airbyte?**
+**1. Does PyAirbyte replace Airbyte?**
 No. 
 
-**2.What is the PyAirbyte cache? Is it a destination?**
+**2. What is the PyAirbyte cache? Is it a destination?**
 Yes, you can think of it as a built-in destination implementation, but we avoid the word "destination" in our docs to prevent confusion with our certified destinations list [here](https://docs.airbyte.com/integrations/destinations/).
 
-**3.Does PyAirbyte work with data orchestration frameworks like Airflow, Dagster, and Snowpark,**
-Yes, it should. Please give it a try and report any problems you see. Also, drop up a note if works for you!
+**3. Does PyAirbyte work with data orchestration frameworks like Airflow, Dagster, and Snowpark,**
+Yes, it should. Please give it a try and report any problems you see. Also, drop us a note if works for you!
 
-**4.Can I use PyAirbyte to develop or test when developing Airbyte sources?**
+**4. Can I use PyAirbyte to develop or test when developing Airbyte sources?**
 Yes, you can, but only for Python-based sources.
 
-**5.Can I develop traditional ETL pipelines with PyAirbyte?**
+**5. Can I develop traditional ETL pipelines with PyAirbyte?**
 Yes. Just pick the cache type matching the destination - like SnowflakeCache for landing data in Snowflake.
 
-**6.Can PyAirbyte import a connector from a local directory that has python project files, or does it have to be pip install**
+**6. Can PyAirbyte import a connector from a local directory that has python project files, or does it have to be pip install**
 Yes, PyAirbyte can use any local install that has a CLI - and will automatically find connectors by name if they are on PATH. 
 
 
