@@ -84,10 +84,13 @@ def get_source(
                 # Assume this is a path
                 local_executable = Path(local_executable).absolute()
             else:
-                if sys.platform == "win32":
-                    local_executable = f"{local_executable}.exe"
-
+                which_executable: str | None = None
                 which_executable = shutil.which(local_executable)
+                if not which_executable and sys.platform == "win32":
+                    # Try with the .exe extension
+                    local_executable = f"{local_executable}.exe"
+                    which_executable = shutil.which(local_executable)
+
                 if which_executable is None:
                     raise exc.AirbyteConnectorExecutableNotFoundError(
                         connector_name=name,

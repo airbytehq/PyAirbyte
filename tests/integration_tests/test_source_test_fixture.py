@@ -709,7 +709,7 @@ def test_install_uninstall():
         assert not os.path.exists(install_root / ".venv-source-test")
 
         # use which to check if the executable is available
-        assert shutil.which("source-test") is None
+        assert not shutil.which("source-test") and not shutil.which("source-test.exe")
 
         # assert that the connector is not available
         with pytest.raises(Exception):
