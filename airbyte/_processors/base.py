@@ -18,7 +18,6 @@ from typing import TYPE_CHECKING, Any, cast, final
 
 import pyarrow as pa
 import ulid
-from pydantic import BaseModel
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -32,6 +31,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._batch_handles import BatchHandle
 from airbyte.caches.base import CacheBase
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
@@ -46,13 +46,6 @@ if TYPE_CHECKING:
 
 DEFAULT_BATCH_SIZE = 10_000
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
-
-
-class BatchHandle(BaseModel):
-    """A handle for a batch of records."""
-
-    stream_name: str
-    batch_id: str
 
 
 class AirbyteMessageParsingError(Exception):

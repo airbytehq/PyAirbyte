@@ -6,7 +6,7 @@ from __future__ import annotations
 import enum
 from contextlib import contextmanager
 from functools import cached_property
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, final
 
 import pandas as pd
 import sqlalchemy
@@ -27,8 +27,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import TextClause
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import BatchHandle, RecordProcessor
-from airbyte._processors.file.base import FileWriterBase, FileWriterBatchHandle
+from airbyte._processors.base import RecordProcessor
 from airbyte._util.text_util import lower_case_set
 from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
@@ -50,6 +49,8 @@ if TYPE_CHECKING:
         ConfiguredAirbyteCatalog,
     )
 
+    from airbyte._batch_handles import BatchHandle
+    from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
 
 
@@ -480,7 +481,7 @@ class SqlProcessorBase(RecordProcessor):
     #     stream_name: str,
     #     batch_id: str,
     #     record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    # ) -> FileWriterBatchHandle:
+    # ) -> BatchHandle:
     #     """Process a record batch.
 
     #     Return the path to the cache file.
@@ -535,7 +536,6 @@ class SqlProcessorBase(RecordProcessor):
             files: list[Path] = []
             # Get a list of all files to finalize from all pending batches.
             for batch_handle in batches_to_finalize:
-                batch_handle = cast(FileWriterBatchHandle, batch_handle)
                 files += batch_handle.files
             # Use the max batch ID as the batch ID for table names.
             max_batch_id = max([batch.batch_id for batch in batches_to_finalize])

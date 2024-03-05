@@ -4,17 +4,15 @@
 from __future__ import annotations
 
 import abc
-from contextlib import suppress
-from dataclasses import field
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, cast, final
+from typing import IO, TYPE_CHECKING, final
 
 import ulid
 from overrides import overrides
-from pydantic import Field, PrivateAttr
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import BatchHandle, RecordProcessor
+from airbyte._batch_handles import BatchHandle
+from airbyte._processors.base import RecordProcessor
 from airbyte._util.protocol_util import airbyte_record_message_to_dict
 from airbyte.progress import progress
 
@@ -31,32 +29,12 @@ if TYPE_CHECKING:
 DEFAULT_BATCH_SIZE = 10000
 
 
-# The batch handle for file writers is a list of Path objects.
-class FileWriterBatchHandle(BatchHandle):
-    """The file writer batch handle is a list of Path objects."""
-
-    files: list[Path] = Field(default_factory=list)
-    _open_file_writer: Any | None = PrivateAttr(default=None)
-    _record_count: int = PrivateAttr(default=0)
-
-    # TODO: Handle pydantic error: Fields of type "<class 'typing.IO'>" are not supported.
-    # open_file_writer: IO[bytes] | None = PrivateAttr(default=None)
-
-    @property
-    def record_count(self) -> int:
-        return self._record_count
-
-    @property
-    def open_file_writer(self) -> IO[bytes] | None:
-        return self._open_file_writer
-
-
 class FileWriterBase(RecordProcessor, abc.ABC):
     """A generic base implementation for a file-based cache."""
 
     default_cache_file_suffix: str = ".batch"
 
-    _active_batches: dict[str, FileWriterBatchHandle]
+    _active_batches: dict[str, BatchHandle]
 
     def _get_new_cache_file_path(
         self,
@@ -97,7 +75,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
         if stream_name not in self._active_batches:
             return
 
-        batch_handle: FileWriterBatchHandle = self._active_batches[stream_name]
+        batch_handle: BatchHandle = self._active_batches[stream_name]
         del self._active_batches[stream_name]
 
         if self.skip_finalize_step:
@@ -112,7 +90,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
     def _new_batch(
         self,
         stream_name: str,
-    ) -> FileWriterBatchHandle:
+    ) -> BatchHandle:
         """Create and return a new batch handle.
 
         The base implementation creates and opens a new file for writing so it is ready to receive
@@ -120,11 +98,10 @@ class FileWriterBase(RecordProcessor, abc.ABC):
         """
         batch_id = self._new_batch_id()
         new_file_path, new_file_handle = self._open_new_file(stream_name=stream_name)
-        batch_handle = FileWriterBatchHandle(
+        batch_handle = BatchHandle(
             stream_name=stream_name,
             batch_id=batch_id,
             files=[new_file_path],
-            open_file_writer=new_file_handle,
         )
         self._active_batches[stream_name] = batch_handle
         return batch_handle
@@ -132,7 +109,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
     @overrides
     def _cleanup_batch(
         self,
-        batch_handle: FileWriterBatchHandle,
+        batch_handle: BatchHandle,
     ) -> None:
         """Clean up the cache.
 
@@ -148,21 +125,18 @@ class FileWriterBase(RecordProcessor, abc.ABC):
 
     def _close_batch_files(
         self,
-        batch_handle: FileWriterBatchHandle,
+        batch_handle: BatchHandle,
     ) -> None:
         """Close the current batch."""
         if not batch_handle.open_file_writer:
             return
 
-        with suppress(Exception):
-            batch_handle.open_file_writer.close()
-
-        batch_handle.open_file_writer = None
+        batch_handle.close_files()
 
     @final
     def cleanup_batch(
         self,
-        batch_handle: FileWriterBatchHandle,
+        batch_handle: BatchHandle,
     ) -> None:
         """Clean up the cache.
 
@@ -189,7 +163,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
     def _process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-    ) -> tuple[str, FileWriterBatchHandle]:
+    ) -> tuple[str, BatchHandle]:
         """Write a record to the cache.
 
         This method is called for each record message, before the batch is written.
@@ -199,12 +173,12 @@ class FileWriterBase(RecordProcessor, abc.ABC):
         """
         stream_name = record_msg.stream
 
-        batch_handle: FileWriterBatchHandle
+        batch_handle: BatchHandle
         if not self._pending_batches[stream_name]:
             batch_handle = self._new_batch(stream_name=stream_name)
 
         else:
-            batch_handle = cast(FileWriterBatchHandle, self._pending_batches[stream_name][-1])
+            batch_handle = self._pending_batches[stream_name][-1]
 
         if batch_handle.record_count + 1 > self.MAX_BATCH_SIZE:
             # Already at max batch size, so write the batch and start a new one
@@ -222,7 +196,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
             record_dict=airbyte_record_message_to_dict(record_message=record_msg),
             open_file_writer=batch_handle.open_file_writer,
         )
-        batch_handle.record_count += 1
+        batch_handle.increment_record_count()
         return stream_name, batch_handle
 
     def _write_record_dict(

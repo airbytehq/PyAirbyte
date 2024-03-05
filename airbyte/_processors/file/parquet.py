@@ -8,20 +8,15 @@ the future.
 """
 from __future__ import annotations
 
-from pathlib import Path
-from typing import cast
-
-import pyarrow as pa
-import ulid
-from overrides import overrides
-from pyarrow import parquet
+from typing import TYPE_CHECKING
 
 from airbyte import exceptions as exc
-from airbyte._processors.file.base import (
-    FileWriterBase,
-    FileWriterBatchHandle,
-)
+from airbyte._processors.file.base import FileWriterBase
 from airbyte._util.text_util import lower_case_set
+
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 class ParquetWriter(FileWriterBase):
@@ -55,7 +50,7 @@ class ParquetWriter(FileWriterBase):
     #     stream_name: str,
     #     batch_id: str,
     #     record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    # ) -> FileWriterBatchHandle:
+    # ) -> BatchHandle:
     #     """Process a record batch.
 
     #     Return the path to the cache file.
@@ -85,6 +80,6 @@ class ParquetWriter(FileWriterBase):
     #             },
     #         ) from e
 
-    #     batch_handle = FileWriterBatchHandle()
+    #     batch_handle = BatchHandle()
     #     batch_handle.files.append(output_file_path)
     #     return batch_handle
