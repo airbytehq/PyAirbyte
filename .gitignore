@@ -1,3 +1,7 @@
+# Directories and subdirectories called 'secrets' or '.secrets'
+.secrets
+secrets
+
 # Virtual Environments
 .venv
 .venv-*
