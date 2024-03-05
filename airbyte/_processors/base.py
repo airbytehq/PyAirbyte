@@ -153,14 +153,16 @@ class RecordProcessor(abc.ABC):
     def _process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-    ) -> tuple[str, BatchHandle]:
+    ) -> None:
         """Write a record to the cache.
 
         This method is called for each record message, before the batch is written.
+
+        By default this is a no-op but file writers can override this method to write the record to
+        files.
         """
-        raise NotImplementedError(
-            "Subclasses must implement the _process_record_message() method.",
-        )
+        _ = record_msg  # Unused
+        pass
 
     @final
     def process_airbyte_messages(

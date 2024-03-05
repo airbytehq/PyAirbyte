@@ -56,13 +56,6 @@ class FileWriterBase(RecordProcessor, abc.ABC):
         file_handle: BufferedWriter = file_path.open("wb")
         return file_path, file_handle
 
-    def _flush_active_batches(
-        self,
-    ) -> None:
-        """Flush active batches for all streams."""
-        for stream_name in self._active_batches:
-            self._flush_active_batch(stream_name)
-
     def _flush_active_batch(
         self,
         stream_name: str,
@@ -163,7 +156,7 @@ class FileWriterBase(RecordProcessor, abc.ABC):
     def _process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-    ) -> tuple[str, BatchHandle]:
+    ) -> None:
         """Write a record to the cache.
 
         This method is called for each record message, before the batch is written.
@@ -197,7 +190,6 @@ class FileWriterBase(RecordProcessor, abc.ABC):
             open_file_writer=batch_handle.open_file_writer,
         )
         batch_handle.increment_record_count()
-        return stream_name, batch_handle
 
     def _write_record_dict(
         self,

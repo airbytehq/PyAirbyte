@@ -474,20 +474,6 @@ class SqlProcessorBase(RecordProcessor):
         # columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
         return columns
 
-    # TODO: Delete if not needed.
-    # @overrides
-    # def _write_batch(
-    #     self,
-    #     stream_name: str,
-    #     batch_id: str,
-    #     record_batch: pa.Table,  # TODO: Refactor to remove dependency on pyarrow
-    # ) -> BatchHandle:
-    #     """Process a record batch.
-
-    #     Return the path to the cache file.
-    #     """
-    #     return self.file_writer.write_batch(stream_name, batch_id, record_batch)
-
     def _cleanup_batch(
         self,
         batch_handle: BatchHandle,
