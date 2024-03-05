@@ -100,7 +100,19 @@ def test_pg_connection(host) -> bool:
         return False
 
 
+def is_docker_available():
+    try:
+        _ = docker.from_env()
+        return True
+    except docker.errors.DockerException:
+        return False
+
+
 @pytest.fixture(scope="session")
+@pytest.mark.skipif(
+    os.name == 'nt' or not is_docker_available(),
+    reason="Skipping test on Windows or when Docker is not available."
+)
 def pg_dsn():
     client = docker.from_env()
     try:
