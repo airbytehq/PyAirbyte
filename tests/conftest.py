@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from pathlib import Path
 import shutil
 import socket
 import subprocess
@@ -245,7 +246,7 @@ def source_test_installation():
         shutil.rmtree(venv_dir)
 
     subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-    pip_path = str(_get_bin_dir(venv_dir) / "pip")
+    pip_path = str(_get_bin_dir(Path(venv_dir)) / "pip")
     subprocess.run([pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
 
     yield
