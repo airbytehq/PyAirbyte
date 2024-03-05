@@ -173,8 +173,13 @@ unfixable = [
     "T201" # print() calls (avoid silent loss of code / log messages)
 ]
 line-length = 100
-extend-exclude = ["docs", "test", "tests"]
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+"**/tests/**" = [
+    # Rules to ignore in tests:
+    "ANN201", # Missing return type annotation for public function
+]
 
 [tool.ruff.isort]
 force-sort-within-sections = false
