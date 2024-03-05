@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 import os
+from pathlib import Path
 import sys
 import shutil
 
@@ -19,6 +20,7 @@ import ulid
 import airbyte as ab
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.factories import new_local_cache, get_default_cache
+from airbyte._executor import _get_bin_dir
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -37,7 +39,7 @@ FAKER_SCALE_B = 300
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = os.path.join(sys.prefix, 'bin')
+    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}:{os.environ['PATH']}"
