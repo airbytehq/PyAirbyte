@@ -9,6 +9,7 @@ import shutil
 import socket
 import subprocess
 import time
+import pip
 
 import ulid
 from airbyte.caches.snowflake import SnowflakeCache
@@ -22,6 +23,7 @@ from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
+from airbyte._executor import _get_bin_dir
 
 logger = logging.getLogger(__name__)
 
@@ -243,7 +245,8 @@ def source_test_installation():
         shutil.rmtree(venv_dir)
 
     subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-    subprocess.run([f"{venv_dir}/bin/pip", "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
+    pip_path = str(_get_bin_dir(venv_dir) / "pip")
+    subprocess.run([pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
 
     yield
 
