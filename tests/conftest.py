@@ -1,6 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-
 """Global pytest fixtures."""
+from __future__ import annotations
 
 import json
 import logging

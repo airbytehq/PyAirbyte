@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path  # noqa: TCH003  # Used in Pydantic init
+from typing import Union
 
 from overrides import overrides
 
@@ -23,7 +24,7 @@ warnings.filterwarnings(
 class DuckDBCache(CacheBase):
     """A DuckDB cache."""
 
-    db_path: Path | str
+    db_path: Union[Path, str]
     """Normally db_path is a Path object.
 
     There are some cases, such as when connecting to MotherDuck, where it could be a string that

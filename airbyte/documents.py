@@ -2,9 +2,9 @@
 """Methods for converting Airbyte records into documents."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 if TYPE_CHECKING:
@@ -30,10 +30,10 @@ class Document(BaseModel):
     This class is duck-typed to be compatible with LangChain project's `Document` class.
     """
 
-    id: str | None = None
+    id: Optional[str] = Field(default=None)
     content: str
     metadata: dict[str, Any]
-    last_modified: datetime.datetime | None = None
+    last_modified: Optional[datetime.datetime] = Field(default=None)
 
     def __str__(self) -> str:
         return self.content
