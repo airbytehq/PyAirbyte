@@ -28,18 +28,16 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
+from airbyte._util.telemetry import (
+    SyncState,
+    send_telemetry,
+)
 from airbyte._util.text_util import lower_case_set  # Internal utility functions
 from airbyte.caches.factories import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
-from airbyte.telemetry import (
-    CacheTelemetryInfo,
-    SyncState,
-    send_telemetry,
-    streaming_cache_info,
-)
 
 
 if TYPE_CHECKING:
@@ -47,6 +45,7 @@ if TYPE_CHECKING:
 
     from airbyte._executor import Executor
     from airbyte.caches import CacheBase
+    from airbyte.documents import Document
 
 
 @contextmanager
@@ -307,7 +306,7 @@ class Source:
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
         """
-        catalog = self._discover()
+        discovered_catalog: AirbyteCatalog = self.discovered_catalog
         configured_catalog = ConfiguredAirbyteCatalog(
             streams=[
                 ConfiguredAirbyteStream(
@@ -315,7 +314,7 @@ class Source:
                     sync_mode=SyncMode.full_refresh,
                     destination_sync_mode=DestinationSyncMode.overwrite,
                 )
-                for s in catalog.streams
+                for s in discovered_catalog.streams
                 if s.name == stream
             ],
         )
@@ -332,6 +331,11 @@ class Source:
         configured_stream = configured_catalog.streams[0]
         all_properties = set(configured_stream.stream.json_schema["properties"].keys())
 
+        def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+            self._log_sync_start(cache=None)
+            yield from records
+            self._log_sync_success(cache=None)
+
         def _with_missing_columns(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
             """Add missing columns to the record with null values."""
             for record in records:
@@ -343,15 +347,41 @@ class Source:
                 }
                 yield {**record, **appended_dict}
 
-        iterator: Iterator[dict[str, Any]] = _with_missing_columns(
-            protocol_util.airbyte_messages_to_record_dicts(
-                self._read_with_catalog(
-                    streaming_cache_info,
-                    configured_catalog,
-                ),
+        iterator: Iterator[dict[str, Any]] = _with_logging(
+            _with_missing_columns(
+                protocol_util.airbyte_messages_to_record_dicts(
+                    self._read_with_catalog(configured_catalog),
+                )
             )
         )
-        return LazyDataset(iterator)
+        return LazyDataset(
+            iterator,
+            stream_metadata=configured_stream,
+        )
+
+    def get_documents(
+        self,
+        stream: str,
+        title_property: str | None = None,
+        content_properties: list[str] | None = None,
+        metadata_properties: list[str] | None = None,
+        *,
+        render_metadata: bool = False,
+    ) -> Iterable[Document]:
+        """Read a stream from the connector and return the records as documents.
+
+        If metadata_properties is not set, all properties that are not content will be added to
+        the metadata.
+
+        If render_metadata is True, metadata will be rendered in the document, as well as the
+        the main content.
+        """
+        return self.get_records(stream).to_documents(
+            title_property=title_property,
+            content_properties=content_properties,
+            metadata_properties=metadata_properties,
+            render_metadata=render_metadata,
+        )
 
     def check(self) -> None:
         """Call check on the connector.
@@ -396,33 +426,8 @@ class Source:
         """
         self.executor.uninstall()
 
-    def _read(
-        self,
-        cache_info: CacheTelemetryInfo,
-        state: list[AirbyteStateMessage] | None = None,
-    ) -> Iterable[AirbyteMessage]:
-        """
-        Call read on the connector.
-
-        This involves the following steps:
-        * Call discover to get the catalog
-        * Generate a configured catalog that syncs all streams in full_refresh mode
-        * Write the configured catalog and the config to a temporary file
-        * execute the connector with read --config <config_file> --catalog <catalog_file>
-        * Listen to the messages and return the AirbyteMessage that come along.
-        """
-        # Ensure discovered and configured catalog properties are cached before we start reading
-        _ = self.discovered_catalog
-        _ = self.configured_catalog
-        yield from self._read_with_catalog(
-            cache_info,
-            catalog=self.configured_catalog,
-            state=state,
-        )
-
     def _read_with_catalog(
         self,
-        cache_info: CacheTelemetryInfo,
         catalog: ConfiguredAirbyteCatalog,
         state: list[AirbyteStateMessage] | None = None,
     ) -> Iterator[AirbyteMessage]:
@@ -435,19 +440,20 @@ class Source:
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        source_tracking_information = self.executor._get_telemetry_info()  # noqa: SLF001
-        send_telemetry(source_tracking_information, cache_info, SyncState.STARTED)
-        sync_failed = False
         self._processed_records = 0  # Reset the counter before we start
-        try:
-            with as_temp_files(
-                [self._config, catalog.json(), json.dumps(state) if state else "[]"]
-            ) as [
-                config_file,
-                catalog_file,
-                state_file,
-            ]:
-                yield from self._execute(
+        with as_temp_files(
+            [
+                self._config,
+                catalog.json(),
+                json.dumps(state) if state else "[]",
+            ]
+        ) as [
+            config_file,
+            catalog_file,
+            state_file,
+        ]:
+            yield from self._tally_records(
+                self._execute(
                     [
                         "read",
                         "--config",
@@ -458,20 +464,7 @@ class Source:
                         state_file,
                     ],
                 )
-        except Exception:
-            send_telemetry(
-                source_tracking_information, cache_info, SyncState.FAILED, self._processed_records
             )
-            sync_failed = True
-            raise
-        finally:
-            if not sync_failed:
-                send_telemetry(
-                    source_tracking_information,
-                    cache_info,
-                    SyncState.SUCCEEDED,
-                    self._processed_records,
-                )
 
     def _add_to_logs(self, message: str) -> None:
         self._last_log_messages.append(message)
@@ -519,6 +512,49 @@ class Source:
         for message in messages:
             yield message
             progress.log_records_read(self._processed_records)
+
+    def _log_sync_start(
+        self,
+        *,
+        cache: CacheBase | None,
+    ) -> None:
+        """Log the start of a sync operation."""
+        print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
+        send_telemetry(
+            source=self,
+            cache=cache,
+            state=SyncState.STARTED,
+        )
+
+    def _log_sync_success(
+        self,
+        *,
+        cache: CacheBase | None,
+    ) -> None:
+        """Log the success of a sync operation."""
+        print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
+        send_telemetry(
+            source=self,
+            cache=cache,
+            state=SyncState.SUCCEEDED,
+            number_of_records=self._processed_records,
+        )
+
+    def _log_sync_failure(
+        self,
+        *,
+        cache: CacheBase | None,
+        exception: Exception,
+    ) -> None:
+        """Log the failure of a sync operation."""
+        print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
+        send_telemetry(
+            state=SyncState.FAILED,
+            source=self,
+            cache=cache,
+            number_of_records=self._processed_records,
+            exception=exception,
+        )
 
     def read(
         self,
@@ -590,18 +626,22 @@ class Source:
             if not force_full_refresh
             else None
         )
-        print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
-        cache.processor.process_airbyte_messages(
-            self._tally_records(
-                self._read(
-                    cache.processor._get_telemetry_info(),  # noqa: SLF001
+        self._log_sync_start(cache=cache)
+        try:
+            cache.processor.process_airbyte_messages(
+                self._read_with_catalog(
+                    catalog=self.configured_catalog,
                     state=state,
                 ),
-            ),
-            write_strategy=write_strategy,
-        )
-        print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
+                write_strategy=write_strategy,
+            )
+        except Exception as ex:
+            self._log_sync_failure(cache=cache, exception=ex)
+            raise exc.AirbyteConnectorFailedError(
+                log_text=self._last_log_messages,
+            ) from ex
 
+        self._log_sync_success(cache=cache)
         return ReadResult(
             processed_records=self._processed_records,
             cache=cache,

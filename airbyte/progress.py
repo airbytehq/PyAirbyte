@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib
 import math
 import sys
 import time
@@ -25,10 +26,12 @@ IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case w
 
 ipy_display: ModuleType | None
 try:
-    IS_NOTEBOOK = True
-    from IPython import display as ipy_display  # type: ignore  # noqa: PGH003
+    # Default to IS_NOTEBOOK=False if a TTY is detected.
+    IS_NOTEBOOK = not sys.stdout.isatty()
+    ipy_display = importlib.import_module("IPython.display")
 
 except ImportError:
+    # If IPython is not installed, then we're definitely not in a notebook.
     ipy_display = None
     IS_NOTEBOOK = False
 
@@ -317,6 +320,7 @@ class ReadProgress:
 
         if self.style == ProgressStyle.IPYTHON and ipy_display is not None:
             # We're in a notebook so use the IPython display.
+            assert ipy_display is not None
             ipy_display.clear_output(wait=True)
             ipy_display.display(ipy_display.Markdown(status_message))
 

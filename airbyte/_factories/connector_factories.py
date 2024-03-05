@@ -119,7 +119,8 @@ def get_source(
         executor.ensure_installation()
 
     return Source(
-        executor=executor,
         name=name,
         config=config,
+        streams=streams,
+        executor=executor,
     )

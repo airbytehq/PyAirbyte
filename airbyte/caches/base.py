@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any, Optional, final
 
 from pydantic import BaseModel, PrivateAttr
 
@@ -34,7 +34,7 @@ class CacheBase(BaseModel):
     schema_name: str = "airbyte_raw"
     """The name of the schema to write to."""
 
-    table_prefix: str | None = None
+    table_prefix: Optional[str] = None
     """ A prefix to add to all table names.
     If 'None', a prefix will be created based on the source name.
     """
@@ -43,7 +43,7 @@ class CacheBase(BaseModel):
     """A suffix to add to all table names."""
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
-    _sql_processor: SqlProcessorBase | None = PrivateAttr(default=None)
+    _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
 
     @final
     @property

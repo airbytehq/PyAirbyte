@@ -3,11 +3,8 @@
 
 from __future__ import annotations
 
-from overrides import overrides
-
 from airbyte._processors.file import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
-from airbyte.telemetry import CacheTelemetryInfo
 
 
 class PostgresSqlProcessor(SqlProcessorBase):
@@ -23,7 +20,3 @@ class PostgresSqlProcessor(SqlProcessorBase):
 
     file_writer_class = JsonlWriter
     supports_merge_insert = False  # TODO: Add native implementation for merge insert
-
-    @overrides
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        return CacheTelemetryInfo("postgres")

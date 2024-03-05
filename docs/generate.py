@@ -28,7 +28,7 @@ def run() -> None:
         template_directory="docs",
         show_source=True,
         search=True,
-        logo="https://docs.airbyte.com/img/logo-dark.png",
+        logo="https://docs.airbyte.com/img/pyairbyte-logo-dark.png",
         favicon="https://docs.airbyte.com/img/favicon.png",
     )
     pdoc.pdoc(

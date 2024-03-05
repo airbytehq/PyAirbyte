@@ -6,6 +6,7 @@ Since source-faker is included in dev dependencies, we can assume `source-faker`
 and available on PATH for the poetry-managed venv.
 """
 from __future__ import annotations
+
 from collections.abc import Generator
 import os
 import sys

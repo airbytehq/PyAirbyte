@@ -12,7 +12,6 @@ from snowflake.sqlalchemy import VARIANT
 
 from airbyte._processors.file.jsonl import JsonlWriter
 from airbyte._processors.sql.base import SqlProcessorBase
-from airbyte.telemetry import CacheTelemetryInfo
 from airbyte.types import SQLTypeConverter
 
 
@@ -42,11 +41,8 @@ class SnowflakeTypeConverter(SQLTypeConverter):
         return sql_type
 
 
-class SnowflakeSQLSqlProcessor(SqlProcessorBase):
-    """A Snowflake implementation of the cache.
-
-    Parquet is used for local file storage before bulk loading.
-    """
+class SnowflakeSqlProcessor(SqlProcessorBase):
+    """A Snowflake implementation of the cache."""
 
     file_writer_class = JsonlWriter
     type_converter_class = SnowflakeTypeConverter
@@ -114,7 +110,3 @@ class SnowflakeSQLSqlProcessor(SqlProcessorBase):
             MULTI_STATEMENT_COUNT = 0
             """
         )
-
-    @overrides
-    def _get_telemetry_info(self) -> CacheTelemetryInfo:
-        return CacheTelemetryInfo("snowflake")

@@ -14,7 +14,6 @@ from rich import print
 
 from airbyte import exceptions as exc
 from airbyte.registry import ConnectorMetadata
-from airbyte.telemetry import SourceTelemetryInfo, SourceType
 
 
 if TYPE_CHECKING:
@@ -62,10 +61,6 @@ class Executor(ABC):
 
     @abstractmethod
     def install(self) -> None:
-        pass
-
-    @abstractmethod
-    def _get_telemetry_info(self) -> SourceTelemetryInfo:
         pass
 
     @abstractmethod
@@ -388,13 +383,6 @@ class VenvExecutor(Executor):
         with _stream_from_subprocess([str(connector_path), *args]) as stream:
             yield from stream
 
-    def _get_telemetry_info(self) -> SourceTelemetryInfo:
-        return SourceTelemetryInfo(
-            name=self.name,
-            type=SourceType.VENV,
-            version=self.reported_version,
-        )
-
 
 class PathExecutor(Executor):
     def __init__(
@@ -448,10 +436,3 @@ class PathExecutor(Executor):
     def execute(self, args: list[str]) -> Iterator[str]:
         with _stream_from_subprocess([str(self.path), *args]) as stream:
             yield from stream
-
-    def _get_telemetry_info(self) -> SourceTelemetryInfo:
-        return SourceTelemetryInfo(
-            str(self.name),
-            SourceType.LOCAL_INSTALL,
-            version=self.reported_version,
-        )
