@@ -1,4 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+from __future__ import annotations
 
 import pytest
 from airbyte._util import github_pip_url, connector_pip_url
