@@ -28,8 +28,6 @@ pendulum = "<=3.0.0"
 psycopg2-binary = "^2.9.9"
 # psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
 # Psycopg3 is not supported in SQLAlchemy 1.x:
-pyarrow = "^14.0.2"
-pydantic = "<=2.0"
 python-dotenv = "^1.0.1"
 python-ulid = "^2.2.0"
 requests = "^2.31.0"

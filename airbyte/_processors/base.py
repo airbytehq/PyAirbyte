@@ -15,8 +15,6 @@ import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast, final
 
-import pyarrow as pa
-
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
@@ -31,7 +29,6 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte.caches.base import CacheBase
 from airbyte.strategies import WriteStrategy
-from airbyte.types import _get_pyarrow_type
 
 
 if TYPE_CHECKING:
@@ -257,20 +254,6 @@ class RecordProcessor(abc.ABC):
     ) -> dict[str, Any]:
         """Return the column definitions for the given stream."""
         return self._get_stream_config(stream_name).stream.json_schema
-
-    def _get_stream_pyarrow_schema(
-        self,
-        stream_name: str,
-    ) -> pa.Schema:
-        """Return the column definitions for the given stream."""
-        return pa.schema(
-            fields=[
-                pa.field(prop_name, _get_pyarrow_type(prop_def))
-                for prop_name, prop_def in self._get_stream_json_schema(stream_name)[
-                    "properties"
-                ].items()
-            ]
-        )
 
     def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Clean up all resources.
