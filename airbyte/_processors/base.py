@@ -242,7 +242,7 @@ class RecordProcessor(abc.ABC):
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
-        """Return the column definitions for the given stream."""
+        """Return the definition of the given stream."""
         if not self._catalog_manager:
             raise exc.AirbyteLibInternalError(
                 message="Catalog manager should exist but does not.",

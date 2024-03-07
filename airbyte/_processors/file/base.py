@@ -42,8 +42,7 @@ class FileWriterBase(abc.ABC):
         self.cache = cache
 
         self._active_batches: dict[str, BatchHandle] = {}
-        self._pending_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
-        self._finalized_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
+        self._completed_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
 
     def _get_new_cache_file_path(
         self,
@@ -79,7 +78,7 @@ class FileWriterBase(abc.ABC):
         batch_handle.close_files()
         del self._active_batches[stream_name]
 
-        self._pending_batches[stream_name].append(batch_handle)
+        self._completed_batches[stream_name].append(batch_handle)
         progress.log_batch_written(
             stream_name=stream_name,
             batch_size=batch_handle.record_count,
@@ -131,11 +130,10 @@ class FileWriterBase(abc.ABC):
 
         Subclasses should override `_cleanup_batch` instead.
         """
-        for batch_list in self._pending_batches.values():
-            for batch_handle in batch_list:
-                self._cleanup_batch(batch_handle)
+        for batch_handle in self._active_batches.values():
+            self._cleanup_batch(batch_handle)
 
-        for batch_list in self._finalized_batches.values():
+        for batch_list in self._completed_batches.values():
             for batch_handle in batch_list:
                 self._cleanup_batch(batch_handle)
 
@@ -217,3 +215,19 @@ class FileWriterBase(abc.ABC):
     ) -> None:
         """Write one record to a file."""
         raise NotImplementedError("No default implementation.")
+
+    # Public methods (for use by Cache and SQL Processor classes)
+
+    def get_active_batch(self, stream_name: str) -> BatchHandle | None:
+        """Return the active batch for a specific stream name."""
+        return self._active_batches.get(stream_name, None)
+
+    def get_pending_batches(self, stream_name: str) -> list[BatchHandle]:
+        """Return the pending batches for a specific stream name."""
+        return [
+            batch for batch in self._completed_batches.get(stream_name, []) if not batch.finalized
+        ]
+
+    def get_finalized_batches(self, stream_name: str) -> list[BatchHandle]:
+        """Return the finalized batches for a specific stream name."""
+        return [batch for batch in self._completed_batches.get(stream_name, []) if batch.finalized]

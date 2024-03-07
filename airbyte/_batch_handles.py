@@ -28,6 +28,9 @@ class BatchHandle:
         assert self._files, "A batch must have at least one file."
         self._open_file_writer: IO[bytes] = file_opener(self._files[0])
 
+        # Marker for whether the batch has been finalized.
+        self.finalized: bool = False
+
     @property
     def files(self) -> list[Path]:
         """Return the files."""

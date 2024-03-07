@@ -565,13 +565,10 @@ class SqlProcessorBase(RecordProcessor):
 
         Returns a mapping of batch IDs to batch handles, for those processed batches.
         """
-        batches_to_finalize: list[BatchHandle] = self.file_writer._pending_batches[
-            stream_name
-        ].copy()
+        batches_to_finalize: list[BatchHandle] = self.file_writer.get_pending_batches(stream_name)
         state_messages_to_finalize: list[AirbyteStateMessage] = self._pending_state_messages[
             stream_name
         ].copy()
-        self.file_writer._pending_batches[stream_name].clear()
         self._pending_state_messages[stream_name].clear()
 
         progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
@@ -579,7 +576,9 @@ class SqlProcessorBase(RecordProcessor):
         self._finalize_state_messages(stream_name, state_messages_to_finalize)
         progress.log_batches_finalized(stream_name, len(batches_to_finalize))
 
-        self.file_writer._finalized_batches[stream_name] += batches_to_finalize
+        for batch_handle in batches_to_finalize:
+            batch_handle.finalized = True
+
         self._finalized_state_messages[stream_name] += state_messages_to_finalize
 
         if self.cache.cleanup:
