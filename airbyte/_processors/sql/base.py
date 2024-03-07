@@ -161,11 +161,6 @@ class SqlProcessorBase(RecordProcessor):
         This method is called by the source when it is initialized.
         """
         self._source_name = source_name
-        # self.register_source(
-        #     source_name,
-        #     incoming_source_catalog,
-        #     stream_names=stream_names,
-        # )
         self._ensure_schema_exists()
         super().register_source(
             source_name,
