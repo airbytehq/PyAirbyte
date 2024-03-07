@@ -37,6 +37,7 @@ from airbyte.types import _get_pyarrow_type
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
+    from airbyte._batch_handles import BatchHandle
     from airbyte.caches._catalog_manager import CatalogManager
 
 
@@ -48,7 +49,13 @@ class AirbyteMessageParsingError(Exception):
 
 
 class RecordProcessor(abc.ABC):
-    """Abstract base class for classes which can process input records."""
+    """Abstract base class for classes which can process Airbyte messages from a source.
+
+    This class is responsible for all aspects of handling Airbyte protocol.
+
+    The class leverages the cache's catalog manager class to store and retrieve metadata.
+
+    """
 
     def __init__(
         self,
@@ -183,7 +190,7 @@ class RecordProcessor(abc.ABC):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
-        self.flush_all(
+        self.write_all_stream_data(
             write_strategy=write_strategy,
         )
 
@@ -191,9 +198,19 @@ class RecordProcessor(abc.ABC):
         if self.cache.cleanup:
             self.cleanup_all()
 
-    @abc.abstractmethod
-    def flush_all(self, write_strategy: WriteStrategy) -> None:
+    def write_all_stream_data(self, write_strategy: WriteStrategy) -> None:
         """Finalize any pending writes."""
+        for stream_name in self.expected_streams:
+            self.write_stream_data(stream_name, write_strategy=write_strategy)
+
+    @abc.abstractmethod
+    def write_stream_data(
+        self,
+        stream_name: str,
+        write_strategy: WriteStrategy,
+    ) -> list[BatchHandle]:
+        """Write pending stream data to the cache."""
+        ...
 
     def _finalize_state_messages(
         self,

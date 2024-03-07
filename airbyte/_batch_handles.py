@@ -65,6 +65,16 @@ class BatchHandle:
         # with suppress(Exception):
         self.open_file_writer.close()
 
+    def delete_files(self) -> None:
+        """Delete the files.
+
+        If any files are open, they will be closed first.
+        If any files are missing, they will be ignored.
+        """
+        self.close_files()
+        for file in self.files:
+            file.unlink(missing_ok=True)
+
     def __del__(self) -> None:
         """Upon deletion, close the file writer."""
         self.close_files()

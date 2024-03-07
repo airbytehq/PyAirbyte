@@ -488,13 +488,8 @@ class SqlProcessorBase(RecordProcessor):
         # columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
         return columns
 
-    def flush_all(self, write_strategy: WriteStrategy) -> None:
-        """Finalize any pending writes."""
-        for stream_name in self.expected_streams:
-            self.flush_stream(stream_name, write_strategy=write_strategy)
-
     @final
-    def flush_stream(
+    def write_stream_data(
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
@@ -510,7 +505,7 @@ class SqlProcessorBase(RecordProcessor):
               although this is a fairly rare edge case we can ignore in V1.
         """
         # Flush any pending writes
-        self.file_writer.flush_all(write_strategy=write_strategy)
+        self.file_writer.flush_active_batches()
 
         with self.finalizing_batches(stream_name) as batches_to_finalize:
             # Make sure the target schema and target table exist.
@@ -587,8 +582,9 @@ class SqlProcessorBase(RecordProcessor):
         self.file_writer._finalized_batches[stream_name] += batches_to_finalize
         self._finalized_state_messages[stream_name] += state_messages_to_finalize
 
-        for batch_handle in batches_to_finalize:
-            self.file_writer._cleanup_batch(batch_handle)
+        if self.cache.cleanup:
+            for batch_handle in batches_to_finalize:
+                batch_handle.delete_files()
 
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
         """Execute the given SQL statement."""

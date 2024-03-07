@@ -17,13 +17,11 @@ from airbyte.progress import progress
 
 
 if TYPE_CHECKING:
-
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
     )
 
     from airbyte.caches.base import CacheBase
-    from airbyte.strategies import WriteStrategy
 
 
 DEFAULT_BATCH_SIZE = 10000
@@ -174,7 +172,7 @@ class FileWriterBase(abc.ABC):
         )
         batch_handle.increment_record_count()
 
-    def _flush_active_batches(
+    def flush_active_batches(
         self,
     ) -> None:
         """Flush active batches for all streams."""
@@ -195,18 +193,11 @@ class FileWriterBase(abc.ABC):
         self._close_batch(batch_handle)
 
         if self.cache.cleanup:
-            for file_path in batch_handle.files:
-                if file_path.exists():
-                    file_path.unlink()
+            batch_handle.delete_files()
 
     def _new_batch_id(self) -> str:
         """Return a new batch handle."""
         return str(ulid.ULID())
-
-    def flush_all(self, write_strategy: WriteStrategy) -> None:
-        """Finalize any pending writes."""
-        # We are at the end of the stream. Process whatever else is queued.
-        self._flush_active_batches()
 
     # Destructor
 
