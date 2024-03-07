@@ -1640,16 +1640,6 @@ files = [
 ]
 
 [[package]]
-name = "pyarrow-stubs"
-version = "10.0.1.7"
-description = "Type annotations for pyarrow"
-optional = false
-python-versions = ">=3.7,<4.0"
-files = [
-    {file = "pyarrow_stubs-10.0.1.7-py3-none-any.whl", hash = "sha256:cccc7a46eddeea4e3cb85330eb8972c116a615da6188b8ae1f7a44cb724b21ac"},
-]
-
-[[package]]
 name = "pyasn1"
 version = "0.5.1"
 description = "Pure-Python implementation of ASN.1 types and DER/BER/CER codecs (X.208)"
@@ -2747,4 +2737,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "6e1c84109ec85756c6aa736ca9c844f1f5db5174e19d3182fb58473e24a44e70"
+content-hash = "3490632ee893aa38e9b9bd6fc3435f0122cfa4beaf1694902d2558e529e9df3d"
