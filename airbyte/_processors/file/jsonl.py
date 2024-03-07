@@ -26,11 +26,10 @@ class JsonlWriter(FileWriterBase):
 
     def _open_new_file(
         self,
-        stream_name: str,
-    ) -> tuple[Path, IO[bytes]]:
+        file_path: Path,
+    ) -> IO[bytes]:
         """Open a new file for writing."""
-        file_path = self._get_new_cache_file_path(stream_name)
-        return file_path, cast(IO[bytes], gzip.open(file_path, "w"))
+        return cast(IO[bytes], gzip.open(file_path, "w"))
 
     def _write_record_dict(
         self,

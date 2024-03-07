@@ -33,9 +33,9 @@ class ParquetWriter(FileWriterBase):
 
         The comparison is based on a case-insensitive comparison of the column names.
         """
-        if not self._catalog_manager:
+        if not self.cache.processor._catalog_manager:
             raise exc.AirbyteLibInternalError(message="Catalog manager should exist but does not.")
-        stream = self._catalog_manager.get_stream_config(stream_name)
+        stream = self.cache.processor._catalog_manager.get_stream_config(stream_name)
         stream_property_names = stream.stream.json_schema["properties"].keys()
         return [
             col
