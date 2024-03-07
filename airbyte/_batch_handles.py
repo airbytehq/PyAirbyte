@@ -65,8 +65,8 @@ class BatchHandle:
         if self.open_file_writer is None:
             return
 
-        # with suppress(Exception):
-        self.open_file_writer.close()
+        with suppress(Exception):
+            self.open_file_writer.close()
 
     def delete_files(self) -> None:
         """Delete the files.
