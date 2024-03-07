@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import IO, TYPE_CHECKING, Callable
 
 
