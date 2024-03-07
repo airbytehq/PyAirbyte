@@ -10,13 +10,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte import exceptions as exc
 from airbyte._processors.file.base import FileWriterBase
 from airbyte._util.text_util import lower_case_set
 
 
 if TYPE_CHECKING:
     import pyarrow as pa
+
+    from airbyte_protocol.models import ConfiguredAirbyteStream
 
 
 class ParquetWriter(FileWriterBase):
@@ -33,9 +34,10 @@ class ParquetWriter(FileWriterBase):
 
         The comparison is based on a case-insensitive comparison of the column names.
         """
-        if not self.cache.processor._catalog_manager:
-            raise exc.AirbyteLibInternalError(message="Catalog manager should exist but does not.")
-        stream = self.cache.processor._catalog_manager.get_stream_config(stream_name)
+        # Access to private member required until the cache exposes a public API for it.
+        stream: ConfiguredAirbyteStream = self.cache._catalog_manager.get_stream_config(  # noqa: SLF001
+            stream_name=stream_name
+        )
         stream_property_names = stream.stream.json_schema["properties"].keys()
         return [
             col
