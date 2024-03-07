@@ -77,12 +77,8 @@ class DuckDBSqlProcessor(SqlProcessorBase):
     ) -> str:
         """Write a file(s) to a new table.
 
-        We use DuckDB's `read_parquet` function to efficiently read the files and insert
+        We use DuckDB native SQL functions to efficiently read the files and insert
         them into the table in a single operation.
-
-        Note: This implementation is fragile in regards to column ordering. However, since
-        we are inserting into a temp table we have just created, there should be no
-        drift between the table schema and the file schema.
         """
         temp_table_name = self._create_table_for_loading(
             stream_name=stream_name,

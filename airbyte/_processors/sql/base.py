@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+import contextlib
 import enum
 from contextlib import contextmanager
 from functools import cached_property
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, final
 
 import pandas as pd
 import sqlalchemy
@@ -27,11 +28,11 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import TextClause
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import BatchHandle, RecordProcessor
-from airbyte._processors.file.base import FileWriterBase, FileWriterBatchHandle
+from airbyte._processors.base import RecordProcessor
 from airbyte._util.text_util import lower_case_set
 from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
+from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
 from airbyte.types import SQLTypeConverter
 
@@ -40,17 +41,19 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
 
-    import pyarrow as pa
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
     from sqlalchemy.sql.base import Executable
 
     from airbyte_protocol.models import (
+        AirbyteRecordMessage,
         AirbyteStateMessage,
         ConfiguredAirbyteCatalog,
     )
 
+    from airbyte._batch_handles import BatchHandle
+    from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
 
 
@@ -90,9 +93,7 @@ class SqlProcessorBase(RecordProcessor):
             engine=self.get_sql_engine(),
             table_name_resolver=lambda stream_name: self.get_sql_table_name(stream_name),
         )
-        self.file_writer = file_writer or self.file_writer_class(
-            cache, catalog_manager=self._catalog_manager
-        )
+        self.file_writer = file_writer or self.file_writer_class(cache)
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
 
@@ -160,11 +161,6 @@ class SqlProcessorBase(RecordProcessor):
         This method is called by the source when it is initialized.
         """
         self._source_name = source_name
-        self.file_writer.register_source(
-            source_name,
-            incoming_source_catalog,
-            stream_names=stream_names,
-        )
         self._ensure_schema_exists()
         super().register_source(
             source_name,
@@ -232,6 +228,19 @@ class SqlProcessorBase(RecordProcessor):
         table_name = self.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
         return pd.read_sql_table(table_name, engine)
+
+    def process_record_message(
+        self,
+        record_msg: AirbyteRecordMessage,
+    ) -> None:
+        """Write a record to the cache.
+
+        This method is called for each record message, before the batch is written.
+
+        In most cases, the SQL processor will not perform any action, but will pass this along to to
+        the file processor.
+        """
+        self.file_writer.process_record_message(record_msg)
 
     # Protected members (non-public interface):
 
@@ -474,43 +483,15 @@ class SqlProcessorBase(RecordProcessor):
         # columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
         return columns
 
-    @overrides
-    def _write_batch(
-        self,
-        stream_name: str,
-        batch_id: str,
-        record_batch: pa.Table,
-    ) -> FileWriterBatchHandle:
-        """Process a record batch.
-
-        Return the path to the cache file.
-        """
-        return self.file_writer.write_batch(stream_name, batch_id, record_batch)
-
-    def _cleanup_batch(
-        self,
-        stream_name: str,
-        batch_id: str,
-        batch_handle: BatchHandle,
-    ) -> None:
-        """Clean up the cache.
-
-        For SQL caches, we only need to call the cleanup operation on the file writer.
-
-        Subclasses should call super() if they override this method.
-        """
-        self.file_writer.cleanup_batch(stream_name, batch_id, batch_handle)
-
     @final
-    @overrides
-    def _finalize_batches(
+    def write_stream_data(
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
-    ) -> dict[str, BatchHandle]:
+    ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
 
-        This is a generic 'final' implementation, which should not be overridden.
+        This is a generic 'final' SQL implementation, which should not be overridden.
 
         Returns a mapping of batch IDs to batch handles, for those processed batches.
 
@@ -518,7 +499,10 @@ class SqlProcessorBase(RecordProcessor):
               Some sources will send us duplicate records within the same stream,
               although this is a fairly rare edge case we can ignore in V1.
         """
-        with self._finalizing_batches(stream_name) as batches_to_finalize:
+        # Flush any pending writes
+        self.file_writer.flush_active_batches()
+
+        with self.finalizing_batches(stream_name) as batches_to_finalize:
             # Make sure the target schema and target table exist.
             self._ensure_schema_exists()
             final_table_name = self._ensure_final_table_exists(
@@ -532,15 +516,14 @@ class SqlProcessorBase(RecordProcessor):
 
             if not batches_to_finalize:
                 # If there are no batches to finalize, return after ensuring the table exists.
-                return {}
+                return []
 
             files: list[Path] = []
             # Get a list of all files to finalize from all pending batches.
-            for batch_handle in batches_to_finalize.values():
-                batch_handle = cast(FileWriterBatchHandle, batch_handle)
+            for batch_handle in batches_to_finalize:
                 files += batch_handle.files
             # Use the max batch ID as the batch ID for table names.
-            max_batch_id = max(batches_to_finalize.keys())
+            max_batch_id = max([batch.batch_id for batch in batches_to_finalize])
 
             temp_table_name = self._write_files_to_new_table(
                 files=files,
@@ -557,26 +540,45 @@ class SqlProcessorBase(RecordProcessor):
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
 
-            # Return the batch handles as measure of work completed.
-            return batches_to_finalize
+        # Return the batch handles as measure of work completed.
+        return batches_to_finalize
 
-    @overrides
-    def _finalize_state_messages(
+    @final
+    def cleanup_all(self) -> None:
+        """Clean resources."""
+        self.file_writer.cleanup_all()
+
+    # Finalizing context manager
+
+    @final
+    @contextlib.contextmanager
+    def finalizing_batches(
         self,
         stream_name: str,
-        state_messages: list[AirbyteStateMessage],
-    ) -> None:
-        """Handle state messages by passing them to the catalog manager."""
-        if not self._catalog_manager:
-            raise exc.AirbyteLibInternalError(
-                message="Catalog manager should exist but does not.",
-            )
-        if state_messages and self._source_name:
-            self._catalog_manager.save_state(
-                source_name=self._source_name,
-                stream_name=stream_name,
-                state=state_messages[-1],
-            )
+    ) -> Generator[list[BatchHandle], str, None]:
+        """Context manager to use for finalizing batches, if applicable.
+
+        Returns a mapping of batch IDs to batch handles, for those processed batches.
+        """
+        batches_to_finalize: list[BatchHandle] = self.file_writer.get_pending_batches(stream_name)
+        state_messages_to_finalize: list[AirbyteStateMessage] = self._pending_state_messages[
+            stream_name
+        ].copy()
+        self._pending_state_messages[stream_name].clear()
+
+        progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
+        yield batches_to_finalize
+        self._finalize_state_messages(stream_name, state_messages_to_finalize)
+        progress.log_batches_finalized(stream_name, len(batches_to_finalize))
+
+        for batch_handle in batches_to_finalize:
+            batch_handle.finalized = True
+
+        self._finalized_state_messages[stream_name] += state_messages_to_finalize
+
+        if self.cache.cleanup:
+            for batch_handle in batches_to_finalize:
+                batch_handle.delete_files()
 
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
         """Execute the given SQL statement."""

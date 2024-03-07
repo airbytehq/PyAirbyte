@@ -615,11 +615,9 @@ class Source:
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),
         )
-        if not cache.processor._catalog_manager:  # noqa: SLF001
-            raise exc.AirbyteLibInternalError(message="Catalog manager should exist but does not.")
 
         state = (
-            cache.processor._catalog_manager.get_state(  # noqa: SLF001
+            cache._get_state(  # noqa: SLF001  # Private method until we have a public API for it.
                 source_name=self.name,
                 streams=self._selected_stream_names,
             )
