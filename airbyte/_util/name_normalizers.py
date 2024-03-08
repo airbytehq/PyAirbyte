@@ -40,7 +40,23 @@ class LowerCaseNormalizer(NameNormalizerBase):
 
 
 class CaseInsensitiveDict(dict[str, Any]):
-    """A case-insensitive defaultdict."""
+    """A case-aware, case-insensitive dictionary implementation.
+
+    It has these behaviors:
+    - When a key is retrieved, deleted, or checked for existence, it is always checked in a
+      case-insensitive manner.
+    - The original case is stored in a separate dictionary, so that the original case can be
+      retrieved when needed.
+
+    There are two ways to store keys internally:
+    - If normalize_keys is True, the keys are normalized using the given normalizer.
+    - If normalize_keys is False, the original case of the keys is stored.
+
+    In regards to missing values, the dictionary accepts an 'expected_keys' input. When set, the
+    dictionary will be initialized with the given keys. If a key is not found in the input data, it
+    will be initialized with a value of None. When provided, the 'expected_keys' input will also
+    determine the original case of the keys.
+    """
 
     def _display_case(self, key: str) -> str:
         """Return the original case of the key."""
