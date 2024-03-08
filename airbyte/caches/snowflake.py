@@ -1,5 +1,23 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""A Snowflake implementation of the cache."""
+"""A Snowflake implementation of the PyAirbyte cache.
+
+## Usage Example
+
+```python
+from airbyte as ab
+from airbyte.caches import SnowflakeCache
+
+cache = SnowflakeCache(
+    account="myaccount",
+    username="myusername",
+    password=ab.get_secret("SNOWFLAKE_PASSWORD"),
+    warehouse="mywarehouse",
+    database="mydatabase",
+    role="myrole",
+    schema_name="myschema",
+)
+```
+"""
 
 from __future__ import annotations
 
