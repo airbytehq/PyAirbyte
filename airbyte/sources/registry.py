@@ -90,16 +90,6 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
     return __cache
 
 
-def get_available_connectors() -> list[str]:
-    """Return a list of all available connectors.
-
-    Connectors will be returned in alphabetical order, with the standard prefix "source-".
-    """
-    return sorted(
-        conn.name for conn in _get_registry_cache().values() if conn.pypi_package_name is not None
-    )
-
-
 def get_connector_metadata(name: str) -> ConnectorMetadata:
     """Check the cache for the connector.
 
@@ -122,3 +112,13 @@ def get_connector_metadata(name: str) -> ConnectorMetadata:
             },
         )
     return cache[name]
+
+
+def get_available_connectors() -> list[str]:
+    """Return a list of all available connectors.
+
+    Connectors will be returned in alphabetical order, with the standard prefix "source-".
+    """
+    return sorted(
+        conn.name for conn in _get_registry_cache().values() if conn.pypi_package_name is not None
+    )
