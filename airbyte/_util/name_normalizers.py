@@ -176,7 +176,6 @@ class CaseInsensitiveDict(dict[str, Any]):
         return False
 
 
-
 def normalize_records(
     records: Iterable[dict[str, Any]],
     expected_keys: list[str],
