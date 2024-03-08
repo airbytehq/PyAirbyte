@@ -249,6 +249,16 @@ def test_dataset_list_and_len(expected_test_stream_data):
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
+    # Test the lazy dataset implementation
+    lazy_dataset = source.get_records("stream1")
+    # assert len(stream_1) == 2  # This is not supported by the lazy dataset
+    lazy_dataset_list = list(lazy_dataset)
+    # Make sure counts are correct
+    assert len(list(lazy_dataset_list)) == 2
+    # Make sure records are correct
+    assert list(lazy_dataset_list) == [{"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}]
+
+    # Test the cached dataset implementation
     result: ReadResult = source.read(ab.new_local_cache())
     stream_1 = result["stream1"]
     assert len(stream_1) == 2

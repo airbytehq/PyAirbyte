@@ -13,6 +13,7 @@ import pandas as pd
 import sqlalchemy
 import ulid
 from overrides import overrides
+from pandas import Index
 from sqlalchemy import (
     Column,
     Table,
@@ -29,7 +30,7 @@ from sqlalchemy.sql.elements import TextClause
 
 from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
-from airbyte._util.text_util import lower_case_set
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
 from airbyte.progress import progress
@@ -73,9 +74,17 @@ class SqlProcessorBase(RecordProcessor):
     """A base class to be used for SQL Caches."""
 
     type_converter_class: type[SQLTypeConverter] = SQLTypeConverter
+    """The type converter class to use for converting JSON schema types to SQL types."""
+
+    normalizer = LowerCaseNormalizer
+    """The name normalizer to user for table and column name normalization."""
+
     file_writer_class: type[FileWriterBase]
+    """The file writer class to use for writing files to the cache."""
 
     supports_merge_insert = False
+    """True if the database supports the MERGE INTO syntax."""
+
     use_singleton_connection = False  # If true, the same connection is used for all operations.
 
     # Constructor:
@@ -197,7 +206,7 @@ class SqlProcessorBase(RecordProcessor):
 
         # TODO: Add default prefix based on the source name.
 
-        return self._normalize_table_name(
+        return self.normalizer.normalize(
             f"{table_prefix}{stream_name}{self.cache.table_suffix}",
         )
 
@@ -324,7 +333,7 @@ class SqlProcessorBase(RecordProcessor):
     ) -> str:
         """Return a new (unique) temporary table name."""
         batch_id = batch_id or str(ulid.ULID())
-        return self._normalize_table_name(f"{stream_name}_{batch_id}")
+        return self.normalizer.normalize(f"{stream_name}_{batch_id}")
 
     def _fully_qualified(
         self,
@@ -414,11 +423,11 @@ class SqlProcessorBase(RecordProcessor):
         stream_column_names: list[str] = json_schema["properties"].keys()
         table_column_names: list[str] = self.get_sql_table(stream_name).columns.keys()
 
-        lower_case_table_column_names = lower_case_set(table_column_names)
+        lower_case_table_column_names = self.normalizer.normalize_set(table_column_names)
         missing_columns = [
             stream_col
             for stream_col in stream_column_names
-            if stream_col.lower() not in lower_case_table_column_names
+            if self.normalizer.normalize(stream_col) not in lower_case_table_column_names
         ]
         if missing_columns:
             if raise_on_error:
@@ -452,17 +461,12 @@ class SqlProcessorBase(RecordProcessor):
         """
         _ = self._execute_sql(cmd)
 
-    def _normalize_column_name(
+    def _get_stream_properties(
         self,
-        raw_name: str,
-    ) -> str:
-        return raw_name.lower().replace(" ", "_").replace("-", "_")
-
-    def _normalize_table_name(
-        self,
-        raw_name: str,
-    ) -> str:
-        return raw_name.lower().replace(" ", "_").replace("-", "_")
+        stream_name: str,
+    ) -> dict[str, dict]:
+        """Return the names of the top-level properties for the given stream."""
+        return self._get_stream_json_schema(stream_name)["properties"]
 
     @final
     def _get_sql_column_definitions(
@@ -471,9 +475,9 @@ class SqlProcessorBase(RecordProcessor):
     ) -> dict[str, sqlalchemy.types.TypeEngine]:
         """Return the column definitions for the given stream."""
         columns: dict[str, sqlalchemy.types.TypeEngine] = {}
-        properties = self._get_stream_json_schema(stream_name)["properties"]
+        properties = self._get_stream_properties(stream_name)
         for property_name, json_schema_property_def in properties.items():
-            clean_prop_name = self._normalize_column_name(property_name)
+            clean_prop_name = self.normalizer.normalize(property_name)
             columns[clean_prop_name] = self.type_converter.to_sql_type(
                 json_schema_property_def,
             )
@@ -635,6 +639,12 @@ class SqlProcessorBase(RecordProcessor):
                     },
                 )
 
+            # Normalize all column names to lower case.
+            dataframe.columns = Index(
+                [LowerCaseNormalizer.normalize(col) for col in dataframe.columns]
+            )
+
+            # Write the data to the table.
             dataframe.to_sql(
                 temp_table_name,
                 self.get_sql_alchemy_url(),
