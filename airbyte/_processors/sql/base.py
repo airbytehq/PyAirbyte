@@ -464,6 +464,13 @@ class SqlProcessorBase(RecordProcessor):
     ) -> str:
         return raw_name.lower().replace(" ", "_").replace("-", "_")
 
+    def _get_stream_properties(
+        self,
+        stream_name: str,
+    ) -> dict[str, dict]:
+        """Return the names of the top-level properties for the given stream."""
+        return self._get_stream_json_schema(stream_name)["properties"]
+
     @final
     def _get_sql_column_definitions(
         self,
@@ -471,7 +478,7 @@ class SqlProcessorBase(RecordProcessor):
     ) -> dict[str, sqlalchemy.types.TypeEngine]:
         """Return the column definitions for the given stream."""
         columns: dict[str, sqlalchemy.types.TypeEngine] = {}
-        properties = self._get_stream_json_schema(stream_name)["properties"]
+        properties = self._get_stream_properties(stream_name)
         for property_name, json_schema_property_def in properties.items():
             clean_prop_name = self._normalize_column_name(property_name)
             columns[clean_prop_name] = self.type_converter.to_sql_type(
