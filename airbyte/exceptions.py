@@ -6,10 +6,12 @@ This design is modeled after structlog's exceptions, in that we bias towards aut
 property prints rather than sentence-like string concatenation.
 
 E.g. Instead of this:
-> Subprocess failed with exit code '1'
+
+> `Subprocess failed with exit code '1'`
 
 We do this:
-> Subprocess failed. (exit_code=1)
+
+> `Subprocess failed. (exit_code=1)`
 
 The benefit of this approach is that we can easily support structured logging, and we can
 easily add new properties to exceptions without having to update all the places where they

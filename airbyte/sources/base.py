@@ -33,7 +33,7 @@ from airbyte._util.telemetry import (
     send_telemetry,
 )
 from airbyte._util.text_util import lower_case_set  # Internal utility functions
-from airbyte.caches.factories import get_default_cache
+from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
@@ -645,3 +645,8 @@ class Source:
             cache=cache,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
         )
+
+
+__all__ = [
+    "Source",
+]

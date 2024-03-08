@@ -16,22 +16,29 @@ from airbyte.version import get_version
 __cache: dict[str, ConnectorMetadata] | None = None
 
 
-REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
-REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
+_REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
+_REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
 
 @dataclass
 class ConnectorMetadata:
+    """Metadata for a connector."""
+
     name: str
+    """Connector name. For example, "source-google-sheets"."""
+
     latest_available_version: str
+    """The latest available version of the connector."""
+
     pypi_package_name: str | None
+    """The name of the PyPI package for the connector, if it exists."""
 
 
 def _get_registry_url() -> str:
-    if REGISTRY_ENV_VAR in os.environ:
-        return str(os.environ.get(REGISTRY_ENV_VAR))
+    if _REGISTRY_ENV_VAR in os.environ:
+        return str(os.environ.get(_REGISTRY_ENV_VAR))
 
-    return REGISTRY_URL
+    return _REGISTRY_URL
 
 
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
@@ -83,6 +90,16 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
     return __cache
 
 
+def get_available_connectors() -> list[str]:
+    """Return a list of all available connectors.
+
+    Connectors will be returned in alphabetical order, with the standard prefix "source-".
+    """
+    return sorted(
+        conn.name for conn in _get_registry_cache().values() if conn.pypi_package_name is not None
+    )
+
+
 def get_connector_metadata(name: str) -> ConnectorMetadata:
     """Check the cache for the connector.
 
@@ -105,13 +122,3 @@ def get_connector_metadata(name: str) -> ConnectorMetadata:
             },
         )
     return cache[name]
-
-
-def get_available_connectors() -> list[str]:
-    """Return a list of all available connectors.
-
-    Connectors will be returned in alphabetical order, with the standard prefix "source-".
-    """
-    return sorted(
-        conn.name for conn in _get_registry_cache().values() if conn.pypi_package_name is not None
-    )

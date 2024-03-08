@@ -4,7 +4,7 @@ from __future__ import annotations
 from gettext import install
 import pytest
 
-from airbyte._factories.connector_factories import get_source
+from airbyte.sources.util import get_source
 from airbyte import exceptions as exc
 
 

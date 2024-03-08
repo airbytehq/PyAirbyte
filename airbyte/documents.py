@@ -1,5 +1,13 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Methods for converting Airbyte records into documents."""
+"""This module contains the `Documents` class for converting Airbyte records into documents.
+
+Generally you will not create `Documents` objects directly. Instead, you can use one of the
+following methods to generate documents from records:
+
+- `Source.get_documents()`: Get an iterable of documents from a source.
+- `Dataset.to_documents()`: Get an iterable of documents from a dataset.
+"""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Optional
@@ -46,3 +54,8 @@ class Document(BaseModel):
         with the LangChain project's `Document` class.
         """
         return self.content
+
+
+__all__ = [
+    "Document",
+]

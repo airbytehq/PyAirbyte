@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Utility functions for working with sources."""
+
 from __future__ import annotations
 
 import shutil
@@ -8,8 +10,8 @@ from typing import Any
 
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
-from airbyte.registry import ConnectorMetadata, get_connector_metadata
-from airbyte.source import Source
+from airbyte.sources.base import Source
+from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
 def get_connector(
@@ -124,3 +126,8 @@ def get_source(
         streams=streams,
         executor=executor,
     )
+
+
+__all__ = [
+    "get_source",
+]

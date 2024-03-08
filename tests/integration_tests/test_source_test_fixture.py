@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 
 from airbyte.caches import PostgresCache
-from airbyte import registry
+from airbyte.sources import registry
 from airbyte.version import get_version
 from airbyte.results import ReadResult
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
