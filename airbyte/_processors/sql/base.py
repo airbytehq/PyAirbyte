@@ -13,6 +13,7 @@ import pandas as pd
 import sqlalchemy
 import ulid
 from overrides import overrides
+from pandas import Index
 from sqlalchemy import (
     Column,
     Table,
@@ -29,6 +30,7 @@ from sqlalchemy.sql.elements import TextClause
 
 from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte._util.text_util import lower_case_set
 from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
@@ -642,6 +644,12 @@ class SqlProcessorBase(RecordProcessor):
                     },
                 )
 
+            # Normalize all column names to lower case.
+            dataframe.columns = Index(
+                [LowerCaseNormalizer.normalize(col) for col in dataframe.columns]
+            )
+
+            # Write the data to the table.
             dataframe.to_sql(
                 temp_table_name,
                 self.get_sql_alchemy_url(),
