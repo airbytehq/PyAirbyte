@@ -94,8 +94,13 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         columns_type_map = indent(
             "\n, ".join(
                 [
-                    f"{self._quote_identifier(prop_name)}: "
-                    f"{self._get_sql_column_definitions(stream_name)[prop_name.lower()]!s}"
+                    self._quote_identifier(prop_name)
+                    + ": "
+                    + str(
+                        self._get_sql_column_definitions(stream_name)[
+                            self.normalizer.normalize(prop_name)
+                        ]
+                    )
                     for prop_name in properties_list
                 ]
             ),
