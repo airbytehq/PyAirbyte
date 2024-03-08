@@ -71,7 +71,12 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
     if json_schema_type == "array":
         items_def = json_schema_property_def.get("items", None)
         if isinstance(items_def, dict):
-            subtype, _ = _get_airbyte_type(items_def)
+            try:
+                subtype, _ = _get_airbyte_type(items_def)
+            except SQLTypeConversionError:
+                # We have enough information, so we can ignore parsing errors on subtype.
+                subtype = None
+
             return "array", subtype
 
         return "array", None
