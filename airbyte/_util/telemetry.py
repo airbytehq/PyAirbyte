@@ -49,7 +49,7 @@ from airbyte.version import get_version
 
 if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
-    from airbyte.source import Source
+    from airbyte.sources.base import Source
 
 
 HASH_SEED = "PyAirbyte:"

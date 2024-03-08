@@ -13,7 +13,7 @@ from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 from rich import print
 
 from airbyte import exceptions as exc
-from airbyte.registry import ConnectorMetadata
+from airbyte.sources.registry import ConnectorMetadata
 
 
 if TYPE_CHECKING:

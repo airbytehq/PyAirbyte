@@ -20,7 +20,7 @@ import pandas as pd
 import pytest
 
 from airbyte.caches import PostgresCache
-from airbyte import registry
+from airbyte.sources import registry
 from airbyte.version import get_version
 from airbyte.results import ReadResult
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
@@ -87,7 +87,7 @@ def test_invalid_config():
 def test_ensure_installation_detection():
     """Assert that install isn't called, since the connector is already installed by the fixture."""
     with patch("airbyte._executor.VenvExecutor.install") as mock_venv_install, \
-         patch("airbyte.source.Source.install") as mock_source_install, \
+         patch("airbyte.sources.base.Source.install") as mock_source_install, \
          patch("airbyte._executor.VenvExecutor.ensure_installation") as mock_ensure_installed:
         source = ab.get_source(
             "source-test",

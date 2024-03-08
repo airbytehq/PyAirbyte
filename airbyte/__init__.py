@@ -2,27 +2,34 @@
 
 .. include:: ../README.md
 
+## API Reference
+
 """
 from __future__ import annotations
 
-from airbyte import caches, datasets, registry, secrets
-from airbyte._factories.connector_factories import get_source
+from airbyte import caches, datasets, documents, exceptions, results, secrets, sources
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.factories import get_default_cache, new_local_cache
+from airbyte.caches.util import get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
-from airbyte.registry import get_available_connectors
 from airbyte.results import ReadResult
 from airbyte.secrets import SecretSource, get_secret
-from airbyte.source import Source
+from airbyte.sources import registry
+from airbyte.sources.base import Source
+from airbyte.sources.registry import get_available_connectors
+from airbyte.sources.util import get_source
 
 
 __all__ = [
     # Modules
     "caches",
     "datasets",
+    "documents",
+    "exceptions",
     "registry",
+    "results",
     "secrets",
+    "sources",
     # Factories
     "get_available_connectors",
     "get_default_cache",
