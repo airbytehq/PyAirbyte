@@ -28,10 +28,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
-from airbyte._util.telemetry import (
-    SyncState,
-    send_telemetry,
-)
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
 from airbyte._util.text_util import lower_case_set  # Internal utility functions
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
@@ -522,8 +519,10 @@ class Source:
         print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
         send_telemetry(
             source=self,
+            name=self.name,
             cache=cache,
-            state=SyncState.STARTED,
+            state=EventState.STARTED,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_success(
@@ -535,9 +534,11 @@ class Source:
         print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
             source=self,
+            name=self.name,
             cache=cache,
-            state=SyncState.SUCCEEDED,
+            state=EventState.SUCCEEDED,
             number_of_records=self._processed_records,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_failure(
@@ -549,11 +550,13 @@ class Source:
         """Log the failure of a sync operation."""
         print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
-            state=SyncState.FAILED,
+            state=EventState.FAILED,
+            name=self.name,
             source=self,
             cache=cache,
             number_of_records=self._processed_records,
             exception=exception,
+            event_type=EventType.SYNC,
         )
 
     def read(

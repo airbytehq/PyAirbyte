@@ -74,10 +74,15 @@ DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
 
 
-class SyncState(str, Enum):
+class EventState(str, Enum):
     STARTED = "started"
     FAILED = "failed"
     SUCCEEDED = "succeeded"
+
+
+class EventType(str, Enum):
+    INSTALL = "install"
+    SYNC = "sync"
 
 
 @dataclass
@@ -104,6 +109,22 @@ class SourceTelemetryInfo:
             name=source.name,
             executor_type=type(source.executor).__name__,
             version=source.executor.reported_version,
+        )
+
+    @classmethod
+    def from_name(cls, name: str) -> SourceTelemetryInfo:
+        return cls(
+            name=name,
+            executor_type="unknown",
+            version="unknown",
+        )
+
+    @classmethod
+    def default(cls) -> SourceTelemetryInfo:
+        return cls(
+            name="unknown",
+            executor_type="unknown",
+            version="unknown",
         )
 
 
@@ -137,9 +158,11 @@ def get_env_flags() -> dict[str, Any]:
 
 
 def send_telemetry(
-    source: Source,
+    source: Source | None,
+    name: str | None,
     cache: CacheBase | None,
-    state: SyncState,
+    state: EventState,
+    event_type: EventType,
     number_of_records: int | None = None,
     exception: Exception | None = None,
 ) -> None:
@@ -149,7 +172,6 @@ def send_telemetry(
 
     payload_props: dict[str, str | int | dict] = {
         "session_id": PYAIRBYTE_SESSION_ID,
-        "source": asdict(SourceTelemetryInfo.from_source(source)),
         "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
         "state": state,
         "version": get_version(),
@@ -158,6 +180,14 @@ def send_telemetry(
         "application_hash": one_way_hash(meta.get_application_name()),
         "flags": get_env_flags(),
     }
+
+    if source:
+        payload_props["source"] = asdict(SourceTelemetryInfo.from_source(source))
+    elif name:
+        payload_props["source"] = asdict(SourceTelemetryInfo.from_name(name))
+    else:
+        payload_props["source"] = asdict(SourceTelemetryInfo.default())
+
     if exception:
         if isinstance(exception, exc.AirbyteError):
             payload_props["exception"] = exception.safe_logging_dict()
@@ -175,7 +205,7 @@ def send_telemetry(
             auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
             json={
                 "anonymousId": "airbyte-lib-user",
-                "event": "sync",
+                "event": event_type,
                 "properties": payload_props,
                 "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
             },

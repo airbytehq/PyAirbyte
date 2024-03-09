@@ -33,9 +33,11 @@ def test_telemetry_track(monkeypatch):
 
     telemetry.send_telemetry(
         source=source_test,
+        name="source_test",
         cache=cache,
-        state="started",
+        state=telemetry.EventState.STARTED,
         number_of_records=0,
+        event_type=telemetry.EventType.SYNC,
     )
 
     # Check that one request was made
@@ -77,9 +79,11 @@ def test_do_not_track(monkeypatch, do_not_track):
 
     telemetry.send_telemetry(
         source=source_test,
+        name="source_test",
         cache=cache,
-        state="started",
+        state=telemetry.EventState.STARTED,
         number_of_records=0,
+        event_type=telemetry.EventType.SYNC,
     )
 
     # Check that zero requests were made, because DO_NOT_TRACK is set

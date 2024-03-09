@@ -8,8 +8,11 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+import pendulum
+
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
 from airbyte.sources.base import Source
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
@@ -108,26 +111,50 @@ def get_source(
         metadata = get_connector_metadata(name)
     except exc.AirbyteConnectorNotRegisteredError:
         if not pip_url:
+            ex = exc.AirbyteConnectorNotRegisteredError
+            _log_install_state(None, name, state=EventState.FAILED, exception=Exception(ex))
             # We don't have a pip url or registry entry, so we can't install the connector
             raise
 
-    executor = VenvExecutor(
-        name=name,
-        metadata=metadata,
-        target_version=version,
-        pip_url=pip_url,
-    )
-    if install_if_missing:
-        executor.ensure_installation()
+    try:
+        executor = VenvExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+            pip_url=pip_url,
+        )
+        if install_if_missing:
+            executor.ensure_installation()
 
-    return Source(
-        name=name,
-        config=config,
-        streams=streams,
-        executor=executor,
-    )
+        return Source(
+            name=name,
+            config=config,
+            streams=streams,
+            executor=executor,
+        )
+    except Exception as e:
+        _log_install_state(None, name, state=EventState.FAILED, exception=e)
+        raise
 
 
 __all__ = [
     "get_source",
 ]
+
+
+def _log_install_state(
+    source: Source | None,
+    name: str | None,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log an install event."""
+    print(f"{state.value} `{name}` install operation at {pendulum.now().format('HH:mm:ss')}...")
+    send_telemetry(
+        source=source,
+        name=name,
+        cache=None,
+        state=state,
+        event_type=EventType.INSTALL,
+        exception=exception,
+    )
