@@ -109,10 +109,9 @@ def get_source(
     metadata: ConnectorMetadata | None = None
     try:
         metadata = get_connector_metadata(name)
-    except exc.AirbyteConnectorNotRegisteredError:
+    except exc.AirbyteConnectorNotRegisteredError as ex:
         if not pip_url:
-            ex = exc.AirbyteConnectorNotRegisteredError
-            _log_install_state(None, name, state=EventState.FAILED, exception=Exception(ex))
+            _log_install_state(None, name, state=EventState.FAILED, exception=ex)
             # We don't have a pip url or registry entry, so we can't install the connector
             raise
 
