@@ -177,7 +177,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
     @final
     @overrides
-    def _get_tables_list(
+    def get_tables_list(
         self,
     ) -> list[str]:
         """Get the list of available tables in the schema.

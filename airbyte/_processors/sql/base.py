@@ -359,7 +359,7 @@ class SqlProcessorBase(RecordProcessor):
 
         return temp_table_name
 
-    def _get_tables_list(
+    def get_tables_list(
         self,
     ) -> list[str]:
         """Return a list of all tables in the database."""
@@ -917,4 +917,4 @@ class SqlProcessorBase(RecordProcessor):
 
         Subclasses may override this method to provide a more efficient implementation.
         """
-        return table_name in self._get_tables_list()
+        return table_name in self.get_tables_list()
