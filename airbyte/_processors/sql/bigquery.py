@@ -205,8 +205,8 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     ) -> None:
         """Swap the temp table with the main one, dropping the old version of the 'final' table.
 
-        The BigQuery RENAME implementation requires that the table schema (dataset) is named in the first
-        part of the ALTER statement, but not in the second part.
+        The BigQuery RENAME implementation requires that the table schema (dataset) is named in the
+        first part of the ALTER statement, but not in the second part.
 
         For example, BigQuery expects this format:
 
@@ -221,8 +221,10 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         deletion_name = f"{final_table_name}_deleteme"
         commands = "\n".join(
             [
-                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME TO {deletion_name};",
-                f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME TO {final_table_name};",
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} "
+                f"RENAME TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(temp_table_name)} "
+                f"RENAME TO {final_table_name};",
                 f"DROP TABLE {self._fully_qualified(deletion_name)};",
             ]
         )
