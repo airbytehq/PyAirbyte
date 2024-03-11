@@ -196,3 +196,34 @@ class BigQuerySqlProcessor(SqlProcessorBase):
                 table.replace(schema_prefix, "", 1) if table.startswith(schema_prefix) else table
                 for table in tables
             ]
+
+    def _swap_temp_table_with_final_table(
+        self,
+        stream_name: str,
+        temp_table_name: str,
+        final_table_name: str,
+    ) -> None:
+        """Swap the temp table with the main one, dropping the old version of the 'final' table.
+
+        The BigQuery RENAME implementation requires that the table schema (dataset) is named in the first
+        part of the ALTER statement, but not in the second part.
+
+        For example, BigQuery expects this format:
+
+        ALTER TABLE my_schema.my_old_table_name RENAME TO my_new_table_name;
+        """
+        if final_table_name is None:
+            raise exc.AirbyteLibInternalError(message="Arg 'final_table_name' cannot be None.")
+        if temp_table_name is None:
+            raise exc.AirbyteLibInternalError(message="Arg 'temp_table_name' cannot be None.")
+
+        _ = stream_name
+        deletion_name = f"{final_table_name}_deleteme"
+        commands = "\n".join(
+            [
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME TO {final_table_name};",
+                f"DROP TABLE {self._fully_qualified(deletion_name)};",
+            ]
+        )
+        self._execute_sql(commands)
