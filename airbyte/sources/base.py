@@ -1,10 +1,8 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import json
-import tempfile
 import warnings
-from contextlib import contextmanager, suppress
+from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, cast
 
 import jsonschema
@@ -20,10 +18,7 @@ from airbyte_protocol.models import (
     ConfiguredAirbyteStream,
     ConnectorSpecification,
     DestinationSyncMode,
-    Status,
     SyncMode,
-    TraceType,
-    Type,
 )
 
 from airbyte import exceptions as exc
@@ -43,36 +38,13 @@ from airbyte.strategies import WriteStrategy
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
-    from airbyte._executor import Executor
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
 
 
-@contextmanager
-def as_temp_files(files_contents: list[Any]) -> Generator[list[str], Any, None]:
-    """Write the given contents to temporary files and yield the file paths as strings."""
-    temp_files: list[Any] = []
-    try:
-        for content in files_contents:
-            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=True)
-            temp_file.write(
-                json.dumps(content) if isinstance(content, dict) else content,
-            )
-            temp_file.flush()
-            temp_files.append(temp_file)
-        yield [file.name for file in temp_files]
-    finally:
-        for temp_file in temp_files:
-            with suppress(Exception):
-                temp_file.close()
-
-
-class Source:
-    """A class representing a source that can be called."""
-
+class SourceBase:
     def __init__(
         self,
-        executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
         streams: str | list[str] | None = None,
@@ -83,7 +55,6 @@ class Source:
 
         If config is provided, it will be validated against the spec if validate is True.
         """
-        self.executor = executor
         self.name = name
         self._processed_records = 0
         self._config_dict: dict[str, Any] | None = None
@@ -177,22 +148,9 @@ class Source:
             )
         return self._config_dict
 
-    def _discover(self) -> AirbyteCatalog:
-        """Call discover on the connector.
-
-        This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with discover --config <config_file>
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
-        """
-        with as_temp_files([self._config]) as [config_file]:
-            for msg in self._execute(["discover", "--config", config_file]):
-                if msg.type == Type.CATALOG and msg.catalog:
-                    return msg.catalog
-            raise exc.AirbyteConnectorMissingCatalogError(
-                log_text=self._last_log_messages,
-            )
+    @abstractmethod
+    def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
+        """Call `spec` on the connector."""
 
     def validate_config(self, config: dict[str, Any] | None = None) -> None:
         """Validate the config against the spec.
@@ -206,27 +164,6 @@ class Source:
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
         return [s.name for s in self.discovered_catalog.streams]
-
-    def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
-        """Call spec on the connector.
-
-        This involves the following steps:
-        * execute the connector with spec
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
-        """
-        if force_refresh or self._spec is None:
-            for msg in self._execute(["spec"]):
-                if msg.type == Type.SPEC and msg.spec:
-                    self._spec = msg.spec
-                    break
-
-        if self._spec:
-            return self._spec
-
-        raise exc.AirbyteConnectorMissingSpecError(
-            log_text=self._last_log_messages,
-        )
 
     @property
     def _yaml_spec(self) -> str:
@@ -250,6 +187,10 @@ class Source:
         return "https://docs.airbyte.com/integrations/sources/" + self.name.lower().replace(
             "source-", ""
         )
+
+    @abstractmethod
+    def _discover(self) -> AirbyteCatalog:
+        """Call discover on the connector."""
 
     @property
     def discovered_catalog(self) -> AirbyteCatalog:
@@ -375,123 +316,17 @@ class Source:
             render_metadata=render_metadata,
         )
 
-    def check(self) -> None:
-        """Call check on the connector.
-
-        This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with check --config <config_file>
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
-        """
-        with as_temp_files([self._config]) as [config_file]:
-            try:
-                for msg in self._execute(["check", "--config", config_file]):
-                    if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
-                        if msg.connectionStatus.status != Status.FAILED:
-                            print(f"Connection check succeeded for `{self.name}`.")
-                            return
-
-                        raise exc.AirbyteConnectorCheckFailedError(
-                            help_url=self.docs_url,
-                            context={
-                                "failure_reason": msg.connectionStatus.message,
-                            },
-                        )
-                raise exc.AirbyteConnectorCheckFailedError(log_text=self._last_log_messages)
-            except exc.AirbyteConnectorReadError as ex:
-                raise exc.AirbyteConnectorCheckFailedError(
-                    message="The connector failed to check the connection.",
-                    log_text=ex.log_text,
-                ) from ex
-
-    def install(self) -> None:
-        """Install the connector if it is not yet installed."""
-        self.executor.install()
-        print("For configuration instructions, see: \n" f"{self.docs_url}#reference\n")
-
-    def uninstall(self) -> None:
-        """Uninstall the connector if it is installed.
-
-        This only works if the use_local_install flag wasn't used and installation is managed by
-        PyAirbyte.
-        """
-        self.executor.uninstall()
-
+    @abstractmethod
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
         state: list[AirbyteStateMessage] | None = None,
     ) -> Iterator[AirbyteMessage]:
-        """Call read on the connector.
-
-        This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with read --config <config_file> --catalog <catalog_file>
-        * Listen to the messages and return the AirbyteRecordMessages that come along.
-        * Send out telemetry on the performed sync (with information about which source was used and
-          the type of the cache)
-        """
-        self._processed_records = 0  # Reset the counter before we start
-        with as_temp_files(
-            [
-                self._config,
-                catalog.json(),
-                json.dumps(state) if state else "[]",
-            ]
-        ) as [
-            config_file,
-            catalog_file,
-            state_file,
-        ]:
-            yield from self._tally_records(
-                self._execute(
-                    [
-                        "read",
-                        "--config",
-                        config_file,
-                        "--catalog",
-                        catalog_file,
-                        "--state",
-                        state_file,
-                    ],
-                )
-            )
+        """Call read on the connector."""
 
     def _add_to_logs(self, message: str) -> None:
         self._last_log_messages.append(message)
         self._last_log_messages = self._last_log_messages[-10:]
-
-    def _execute(self, args: list[str]) -> Iterator[AirbyteMessage]:
-        """Execute the connector with the given arguments.
-
-        This involves the following steps:
-        * Locate the right venv. It is called ".venv-<connector_name>"
-        * Spawn a subprocess with .venv-<connector_name>/bin/<connector-name> <args>
-        * Read the output line by line of the subprocess and serialize them AirbyteMessage objects.
-          Drop if not valid.
-        """
-        # Fail early if the connector is not installed.
-        self.executor.ensure_installation(auto_fix=False)
-
-        try:
-            self._last_log_messages = []
-            for line in self.executor.execute(args):
-                try:
-                    message = AirbyteMessage.parse_raw(line)
-                    if message.type is Type.RECORD:
-                        self._processed_records += 1
-                    if message.type == Type.LOG:
-                        self._add_to_logs(message.log.message)
-                    if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-                        self._add_to_logs(message.trace.error.message)
-                    yield message
-                except Exception:
-                    self._add_to_logs(line)
-        except Exception as e:
-            raise exc.AirbyteConnectorReadError(
-                log_text=self._last_log_messages,
-            ) from e
 
     def _tally_records(
         self,
@@ -637,8 +472,3 @@ class Source:
             cache=cache,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
         )
-
-
-__all__ = [
-    "Source",
-]
