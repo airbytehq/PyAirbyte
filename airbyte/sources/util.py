@@ -111,7 +111,7 @@ def get_source(
         metadata = get_connector_metadata(name)
     except exc.AirbyteConnectorNotRegisteredError as ex:
         if not pip_url:
-            _log_install_state(None, name, state=EventState.FAILED, exception=ex)
+            _log_install_state(name, state=EventState.FAILED, exception=ex)
             # We don't have a pip url or registry entry, so we can't install the connector
             raise
 
@@ -132,7 +132,7 @@ def get_source(
             executor=executor,
         )
     except Exception as e:
-        _log_install_state(None, name, state=EventState.FAILED, exception=e)
+        _log_install_state(name, state=EventState.FAILED, exception=e)
         raise
 
 
@@ -142,16 +142,14 @@ __all__ = [
 
 
 def _log_install_state(
-    source: Source | None,
-    name: str | None,
+    name: str,
     state: EventState,
     exception: Exception | None = None,
 ) -> None:
     """Log an install event."""
     print(f"{state.value} `{name}` install operation at {pendulum.now().format('HH:mm:ss')}...")
     send_telemetry(
-        source=source,
-        name=name,
+        source=name,
         cache=None,
         state=state,
         event_type=EventType.INSTALL,

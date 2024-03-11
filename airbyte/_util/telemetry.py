@@ -119,14 +119,6 @@ class SourceTelemetryInfo:
             version="unknown",
         )
 
-    @classmethod
-    def default(cls) -> SourceTelemetryInfo:
-        return cls(
-            name="unknown",
-            executor_type="unknown",
-            version="unknown",
-        )
-
 
 def one_way_hash(
     string_to_hash: Any,  # noqa: ANN401  # Allow Any type
@@ -158,8 +150,7 @@ def get_env_flags() -> dict[str, Any]:
 
 
 def send_telemetry(
-    source: Source | None,
-    name: str | None,
+    source: Source | str,
     cache: CacheBase | None,
     state: EventState,
     event_type: EventType,
@@ -181,12 +172,10 @@ def send_telemetry(
         "flags": get_env_flags(),
     }
 
-    if source:
-        payload_props["source"] = asdict(SourceTelemetryInfo.from_source(source))
-    elif name:
-        payload_props["source"] = asdict(SourceTelemetryInfo.from_name(name))
+    if isinstance(source, str):
+        payload_props["source"] = asdict(SourceTelemetryInfo.from_name(source))
     else:
-        payload_props["source"] = asdict(SourceTelemetryInfo.default())
+        payload_props["source"] = asdict(SourceTelemetryInfo.from_source(source))
 
     if exception:
         if isinstance(exception, exc.AirbyteError):

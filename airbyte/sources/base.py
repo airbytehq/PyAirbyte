@@ -519,7 +519,6 @@ class Source:
         print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
         send_telemetry(
             source=self,
-            name=self.name,
             cache=cache,
             state=EventState.STARTED,
             event_type=EventType.SYNC,
@@ -534,7 +533,6 @@ class Source:
         print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
             source=self,
-            name=self.name,
             cache=cache,
             state=EventState.SUCCEEDED,
             number_of_records=self._processed_records,
@@ -551,7 +549,6 @@ class Source:
         print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
             state=EventState.FAILED,
-            name=self.name,
             source=self,
             cache=cache,
             number_of_records=self._processed_records,
