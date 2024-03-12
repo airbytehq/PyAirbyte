@@ -85,6 +85,7 @@ def _setup_analytics() -> str | bool:
 
     Return the anonymous user ID or False if the user has opted out.
     """
+    anonymous_user_id: str | None = None
     if _ENV_ANALYTICS_ID in os.environ:
         # If the user has chosen to override their analytics ID, use that value and
         # remember it for future invocations.
