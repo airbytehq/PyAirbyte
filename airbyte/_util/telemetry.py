@@ -104,9 +104,7 @@ def _setup_analytics() -> str | bool:
         _ANALYTICS_FILE.parent.mkdir(exist_ok=True, parents=True)
         _ANALYTICS_FILE.write_text(yaml.dump(new_file_contents))
     except Exception as ex:
-        print(
-            f"Failed to create the analytics file at '{_ANALYTICS_FILE}'. " f"Error was: {ex!s}"
-        )
+        print(f"Failed to create the analytics file at '{_ANALYTICS_FILE}'. " f"Error was: {ex!s}")
     print(
         "Anonymous usage reporting is enabled. For more information or to opt out, please"
         " see https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics"
