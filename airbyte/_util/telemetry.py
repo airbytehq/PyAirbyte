@@ -54,6 +54,10 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
+DEBUG = True
+"""Enable debug mode for telemetry code."""
+
+
 HASH_SEED = "PyAirbyte:"
 """Additional seed for randomizing one-way hashed strings."""
 
@@ -86,17 +90,30 @@ def _setup_analytics() -> str | bool:
     Return the anonymous user ID or False if the user has opted out.
     """
     anonymous_user_id: str | None = None
+    issues: list[str] = []
+
+    if os.environ.get(DO_NOT_TRACK):
+        # User has opted out of tracking.
+        return False
+
     if _ENV_ANALYTICS_ID in os.environ:
         # If the user has chosen to override their analytics ID, use that value and
         # remember it for future invocations.
         anonymous_user_id = os.environ[_ENV_ANALYTICS_ID]
+
+    if not _ANALYTICS_FILE.exists():
+        # This is a one-time message to inform the user that we are tracking anonymous usage stats.
+        print(
+            "Anonymous usage reporting is enabled. For more information or to opt out, please"
+            " see https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics"
+        )
 
     if _ANALYTICS_FILE.exists():
         analytics_text = _ANALYTICS_FILE.read_text()
         try:
             analytics: dict = yaml.safe_load(analytics_text)
         except Exception as ex:
-            print(f"Failed to parse the analytics file. Error was: {ex!s}")
+            issues += f"File appears corrupted. Error was: {ex!s}"
 
         if analytics and "anonymous_user_id" in analytics:
             # The analytics ID was successfully located.
@@ -107,10 +124,10 @@ def _setup_analytics() -> str | bool:
                 # Values match, no need to update the file.
                 return analytics["anonymous_user_id"]
 
-            # Values don't match. We will rewrite the file.
+            issues.append("Provided analytics ID did not match the file. Rewriting the file.")
             print(
-                "Overriding the anonymous user ID with value provided via environment variable "
-                f" '{_ENV_ANALYTICS_ID}'."
+                f"Received a user-provided analytics ID override in the '{_ENV_ANALYTICS_ID}' "
+                "environment variable."
             )
 
     # File is missing, incomplete, or stale. Create a new one.
@@ -123,12 +140,15 @@ def _setup_analytics() -> str | bool:
             "# - https://docs.airbyte.com/operator-guides/telemetry\n"
             f"anonymous_user_id: {anonymous_user_id}\n"
         )
-    except Exception as ex:
-        print(f"Failed to create the analytics file at '{_ANALYTICS_FILE}'. " f"Error was: {ex!s}")
-    print(
-        "Anonymous usage reporting is enabled. For more information or to opt out, please"
-        " see https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics"
-    )
+    except Exception:
+        # Failed to create the analytics file. Likely due to a read-only filesystem.
+        issues.append("Failed to write the analytics file. Check filesystem permissions.")
+        pass
+
+    if DEBUG and issues:
+        nl = "\n"
+        print(f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}")
+
     return anonymous_user_id
 
 
