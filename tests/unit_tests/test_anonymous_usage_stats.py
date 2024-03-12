@@ -175,6 +175,7 @@ def test_tracking(
         )
     ])
 
+
 def test_setup_analytics_existing_file(monkeypatch):
     # Mock the environment variable and the analytics file
     monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
@@ -194,6 +195,20 @@ def test_setup_analytics_missing_file(monkeypatch):
     assert telemetry._setup_analytics() == 'test_id'
 
     assert mock_path.call_count == 1
+
+
+def test_setup_analytics_read_only_filesystem(monkeypatch):
+    """Mock the environment variable and simulate a read-only filesystem."""
+    monkeypatch.setenv(telemetry._ENV_ANALYTICS_ID, 'test_id')
+    monkeypatch.setattr(Path, 'exists', lambda x: False)
+
+    mock_write_text = MagicMock(side_effect=PermissionError("Read-only filesystem"))
+    monkeypatch.setattr(Path, 'write_text', mock_write_text)
+
+    # We should not raise an exception
+    assert telemetry._setup_analytics() == "test_id"
+
+    assert mock_write_text.call_count == 1
 
 
 def test_setup_analytics_corrupt_file(monkeypatch):
