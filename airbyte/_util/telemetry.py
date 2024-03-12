@@ -75,7 +75,7 @@ It is not a unique identifier for the user.
 DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
 
-
+_ENV_ANALYTICS_ID = "AIRBYTE_ANALYTICS_ID"  # Allows user to override the anonymous user ID
 _ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.yml"
 _ANALYTICS_ID: str | bool | None = None
 
@@ -85,6 +85,11 @@ def _setup_analytics() -> str | bool:
 
     Return the anonymous user ID or False if the user has opted out.
     """
+    if _ENV_ANALYTICS_ID in os.environ:
+        # If the user has chosen to override their analytics ID, use that value and
+        # remember it for future invocations.
+        anonymous_user_id = os.environ[_ENV_ANALYTICS_ID]
+
     if _ANALYTICS_FILE.exists():
         analytics_text = _ANALYTICS_FILE.read_text()
         try:
@@ -93,10 +98,22 @@ def _setup_analytics() -> str | bool:
             print(f"Failed to parse the analytics file. Error was: {ex!s}")
 
         if analytics and "anonymous_user_id" in analytics:
-            return analytics["anonymous_user_id"]
+            # The analytics ID was successfully located.
+            if not anonymous_user_id:
+                return analytics["anonymous_user_id"]
 
-    # File is missing or incomplete. Create a new one.
-    anonymous_user_id = str(ulid.ULID())
+            if anonymous_user_id == analytics["anonymous_user_id"]:
+                # Values match, no need to update the file.
+                return analytics["anonymous_user_id"]
+
+            # Values don't match. We will rewrite the file.
+            print(
+                "Overriding the anonymous user ID with value provided via environment variable "
+                f" '{_ENV_ANALYTICS_ID}'."
+            )
+
+    # File is missing, incomplete, or stale. Create a new one.
+    anonymous_user_id = anonymous_user_id or str(ulid.ULID())
     try:
         _ANALYTICS_FILE.parent.mkdir(exist_ok=True, parents=True)
         _ANALYTICS_FILE.write_text(
