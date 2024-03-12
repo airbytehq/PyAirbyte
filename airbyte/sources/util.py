@@ -147,7 +147,6 @@ def _log_install_state(
     exception: Exception | None = None,
 ) -> None:
     """Log an install event."""
-    print(f"{state.value} `{name}` install operation at {pendulum.now().format('HH:mm:ss')}...")
     send_telemetry(
         source=name,
         cache=None,
