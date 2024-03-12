@@ -37,10 +37,12 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 import ulid
+import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
@@ -72,6 +74,58 @@ It is not a unique identifier for the user.
 
 DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
+
+
+_ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.json"
+_ANALYTICS_ID: str | bool | None = None
+
+
+def _setup_analytics() -> str | bool:
+    """Set up the analytics file if it doesn't exist.
+
+    Return the anonymous user ID or False if the user has opted out.
+    """
+    if _ANALYTICS_FILE.exists():
+        analytics_text = _ANALYTICS_FILE.read_text()
+        try:
+            analytics: dict = yaml.safe_load(analytics_text)
+        except Exception as ex:
+            print(f"Failed to parse the analytics file. Error was: {ex!s}")
+
+        if analytics and "anonymous_user_id" in analytics:
+            return analytics["anonymous_user_id"]
+
+    # File is missing or incomplete. Create a new one.
+    anonymous_user_id = str(ulid.ULID())
+    new_file_contents = {
+        "anonymous_user_id": anonymous_user_id,
+    }
+    try:
+        _ANALYTICS_FILE.parent.mkdir(exist_ok=True, parents=True)
+        _ANALYTICS_FILE.write_text(yaml.dump(new_file_contents))
+    except Exception as ex:
+        print(
+            f"Failed to create the analytics file at '{_ANALYTICS_FILE}'. " f"Error was: {str(ex)}"
+        )
+    print(
+        "Anonymous usage reporting is enabled. For more information or to opt out, please"
+        " see https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics"
+    )
+    return anonymous_user_id
+
+
+def _get_analytics_id() -> str | None:
+    result: str | bool | None = _ANALYTICS_ID
+    if result is None:
+        result = _setup_analytics()
+
+    if result is False:
+        return None
+
+    return cast(str, result)
+
+
+_ANALYTICS_ID = _get_analytics_id()
 
 
 class SyncState(str, Enum):
@@ -174,7 +228,7 @@ def send_telemetry(
             "https://api.segment.io/v1/track",
             auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
             json={
-                "anonymousId": "airbyte-lib-user",
+                "anonymousId": _get_analytics_id(),
                 "event": "sync",
                 "properties": payload_props,
                 "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
