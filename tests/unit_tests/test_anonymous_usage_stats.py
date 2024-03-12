@@ -179,6 +179,8 @@ def test_tracking(
 def test_setup_analytics_existing_file(monkeypatch):
     # Mock the environment variable and the analytics file
     monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+
     monkeypatch.setattr(Path, 'exists', lambda x: True)
     monkeypatch.setattr(Path, 'read_text', lambda x: "anonymous_user_id: test_id\n")
     assert telemetry._setup_analytics() == 'test_id'
@@ -187,6 +189,7 @@ def test_setup_analytics_existing_file(monkeypatch):
 def test_setup_analytics_missing_file(monkeypatch):
     """Mock the environment variable and the missing analytics file."""
     monkeypatch.setenv(telemetry._ENV_ANALYTICS_ID, 'test_id')
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
     monkeypatch.setattr(Path, 'exists', lambda x: False)
 
     mock_path = MagicMock()
@@ -197,9 +200,10 @@ def test_setup_analytics_missing_file(monkeypatch):
     assert mock_path.call_count == 1
 
 
-def test_setup_analytics_read_only_filesystem(monkeypatch):
+def test_setup_analytics_read_only_filesystem(monkeypatch, capfd):
     """Mock the environment variable and simulate a read-only filesystem."""
     monkeypatch.setenv(telemetry._ENV_ANALYTICS_ID, 'test_id')
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
     monkeypatch.setattr(Path, 'exists', lambda x: False)
 
     mock_write_text = MagicMock(side_effect=PermissionError("Read-only filesystem"))
@@ -210,10 +214,17 @@ def test_setup_analytics_read_only_filesystem(monkeypatch):
 
     assert mock_write_text.call_count == 1
 
+    # Capture print outputs
+    captured = capfd.readouterr()
+
+    # Validate print message
+    assert "Read-only filesystem" not in captured.out
+
 
 def test_setup_analytics_corrupt_file(monkeypatch):
     """Mock the environment variable and the missing analytics file."""
     monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
     monkeypatch.setattr(Path, 'exists', lambda x: True)
     monkeypatch.setattr(Path, 'read_text', lambda x: "not-a-valid ::: yaml file\n")
 
@@ -228,6 +239,7 @@ def test_setup_analytics_corrupt_file(monkeypatch):
 def test_get_analytics_id(monkeypatch):
     # Mock the _ANALYTICS_ID variable
     monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
     monkeypatch.setattr(telemetry, '_ANALYTICS_ID', 'test_id')
 
     mock = MagicMock()
