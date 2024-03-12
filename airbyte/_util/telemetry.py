@@ -120,7 +120,7 @@ def _setup_analytics() -> str | bool:
         _ANALYTICS_FILE.write_text(
             "# This file is used by PyAirbyte to track anonymous usage statistics.\n"
             "# For more information or to opt out, please see\n"
-            "# - https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics\n"
+            "# - https://docs.airbyte.com/operator-guides/telemetry\n"
             f"anonymous_user_id: {anonymous_user_id}\n"
         )
     except Exception as ex:
