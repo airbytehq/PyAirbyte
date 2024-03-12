@@ -177,6 +177,7 @@ def test_tracking(
 
 def test_setup_analytics_existing_file(monkeypatch):
     # Mock the environment variable and the analytics file
+    monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
     monkeypatch.setattr(Path, 'exists', lambda x: True)
     monkeypatch.setattr(Path, 'read_text', lambda x: "anonymous_user_id: test_id\n")
     assert telemetry._setup_analytics() == 'test_id'
@@ -197,6 +198,7 @@ def test_setup_analytics_missing_file(monkeypatch):
 
 def test_setup_analytics_corrupt_file(monkeypatch):
     """Mock the environment variable and the missing analytics file."""
+    monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
     monkeypatch.setattr(Path, 'exists', lambda x: True)
     monkeypatch.setattr(Path, 'read_text', lambda x: "not-a-valid ::: yaml file\n")
 
@@ -210,6 +212,7 @@ def test_setup_analytics_corrupt_file(monkeypatch):
 
 def test_get_analytics_id(monkeypatch):
     # Mock the _ANALYTICS_ID variable
+    monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
     monkeypatch.setattr(telemetry, '_ANALYTICS_ID', 'test_id')
 
     mock = MagicMock()
