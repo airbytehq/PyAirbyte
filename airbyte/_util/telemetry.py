@@ -97,9 +97,6 @@ def _setup_analytics() -> str | bool:
 
     # File is missing or incomplete. Create a new one.
     anonymous_user_id = str(ulid.ULID())
-    new_file_contents = {
-        "anonymous_user_id": anonymous_user_id,
-    }
     try:
         _ANALYTICS_FILE.parent.mkdir(exist_ok=True, parents=True)
         _ANALYTICS_FILE.write_text(
