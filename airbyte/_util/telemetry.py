@@ -76,7 +76,7 @@ DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
 
 
-_ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.json"
+_ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.yml"
 _ANALYTICS_ID: str | bool | None = None
 
 
@@ -102,7 +102,12 @@ def _setup_analytics() -> str | bool:
     }
     try:
         _ANALYTICS_FILE.parent.mkdir(exist_ok=True, parents=True)
-        _ANALYTICS_FILE.write_text(yaml.dump(new_file_contents))
+        _ANALYTICS_FILE.write_text(
+            "# This file is used by PyAirbyte to track anonymous usage statistics.\n"
+            "# For more information or to opt out, please see\n"
+            "# - https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics\n"
+            f"anonymous_user_id: {anonymous_user_id}"
+        )
     except Exception as ex:
         print(f"Failed to create the analytics file at '{_ANALYTICS_FILE}'. " f"Error was: {ex!s}")
     print(
