@@ -37,10 +37,12 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 import requests
 import ulid
+import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
@@ -50,6 +52,10 @@ from airbyte.version import get_version
 if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
     from airbyte.sources.base import Source
+
+
+DEBUG = True
+"""Enable debug mode for telemetry code."""
 
 
 HASH_SEED = "PyAirbyte:"
@@ -72,6 +78,92 @@ It is not a unique identifier for the user.
 
 DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
+
+_ENV_ANALYTICS_ID = "AIRBYTE_ANALYTICS_ID"  # Allows user to override the anonymous user ID
+_ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.yml"
+_ANALYTICS_ID: str | bool | None = None
+
+
+def _setup_analytics() -> str | bool:
+    """Set up the analytics file if it doesn't exist.
+
+    Return the anonymous user ID or False if the user has opted out.
+    """
+    anonymous_user_id: str | None = None
+    issues: list[str] = []
+
+    if os.environ.get(DO_NOT_TRACK):
+        # User has opted out of tracking.
+        return False
+
+    if _ENV_ANALYTICS_ID in os.environ:
+        # If the user has chosen to override their analytics ID, use that value and
+        # remember it for future invocations.
+        anonymous_user_id = os.environ[_ENV_ANALYTICS_ID]
+
+    if not _ANALYTICS_FILE.exists():
+        # This is a one-time message to inform the user that we are tracking anonymous usage stats.
+        print(
+            "Anonymous usage reporting is enabled. For more information or to opt out, please"
+            " see https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics"
+        )
+
+    if _ANALYTICS_FILE.exists():
+        analytics_text = _ANALYTICS_FILE.read_text()
+        try:
+            analytics: dict = yaml.safe_load(analytics_text)
+        except Exception as ex:
+            issues += f"File appears corrupted. Error was: {ex!s}"
+
+        if analytics and "anonymous_user_id" in analytics:
+            # The analytics ID was successfully located.
+            if not anonymous_user_id:
+                return analytics["anonymous_user_id"]
+
+            if anonymous_user_id == analytics["anonymous_user_id"]:
+                # Values match, no need to update the file.
+                return analytics["anonymous_user_id"]
+
+            issues.append("Provided analytics ID did not match the file. Rewriting the file.")
+            print(
+                f"Received a user-provided analytics ID override in the '{_ENV_ANALYTICS_ID}' "
+                "environment variable."
+            )
+
+    # File is missing, incomplete, or stale. Create a new one.
+    anonymous_user_id = anonymous_user_id or str(ulid.ULID())
+    try:
+        _ANALYTICS_FILE.parent.mkdir(exist_ok=True, parents=True)
+        _ANALYTICS_FILE.write_text(
+            "# This file is used by PyAirbyte to track anonymous usage statistics.\n"
+            "# For more information or to opt out, please see\n"
+            "# - https://docs.airbyte.com/operator-guides/telemetry\n"
+            f"anonymous_user_id: {anonymous_user_id}\n"
+        )
+    except Exception:
+        # Failed to create the analytics file. Likely due to a read-only filesystem.
+        issues.append("Failed to write the analytics file. Check filesystem permissions.")
+        pass
+
+    if DEBUG and issues:
+        nl = "\n"
+        print(f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}")
+
+    return anonymous_user_id
+
+
+def _get_analytics_id() -> str | None:
+    result: str | bool | None = _ANALYTICS_ID
+    if result is None:
+        result = _setup_analytics()
+
+    if result is False:
+        return None
+
+    return cast(str, result)
+
+
+_ANALYTICS_ID = _get_analytics_id()
 
 
 class SyncState(str, Enum):
@@ -174,7 +266,7 @@ def send_telemetry(
             "https://api.segment.io/v1/track",
             auth=(PYAIRBYTE_APP_TRACKING_KEY, ""),
             json={
-                "anonymousId": "airbyte-lib-user",
+                "anonymousId": _get_analytics_id(),
                 "event": "sync",
                 "properties": payload_props,
                 "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
