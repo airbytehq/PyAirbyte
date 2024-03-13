@@ -8,8 +8,6 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-import pendulum
-
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
 from airbyte._util.telemetry import EventState, EventType, send_telemetry

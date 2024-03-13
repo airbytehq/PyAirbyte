@@ -5,7 +5,7 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jsonschema
 import pendulum
@@ -28,8 +28,8 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
+from airbyte._util.name_normalizers import normalize_records
 from airbyte._util.telemetry import EventState, EventType, send_telemetry
-from airbyte._util.text_util import lower_case_set  # Internal utility functions
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
@@ -326,29 +326,21 @@ class Source:
             ) from KeyError(stream)
 
         configured_stream = configured_catalog.streams[0]
-        all_properties = set(configured_stream.stream.json_schema["properties"].keys())
+        all_properties = cast(
+            list[str], list(configured_stream.stream.json_schema["properties"].keys())
+        )
 
         def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
             self._log_sync_start(cache=None)
             yield from records
             self._log_sync_success(cache=None)
 
-        def _with_missing_columns(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-            """Add missing columns to the record with null values."""
-            for record in records:
-                existing_properties_lower = lower_case_set(record.keys())
-                appended_dict = {
-                    prop: None
-                    for prop in all_properties
-                    if prop.lower() not in existing_properties_lower
-                }
-                yield {**record, **appended_dict}
-
         iterator: Iterator[dict[str, Any]] = _with_logging(
-            _with_missing_columns(
-                protocol_util.airbyte_messages_to_record_dicts(
+            normalize_records(
+                records=protocol_util.airbyte_messages_to_record_dicts(
                     self._read_with_catalog(configured_catalog),
-                )
+                ),
+                expected_keys=all_properties,
             )
         )
         return LazyDataset(

@@ -7,6 +7,9 @@ on:
       - edited
       - synchronize
 
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
 permissions:
   pull-requests: read
 
