@@ -11,6 +11,7 @@ import subprocess
 import time
 
 import ulid
+from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
@@ -22,6 +23,13 @@ from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
+from airbyte.sources.base import as_temp_files
+
+try:
+    import ci_credentials
+except ImportError:
+    # This will fail pre Python 3.10, so we skip tests that require it.
+    ci_credentials = None
 
 logger = logging.getLogger(__name__)
 
@@ -199,6 +207,39 @@ def new_snowflake_cache():
     engine = create_engine(config.get_sql_alchemy_url())
     with engine.begin() as connection:
         connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
+
+
+@pytest.fixture
+@pytest.mark.requires_creds
+@pytest.mark.skipif(
+    ci_credentials is None, reason="requires Python 3.10+ and ci_credentials library"
+)
+def new_bigquery_cache():
+    if "GCP_GSM_CREDENTIALS" not in os.environ:
+        raise Exception(
+            "GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets. Make sure they are set "
+            "up as described: "
+            "https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/"
+            "README.md#get-gsm-access"
+        )
+    secrets, _ = ci_credentials.get_connector_secrets("destination-bigquery")
+    dest_bigquery_config = secrets[0].value_dict
+
+    dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
+
+    credentials_json = dest_bigquery_config["credentials_json"]
+    with as_temp_files([credentials_json]) as (credentials_path,):
+        cache = BigQueryCache(
+            credentials_path=credentials_path,
+            project_name=dest_bigquery_config["project_id"],
+            dataset_name=dataset_name
+        )
+        yield cache
+
+    url = cache.get_sql_alchemy_url()
+    engine = create_engine(url)
+    with engine.begin() as connection:
+        connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
 @pytest.fixture(autouse=True)

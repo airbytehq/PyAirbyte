@@ -55,6 +55,9 @@ def main() -> None:
 
         result = source.read(cache)
 
+        # Read a second time to make sure table swaps and incremental are working.
+        result = source.read(cache)
+
         for name, records in result.streams.items():
             print(f"Stream {name}: {len(records)} records")
 
