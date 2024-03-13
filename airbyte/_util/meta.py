@@ -41,7 +41,7 @@ def is_langchain() -> bool:
 
     This is cached for performance reasons.
     """
-    return "langchain-airbyte" in sys.modules
+    return "langchain_airbyte" in sys.modules
 
 
 @lru_cache
