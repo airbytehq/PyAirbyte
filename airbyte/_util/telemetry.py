@@ -227,6 +227,7 @@ def one_way_hash(
 def get_env_flags() -> dict[str, Any]:
     flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
+        "LANGCHAIN": meta.is_langchain(),
         "NOTEBOOK_RUNTIME": (
             "GOOGLE_COLAB"
             if meta.is_colab()
