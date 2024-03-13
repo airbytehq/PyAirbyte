@@ -104,8 +104,9 @@ def _setup_analytics() -> str | bool:
     if not _ANALYTICS_FILE.exists():
         # This is a one-time message to inform the user that we are tracking anonymous usage stats.
         print(
-            "Anonymous usage reporting is enabled. For more information or to opt out, please"
-            " see https://docs.airbyte.io/pyairbyte/anonymized-usage-statistics"
+            "Thank you for using PyAirbyte!\n"
+            "Anonymous usage reporting is currently enabled. For more information, please"
+            " see https://docs.airbyte.com/telemetry"
         )
 
     if _ANALYTICS_FILE.exists():
@@ -227,6 +228,7 @@ def one_way_hash(
 def get_env_flags() -> dict[str, Any]:
     flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
+        "LANGCHAIN": meta.is_langchain(),
         "NOTEBOOK_RUNTIME": (
             "GOOGLE_COLAB"
             if meta.is_colab()
