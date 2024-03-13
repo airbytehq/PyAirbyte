@@ -36,6 +36,9 @@ def is_langchain() -> bool:
 
     This checks for the presence of the 'langchain-airbyte' package.
 
+    TODO: A more robust check would inspect the call stack or another flag to see if we are actually
+          being invoked via LangChain, vs being installed side-by-side.
+
     This is cached for performance reasons.
     """
     return "langchain-airbyte" in sys.modules
