@@ -4,6 +4,9 @@ on:
   issue_comment:
     types: [created]
 
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
 jobs:
   slashCommandDispatch:
     runs-on: ubuntu-latest

@@ -13,6 +13,9 @@ on:
       - main
     pull_request: {}
 
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
 jobs:
   pytest-fast:
     name: Pytest (Fast)
