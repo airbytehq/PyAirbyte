@@ -70,6 +70,23 @@ mimesis = "6.1.1"
 tests = ["pytest (>=6.2,<7.0)", "pytest-mock (>=3.6.1,<3.7.0)", "requests-mock (>=1.9.3,<1.10.0)"]
 
 [[package]]
+name = "airbyte-source-pokeapi"
+version = "0.2.0"
+description = "Source implementation for Pokeapi."
+optional = false
+python-versions = "*"
+files = [
+    {file = "airbyte-source-pokeapi-0.2.0.tar.gz", hash = "sha256:f48dc3a40170e2bfeed707b279379bf17365dbda1dbb3a0cce9c364c2572c992"},
+    {file = "airbyte_source_pokeapi-0.2.0-py3-none-any.whl", hash = "sha256:a4e3cf901ecf7a1c551b231f15835c4fa34b1f31dd1384e6269d5c79fe3ef367"},
+]
+
+[package.dependencies]
+airbyte-cdk = "*"
+
+[package.extras]
+tests = ["pytest (>=6.2,<7.0)", "pytest-mock (>=3.6.1,<3.7.0)", "requests-mock (>=1.9.3,<1.10.0)"]
+
+[[package]]
 name = "asn1crypto"
 version = "1.5.1"
 description = "Fast ASN.1 parser and serializer with definitions for private keys, public keys, certificates, CRL, OCSP, CMS, PKCS#3, PKCS#7, PKCS#8, PKCS#12, PKCS#5, X.509 and TSP"
@@ -2737,4 +2754,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "3490632ee893aa38e9b9bd6fc3435f0122cfa4beaf1694902d2558e529e9df3d"
+content-hash = "44816c5ad65fe4d941ab901df0de0b24e48959454132ccbd5aef8ddf49ed7104"
