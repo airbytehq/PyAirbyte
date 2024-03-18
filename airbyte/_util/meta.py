@@ -31,6 +31,20 @@ def is_ci() -> bool:
 
 
 @lru_cache
+def is_langchain() -> bool:
+    """Return True if running in a Langchain environment.
+
+    This checks for the presence of the 'langchain-airbyte' package.
+
+    TODO: A more robust check would inspect the call stack or another flag to see if we are actually
+          being invoked via LangChain, vs being installed side-by-side.
+
+    This is cached for performance reasons.
+    """
+    return "langchain_airbyte" in sys.modules
+
+
+@lru_cache
 def is_colab() -> bool:
     return bool(get_colab_release_version())
 

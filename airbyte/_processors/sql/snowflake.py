@@ -67,14 +67,16 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
             ]
         )
         self._execute_sql(put_files_statements)
-
+        properties_list: list[str] = list(self._get_stream_properties(stream_name).keys())
         columns_list = [
             self._quote_identifier(c)
             for c in list(self._get_sql_column_definitions(stream_name).keys())
         ]
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
-        variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
+        variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
+            [f"$1:{col}" for col in properties_list]
+        )
         copy_statement = dedent(
             f"""
             COPY INTO {temp_table_name}

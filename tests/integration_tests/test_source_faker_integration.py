@@ -18,11 +18,11 @@ import ulid
 
 
 import airbyte as ab
+from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
-from airbyte.caches.factories import new_local_cache, get_default_cache
-from airbyte._executor import _get_bin_dir
+from airbyte.caches.util import new_local_cache, get_default_cache
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100

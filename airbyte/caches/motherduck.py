@@ -1,4 +1,18 @@
-"""A cache implementation for the MotherDuck service, built on DuckDB."""
+"""A MotherDuck implementation of the PyAirbyte cache, built on DuckDB.
+
+## Usage Example
+
+```python
+from airbyte as ab
+from airbyte.caches import MotherDuckCache
+
+cache = MotherDuckCache(
+    database="mydatabase",
+    schema_name="myschema",
+    api_key=ab.get_secret("MOTHERDUCK_API_KEY"),
+)
+"""
+
 from __future__ import annotations
 
 from overrides import overrides

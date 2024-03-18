@@ -39,7 +39,7 @@ class SQLDataset(DatasetBase):
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
         super().__init__(
-            stream_metadata=cache.processor._get_stream_config(  # noqa: SLF001 # Member is private until we have a public API for it.
+            stream_metadata=cache.processor._get_stream_config(  # noqa: SLF001  # Member is private until we have a public API for it.
                 stream_name=stream_name
             ),
         )

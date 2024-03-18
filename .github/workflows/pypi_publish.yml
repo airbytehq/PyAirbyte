@@ -5,6 +5,9 @@ on:
 
   workflow_dispatch:
 
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
 jobs:
   build:
     runs-on: ubuntu-latest

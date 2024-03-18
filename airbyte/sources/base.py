@@ -5,7 +5,7 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jsonschema
 import pendulum
@@ -28,12 +28,9 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
-from airbyte._util.telemetry import (
-    SyncState,
-    send_telemetry,
-)
-from airbyte._util.text_util import lower_case_set  # Internal utility functions
-from airbyte.caches.factories import get_default_cache
+from airbyte._util.name_normalizers import normalize_records
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
@@ -329,29 +326,21 @@ class Source:
             ) from KeyError(stream)
 
         configured_stream = configured_catalog.streams[0]
-        all_properties = set(configured_stream.stream.json_schema["properties"].keys())
+        all_properties = cast(
+            list[str], list(configured_stream.stream.json_schema["properties"].keys())
+        )
 
         def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
             self._log_sync_start(cache=None)
             yield from records
             self._log_sync_success(cache=None)
 
-        def _with_missing_columns(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-            """Add missing columns to the record with null values."""
-            for record in records:
-                existing_properties_lower = lower_case_set(record.keys())
-                appended_dict = {
-                    prop: None
-                    for prop in all_properties
-                    if prop.lower() not in existing_properties_lower
-                }
-                yield {**record, **appended_dict}
-
         iterator: Iterator[dict[str, Any]] = _with_logging(
-            _with_missing_columns(
-                protocol_util.airbyte_messages_to_record_dicts(
+            normalize_records(
+                records=protocol_util.airbyte_messages_to_record_dicts(
                     self._read_with_catalog(configured_catalog),
-                )
+                ),
+                expected_keys=all_properties,
             )
         )
         return LazyDataset(
@@ -523,7 +512,8 @@ class Source:
         send_telemetry(
             source=self,
             cache=cache,
-            state=SyncState.STARTED,
+            state=EventState.STARTED,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_success(
@@ -536,8 +526,9 @@ class Source:
         send_telemetry(
             source=self,
             cache=cache,
-            state=SyncState.SUCCEEDED,
+            state=EventState.SUCCEEDED,
             number_of_records=self._processed_records,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_failure(
@@ -549,11 +540,12 @@ class Source:
         """Log the failure of a sync operation."""
         print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
-            state=SyncState.FAILED,
+            state=EventState.FAILED,
             source=self,
             cache=cache,
             number_of_records=self._processed_records,
             exception=exception,
+            event_type=EventType.SYNC,
         )
 
     def read(
@@ -615,11 +607,9 @@ class Source:
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),
         )
-        if not cache.processor._catalog_manager:  # noqa: SLF001
-            raise exc.AirbyteLibInternalError(message="Catalog manager should exist but does not.")
 
         state = (
-            cache.processor._catalog_manager.get_state(  # noqa: SLF001
+            cache._get_state(  # noqa: SLF001  # Private method until we have a public API for it.
                 source_name=self.name,
                 streams=self._selected_stream_names,
             )
@@ -647,3 +637,8 @@ class Source:
             cache=cache,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
         )
+
+
+__all__ = [
+    "Source",
+]

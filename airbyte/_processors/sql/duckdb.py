@@ -77,17 +77,14 @@ class DuckDBSqlProcessor(SqlProcessorBase):
     ) -> str:
         """Write a file(s) to a new table.
 
-        We use DuckDB's `read_parquet` function to efficiently read the files and insert
+        We use DuckDB native SQL functions to efficiently read the files and insert
         them into the table in a single operation.
-
-        Note: This implementation is fragile in regards to column ordering. However, since
-        we are inserting into a temp table we have just created, there should be no
-        drift between the table schema and the file schema.
         """
         temp_table_name = self._create_table_for_loading(
             stream_name=stream_name,
             batch_id=batch_id,
         )
+        properties_list = list(self._get_stream_properties(stream_name).keys())
         columns_list = list(self._get_sql_column_definitions(stream_name=stream_name).keys())
         columns_list_str = indent(
             "\n, ".join([self._quote_identifier(c) for c in columns_list]),
@@ -97,9 +94,14 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         columns_type_map = indent(
             "\n, ".join(
                 [
-                    f"{self._quote_identifier(c)}: "
-                    f"{self._get_sql_column_definitions(stream_name)[c]!s}"
-                    for c in columns_list
+                    self._quote_identifier(prop_name)
+                    + ": "
+                    + str(
+                        self._get_sql_column_definitions(stream_name)[
+                            self.normalizer.normalize(prop_name)
+                        ]
+                    )
+                    for prop_name in properties_list
                 ]
             ),
             "    ",

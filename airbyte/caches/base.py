@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, final
+from typing import TYPE_CHECKING, Any, Optional, cast, final
 
 from pydantic import BaseModel, PrivateAttr
 
+from airbyte import exceptions as exc
+from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -76,12 +78,42 @@ class CacheBase(BaseModel):
         """Return a temporary table name."""
         result = {}
         stream_names = self.processor.expected_streams
-        if self.processor._catalog_manager is not None:  # noqa: SLF001
-            stream_names |= set(self.processor._catalog_manager.stream_names)  # noqa: SLF001
+        if self._has_catalog_manager:
+            stream_names |= set(self._catalog_manager.stream_names)
         for stream_name in stream_names:
             result[stream_name] = CachedDataset(self, stream_name)
 
         return result
+
+    def _get_state(
+        self,
+        source_name: str,
+        streams: list[str] | None,
+    ) -> list[dict[str, Any]] | None:
+        return self._catalog_manager.get_state(
+            source_name=source_name,
+            streams=streams,
+        )
+
+    @property
+    def _has_catalog_manager(
+        self,
+    ) -> bool:
+        """Return whether the cache has a catalog manager."""
+        # Member is private until we have a public API for it.
+        return self.processor._catalog_manager is not None  # noqa: SLF001
+
+    @property
+    def _catalog_manager(
+        self,
+    ) -> CatalogManager:
+        if not self._has_catalog_manager:
+            raise exc.AirbyteLibInternalError(
+                message="Catalog manager should exist but does not.",
+            )
+
+        # Member is private until we have a public API for it.
+        return cast(CatalogManager, self.processor._catalog_manager)  # noqa: SLF001
 
     def __getitem__(self, stream: str) -> DatasetBase:
         return self.streams[stream]

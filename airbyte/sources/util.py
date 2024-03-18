@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Utility functions for working with sources."""
+
 from __future__ import annotations
 
 import shutil
@@ -9,8 +11,9 @@ from typing import Any
 
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
-from airbyte.registry import ConnectorMetadata, get_connector_metadata
-from airbyte.source import Source
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte.sources.base import Source
+from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
 def get_connector(
@@ -117,23 +120,48 @@ def get_source(
     metadata: ConnectorMetadata | None = None
     try:
         metadata = get_connector_metadata(name)
-    except exc.AirbyteConnectorNotRegisteredError:
+    except exc.AirbyteConnectorNotRegisteredError as ex:
         if not pip_url:
+            _log_install_state(name, state=EventState.FAILED, exception=ex)
             # We don't have a pip url or registry entry, so we can't install the connector
             raise
 
-    executor = VenvExecutor(
-        name=name,
-        metadata=metadata,
-        target_version=version,
-        pip_url=pip_url,
-    )
-    if install_if_missing:
-        executor.ensure_installation()
+    try:
+        executor = VenvExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+            pip_url=pip_url,
+        )
+        if install_if_missing:
+            executor.ensure_installation()
 
-    return Source(
-        name=name,
-        config=config,
-        streams=streams,
-        executor=executor,
+        return Source(
+            name=name,
+            config=config,
+            streams=streams,
+            executor=executor,
+        )
+    except Exception as e:
+        _log_install_state(name, state=EventState.FAILED, exception=e)
+        raise
+
+
+__all__ = [
+    "get_source",
+]
+
+
+def _log_install_state(
+    name: str,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log an install event."""
+    send_telemetry(
+        source=name,
+        cache=None,
+        state=state,
+        event_type=EventType.INSTALL,
+        exception=exception,
     )
