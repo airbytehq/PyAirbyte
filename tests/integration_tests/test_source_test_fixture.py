@@ -691,17 +691,21 @@ def test_failing_path_connector():
     with pytest.raises(Exception):
         ab.get_source("source-test", config={"apiKey": "test"}, use_local_install=True)
 
-def test_succeeding_path_connector():
-    new_path = f"{os.path.abspath('.venv-source-test/bin')}{os.pathsep}{os.environ['PATH']}"
+def test_succeeding_path_connector(monkeypatch):
+    venv_bin_path = str(_get_bin_dir(Path(".venv-source-test")))
+
+    # Add the bin directory to the PATH
+    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
 
     # Patch the PATH env var to include the test venv bin folder
-    with patch.dict(os.environ, {"PATH": new_path}):
-        source = ab.get_source(
-            "source-test",
-            config={"apiKey": "test"},
-            local_executable="source-test",
-        )
-        source.check()
+    monkeypatch.setenv('PATH', new_path)
+
+    source = ab.get_source(
+        "source-test",
+        config={"apiKey": "test"},
+        local_executable="source-test",
+    )
+    source.check()
 
 def test_install_uninstall():
     with tempfile.TemporaryDirectory() as temp_dir:
