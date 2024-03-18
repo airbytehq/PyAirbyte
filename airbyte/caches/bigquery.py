@@ -21,7 +21,7 @@ import urllib
 from typing import Any
 
 from overrides import overrides
-from pydantic import Field, root_validator
+from pydantic import root_validator
 
 from airbyte._processors.sql.bigquery import BigQuerySqlProcessor
 from airbyte.caches.base import (
