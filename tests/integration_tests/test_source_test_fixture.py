@@ -692,7 +692,7 @@ def test_failing_path_connector():
         ab.get_source("source-test", config={"apiKey": "test"}, use_local_install=True)
 
 def test_succeeding_path_connector():
-    new_path = f"{os.path.abspath('.venv-source-test/bin')}:{os.environ['PATH']}"
+    new_path = f"{os.path.abspath('.venv-source-test/bin')}{os.pathsep}{os.environ['PATH']}"
 
     # Patch the PATH env var to include the test venv bin folder
     with patch.dict(os.environ, {"PATH": new_path}):
