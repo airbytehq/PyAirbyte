@@ -10,9 +10,9 @@ from pathlib import Path
 from platform import system
 from shutil import rmtree
 from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
-from typing_extensions import Literal
 
 from rich import print
+from typing_extensions import Literal
 
 from airbyte import exceptions as exc
 from airbyte.sources.registry import ConnectorMetadata
