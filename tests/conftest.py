@@ -231,10 +231,10 @@ def new_bigquery_cache():
         )
         yield cache
 
-    url = cache.get_sql_alchemy_url()
-    engine = create_engine(url)
-    with engine.begin() as connection:
-        connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
+        url = cache.get_sql_alchemy_url()
+        engine = create_engine(url)
+        with engine.begin() as connection:
+            connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
 @pytest.fixture(autouse=True)
