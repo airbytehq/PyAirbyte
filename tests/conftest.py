@@ -10,7 +10,7 @@ import shutil
 import socket
 import subprocess
 import time
-from urllib.error import HTTPError
+from requests.exceptions import HTTPError
 
 import ulid
 from airbyte.caches.snowflake import SnowflakeCache
