@@ -123,7 +123,7 @@ def all_cache_types(
 
 def test_which_source_faker() -> None:
     """Test that source-faker is available on PATH."""
-    assert shutil.which("source-faker") or shutil.which("source-faker.exe"), \
+    assert shutil.which("source-faker"), \
         f"Can't find source-faker on PATH: {os.environ['PATH']}"
 
 
