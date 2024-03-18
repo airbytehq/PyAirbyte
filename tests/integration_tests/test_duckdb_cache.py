@@ -42,7 +42,7 @@ def add_venv_bin_to_path(monkeypatch):
     venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}:{os.environ['PATH']}"
+    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
     monkeypatch.setenv('PATH', new_path)
 
 
