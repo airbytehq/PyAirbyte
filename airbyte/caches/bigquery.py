@@ -32,10 +32,10 @@ from airbyte.caches.base import (
 class BigQueryCache(CacheBase):
     """The BigQuery cache implementation."""
 
-    project_name: str = Field(...)
+    project_name: str
     """The name of the project to use. In BigQuery, this is equivalent to the database name."""
 
-    dataset_name: str = Field("airbyte_raw")
+    dataset_name: str = "airbyte_raw"
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
     credentials_path: str
