@@ -43,8 +43,8 @@ class BigQueryCache(CacheBase):
 
     _sql_processor_class: type[BigQuerySqlProcessor] = BigQuerySqlProcessor
 
-    @classmethod
     @root_validator(pre=True)
+    @classmethod
     def set_schema_name(cls, values: dict[str, Any]) -> dict[str, Any]:
         dataset_name = values.get("dataset_name")
         if dataset_name is None:
