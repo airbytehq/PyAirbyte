@@ -11,6 +11,7 @@ import subprocess
 import time
 
 import ulid
+from airbyte._util.google_secrets import get_gcp_secret
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.snowflake import SnowflakeCache
 
@@ -25,12 +26,6 @@ from sqlalchemy import create_engine
 from airbyte.caches import PostgresCache
 from airbyte.sources.base import as_temp_files
 
-try:
-    import ci_credentials
-except ImportError:
-    # This will fail pre Python 3.10, so we skip tests that require it.
-    ci_credentials = None
-
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +34,23 @@ PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
 LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
+
+AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
+
+
+def get_ci_secret(
+    secret_name,
+    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
+) -> str:
+    return get_gcp_secret(project_name=project_name, secret_name=secret_name)
+
+
+def get_ci_secret_json(
+    secret_name,
+    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
+) -> dict:
+    return json.loads(get_ci_secret(secret_name=secret_name, project_name=project_name))
+
 
 
 def pytest_collection_modifyitems(items: list[Item]) -> None:
@@ -182,15 +194,8 @@ def new_pg_cache(pg_dsn):
 
 @pytest.fixture
 def new_snowflake_cache():
-    if "GCP_GSM_CREDENTIALS" not in os.environ:
-        raise Exception("GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets for Snowflake. Make sure they are set up as described: https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/README.md#get-gsm-access")
-    secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
-        json.loads(os.environ["GCP_GSM_CREDENTIALS"])
-    )
-    secret = json.loads(
-        secret_client.access_secret_version(
-            name="projects/dataline-integration-testing/secrets/AIRBYTE_LIB_SNOWFLAKE_CREDS/versions/latest"
-        ).payload.data.decode("UTF-8")
+    secret = get_ci_secret_json(
+        "AIRBYTE_LIB_SNOWFLAKE_CREDS",
     )
     config = SnowflakeCache(
         account=secret["account"],
@@ -211,22 +216,12 @@ def new_snowflake_cache():
 
 @pytest.fixture
 @pytest.mark.requires_creds
-@pytest.mark.skipif(
-    ci_credentials is None, reason="requires Python 3.10+ and ci_credentials library"
-)
 def new_bigquery_cache():
-    if "GCP_GSM_CREDENTIALS" not in os.environ:
-        raise Exception(
-            "GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets. Make sure they are set "
-            "up as described: "
-            "https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/"
-            "README.md#get-gsm-access"
-        )
-    secrets, _ = ci_credentials.get_connector_secrets("destination-bigquery")
-    dest_bigquery_config = secrets[0].value_dict
+    dest_bigquery_config = get_ci_secret_json(
+        "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    )
 
     dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
-
     credentials_json = dest_bigquery_config["credentials_json"]
     with as_temp_files([credentials_json]) as (credentials_path,):
         cache = BigQueryCache(

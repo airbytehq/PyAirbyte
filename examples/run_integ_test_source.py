@@ -11,14 +11,13 @@ Usage:
 """
 from __future__ import annotations
 
-import json
-import os
 import sys
-from typing import Any
-
-from google.cloud import secretmanager
 
 import airbyte as ab
+from airbyte._util.google_secrets import get_gcp_secret_json
+
+
+GCP_SECRETS_PROJECT_NAME = "dataline-integration-testing"
 
 
 def get_secret_name(connector_name: str) -> str:
@@ -35,31 +34,15 @@ def get_secret_name(connector_name: str) -> str:
     return f"SECRET_{connector_name.upper()}_CREDS"
 
 
-def get_integ_test_config(secret_name: str) -> dict[str, Any]:
-    if "GCP_GSM_CREDENTIALS" not in os.environ:
-        raise Exception(  # noqa: TRY002, TRY003
-            f"GCP_GSM_CREDENTIALS env var not set, can't fetch secrets for '{connector_name}'. "
-            "Make sure they are set up as described: "
-            "https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/"
-            "README.md#get-gsm-access"
-        )
-
-    secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
-        json.loads(os.environ["GCP_GSM_CREDENTIALS"])
-    )
-    return json.loads(
-        secret_client.access_secret_version(
-            name=f"projects/dataline-integration-testing/secrets/{secret_name}/versions/latest"
-        ).payload.data.decode("UTF-8")
-    )
-
-
 def main(
     connector_name: str,
     secret_name: str | None,
     streams: list[str] | None,
 ) -> None:
-    config = get_integ_test_config(secret_name)
+    config = get_gcp_secret_json(
+        secret_name=secret_name,
+        project_name=GCP_SECRETS_PROJECT_NAME,
+    )
     source = ab.get_source(
         connector_name,
         config=config,

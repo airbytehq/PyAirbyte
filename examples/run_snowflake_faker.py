@@ -1,12 +1,8 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import json
-import os
-
-from google.cloud import secretmanager
-
 import airbyte as ab
+from airbyte._util.google_secrets import get_gcp_secret_json
 from airbyte.caches import SnowflakeCache
 
 
@@ -16,14 +12,9 @@ source = ab.get_source(
     install_if_missing=True,
 )
 
-# load secrets from GSM using the GCP_GSM_CREDENTIALS env variable
-secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
-    json.loads(os.environ["GCP_GSM_CREDENTIALS"])
-)
-secret = json.loads(
-    secret_client.access_secret_version(
-        name="projects/dataline-integration-testing/secrets/AIRBYTE_LIB_SNOWFLAKE_CREDS/versions/latest"
-    ).payload.data.decode("UTF-8")
+secret = get_gcp_secret_json(
+    project_name="dataline-integration-testing",
+    secret_name="AIRBYTE_LIB_SNOWFLAKE_CREDS",
 )
 
 cache = SnowflakeCache(
