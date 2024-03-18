@@ -10,7 +10,7 @@ import shutil
 import socket
 import subprocess
 import time
-import pip
+from urllib.error import HTTPError
 
 import ulid
 from airbyte.caches.snowflake import SnowflakeCache
@@ -20,7 +20,6 @@ import psycopg2 as psycopg
 import pytest
 from _pytest.nodes import Item
 from google.cloud import secretmanager
-from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
@@ -117,7 +116,7 @@ def pg_dsn():
     client = docker.from_env()
     try:
         client.images.get(PYTEST_POSTGRES_IMAGE)
-    except docker.errors.ImageNotFound:
+    except (docker.errors.ImageNotFound, HTTPError):
         # Pull the image if it doesn't exist, to avoid failing our sleep timer
         # if the image needs to download on-demand.
         client.images.pull(PYTEST_POSTGRES_IMAGE)
