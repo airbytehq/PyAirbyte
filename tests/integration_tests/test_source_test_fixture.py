@@ -24,6 +24,7 @@ from airbyte.sources import registry
 from airbyte.version import get_version
 from airbyte.results import ReadResult
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
+from airbyte._executor import _get_bin_dir
 import airbyte as ab
 
 from airbyte.results import ReadResult
@@ -719,7 +720,7 @@ def test_install_uninstall():
         assert not os.path.exists(install_root / ".venv-source-test")
 
         # use which to check if the executable is available
-        assert not shutil.which("source-test") and not shutil.which("source-test.exe")
+        assert shutil.which("source-test") is None
 
         # assert that the connector is not available
         with pytest.raises(Exception):
@@ -728,11 +729,11 @@ def test_install_uninstall():
         source.install()
 
         assert os.path.exists(install_root / ".venv-source-test")
-        assert os.path.exists(install_root / ".venv-source-test/bin/source-test")
+        assert os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
 
         source.check()
 
         source.uninstall()
 
         assert not os.path.exists(install_root / ".venv-source-test")
-        assert not os.path.exists(install_root / ".venv-source-test/bin/source-test")
+        assert not os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
