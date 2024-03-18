@@ -81,6 +81,20 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
+def test_bigquery_props(
+    new_bigquery_cache: ab.BigQueryCache,
+) -> None:
+    """Test that the BigQueryCache properties are set correctly."""
+    # assert new_bigquery_cache.credentials_path.endswith(".json")
+    assert new_bigquery_cache.dataset_name == new_bigquery_cache.schema_name, \
+        "Dataset name should be the same as schema name."
+    assert new_bigquery_cache.schema_name != "airbyte_raw" \
+        "Schema name should not be the default value."
+
+    assert new_bigquery_cache.get_database_name() == new_bigquery_cache.project_name, \
+        "Database name should be the same as project name."
+
+
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
