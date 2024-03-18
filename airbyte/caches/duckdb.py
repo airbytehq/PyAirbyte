@@ -20,6 +20,7 @@ from pathlib import Path  # noqa: TCH003  # Used in Pydantic init
 from typing import Union
 
 from overrides import overrides
+from typing_extensions import Literal
 
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte.caches.base import CacheBase
@@ -60,5 +61,8 @@ class DuckDBCache(CacheBase):
         if self.db_path == ":memory:":
             return "memory"
 
+        # Split the path on the appropriate separator ("/" or "\")
+        split_on: Literal["/", "\\"] = "\\" if "\\" in str(self.db_path) else "/"
+
         # Return the file name without the extension
-        return str(self.db_path).split("/")[-1].split(".")[0]
+        return str(self.db_path).split(sep=split_on)[-1].split(".")[0]
