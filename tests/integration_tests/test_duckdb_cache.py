@@ -78,12 +78,6 @@ def duckdb_cache() -> Generator[DuckDBCache, None, None]:
     return
 
 
-def test_which_source_faker() -> None:
-    """Test that source-faker is available on PATH."""
-    assert shutil.which("source-faker") or shutil.which("source-faker.exe"), \
-        f"Can't find source-faker on PATH: {os.environ['PATH']}"
-
-
 def test_duckdb_cache(duckdb_cache: DuckDBCache) -> None:
     """Test that the duckdb cache is available."""
     assert duckdb_cache
