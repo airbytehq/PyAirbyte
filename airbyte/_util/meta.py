@@ -76,12 +76,11 @@ def is_jupyter() -> bool:
 @lru_cache
 def get_notebook_name() -> str | None:
     if is_colab():
-        session_info = None
-        response = None
+        session_info: dict | None = None
         with suppress(Exception):
             response = requests.get(COLAB_SESSION_URL)
             if response.status_code == 200:  # noqa: PLR2004  # Magic number
-                session_info = response.json()
+                session_info = response.json()[0]
 
         if session_info and "name" in session_info:
             return session_info["name"]
