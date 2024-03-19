@@ -5,7 +5,7 @@ from collections.abc import Mapping
 import os
 import shutil
 import itertools
-from contextlib import nullcontext as does_not_raise
+from contextlib import nullcontext as does_not_raise, suppress
 from typing import Any
 from unittest.mock import Mock, call, patch
 import tempfile
@@ -187,23 +187,27 @@ def test_check_fail():
 
 def test_file_write_and_cleanup() -> None:
     """Ensure files are written to the correct location and cleaned up afterwards."""
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir_1, \
-            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir_2:
-        cache_w_cleanup = ab.new_local_cache(cache_dir=temp_dir_1, cleanup=True)
-        cache_wo_cleanup = ab.new_local_cache(cache_dir=temp_dir_2, cleanup=False)
+    temp_dir_root = Path(tempfile.mkdtemp())
+    temp_dir_1 = temp_dir_root / "cache_1"
+    temp_dir_2 = temp_dir_root / "cache_2"
 
-        source = ab.get_source("source-test", config={"apiKey": "test"})
-        source.select_all_streams()
+    cache_w_cleanup = ab.new_local_cache(cache_dir=temp_dir_1, cleanup=True)
+    cache_wo_cleanup = ab.new_local_cache(cache_dir=temp_dir_2, cleanup=False)
 
-        _ = source.read(cache_w_cleanup)
-        _ = source.read(cache_wo_cleanup)
+    source = ab.get_source("source-test", config={"apiKey": "test"})
+    source.select_all_streams()
 
-        # We expect all files to be cleaned up:
-        assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, "Expected files to be cleaned up"
+    _ = source.read(cache_w_cleanup)
+    _ = source.read(cache_wo_cleanup)
 
-        # There are three streams, but only two of them have data:
-        assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2, "Expected files to exist"
+    # We expect all files to be cleaned up:
+    assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, "Expected files to be cleaned up"
 
+    # There are three streams, but only two of them have data:
+    assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2, "Expected files to exist"
+
+    with suppress(Exception):
+        shutil.rmtree(str(temp_dir_root))
 
 def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SqlProcessorBase, streams: list[str] = None):
     for stream_name in streams or expected_test_stream_data.keys():
