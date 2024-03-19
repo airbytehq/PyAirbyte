@@ -2,6 +2,7 @@
 """Global pytest fixtures."""
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import logging
 import os
@@ -11,6 +12,10 @@ import subprocess
 import time
 
 import ulid
+from airbyte._util.google_secrets import get_gcp_secret
+from airbyte.caches.base import CacheBase
+from airbyte.caches.bigquery import BigQueryCache
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
@@ -22,6 +27,8 @@ from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
+from airbyte.caches.util import new_local_cache
+from airbyte.sources.base import as_temp_files
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +38,23 @@ PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
 LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
+
+AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
+
+
+def get_ci_secret(
+    secret_name,
+    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
+) -> str:
+    return get_gcp_secret(project_name=project_name, secret_name=secret_name)
+
+
+def get_ci_secret_json(
+    secret_name,
+    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
+) -> dict:
+    return json.loads(get_ci_secret(secret_name=secret_name, project_name=project_name))
+
 
 
 def pytest_collection_modifyitems(items: list[Item]) -> None:
@@ -174,15 +198,8 @@ def new_pg_cache(pg_dsn):
 
 @pytest.fixture
 def new_snowflake_cache():
-    if "GCP_GSM_CREDENTIALS" not in os.environ:
-        raise Exception("GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets for Snowflake. Make sure they are set up as described: https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/README.md#get-gsm-access")
-    secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
-        json.loads(os.environ["GCP_GSM_CREDENTIALS"])
-    )
-    secret = json.loads(
-        secret_client.access_secret_version(
-            name="projects/dataline-integration-testing/secrets/AIRBYTE_LIB_SNOWFLAKE_CREDS/versions/latest"
-        ).payload.data.decode("UTF-8")
+    secret = get_ci_secret_json(
+        "AIRBYTE_LIB_SNOWFLAKE_CREDS",
     )
     config = SnowflakeCache(
         account=secret["account"],
@@ -199,6 +216,30 @@ def new_snowflake_cache():
     engine = create_engine(config.get_sql_alchemy_url())
     with engine.begin() as connection:
         connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
+
+
+@pytest.fixture
+@pytest.mark.requires_creds
+def new_bigquery_cache():
+    dest_bigquery_config = get_ci_secret_json(
+        "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    )
+
+    dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
+    credentials_json = dest_bigquery_config["credentials_json"]
+    with as_temp_files([credentials_json]) as (credentials_path,):
+        cache = BigQueryCache(
+            credentials_path=credentials_path,
+            project_name=dest_bigquery_config["project_id"],
+            dataset_name=dataset_name
+        )
+        yield cache
+
+        url = cache.get_sql_alchemy_url()
+        engine = create_engine(url)
+        with suppress(Exception):
+            with engine.begin() as connection:
+                connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
 @pytest.fixture(autouse=True)
@@ -248,3 +289,36 @@ def source_test_installation():
     yield
 
     shutil.rmtree(venv_dir)
+
+
+@pytest.fixture(scope="function")
+def new_duckdb_cache() -> DuckDBCache:
+    return new_local_cache()
+
+
+@pytest.fixture(scope="function")
+def new_generic_cache(request) -> CacheBase:
+    """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
+    return request.getfixturevalue(request.param)
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Override default pytest behavior, parameterizing our tests based on the available cache types.
+
+    This is useful for running the same tests with different cache types, to ensure that the tests
+    can pass across all cache types.
+    """
+    all_cache_type_fixtures: dict[str, str] = {
+        "BigQuery": "new_bigquery_cache",
+        "DuckDB": "new_duckdb_cache",
+        "Postgres": "new_pg_cache",
+        "Snowflake": "new_snowflake_cache",
+    }
+    if "new_generic_cache" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "new_generic_cache",
+            all_cache_type_fixtures.values(),
+            ids=all_cache_type_fixtures.keys(),
+            indirect=True,
+            scope="function",
+        )
