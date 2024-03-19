@@ -15,7 +15,9 @@ from typing_extensions import Literal
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_windows
+from airbyte._util.telemetry import EventState
 from airbyte.sources.registry import ConnectorMetadata
+from airbyte.sources.util import _log_install_state
 
 
 if TYPE_CHECKING:
@@ -238,6 +240,7 @@ class VenvExecutor(Executor):
 
         # Assuming the installation succeeded, store the installed version
         self.reported_version = self._get_installed_version(raise_on_error=False, recheck=True)
+        _log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
             f"Connector '{self.name}' installed successfully!\n"
             f"For more information, see the {self.name} documentation:\n"
