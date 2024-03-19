@@ -306,6 +306,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Override default pytest behavior, parameterizing our tests based on the available cache types.
 
     This is useful for running the same tests with different cache types, to ensure that the tests
+    can pass across all cache types.
     """
     all_cache_type_fixtures: dict[str, str] = {
         "BigQuery": "new_bigquery_cache",
