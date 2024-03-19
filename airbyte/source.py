@@ -246,13 +246,14 @@ class Source:
     def print_config_spec(
         self,
         format: Literal["yaml", "json"] = "yaml",  # noqa: A002
-        file_path: Path | None = None,
+        *,
+        output_file: Path | str | None = None,
     ) -> None:
         """Print the configuration spec for this connector.
 
         Args:
         - format: The format to print the spec in. Must be "yaml" or "json".
-        - file_path: Optional. If set, the spec will be written to the given file path. Otherwise,
+        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
           it will be printed to the console.
         """
         if format not in ["yaml", "json"]:
@@ -260,13 +261,16 @@ class Source:
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,
             )
+        if isinstance(output_file, str):
+            output_file = Path(output_file)
+
         if format == "yaml":
             content = yaml.dump(self.config_spec, indent=2)
         elif format == "json":
             content = json.dumps(self.config_spec, indent=2)
 
-        if file_path:
-            file_path.write_text(content)
+        if output_file:
+            output_file.write_text(content)
             return
 
         syntax_highlighted = Syntax(content, format)
