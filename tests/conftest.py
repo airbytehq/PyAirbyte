@@ -13,7 +13,9 @@ import time
 
 import ulid
 from airbyte._util.google_secrets import get_gcp_secret
+from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
@@ -25,6 +27,7 @@ from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
+from airbyte.caches.util import new_local_cache
 from airbyte.sources.base import as_temp_files
 
 logger = logging.getLogger(__name__)
@@ -286,3 +289,34 @@ def source_test_installation():
     yield
 
     shutil.rmtree(venv_dir)
+
+
+@pytest.fixture(scope="function")
+def new_duckdb_cache() -> DuckDBCache:
+    return new_local_cache()
+
+
+@pytest.fixture(scope="function")
+def new_generic_cache() -> CacheBase:
+    """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
+    pass
+
+
+def pytest_generate_tests(metafunc) -> None:
+    """Override default pytest behavior, parameterizing our tests based on the available cache types.
+
+    This is useful for running the same tests with different cache types, to ensure that the tests
+    """
+    all_cache_type_fixtures = {
+        "DuckDB": new_duckdb_cache,
+        "Postgres": new_pg_cache,
+        "Snowflake": new_snowflake_cache,
+    }
+    if "new_generic_cache" in metafunc.fixturenames:
+        if True or not is_docker_available():
+            metafunc.parametrize(
+                "new_generic_cache",
+                all_cache_type_fixtures.values(),
+                ids=all_cache_type_fixtures.keys(),
+                indirect=True,
+            )
