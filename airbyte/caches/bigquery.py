@@ -18,8 +18,10 @@ cache = BigQueryCache(
 from __future__ import annotations
 
 import urllib
+from typing import Any
 
 from overrides import overrides
+from pydantic import root_validator
 
 from airbyte._processors.sql.bigquery import BigQuerySqlProcessor
 from airbyte.caches.base import (
@@ -41,9 +43,14 @@ class BigQueryCache(CacheBase):
 
     _sql_processor_class: type[BigQuerySqlProcessor] = BigQuerySqlProcessor
 
-    def __post_init__(self) -> None:
-        """Initialize the BigQuery cache."""
-        self.schema_name = self.dataset_name
+    @root_validator(pre=True)
+    @classmethod
+    def set_schema_name(cls, values: dict[str, Any]) -> dict[str, Any]:
+        dataset_name = values.get("dataset_name")
+        if dataset_name is None:
+            raise ValueError("dataset_name must be defined")  # noqa: TRY003
+        values["schema_name"] = dataset_name
+        return values
 
     @overrides
     def get_database_name(self) -> str:
