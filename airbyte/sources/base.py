@@ -148,7 +148,7 @@ class Source:
         self,
         config: dict[str, Any],
         *,
-        validate: bool = False,
+        validate: bool = True,
     ) -> None:
         """Set the config for the connector.
 
@@ -198,7 +198,18 @@ class Source:
         """
         spec = self._get_spec(force_refresh=False)
         config = self._config if config is None else config
-        jsonschema.validate(config, spec.connectionSpecification)
+        try:
+            jsonschema.validate(config, spec.connectionSpecification)
+        except jsonschema.ValidationError as ex:
+            raise exc.AirbyteConnectorValidationFailedError(
+                message="The provided config is not valid.",
+                context={
+                    "error_message": ex.message,
+                    "error_path": ex.path,
+                    "error_instance": ex.instance,
+                    "error_schema": ex.schema,
+                },
+            ) from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
@@ -555,6 +566,7 @@ class Source:
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
+        skip_validation: bool = True,
     ) -> ReadResult:
         """Read from the connector and write to the cache.
 
@@ -616,6 +628,9 @@ class Source:
             if not force_full_refresh
             else None
         )
+        if not skip_validation:
+            self.validate_config()
+
         self._log_sync_start(cache=cache)
         try:
             cache.processor.process_airbyte_messages(

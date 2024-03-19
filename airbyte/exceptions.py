@@ -261,6 +261,14 @@ class AirbyteConnectorMissingSpecError(AirbyteConnectorError):
     """Connector did not return a spec."""
 
 
+class AirbyteConnectorValidationFailedError(AirbyteConnectorError):
+    """Connector check failed."""
+
+    guidance = (
+        "Please double-check your config or review the connector's logs for more information."
+    )
+
+
 class AirbyteConnectorCheckFailedError(AirbyteConnectorError):
     """Connector check failed."""
 
