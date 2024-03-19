@@ -297,26 +297,26 @@ def new_duckdb_cache() -> DuckDBCache:
 
 
 @pytest.fixture(scope="function")
-def new_generic_cache() -> CacheBase:
+def new_generic_cache(request) -> CacheBase:
     """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
-    pass
+    return request.getfixturevalue(request.param)
 
 
-def pytest_generate_tests(metafunc) -> None:
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """Override default pytest behavior, parameterizing our tests based on the available cache types.
 
     This is useful for running the same tests with different cache types, to ensure that the tests
     """
-    all_cache_type_fixtures = {
-        "DuckDB": new_duckdb_cache,
-        "Postgres": new_pg_cache,
-        "Snowflake": new_snowflake_cache,
+    all_cache_type_fixtures: dict[str, str] = {
+        "DuckDB": "new_duckdb_cache",
+        "Postgres": "new_pg_cache",
+        "Snowflake": "new_snowflake_cache",
     }
     if "new_generic_cache" in metafunc.fixturenames:
-        if True or not is_docker_available():
-            metafunc.parametrize(
-                "new_generic_cache",
-                all_cache_type_fixtures.values(),
-                ids=all_cache_type_fixtures.keys(),
-                indirect=True,
-            )
+        metafunc.parametrize(
+            "new_generic_cache",
+            all_cache_type_fixtures.values(),
+            ids=all_cache_type_fixtures.keys(),
+            indirect=True,
+            scope="function",
+        )

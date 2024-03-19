@@ -7,14 +7,12 @@ and available on PATH for the poetry-managed venv.
 """
 from __future__ import annotations
 
-from collections.abc import Generator
 import os
 import sys
 
 import pytest
 
 import airbyte as ab
-from airbyte import caches
 
 
 # Product count is always the same, regardless of faker scale.
@@ -86,12 +84,11 @@ def source_faker_seed_b() -> ab.Source:
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
 @pytest.mark.requires_creds
 @pytest.mark.slow
-def test_faker_read_to_snowflake(
+def test_faker_read(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
-    new_generic_cache = new_generic_cache
     result = source_faker_seed_a.read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
@@ -124,9 +121,13 @@ def test_merge_strategy(
     Since all streams have primary keys, we should expect the auto strategy to be identical to the
     merge strategy.
     """
+
+    assert new_generic_cache, "Cache should not be None."
+
     # First run, seed A (counts should match the scale or the product count)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
-    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A, \
+        f"Incorrect number of records in the cache. {new_generic_cache}"
 
     # Second run, also seed A (should have same exact data, no change in counts)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
