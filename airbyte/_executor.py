@@ -177,6 +177,11 @@ class VenvExecutor(Executor):
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         return _get_bin_dir(self._get_venv_path()) / (self.name + suffix)
 
+    @property
+    def interpreter_path(self) -> Path:
+        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
+        return _get_bin_dir(self._get_venv_path()) / ("python" + suffix)
+
     def _run_subprocess_and_raise_on_failure(self, args: list[str]) -> None:
         result = subprocess.run(
             args,
@@ -291,10 +296,6 @@ class VenvExecutor(Executor):
                 raise
 
             return None
-
-    @property
-    def interpreter_path(self) -> Path:
-        return _get_bin_dir(self._get_venv_path()) / "python"
 
     def ensure_installation(
         self,
