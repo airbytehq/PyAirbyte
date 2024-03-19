@@ -34,6 +34,7 @@ from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
+from airbyte.sources.util import _log_config_validation_result
 from airbyte.strategies import WriteStrategy
 
 
@@ -200,8 +201,12 @@ class Source:
         config = self._config if config is None else config
         try:
             jsonschema.validate(config, spec.connectionSpecification)
+            _log_config_validation_result(
+                name=self.name,
+                state=EventState.SUCCEEDED,
+            )
         except jsonschema.ValidationError as ex:
-            raise exc.AirbyteConnectorValidationFailedError(
+            validation_ex = exc.AirbyteConnectorValidationFailedError(
                 message="The provided config is not valid.",
                 context={
                     "error_message": ex.message,
@@ -209,7 +214,13 @@ class Source:
                     "error_instance": ex.instance,
                     "error_schema": ex.schema,
                 },
-            ) from ex
+            )
+            _log_config_validation_result(
+                name=self.name,
+                state=EventState.FAILED,
+                exception=validation_ex,
+            )
+            raise validation_ex from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""

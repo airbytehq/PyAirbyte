@@ -165,3 +165,18 @@ def _log_install_state(
         event_type=EventType.INSTALL,
         exception=exception,
     )
+
+
+def _log_config_validation_result(
+    name: str,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log a config validation event."""
+    send_telemetry(
+        source=name,
+        cache=None,
+        state=state,
+        event_type=EventType.VALIDATE,
+        exception=exception,
+    )
