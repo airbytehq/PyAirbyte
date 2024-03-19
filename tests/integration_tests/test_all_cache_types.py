@@ -103,7 +103,10 @@ def test_pokeapi_read(
     source_pokeapi: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
-    """Test that the append strategy works as expected."""
+    """Test that PokeAPI source can load to all cache types.
+
+    This is a meaningful test because the PokeAPI source uses JSON data types.
+    """
     result = source_pokeapi.read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
