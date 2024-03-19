@@ -581,7 +581,7 @@ def test_check_fail_on_missing_config(method_call):
     with pytest.raises(exc.AirbyteConnectorConfigurationMissingError):
         method_call(source)
 
-def test_sync_with_merge_to_postgres(new_pg_cache: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_with_merge_to_postgres(new_postgres_cache: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -593,12 +593,12 @@ def test_sync_with_merge_to_postgres(new_pg_cache: PostgresCache, expected_test_
     source.select_all_streams()
 
     # Read twice to test merge strategy
-    result: ReadResult = source.read(new_pg_cache)
-    result: ReadResult = source.read(new_pg_cache)
+    result: ReadResult = source.read(new_postgres_cache)
+    result: ReadResult = source.read(new_postgres_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(new_pg_cache[stream_name]) > 0:
+        if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -618,17 +618,17 @@ def test_airbyte_version() -> None:
 
 
 def test_sync_to_postgres(
-    new_pg_cache: PostgresCache,
+    new_postgres_cache: PostgresCache,
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
 ) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    result: ReadResult = source.read(new_pg_cache)
+    result: ReadResult = source.read(new_postgres_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(new_pg_cache[stream_name]) > 0:
+        if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),

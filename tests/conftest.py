@@ -13,6 +13,8 @@ import time
 from requests.exceptions import HTTPError
 
 import ulid
+from airbyte._util.meta import is_windows
+from airbyte.caches.base import CacheBase
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
@@ -24,6 +26,8 @@ from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
+from airbyte.caches.util import new_local_cache
+from tests.integration_tests.test_source_faker_integration import all_cache_types
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +65,12 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
 
     # Sort the items list in-place based on the test_priority function
     items.sort(key=test_priority)
+
+    for item in items:
+        # Skip tests that require Docker if Docker is not available (including on Windows).
+        if "new_postgres_cache" in item.fixturenames or "postgres_cache" in item.fixturenames:
+            if True or not is_docker_available():
+                item.add_marker(pytest.mark.skip(reason="Skipping tests (Docker not available)"))
 
 
 def is_port_in_use(port):
@@ -100,6 +110,9 @@ def test_pg_connection(host) -> bool:
 
 
 def is_docker_available():
+    if is_windows():
+        # Linux containers are not supported on Windows CI runners
+        return False
     try:
         _ = docker.from_env()
         return True
@@ -108,11 +121,11 @@ def is_docker_available():
 
 
 @pytest.fixture(scope="session")
-@pytest.mark.skipif(
-    os.name == 'nt' or not is_docker_available(),
-    reason="Skipping test on Windows or when Docker is not available."
-)
-def pg_dsn():
+def new_postgres_cache():
+    """Fixture to return a fresh Postgres cache.
+
+    Each test that uses this fixture will get a unique table prefix.
+    """
     client = docker.from_env()
     try:
         client.images.get(PYTEST_POSTGRES_IMAGE)
@@ -160,20 +173,8 @@ def pg_dsn():
     if final_host is None:
         raise Exception(f"Failed to connect to the PostgreSQL database on host {host}.")
 
-    yield final_host
-    # Stop and remove the container after the tests are done
-    postgres.stop()
-    postgres.remove()
-
-
-@pytest.fixture
-def new_pg_cache(pg_dsn):
-    """Fixture to return a fresh cache.
-
-    Each test that uses this fixture will get a unique table prefix.
-    """
     config = PostgresCache(
-        host=pg_dsn,
+        host=final_host,
         port=PYTEST_POSTGRES_PORT,
         username="postgres",
         password="postgres",
@@ -184,6 +185,10 @@ def new_pg_cache(pg_dsn):
         table_prefix=f"test{str(ulid.ULID())[-6:]}_",
     )
     yield config
+
+    # Stop and remove the container after the tests are done
+    postgres.stop()
+    postgres.remove()
 
 
 @pytest.fixture

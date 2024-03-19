@@ -7,7 +7,6 @@ import sys
 from abc import ABC, abstractmethod
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from platform import system
 from shutil import rmtree
 from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 
@@ -15,6 +14,7 @@ from rich import print
 from typing_extensions import Literal
 
 from airbyte import exceptions as exc
+from airbyte._util.meta import is_windows
 from airbyte.sources.registry import ConnectorMetadata
 
 
@@ -25,13 +25,9 @@ if TYPE_CHECKING:
 _LATEST_VERSION = "latest"
 
 
-def _is_windows() -> bool:
-    return system().lower() == "windows"
-
-
 def _get_bin_dir(venv_path: Path, /) -> Path:
     """Get the directory where executables are installed."""
-    if _is_windows():
+    if is_windows():
         return venv_path / "Scripts"
 
     return venv_path / "bin"
@@ -178,7 +174,7 @@ class VenvExecutor(Executor):
         return self.install_root / self._get_venv_name()
 
     def _get_connector_path(self) -> Path:
-        suffix: Literal[".exe", ""] = ".exe" if _is_windows() else ""
+        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         return _get_bin_dir(self._get_venv_path()) / (self.name + suffix)
 
     def _run_subprocess_and_raise_on_failure(self, args: list[str]) -> None:

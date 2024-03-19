@@ -102,9 +102,9 @@ def duckdb_cache() -> Generator[DuckDBCache, None, None]:
 
 
 @pytest.fixture(scope="function")
-def postgres_cache(new_pg_cache) -> Generator[PostgresCache, None, None]:
+def postgres_cache(new_postgres_cache) -> Generator[PostgresCache, None, None]:
     """Fixture to return a fresh cache."""
-    yield new_pg_cache
+    yield new_postgres_cache
     # TODO: Delete cache DB file after test is complete.
     return
 
