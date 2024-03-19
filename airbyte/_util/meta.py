@@ -31,6 +31,24 @@ def is_ci() -> bool:
 
 
 @lru_cache
+def is_langchain() -> bool:
+    """Return True if running in a Langchain environment.
+
+    This checks for the presence of the 'langchain-airbyte' package.
+
+    TODO: A more robust check would inspect the call stack or another flag to see if we are actually
+          being invoked via LangChain, vs being installed side-by-side.
+
+    This is cached for performance reasons.
+    """
+    return "langchain_airbyte" in sys.modules
+
+
+def is_windows() -> bool:
+    return system() == "Windows"
+
+
+@lru_cache
 def is_colab() -> bool:
     return bool(get_colab_release_version())
 
@@ -58,12 +76,11 @@ def is_jupyter() -> bool:
 @lru_cache
 def get_notebook_name() -> str | None:
     if is_colab():
-        session_info = None
-        response = None
+        session_info: dict | None = None
         with suppress(Exception):
             response = requests.get(COLAB_SESSION_URL)
             if response.status_code == 200:  # noqa: PLR2004  # Magic number
-                session_info = response.json()
+                session_info = response.json()[0]
 
         if session_info and "name" in session_info:
             return session_info["name"]

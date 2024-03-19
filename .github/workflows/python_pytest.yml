@@ -13,6 +13,9 @@ on:
       - main
     pull_request: {}
 
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
 jobs:
   pytest-fast:
     name: Pytest (Fast)
@@ -40,11 +43,9 @@ jobs:
       run: poetry run pytest -m "not slow and not requires_creds" --durations=5 --exitfirst
 
   pytest:
-    name: Pytest (All, Python ${{ matrix.python-version }})
+    name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
     # Don't run on forks
     if: github.repository_owner == 'airbytehq'
-
-    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: [
@@ -52,8 +53,13 @@ jobs:
           '3.10',
           '3.11',
         ]
+        os: [
+          Ubuntu,
+          Windows,
+        ]
       fail-fast: false
 
+    runs-on: "${{ matrix.os }}-latest"
     steps:
     # Common steps:
     - name: Checkout code

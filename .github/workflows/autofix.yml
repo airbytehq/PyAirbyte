@@ -5,6 +5,9 @@ on:
   repository_dispatch:
     types: [autofix-command]
 
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
 jobs:
   python-autofix:
     runs-on: ubuntu-latest

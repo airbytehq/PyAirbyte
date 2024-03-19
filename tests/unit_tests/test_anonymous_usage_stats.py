@@ -4,8 +4,10 @@ from __future__ import annotations
 import itertools
 from contextlib import nullcontext as does_not_raise
 import json
+import os
+from pathlib import Path
 import re
-from unittest.mock import Mock, call, patch
+from unittest.mock import MagicMock, call, patch
 from freezegun import freeze_time
 
 import responses
@@ -16,8 +18,6 @@ import pytest
 from airbyte.version import get_version
 import airbyte as ab
 from airbyte._util import telemetry
-import requests
-import datetime
 
 
 @responses.activate
@@ -34,8 +34,9 @@ def test_telemetry_track(monkeypatch):
     telemetry.send_telemetry(
         source=source_test,
         cache=cache,
-        state="started",
+        state=telemetry.EventState.STARTED,
         number_of_records=0,
+        event_type=telemetry.EventType.SYNC,
     )
 
     # Check that one request was made
@@ -78,8 +79,9 @@ def test_do_not_track(monkeypatch, do_not_track):
     telemetry.send_telemetry(
         source=source_test,
         cache=cache,
-        state="started",
+        state=telemetry.EventState.STARTED,
         number_of_records=0,
+        event_type=telemetry.EventType.SYNC,
     )
 
     # Check that zero requests were made, because DO_NOT_TRACK is set
@@ -174,3 +176,75 @@ def test_tracking(
             }
         )
     ])
+
+
+def test_setup_analytics_existing_file(monkeypatch):
+    # Mock the environment variable and the analytics file
+    monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+
+    monkeypatch.setattr(Path, 'exists', lambda x: True)
+    monkeypatch.setattr(Path, 'read_text', lambda x: "anonymous_user_id: test_id\n")
+    assert telemetry._setup_analytics() == 'test_id'
+
+
+def test_setup_analytics_missing_file(monkeypatch):
+    """Mock the environment variable and the missing analytics file."""
+    monkeypatch.setenv(telemetry._ENV_ANALYTICS_ID, 'test_id')
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+    monkeypatch.setattr(Path, 'exists', lambda x: False)
+
+    mock_path = MagicMock()
+    monkeypatch.setattr(Path, 'write_text', mock_path)
+
+    assert telemetry._setup_analytics() == 'test_id'
+
+    assert mock_path.call_count == 1
+
+
+def test_setup_analytics_read_only_filesystem(monkeypatch, capfd):
+    """Mock the environment variable and simulate a read-only filesystem."""
+    monkeypatch.setenv(telemetry._ENV_ANALYTICS_ID, 'test_id')
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+    monkeypatch.setattr(Path, 'exists', lambda x: False)
+
+    mock_write_text = MagicMock(side_effect=PermissionError("Read-only filesystem"))
+    monkeypatch.setattr(Path, 'write_text', mock_write_text)
+
+    # We should not raise an exception
+    assert telemetry._setup_analytics() == "test_id"
+
+    assert mock_write_text.call_count == 1
+
+    # Capture print outputs
+    captured = capfd.readouterr()
+
+    # Validate print message
+    assert "Read-only filesystem" not in captured.out
+
+
+def test_setup_analytics_corrupt_file(monkeypatch):
+    """Mock the environment variable and the missing analytics file."""
+    monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+    monkeypatch.setattr(Path, 'exists', lambda x: True)
+    monkeypatch.setattr(Path, 'read_text', lambda x: "not-a-valid ::: yaml file\n")
+
+    mock = MagicMock()
+    monkeypatch.setattr(Path, 'write_text', mock)
+
+    assert telemetry._setup_analytics()
+
+    assert mock.call_count == 1
+
+
+def test_get_analytics_id(monkeypatch):
+    # Mock the _ANALYTICS_ID variable
+    monkeypatch.delenv(telemetry._ENV_ANALYTICS_ID, raising=False)
+    monkeypatch.delenv(telemetry.DO_NOT_TRACK, raising=False)
+    monkeypatch.setattr(telemetry, '_ANALYTICS_ID', 'test_id')
+
+    mock = MagicMock()
+    monkeypatch.setattr(Path, 'write_text', mock)
+
+    assert telemetry._get_analytics_id() == 'test_id'

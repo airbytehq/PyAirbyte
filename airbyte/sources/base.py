@@ -29,10 +29,7 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
 from airbyte._util.name_normalizers import normalize_records
-from airbyte._util.telemetry import (
-    SyncState,
-    send_telemetry,
-)
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
@@ -49,12 +46,12 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def as_temp_files(files_contents: list[Any]) -> Generator[list[str], Any, None]:
+def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any, None]:
     """Write the given contents to temporary files and yield the file paths as strings."""
     temp_files: list[Any] = []
     try:
         for content in files_contents:
-            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=True)
+            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=False)
             temp_file.write(
                 json.dumps(content) if isinstance(content, dict) else content,
             )
@@ -64,7 +61,7 @@ def as_temp_files(files_contents: list[Any]) -> Generator[list[str], Any, None]:
     finally:
         for temp_file in temp_files:
             with suppress(Exception):
-                temp_file.close()
+                temp_file.unlink()
 
 
 class Source:
@@ -151,7 +148,7 @@ class Source:
         self,
         config: dict[str, Any],
         *,
-        validate: bool = False,
+        validate: bool = True,
     ) -> None:
         """Set the config for the connector.
 
@@ -201,7 +198,18 @@ class Source:
         """
         spec = self._get_spec(force_refresh=False)
         config = self._config if config is None else config
-        jsonschema.validate(config, spec.connectionSpecification)
+        try:
+            jsonschema.validate(config, spec.connectionSpecification)
+        except jsonschema.ValidationError as ex:
+            raise exc.AirbyteConnectorValidationFailedError(
+                message="The provided config is not valid.",
+                context={
+                    "error_message": ex.message,
+                    "error_path": ex.path,
+                    "error_instance": ex.instance,
+                    "error_schema": ex.schema,
+                },
+            ) from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
@@ -515,7 +523,8 @@ class Source:
         send_telemetry(
             source=self,
             cache=cache,
-            state=SyncState.STARTED,
+            state=EventState.STARTED,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_success(
@@ -528,8 +537,9 @@ class Source:
         send_telemetry(
             source=self,
             cache=cache,
-            state=SyncState.SUCCEEDED,
+            state=EventState.SUCCEEDED,
             number_of_records=self._processed_records,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_failure(
@@ -541,11 +551,12 @@ class Source:
         """Log the failure of a sync operation."""
         print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
-            state=SyncState.FAILED,
+            state=EventState.FAILED,
             source=self,
             cache=cache,
             number_of_records=self._processed_records,
             exception=exception,
+            event_type=EventType.SYNC,
         )
 
     def read(
@@ -555,6 +566,7 @@ class Source:
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
+        skip_validation: bool = False,
     ) -> ReadResult:
         """Read from the connector and write to the cache.
 
@@ -616,6 +628,9 @@ class Source:
             if not force_full_refresh
             else None
         )
+        if not skip_validation:
+            self.validate_config()
+
         self._log_sync_start(cache=cache)
         try:
             cache.processor.process_airbyte_messages(
