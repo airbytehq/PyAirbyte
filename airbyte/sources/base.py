@@ -29,7 +29,13 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
 from airbyte._util.name_normalizers import normalize_records
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import (
+    EventState,
+    EventType,
+    log_config_validation_result,
+    log_source_check_result,
+    send_telemetry,
+)
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
@@ -200,8 +206,12 @@ class Source:
         config = self._config if config is None else config
         try:
             jsonschema.validate(config, spec.connectionSpecification)
+            log_config_validation_result(
+                name=self.name,
+                state=EventState.SUCCEEDED,
+            )
         except jsonschema.ValidationError as ex:
-            raise exc.AirbyteConnectorValidationFailedError(
+            validation_ex = exc.AirbyteConnectorValidationFailedError(
                 message="The provided config is not valid.",
                 context={
                     "error_message": ex.message,
@@ -209,7 +219,13 @@ class Source:
                     "error_instance": ex.instance,
                     "error_schema": ex.schema,
                 },
-            ) from ex
+            )
+            log_config_validation_result(
+                name=self.name,
+                state=EventState.FAILED,
+                exception=validation_ex,
+            )
+            raise validation_ex from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
@@ -398,8 +414,16 @@ class Source:
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             print(f"Connection check succeeded for `{self.name}`.")
+                            log_source_check_result(
+                                name=self.name,
+                                state=EventState.SUCCEEDED,
+                            )
                             return
 
+                        log_source_check_result(
+                            name=self.name,
+                            state=EventState.FAILED,
+                        )
                         raise exc.AirbyteConnectorCheckFailedError(
                             help_url=self.docs_url,
                             context={
