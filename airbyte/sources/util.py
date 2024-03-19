@@ -187,7 +187,7 @@ def _log_source_check_result(
     state: EventState,
     exception: Exception | None = None,
 ) -> None:
-    """Log a config validation event."""
+    """Log a source `check` result."""
     send_telemetry(
         source=name,
         cache=None,
