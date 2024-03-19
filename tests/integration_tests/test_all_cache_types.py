@@ -79,6 +79,35 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
+
+@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
+def source_pokeapi() -> ab.Source:
+    """Fixture to return a source-faker connector instance."""
+    source = ab.get_source(
+        "source-pokeapi",
+        local_executable="source-pokeapi",
+        config={
+            "pokemon_name": "pikachu",
+        },
+        install_if_missing=False,  # Should already be on PATH
+        streams="*",
+    )
+    source.check()
+    return source
+
+
+@pytest.mark.slow
+def test_pokeapi_read(
+    source_pokeapi: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the append strategy works as expected."""
+    result = source_pokeapi.read(
+        new_generic_cache, write_strategy="replace", force_full_refresh=True
+    )
+    assert len(list(result.cache.streams["pokemon"])) == FAKER_SCALE_A
+
+
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
