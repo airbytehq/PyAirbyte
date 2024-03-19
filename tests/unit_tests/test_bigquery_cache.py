@@ -1,10 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-
-"""Integration tests which leverage the source-faker connector to test the framework end-to-end.
-
-Since source-faker is included in dev dependencies, we can assume `source-faker` is installed
-and available on PATH for the poetry-managed venv.
-"""
+"""Unit tests specific to BigQuery caches."""
 from __future__ import annotations
 
 import airbyte as ab
