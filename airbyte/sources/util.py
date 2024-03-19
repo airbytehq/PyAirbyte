@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from airbyte import exceptions as exc
-from airbyte._executor import PathExecutor, VenvExecutor
+from airbyte._executor import PathExecutor, VenvExecutor, _log_install_state
 from airbyte._util.telemetry import EventState, EventType, send_telemetry
 from airbyte.sources.base import Source
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
@@ -150,21 +150,6 @@ def get_source(
 __all__ = [
     "get_source",
 ]
-
-
-def _log_install_state(
-    name: str,
-    state: EventState,
-    exception: Exception | None = None,
-) -> None:
-    """Log an install event."""
-    send_telemetry(
-        source=name,
-        cache=None,
-        state=state,
-        event_type=EventType.INSTALL,
-        exception=exception,
-    )
 
 
 def _log_config_validation_result(

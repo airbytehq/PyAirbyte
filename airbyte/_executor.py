@@ -15,9 +15,8 @@ from typing_extensions import Literal
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_windows
-from airbyte._util.telemetry import EventState
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
 from airbyte.sources.registry import ConnectorMetadata
-from airbyte.sources.util import _log_install_state
 
 
 if TYPE_CHECKING:
@@ -33,6 +32,21 @@ def _get_bin_dir(venv_path: Path, /) -> Path:
         return venv_path / "Scripts"
 
     return venv_path / "bin"
+
+
+def _log_install_state(
+    name: str,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log an install event."""
+    send_telemetry(
+        source=name,
+        cache=None,
+        state=state,
+        event_type=EventType.INSTALL,
+        exception=exception,
+    )
 
 
 class Executor(ABC):
