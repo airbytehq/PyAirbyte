@@ -44,6 +44,10 @@ def is_langchain() -> bool:
     return "langchain_airbyte" in sys.modules
 
 
+def is_windows() -> bool:
+    return system() == "Windows"
+
+
 @lru_cache
 def is_colab() -> bool:
     return bool(get_colab_release_version())

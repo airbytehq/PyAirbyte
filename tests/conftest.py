@@ -6,13 +6,16 @@ from contextlib import suppress
 import json
 import logging
 import os
+from pathlib import Path
 import shutil
 import socket
 import subprocess
 import time
+from requests.exceptions import HTTPError
 
 import ulid
 from airbyte._util.google_secrets import get_gcp_secret
+from airbyte._util.meta import is_windows
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
@@ -22,11 +25,10 @@ import docker
 import psycopg2 as psycopg
 import pytest
 from _pytest.nodes import Item
-from google.cloud import secretmanager
-from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
+from airbyte._executor import _get_bin_dir
 from airbyte.caches.util import new_local_cache
 from airbyte.sources.base import as_temp_files
 
@@ -84,6 +86,12 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     # Sort the items list in-place based on the test_priority function
     items.sort(key=test_priority)
 
+    for item in items:
+        # Skip tests that require Docker if Docker is not available (including on Windows).
+        if "new_postgres_cache" in item.fixturenames or "postgres_cache" in item.fixturenames:
+            if True or not is_docker_available():
+                item.add_marker(pytest.mark.skip(reason="Skipping tests (Docker not available)"))
+
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -121,12 +129,27 @@ def test_pg_connection(host) -> bool:
         return False
 
 
+def is_docker_available():
+    if is_windows():
+        # Linux containers are not supported on Windows CI runners
+        return False
+    try:
+        _ = docker.from_env()
+        return True
+    except docker.errors.DockerException:
+        return False
+
+
 @pytest.fixture(scope="session")
-def pg_dsn():
+def new_postgres_cache():
+    """Fixture to return a fresh Postgres cache.
+
+    Each test that uses this fixture will get a unique table prefix.
+    """
     client = docker.from_env()
     try:
         client.images.get(PYTEST_POSTGRES_IMAGE)
-    except docker.errors.ImageNotFound:
+    except (docker.errors.ImageNotFound, HTTPError):
         # Pull the image if it doesn't exist, to avoid failing our sleep timer
         # if the image needs to download on-demand.
         client.images.pull(PYTEST_POSTGRES_IMAGE)
@@ -170,20 +193,8 @@ def pg_dsn():
     if final_host is None:
         raise Exception(f"Failed to connect to the PostgreSQL database on host {host}.")
 
-    yield final_host
-    # Stop and remove the container after the tests are done
-    postgres.stop()
-    postgres.remove()
-
-
-@pytest.fixture
-def new_pg_cache(pg_dsn):
-    """Fixture to return a fresh cache.
-
-    Each test that uses this fixture will get a unique table prefix.
-    """
     config = PostgresCache(
-        host=pg_dsn,
+        host=final_host,
         port=PYTEST_POSTGRES_PORT,
         username="postgres",
         password="postgres",
@@ -194,6 +205,10 @@ def new_pg_cache(pg_dsn):
         table_prefix=f"test{str(ulid.ULID())[-6:]}_",
     )
     yield config
+
+    # Stop and remove the container after the tests are done
+    postgres.stop()
+    postgres.remove()
 
 
 @pytest.fixture
@@ -284,7 +299,8 @@ def source_test_installation():
         shutil.rmtree(venv_dir)
 
     subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-    subprocess.run([f"{venv_dir}/bin/pip", "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
+    pip_path = str(_get_bin_dir(Path(venv_dir)) / "pip")
+    subprocess.run([pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
 
     yield
 
@@ -311,9 +327,13 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     all_cache_type_fixtures: dict[str, str] = {
         "BigQuery": "new_bigquery_cache",
         "DuckDB": "new_duckdb_cache",
-        "Postgres": "new_pg_cache",
+        "Postgres": "new_postgres_cache",
         "Snowflake": "new_snowflake_cache",
     }
+    if is_windows():
+        # Postgres tests require Linux containers
+        all_cache_type_fixtures.pop("Postgres")
+
     if "new_generic_cache" in metafunc.fixturenames:
         metafunc.parametrize(
             "new_generic_cache",

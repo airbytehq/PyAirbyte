@@ -18,6 +18,7 @@ from rich import print
 
 import airbyte as ab
 from airbyte import exceptions as exc
+from airbyte._executor import _get_bin_dir
 
 
 def _parse_args() -> argparse.Namespace:
@@ -128,7 +129,7 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     if not venv_path.exists():
         _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
 
-    pip_path = str(venv_path / "bin" / "pip")
+    pip_path = str(_get_bin_dir(Path(venv_path)) / "pip")
 
     _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
 
