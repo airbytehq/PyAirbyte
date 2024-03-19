@@ -177,6 +177,7 @@ class EventType(str, Enum):
     INSTALL = "install"
     SYNC = "sync"
     VALIDATE = "validate"
+    CHECK = "check"
 
 
 @dataclass

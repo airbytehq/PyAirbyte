@@ -34,7 +34,7 @@ from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
-from airbyte.sources.util import _log_config_validation_result
+from airbyte.sources.util import _log_config_validation_result, _log_source_check_result
 from airbyte.strategies import WriteStrategy
 
 
@@ -409,8 +409,16 @@ class Source:
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             print(f"Connection check succeeded for `{self.name}`.")
+                            _log_source_check_result(
+                                name=self.name,
+                                state=EventState.SUCCEEDED,
+                            )
                             return
 
+                        _log_source_check_result(
+                            name=self.name,
+                            state=EventState.FAILED,
+                        )
                         raise exc.AirbyteConnectorCheckFailedError(
                             help_url=self.docs_url,
                             context={
