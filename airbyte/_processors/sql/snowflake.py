@@ -60,11 +60,12 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
             batch_id=batch_id,
         )
         internal_sf_stage_name = f"@%{temp_table_name}"
+
+        def path_str(path: Path) -> str:
+            return str(path.absolute()).replace("\\", "\\\\")
+
         put_files_statements = "\n".join(
-            [
-                f"PUT 'file://{file_path.absolute()!s}' {internal_sf_stage_name};"
-                for file_path in files
-            ]
+            [f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};" for file_path in files]
         )
         self._execute_sql(put_files_statements)
         properties_list: list[str] = list(self._get_stream_properties(stream_name).keys())
