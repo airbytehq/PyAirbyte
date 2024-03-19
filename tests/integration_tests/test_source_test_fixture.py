@@ -187,7 +187,8 @@ def test_check_fail():
 
 def test_file_write_and_cleanup() -> None:
     """Ensure files are written to the correct location and cleaned up afterwards."""
-    with tempfile.TemporaryDirectory() as temp_dir_1, tempfile.TemporaryDirectory() as temp_dir_2:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir_1, \
+            tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir_2:
         cache_w_cleanup = ab.new_local_cache(cache_dir=temp_dir_1, cleanup=True)
         cache_wo_cleanup = ab.new_local_cache(cache_dir=temp_dir_2, cleanup=False)
 
