@@ -5,7 +5,7 @@ from collections.abc import Mapping
 import os
 import shutil
 import itertools
-from contextlib import nullcontext as does_not_raise
+from contextlib import nullcontext as does_not_raise, suppress
 from typing import Any
 from unittest.mock import Mock, call, patch
 import tempfile
@@ -24,6 +24,7 @@ from airbyte.sources import registry
 from airbyte.version import get_version
 from airbyte.results import ReadResult
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
+from airbyte._executor import _get_bin_dir
 import airbyte as ab
 
 from airbyte.results import ReadResult
@@ -186,22 +187,27 @@ def test_check_fail():
 
 def test_file_write_and_cleanup() -> None:
     """Ensure files are written to the correct location and cleaned up afterwards."""
-    with tempfile.TemporaryDirectory() as temp_dir_1, tempfile.TemporaryDirectory() as temp_dir_2:
-        cache_w_cleanup = ab.new_local_cache(cache_dir=temp_dir_1, cleanup=True)
-        cache_wo_cleanup = ab.new_local_cache(cache_dir=temp_dir_2, cleanup=False)
+    temp_dir_root = Path(tempfile.mkdtemp())
+    temp_dir_1 = temp_dir_root / "cache_1"
+    temp_dir_2 = temp_dir_root / "cache_2"
 
-        source = ab.get_source("source-test", config={"apiKey": "test"})
-        source.select_all_streams()
+    cache_w_cleanup = ab.new_local_cache(cache_dir=temp_dir_1, cleanup=True)
+    cache_wo_cleanup = ab.new_local_cache(cache_dir=temp_dir_2, cleanup=False)
 
-        _ = source.read(cache_w_cleanup)
-        _ = source.read(cache_wo_cleanup)
+    source = ab.get_source("source-test", config={"apiKey": "test"})
+    source.select_all_streams()
 
-        # We expect all files to be cleaned up:
-        assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, "Expected files to be cleaned up"
+    _ = source.read(cache_w_cleanup)
+    _ = source.read(cache_wo_cleanup)
 
-        # There are three streams, but only two of them have data:
-        assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2, "Expected files to exist"
+    # We expect all files to be cleaned up:
+    assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, "Expected files to be cleaned up"
 
+    # There are three streams, but only two of them have data:
+    assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2, "Expected files to exist"
+
+    with suppress(Exception):
+        shutil.rmtree(str(temp_dir_root))
 
 def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SqlProcessorBase, streams: list[str] = None):
     for stream_name in streams or expected_test_stream_data.keys():
@@ -580,7 +586,7 @@ def test_check_fail_on_missing_config(method_call):
     with pytest.raises(exc.AirbyteConnectorConfigurationMissingError):
         method_call(source)
 
-def test_sync_with_merge_to_postgres(new_pg_cache: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_sync_with_merge_to_postgres(new_postgres_cache: PostgresCache, expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -592,12 +598,12 @@ def test_sync_with_merge_to_postgres(new_pg_cache: PostgresCache, expected_test_
     source.select_all_streams()
 
     # Read twice to test merge strategy
-    result: ReadResult = source.read(new_pg_cache)
-    result: ReadResult = source.read(new_pg_cache)
+    result: ReadResult = source.read(new_postgres_cache)
+    result: ReadResult = source.read(new_postgres_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(new_pg_cache[stream_name]) > 0:
+        if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -617,17 +623,17 @@ def test_airbyte_version() -> None:
 
 
 def test_sync_to_postgres(
-    new_pg_cache: PostgresCache,
+    new_postgres_cache: PostgresCache,
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
 ) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
-    result: ReadResult = source.read(new_pg_cache)
+    result: ReadResult = source.read(new_postgres_cache)
 
     assert result.processed_records == 3
     for stream_name, expected_data in expected_test_stream_data.items():
-        if len(new_pg_cache[stream_name]) > 0:
+        if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
                 result[stream_name].to_pandas(),
                 pd.DataFrame(expected_data),
@@ -690,17 +696,21 @@ def test_failing_path_connector():
     with pytest.raises(Exception):
         ab.get_source("source-test", config={"apiKey": "test"}, use_local_install=True)
 
-def test_succeeding_path_connector():
-    new_path = f"{os.path.abspath('.venv-source-test/bin')}:{os.environ['PATH']}"
+def test_succeeding_path_connector(monkeypatch):
+    venv_bin_path = str(_get_bin_dir(Path(".venv-source-test")))
+
+    # Add the bin directory to the PATH
+    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
 
     # Patch the PATH env var to include the test venv bin folder
-    with patch.dict(os.environ, {"PATH": new_path}):
-        source = ab.get_source(
-            "source-test",
-            config={"apiKey": "test"},
-            local_executable="source-test",
-        )
-        source.check()
+    monkeypatch.setenv('PATH', new_path)
+
+    source = ab.get_source(
+        "source-test",
+        config={"apiKey": "test"},
+        local_executable="source-test",
+    )
+    source.check()
 
 def test_install_uninstall():
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -728,11 +738,11 @@ def test_install_uninstall():
         source.install()
 
         assert os.path.exists(install_root / ".venv-source-test")
-        assert os.path.exists(install_root / ".venv-source-test/bin/source-test")
+        assert os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
 
         source.check()
 
         source.uninstall()
 
         assert not os.path.exists(install_root / ".venv-source-test")
-        assert not os.path.exists(install_root / ".venv-source-test/bin/source-test")
+        assert not os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))

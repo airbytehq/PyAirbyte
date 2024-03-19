@@ -18,6 +18,7 @@ import ulid
 
 
 import airbyte as ab
+from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
@@ -40,10 +41,10 @@ FAKER_SCALE_B = 300
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = os.path.join(sys.prefix, 'bin')
+    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}:{os.environ['PATH']}"
+    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
     monkeypatch.setenv('PATH', new_path)
 
 
@@ -101,9 +102,9 @@ def duckdb_cache() -> Generator[DuckDBCache, None, None]:
 
 
 @pytest.fixture(scope="function")
-def postgres_cache(new_pg_cache) -> Generator[PostgresCache, None, None]:
+def postgres_cache(new_postgres_cache) -> Generator[PostgresCache, None, None]:
     """Fixture to return a fresh cache."""
-    yield new_pg_cache
+    yield new_postgres_cache
     # TODO: Delete cache DB file after test is complete.
     return
 
@@ -122,7 +123,7 @@ def all_cache_types(
 
 def test_which_source_faker() -> None:
     """Test that source-faker is available on PATH."""
-    assert shutil.which("source-faker") is not None, \
+    assert shutil.which("source-faker"), \
         f"Can't find source-faker on PATH: {os.environ['PATH']}"
 
 

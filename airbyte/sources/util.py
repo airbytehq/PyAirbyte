@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -86,9 +87,21 @@ def get_source(
                 # Assume this is a path
                 local_executable = Path(local_executable).absolute()
             else:
+                which_executable: str | None = None
                 which_executable = shutil.which(local_executable)
+                if not which_executable and sys.platform == "win32":
+                    # Try with the .exe extension
+                    local_executable = f"{local_executable}.exe"
+                    which_executable = shutil.which(local_executable)
+
                 if which_executable is None:
-                    raise FileNotFoundError(local_executable)
+                    raise exc.AirbyteConnectorExecutableNotFoundError(
+                        connector_name=name,
+                        context={
+                            "executable": local_executable,
+                            "working_directory": Path.cwd().absolute(),
+                        },
+                    ) from FileNotFoundError(local_executable)
                 local_executable = Path(which_executable).absolute()
 
         print(f"Using local `{name}` executable: {local_executable!s}")
