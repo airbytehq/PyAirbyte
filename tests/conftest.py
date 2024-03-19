@@ -327,7 +327,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     all_cache_type_fixtures: dict[str, str] = {
         "BigQuery": "new_bigquery_cache",
         "DuckDB": "new_duckdb_cache",
-        "Postgres": "new_pg_cache",
+        "Postgres": "new_postgres_cache",
         "Snowflake": "new_snowflake_cache",
     }
     if "new_generic_cache" in metafunc.fixturenames:
