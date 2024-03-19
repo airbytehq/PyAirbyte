@@ -2,6 +2,7 @@
 """Global pytest fixtures."""
 from __future__ import annotations
 
+from contextlib import suppress
 import json
 import logging
 import os
@@ -233,8 +234,9 @@ def new_bigquery_cache():
 
         url = cache.get_sql_alchemy_url()
         engine = create_engine(url)
-        with engine.begin() as connection:
-            connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
+        with suppress(Exception):
+            with engine.begin() as connection:
+                connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
 @pytest.fixture(autouse=True)
