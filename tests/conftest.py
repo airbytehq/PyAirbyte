@@ -308,6 +308,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     This is useful for running the same tests with different cache types, to ensure that the tests
     """
     all_cache_type_fixtures: dict[str, str] = {
+        "BigQuery": "new_bigquery_cache",
         "DuckDB": "new_duckdb_cache",
         "Postgres": "new_pg_cache",
         "Snowflake": "new_snowflake_cache",
