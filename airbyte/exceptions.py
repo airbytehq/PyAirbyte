@@ -262,10 +262,10 @@ class AirbyteConnectorMissingSpecError(AirbyteConnectorError):
 
 
 class AirbyteConnectorValidationFailedError(AirbyteConnectorError):
-    """Connector check failed."""
+    """Connector config validation failed."""
 
     guidance = (
-        "Please double-check your config or review the connector's logs for more information."
+        "Please double-check your config and review the validation errors for more information."
     )
 
 

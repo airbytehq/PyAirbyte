@@ -566,7 +566,7 @@ class Source:
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
-        skip_validation: bool = True,
+        skip_validation: bool = False,
     ) -> ReadResult:
         """Read from the connector and write to the cache.
 
