@@ -107,7 +107,7 @@ def test_pokeapi_read(
     result = source_pokeapi.read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
-    assert len(list(result.cache.streams["pokemon"])) == FAKER_SCALE_A
+    assert len(list(result.cache.streams["pokemon"])) == 1
 
 
 # Uncomment this line if you want to see performance trace logs.
