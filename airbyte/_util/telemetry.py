@@ -295,3 +295,48 @@ def send_telemetry(
                 "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
             },
         )
+
+
+def log_config_validation_result(
+    name: str,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log a config validation event."""
+    send_telemetry(
+        source=name,
+        cache=None,
+        state=state,
+        event_type=EventType.VALIDATE,
+        exception=exception,
+    )
+
+
+def log_source_check_result(
+    name: str,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log a source `check` result."""
+    send_telemetry(
+        source=name,
+        cache=None,
+        state=state,
+        event_type=EventType.CHECK,
+        exception=exception,
+    )
+
+
+def log_install_state(
+    name: str,
+    state: EventState,
+    exception: Exception | None = None,
+) -> None:
+    """Log an install event."""
+    send_telemetry(
+        source=name,
+        cache=None,
+        state=state,
+        event_type=EventType.INSTALL,
+        exception=exception,
+    )

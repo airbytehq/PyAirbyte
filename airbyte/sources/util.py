@@ -150,33 +150,3 @@ def get_source(
 __all__ = [
     "get_source",
 ]
-
-
-def _log_config_validation_result(
-    name: str,
-    state: EventState,
-    exception: Exception | None = None,
-) -> None:
-    """Log a config validation event."""
-    send_telemetry(
-        source=name,
-        cache=None,
-        state=state,
-        event_type=EventType.VALIDATE,
-        exception=exception,
-    )
-
-
-def _log_source_check_result(
-    name: str,
-    state: EventState,
-    exception: Exception | None = None,
-) -> None:
-    """Log a source `check` result."""
-    send_telemetry(
-        source=name,
-        cache=None,
-        state=state,
-        event_type=EventType.CHECK,
-        exception=exception,
-    )

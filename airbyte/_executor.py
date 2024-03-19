@@ -15,7 +15,7 @@ from typing_extensions import Literal
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_windows
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import EventState, log_install_state
 from airbyte.sources.registry import ConnectorMetadata
 
 
@@ -32,21 +32,6 @@ def _get_bin_dir(venv_path: Path, /) -> Path:
         return venv_path / "Scripts"
 
     return venv_path / "bin"
-
-
-def _log_install_state(
-    name: str,
-    state: EventState,
-    exception: Exception | None = None,
-) -> None:
-    """Log an install event."""
-    send_telemetry(
-        source=name,
-        cache=None,
-        state=state,
-        event_type=EventType.INSTALL,
-        exception=exception,
-    )
 
 
 class Executor(ABC):
@@ -254,7 +239,7 @@ class VenvExecutor(Executor):
 
         # Assuming the installation succeeded, store the installed version
         self.reported_version = self._get_installed_version(raise_on_error=False, recheck=True)
-        _log_install_state(self.name, state=EventState.SUCCEEDED)
+        log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
             f"Connector '{self.name}' installed successfully!\n"
             f"For more information, see the {self.name} documentation:\n"

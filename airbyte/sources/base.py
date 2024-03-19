@@ -29,12 +29,17 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
 from airbyte._util.name_normalizers import normalize_records
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import (
+    EventState,
+    EventType,
+    log_config_validation_result,
+    log_source_check_result,
+    send_telemetry,
+)
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
-from airbyte.sources.util import _log_config_validation_result, _log_source_check_result
 from airbyte.strategies import WriteStrategy
 
 
@@ -201,7 +206,7 @@ class Source:
         config = self._config if config is None else config
         try:
             jsonschema.validate(config, spec.connectionSpecification)
-            _log_config_validation_result(
+            log_config_validation_result(
                 name=self.name,
                 state=EventState.SUCCEEDED,
             )
@@ -215,7 +220,7 @@ class Source:
                     "error_schema": ex.schema,
                 },
             )
-            _log_config_validation_result(
+            log_config_validation_result(
                 name=self.name,
                 state=EventState.FAILED,
                 exception=validation_ex,
@@ -409,13 +414,13 @@ class Source:
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             print(f"Connection check succeeded for `{self.name}`.")
-                            _log_source_check_result(
+                            log_source_check_result(
                                 name=self.name,
                                 state=EventState.SUCCEEDED,
                             )
                             return
 
-                        _log_source_check_result(
+                        log_source_check_result(
                             name=self.name,
                             state=EventState.FAILED,
                         )
