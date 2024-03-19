@@ -330,6 +330,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
         "Postgres": "new_postgres_cache",
         "Snowflake": "new_snowflake_cache",
     }
+    if is_windows():
+        # Postgres tests require Linux containers
+        all_cache_type_fixtures.pop("Postgres")
+
     if "new_generic_cache" in metafunc.fixturenames:
         metafunc.parametrize(
             "new_generic_cache",
