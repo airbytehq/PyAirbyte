@@ -583,12 +583,12 @@ class Source:
                 must be True when using the "replace" strategy.
         """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
-            raise exc.AirbyteLibInputError(
-                message="The replace strategy requires full refresh mode.",
-                context={
-                    "write_strategy": write_strategy,
-                    "force_full_refresh": force_full_refresh,
-                },
+            warnings.warn(
+                message=(
+                    "Using `REPLACE` strategy without also setting `full_refresh_mode=True` "
+                    "could result in data loss."
+                ),
+                stacklevel=1,
             )
         if cache is None:
             cache = get_default_cache()
