@@ -7,6 +7,7 @@ import warnings
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any, cast
 
+from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 import jsonschema
 import pendulum
 import yaml
@@ -292,6 +293,29 @@ class Source:
             ],
         )
 
+    def get_stream_json_schema(self, stream_name: str) -> dict[str, Any]:
+        """Return the JSON Schema spec for the specified stream name."""
+        catalog: AirbyteCatalog = self.discovered_catalog
+        found: list[AirbyteStream] = [
+            stream for stream in catalog.streams if stream.name == stream_name
+        ]
+
+        if len(found) == 0:
+            raise exc.AirbyteLibInputError(
+                message="Stream name does not exist in catalog.",
+                input_value=stream_name,
+            )
+
+        if len(found) > 1:
+            raise exc.AirbyteLibInternalError(
+                message="Duplicate streams found with the same name.",
+                context={
+                    "found_streams": found,
+                },
+            )
+
+        return found[0].json_schema
+
     def get_records(self, stream: str) -> LazyDataset:
         """Read a stream from the connector.
 
@@ -339,6 +363,8 @@ class Source:
             normalize_records(
                 records=protocol_util.airbyte_messages_to_record_dicts(
                     self._read_with_catalog(configured_catalog),
+                    stream_schema=self.get_stream_json_schema(stream),
+                    prune_extra_fields=True,
                 ),
                 expected_keys=all_properties,
             )

@@ -31,6 +31,7 @@ class FileWriterBase(abc.ABC):
     """A generic base implementation for a file-based cache."""
 
     default_cache_file_suffix: str = ".batch"
+    prune_extra_fields: bool = False
 
     MAX_BATCH_SIZE: int = DEFAULT_BATCH_SIZE
 
@@ -140,6 +141,7 @@ class FileWriterBase(abc.ABC):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
+        stream_schema: dict,
     ) -> None:
         """Write a record to the cache.
 
@@ -165,7 +167,11 @@ class FileWriterBase(abc.ABC):
             raise exc.AirbyteLibInternalError(message="Expected open file writer.")
 
         self._write_record_dict(
-            record_dict=airbyte_record_message_to_dict(record_message=record_msg),
+            record_dict=airbyte_record_message_to_dict(
+                record_message=record_msg,
+                stream_schema=stream_schema,
+                prune_extra_fields=self.prune_extra_fields,
+            ),
             open_file_writer=batch_handle.open_file_writer,
         )
         batch_handle.increment_record_count()

@@ -21,16 +21,31 @@ if TYPE_CHECKING:
 
 def airbyte_messages_to_record_dicts(
     messages: Iterable[AirbyteMessage],
+    stream_schema: dict,
+    *,
+    prune_extra_fields: bool = False,
 ) -> Iterator[dict[str, Any]]:
     """Convert an AirbyteMessage to a dictionary."""
     yield from (
-        cast(dict[str, Any], airbyte_message_to_record_dict(message))
+        cast(
+            dict[str, Any],
+            airbyte_message_to_record_dict(
+                message,
+                stream_schema=stream_schema,
+                prune_extra_fields=prune_extra_fields,
+            ),
+        )
         for message in messages
         if message is not None and message.type == Type.RECORD
     )
 
 
-def airbyte_message_to_record_dict(message: AirbyteMessage) -> dict[str, Any] | None:
+def airbyte_message_to_record_dict(
+    message: AirbyteMessage,
+    stream_schema: dict,
+    *,
+    prune_extra_fields: bool = False,
+) -> dict[str, Any] | None:
     """Convert an AirbyteMessage to a dictionary.
 
     Return None if the message is not a record message.
@@ -38,11 +53,18 @@ def airbyte_message_to_record_dict(message: AirbyteMessage) -> dict[str, Any] | 
     if message.type != Type.RECORD:
         return None
 
-    return airbyte_record_message_to_dict(message.record)
+    return airbyte_record_message_to_dict(
+        message.record,
+        stream_schema=stream_schema,
+        prune_extra_fields=prune_extra_fields,
+    )
 
 
 def airbyte_record_message_to_dict(
     record_message: AirbyteRecordMessage,
+    stream_schema: dict,
+    *,
+    prune_extra_fields: bool = False,
 ) -> dict[str, Any]:
     """Convert an AirbyteMessage to a dictionary.
 
@@ -50,12 +72,21 @@ def airbyte_record_message_to_dict(
     """
     result = record_message.data
 
+    if prune_extra_fields:
+        if not stream_schema or "properties" not in stream_schema:
+            raise exc.AirbyteLibInternalError(
+                message="A valid `stream_schema` is required when `prune_extra_fields` is `True`."
+            )
+        for prop_name in record_message:
+            if prop_name not in stream_schema["properties"]:
+                record_message.pop(property)
+
     # TODO: Add the metadata columns (this breaks tests)
     # result["_airbyte_extracted_at"] = datetime.datetime.fromtimestamp(
     #     record_message.emitted_at
     # )
 
-    return result  # noqa: RET504 # unnecessary assignment and then return (see TODO above)
+    return result
 
 
 def get_primary_keys_from_stream(
