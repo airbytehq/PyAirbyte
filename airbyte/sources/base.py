@@ -35,6 +35,7 @@ from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
+from airbyte.warnings import PyAirbyteDataLossWarning
 
 
 if TYPE_CHECKING:
@@ -586,8 +587,13 @@ class Source:
             warnings.warn(
                 message=(
                     "Using `REPLACE` strategy without also setting `full_refresh_mode=True` "
-                    "could result in data loss."
+                    "could result in data loss. "
+                    "To silence this warning, use the following: "
+                    "`import warnings; "
+                    'warnings.filterwarnings("ignore", '
+                    'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
                 ),
+                category=PyAirbyteDataLossWarning,
                 stacklevel=1,
             )
         if cache is None:
