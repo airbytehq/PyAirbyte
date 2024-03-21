@@ -589,7 +589,6 @@ class Source:
                     "Using `REPLACE` strategy without also setting `full_refresh_mode=True` "
                     "could result in data loss. "
                     "To silence this warning, use the following: "
-                    "`import warnings; "
                     'warnings.filterwarnings("ignore", '
                     'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
                 ),
