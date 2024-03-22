@@ -12,6 +12,8 @@ import jsonschema
 import pendulum
 import yaml
 from rich import print
+from rich.syntax import Syntax
+from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -253,31 +255,50 @@ class Source:
             log_text=self._last_log_messages,
         )
 
-    def example_spec(self, to_file: bool | None = None) -> dict | None:
-        """Generate an example configuration file based on the current spec.
+    @property
+    def config_spec(self) -> dict[str, Any]:
+        """Generate a configuration spec for this connector, as a JSON Schema definition.
 
-        This function generates a JSON file with an example configuration for the
-        current connector. If `to_file` is True or a non-empty string, the file will
-        be written to the given path. Otherwise, the function will return the
-        specification as a dictionary.
-
-        Args:
-            to_file (bool or str, optional): Whether to write the specification to a file.
-                Defaults to None. If set to True will generate
-                an example config and write it to `example_config.json`. Otherwise, will return
-                the spec as a dictionary.
+        This function generates a JSON Schema dictionary with configuration specs for the
+        current connector, as a dictionary.
 
         Returns:
-            dict or None: The generated configuration as a dictionary, or None if
-                the spec was written to a file.
+            dict: The JSON Schema configuration spec as a dictionary.
         """
-        spec = self._get_spec(force_refresh=True).connectionSpecification["properties"]
-        if to_file:
-            path = "example_config.json"
-            with Path(path).open("w") as f:
-                f.write(json.dumps(spec, indent=4))
-            return None
-        return spec
+        return self._get_spec(force_refresh=True).connectionSpecification
+
+    def print_config_spec(
+        self,
+        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
+        *,
+        output_file: Path | str | None = None,
+    ) -> None:
+        """Print the configuration spec for this connector.
+
+        Args:
+        - format: The format to print the spec in. Must be "yaml" or "json".
+        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
+          it will be printed to the console.
+        """
+        if format not in ["yaml", "json"]:
+            raise exc.AirbyteLibInputError(
+                message="Invalid format. Expected 'yaml' or 'json'",
+                input_value=format,
+            )
+        if isinstance(output_file, str):
+            output_file = Path(output_file)
+
+        if format == "yaml":
+            content = yaml.dump(self.config_spec, indent=2)
+        elif format == "json":
+            content = json.dumps(self.config_spec, indent=2)
+
+        if output_file:
+            output_file.write_text(content)
+            return
+
+        syntax_highlighted = Syntax(content, format)
+        print(syntax_highlighted)
 
     @property
     def _yaml_spec(self) -> str:
