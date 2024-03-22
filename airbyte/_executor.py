@@ -11,9 +11,12 @@ from shutil import rmtree
 from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 
 from rich import print
+from typing_extensions import Literal
 
 from airbyte import exceptions as exc
-from airbyte.registry import ConnectorMetadata
+from airbyte._util.meta import is_windows
+from airbyte._util.telemetry import EventState, log_install_state
+from airbyte.sources.registry import ConnectorMetadata
 
 
 if TYPE_CHECKING:
@@ -21,6 +24,14 @@ if TYPE_CHECKING:
 
 
 _LATEST_VERSION = "latest"
+
+
+def _get_bin_dir(venv_path: Path, /) -> Path:
+    """Get the directory where executables are installed."""
+    if is_windows():
+        return venv_path / "Scripts"
+
+    return venv_path / "bin"
 
 
 class Executor(ABC):
@@ -164,7 +175,13 @@ class VenvExecutor(Executor):
         return self.install_root / self._get_venv_name()
 
     def _get_connector_path(self) -> Path:
-        return self._get_venv_path() / "bin" / self.name
+        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
+        return _get_bin_dir(self._get_venv_path()) / (self.name + suffix)
+
+    @property
+    def interpreter_path(self) -> Path:
+        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
+        return _get_bin_dir(self._get_venv_path()) / ("python" + suffix)
 
     def _run_subprocess_and_raise_on_failure(self, args: list[str]) -> None:
         result = subprocess.run(
@@ -202,7 +219,7 @@ class VenvExecutor(Executor):
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
         )
 
-        pip_path = str(self._get_venv_path() / "bin" / "pip")
+        pip_path = str(_get_bin_dir(self._get_venv_path()) / "pip")
         print(
             f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
             f"Running 'pip install {self.pip_url}'...\n"
@@ -222,6 +239,7 @@ class VenvExecutor(Executor):
 
         # Assuming the installation succeeded, store the installed version
         self.reported_version = self._get_installed_version(raise_on_error=False, recheck=True)
+        log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
             f"Connector '{self.name}' installed successfully!\n"
             f"For more information, see the {self.name} documentation:\n"
@@ -280,10 +298,6 @@ class VenvExecutor(Executor):
                 raise
 
             return None
-
-    @property
-    def interpreter_path(self) -> Path:
-        return self._get_venv_path() / "bin" / "python"
 
     def ensure_installation(
         self,

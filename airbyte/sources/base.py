@@ -6,7 +6,7 @@ import tempfile
 import warnings
 from contextlib import contextmanager, suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import jsonschema
 import pendulum
@@ -29,12 +29,15 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
+from airbyte._util.name_normalizers import normalize_records
 from airbyte._util.telemetry import (
-    SyncState,
+    EventState,
+    EventType,
+    log_config_validation_result,
+    log_source_check_result,
     send_telemetry,
 )
-from airbyte._util.text_util import lower_case_set  # Internal utility functions
-from airbyte.caches.factories import get_default_cache
+from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
@@ -50,12 +53,12 @@ if TYPE_CHECKING:
 
 
 @contextmanager
-def as_temp_files(files_contents: list[Any]) -> Generator[list[str], Any, None]:
+def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any, None]:
     """Write the given contents to temporary files and yield the file paths as strings."""
     temp_files: list[Any] = []
     try:
         for content in files_contents:
-            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=True)
+            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=False)
             temp_file.write(
                 json.dumps(content) if isinstance(content, dict) else content,
             )
@@ -65,7 +68,7 @@ def as_temp_files(files_contents: list[Any]) -> Generator[list[str], Any, None]:
     finally:
         for temp_file in temp_files:
             with suppress(Exception):
-                temp_file.close()
+                temp_file.unlink()
 
 
 class Source:
@@ -152,7 +155,7 @@ class Source:
         self,
         config: dict[str, Any],
         *,
-        validate: bool = False,
+        validate: bool = True,
     ) -> None:
         """Set the config for the connector.
 
@@ -202,7 +205,28 @@ class Source:
         """
         spec = self._get_spec(force_refresh=False)
         config = self._config if config is None else config
-        jsonschema.validate(config, spec.connectionSpecification)
+        try:
+            jsonschema.validate(config, spec.connectionSpecification)
+            log_config_validation_result(
+                name=self.name,
+                state=EventState.SUCCEEDED,
+            )
+        except jsonschema.ValidationError as ex:
+            validation_ex = exc.AirbyteConnectorValidationFailedError(
+                message="The provided config is not valid.",
+                context={
+                    "error_message": ex.message,
+                    "error_path": ex.path,
+                    "error_instance": ex.instance,
+                    "error_schema": ex.schema,
+                },
+            )
+            log_config_validation_result(
+                name=self.name,
+                state=EventState.FAILED,
+                exception=validation_ex,
+            )
+            raise validation_ex from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
@@ -356,29 +380,21 @@ class Source:
             ) from KeyError(stream)
 
         configured_stream = configured_catalog.streams[0]
-        all_properties = set(configured_stream.stream.json_schema["properties"].keys())
+        all_properties = cast(
+            list[str], list(configured_stream.stream.json_schema["properties"].keys())
+        )
 
         def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
             self._log_sync_start(cache=None)
             yield from records
             self._log_sync_success(cache=None)
 
-        def _with_missing_columns(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-            """Add missing columns to the record with null values."""
-            for record in records:
-                existing_properties_lower = lower_case_set(record.keys())
-                appended_dict = {
-                    prop: None
-                    for prop in all_properties
-                    if prop.lower() not in existing_properties_lower
-                }
-                yield {**record, **appended_dict}
-
         iterator: Iterator[dict[str, Any]] = _with_logging(
-            _with_missing_columns(
-                protocol_util.airbyte_messages_to_record_dicts(
+            normalize_records(
+                records=protocol_util.airbyte_messages_to_record_dicts(
                     self._read_with_catalog(configured_catalog),
-                )
+                ),
+                expected_keys=all_properties,
             )
         )
         return LazyDataset(
@@ -425,8 +441,16 @@ class Source:
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             print(f"Connection check succeeded for `{self.name}`.")
+                            log_source_check_result(
+                                name=self.name,
+                                state=EventState.SUCCEEDED,
+                            )
                             return
 
+                        log_source_check_result(
+                            name=self.name,
+                            state=EventState.FAILED,
+                        )
                         raise exc.AirbyteConnectorCheckFailedError(
                             help_url=self.docs_url,
                             context={
@@ -550,7 +574,8 @@ class Source:
         send_telemetry(
             source=self,
             cache=cache,
-            state=SyncState.STARTED,
+            state=EventState.STARTED,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_success(
@@ -563,8 +588,9 @@ class Source:
         send_telemetry(
             source=self,
             cache=cache,
-            state=SyncState.SUCCEEDED,
+            state=EventState.SUCCEEDED,
             number_of_records=self._processed_records,
+            event_type=EventType.SYNC,
         )
 
     def _log_sync_failure(
@@ -576,11 +602,12 @@ class Source:
         """Log the failure of a sync operation."""
         print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
         send_telemetry(
-            state=SyncState.FAILED,
+            state=EventState.FAILED,
             source=self,
             cache=cache,
             number_of_records=self._processed_records,
             exception=exception,
+            event_type=EventType.SYNC,
         )
 
     def read(
@@ -590,6 +617,7 @@ class Source:
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
+        skip_validation: bool = False,
     ) -> ReadResult:
         """Read from the connector and write to the cache.
 
@@ -642,17 +670,18 @@ class Source:
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),
         )
-        if not cache.processor._catalog_manager:  # noqa: SLF001
-            raise exc.AirbyteLibInternalError(message="Catalog manager should exist but does not.")
 
         state = (
-            cache.processor._catalog_manager.get_state(  # noqa: SLF001
+            cache._get_state(  # noqa: SLF001  # Private method until we have a public API for it.
                 source_name=self.name,
                 streams=self._selected_stream_names,
             )
             if not force_full_refresh
             else None
         )
+        if not skip_validation:
+            self.validate_config()
+
         self._log_sync_start(cache=cache)
         try:
             cache.processor.process_airbyte_messages(
@@ -674,3 +703,8 @@ class Source:
             cache=cache,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
         )
+
+
+__all__ = [
+    "Source",
+]

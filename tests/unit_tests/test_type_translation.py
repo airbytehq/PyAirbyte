@@ -1,4 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+from __future__ import annotations
 
 import pytest
 from sqlalchemy import types
@@ -26,7 +27,12 @@ from airbyte.types import SQLTypeConverter, _get_airbyte_type
         ({"type": "number", "airbyte_type": "integer"}, types.BIGINT),
         ({"type": "number"}, types.DECIMAL),
         ({"type": "array", "items": {"type": "object"}}, types.JSON),
+        ({"type": ["null", "array"], "items": {"type": "object"}}, types.JSON),
         ({"type": "object", "properties": {}}, types.JSON),
+        ({"type": ["null", "object"], "properties": {}}, types.JSON),
+        # Malformed JSON schema seen in the wild:
+        ({'type': 'array', 'items': {}}, types.JSON),
+        ({'type': ['null', 'array'], 'items': {'items': {}}}, types.JSON),
     ],
 )
 def test_to_sql_type(json_schema_property_def, expected_sql_type):
@@ -52,8 +58,15 @@ def test_to_sql_type(json_schema_property_def, expected_sql_type):
         ({"type": "integer"}, "integer"),
         ({"type": "number", "airbyte_type": "integer"}, "integer"),
         ({"type": "number"}, "number"),
+        # Array type:
         ({"type": "array"}, "array"),
+        ({"type": "array", "items": {"type": "object"}}, "array"),
+        ({"type": ["null", "array"], "items": {"type": "object"}}, "array"),
+        # Object type:
         ({"type": "object"}, "object"),
+        # Malformed JSON schema seen in the wild:
+        ({'type': 'array', 'items': {'items': {}}}, "array"),
+        ({'type': ['null', 'array'], 'items': {'items': {}}}, "array"),
     ],
 )
 def test_to_airbyte_type(json_schema_property_def, expected_airbyte_type):
@@ -70,6 +83,9 @@ def test_to_airbyte_type(json_schema_property_def, expected_airbyte_type):
         ({"type": "object"}, "object", None),
         ({"type": "array", "items": {"type": ["null", "string"]}}, "array", "string"),
         ({"type": "array", "items": {"type": ["boolean"]}}, "array", "boolean"),
+        # Malformed JSON schema seen in the wild:
+        ({'type': 'array', 'items': {'items': {}}}, "array", None),
+        ({'type': ['null', 'array'], 'items': {'items': {}}}, "array", None),
     ],
 )
 def test_to_airbyte_subtype(

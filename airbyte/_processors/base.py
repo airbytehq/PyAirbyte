@@ -10,15 +10,10 @@ abstractions like "write" and "finalize" can be handled in either layer, or both
 from __future__ import annotations
 
 import abc
-import contextlib
 import io
 import sys
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, cast, final
-
-import pandas as pd
-import pyarrow as pa
-import ulid
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -32,25 +27,18 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import protocol_util
 from airbyte.caches.base import CacheBase
-from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
-from airbyte.types import _get_pyarrow_type
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Iterable, Iterator
 
+    from airbyte._batch_handles import BatchHandle
     from airbyte.caches._catalog_manager import CatalogManager
 
 
-DEFAULT_BATCH_SIZE = 10_000
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
-
-
-class BatchHandle:
-    pass
 
 
 class AirbyteMessageParsingError(Exception):
@@ -58,9 +46,13 @@ class AirbyteMessageParsingError(Exception):
 
 
 class RecordProcessor(abc.ABC):
-    """Abstract base class for classes which can process input records."""
+    """Abstract base class for classes which can process Airbyte messages from a source.
 
-    skip_finalize_step: bool = False
+    This class is responsible for all aspects of handling Airbyte protocol.
+
+    The class leverages the cache's catalog manager class to store and retrieve metadata.
+
+    """
 
     def __init__(
         self,
@@ -80,9 +72,6 @@ class RecordProcessor(abc.ABC):
 
         self.source_catalog: ConfiguredAirbyteCatalog | None = None
         self._source_name: str | None = None
-
-        self._pending_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
-        self._finalized_batches: dict[str, dict[str, Any]] = defaultdict(dict, {})
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
         self._finalized_state_messages: dict[
@@ -120,17 +109,13 @@ class RecordProcessor(abc.ABC):
     def process_stdin(
         self,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
-        *,
-        max_batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         """Process the input stream from stdin.
 
         Return a list of summaries for testing.
         """
         input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
-        self.process_input_stream(
-            input_stream, write_strategy=write_strategy, max_batch_size=max_batch_size
-        )
+        self.process_input_stream(input_stream, write_strategy=write_strategy)
 
     @final
     def _airbyte_messages_from_buffer(
@@ -145,8 +130,6 @@ class RecordProcessor(abc.ABC):
         self,
         input_stream: io.TextIOBase,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
-        *,
-        max_batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         """Parse the input stream and process data in batches.
 
@@ -156,16 +139,26 @@ class RecordProcessor(abc.ABC):
         self.process_airbyte_messages(
             messages,
             write_strategy=write_strategy,
-            max_batch_size=max_batch_size,
         )
+
+    @abc.abstractmethod
+    def process_record_message(
+        self,
+        record_msg: AirbyteRecordMessage,
+    ) -> None:
+        """Write a record to the cache.
+
+        This method is called for each record message.
+
+        In most cases, the SQL processor will not perform any action, but will pass this along to to
+        the file processor.
+        """
 
     @final
     def process_airbyte_messages(
         self,
         messages: Iterable[AirbyteMessage],
         write_strategy: WriteStrategy,
-        *,
-        max_batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> None:
         """Process a stream of Airbyte messages."""
         if not isinstance(write_strategy, WriteStrategy):
@@ -174,20 +167,11 @@ class RecordProcessor(abc.ABC):
                 context={"write_strategy": write_strategy},
             )
 
-        stream_batches: dict[str, list[dict]] = defaultdict(list, {})
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
                 record_msg = cast(AirbyteRecordMessage, message.record)
-                stream_name = record_msg.stream
-                stream_batch = stream_batches[stream_name]
-                stream_batch.append(protocol_util.airbyte_record_message_to_dict(record_msg))
-                if len(stream_batch) >= max_batch_size:
-                    batch_df = pd.DataFrame(stream_batch)
-                    record_batch = pa.Table.from_pandas(batch_df)
-                    self._process_batch(stream_name, record_batch)
-                    progress.log_batch_written(stream_name, len(stream_batch))
-                    stream_batch.clear()
+                self.process_record_message(record_msg)
 
             elif message.type is Type.STATE:
                 state_msg = cast(AirbyteStateMessage, message.state)
@@ -203,150 +187,44 @@ class RecordProcessor(abc.ABC):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
-        # We are at the end of the stream. Process whatever else is queued.
-        for stream_name, stream_batch in stream_batches.items():
-            batch_df = pd.DataFrame(stream_batch)
-            record_batch = pa.Table.from_pandas(batch_df)
-            self._process_batch(stream_name, record_batch)
-            progress.log_batch_written(stream_name, len(stream_batch))
+        self.write_all_stream_data(
+            write_strategy=write_strategy,
+        )
 
-        all_streams = list(self._pending_batches.keys())
-        # Add empty streams to the streams list, so we create a destination table for it
+        # Clean up files, if requested.
+        if self.cache.cleanup:
+            self.cleanup_all()
+
+    def write_all_stream_data(self, write_strategy: WriteStrategy) -> None:
+        """Finalize any pending writes."""
         for stream_name in self.expected_streams:
-            if stream_name not in all_streams:
-                if DEBUG_MODE:
-                    print(f"Stream {stream_name} has no data")
-                all_streams.append(stream_name)
-
-        # Finalize any pending batches
-        for stream_name in all_streams:
-            self._finalize_batches(stream_name, write_strategy=write_strategy)
-            progress.log_stream_finalized(stream_name)
-
-    @final
-    def _process_batch(
-        self,
-        stream_name: str,
-        record_batch: pa.Table,
-    ) -> tuple[str, Any, Exception | None]:
-        """Process a single batch.
-
-        Returns a tuple of the batch ID, batch handle, and an exception if one occurred.
-        """
-        batch_id = self._new_batch_id()
-        batch_handle = self._write_batch(
-            stream_name,
-            batch_id,
-            record_batch,
-        ) or self._get_batch_handle(stream_name, batch_id)
-
-        if self.skip_finalize_step:
-            self._finalized_batches[stream_name][batch_id] = batch_handle
-        else:
-            self._pending_batches[stream_name][batch_id] = batch_handle
-
-        return batch_id, batch_handle, None
+            self.write_stream_data(stream_name, write_strategy=write_strategy)
 
     @abc.abstractmethod
-    def _write_batch(
-        self,
-        stream_name: str,
-        batch_id: str,
-        record_batch: pa.Table,
-    ) -> BatchHandle:
-        """Process a single batch.
-
-        Returns a batch handle, such as a path or any other custom reference.
-        """
-
-    def _cleanup_batch(  # noqa: B027  # Intentionally empty, not abstract
-        self,
-        stream_name: str,
-        batch_id: str,
-        batch_handle: BatchHandle,
-    ) -> None:
-        """Clean up the cache.
-
-        This method is called after the given batch has been finalized.
-
-        For instance, file writers can override this method to delete the files created. Caches,
-        similarly, can override this method to delete any other temporary artifacts.
-        """
-        pass
-
-    def _new_batch_id(self) -> str:
-        """Return a new batch handle."""
-        return str(ulid.ULID())
-
-    def _get_batch_handle(
-        self,
-        stream_name: str,
-        batch_id: str | None = None,  # ULID of the batch
-    ) -> str:
-        """Return a new batch handle.
-
-        By default this is a concatenation of the stream name and batch ID.
-        However, any Python object can be returned, such as a Path object.
-        """
-        batch_id = batch_id or self._new_batch_id()
-        return f"{stream_name}_{batch_id}"
-
-    def _finalize_batches(
+    def write_stream_data(
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
-    ) -> dict[str, BatchHandle]:
-        """Finalize all uncommitted batches.
+    ) -> list[BatchHandle]:
+        """Write pending stream data to the cache."""
+        ...
 
-        Returns a mapping of batch IDs to batch handles, for processed batches.
-
-        This is a generic implementation, which can be overridden.
-        """
-        _ = write_strategy  # Unused
-        with self._finalizing_batches(stream_name) as batches_to_finalize:
-            if batches_to_finalize and not self.skip_finalize_step:
-                raise NotImplementedError(
-                    "Caches need to be finalized but no _finalize_batch() method "
-                    f"exists for class {self.__class__.__name__}",
-                )
-
-            return batches_to_finalize
-
-    @abc.abstractmethod
     def _finalize_state_messages(
         self,
         stream_name: str,
         state_messages: list[AirbyteStateMessage],
     ) -> None:
-        """Handle state messages.
-        Might be a no-op if the processor doesn't handle incremental state."""
-        pass
-
-    @final
-    @contextlib.contextmanager
-    def _finalizing_batches(
-        self,
-        stream_name: str,
-    ) -> Generator[dict[str, BatchHandle], str, None]:
-        """Context manager to use for finalizing batches, if applicable.
-
-        Returns a mapping of batch IDs to batch handles, for those processed batches.
-        """
-        batches_to_finalize = self._pending_batches[stream_name].copy()
-        state_messages_to_finalize = self._pending_state_messages[stream_name].copy()
-        self._pending_batches[stream_name].clear()
-        self._pending_state_messages[stream_name].clear()
-
-        progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
-        yield batches_to_finalize
-        self._finalize_state_messages(stream_name, state_messages_to_finalize)
-        progress.log_batches_finalized(stream_name, len(batches_to_finalize))
-
-        self._finalized_batches[stream_name].update(batches_to_finalize)
-        self._finalized_state_messages[stream_name] += state_messages_to_finalize
-
-        for batch_id, batch_handle in batches_to_finalize.items():
-            self._cleanup_batch(stream_name, batch_id, batch_handle)
+        """Handle state messages by passing them to the catalog manager."""
+        if not self._catalog_manager:
+            raise exc.AirbyteLibInternalError(
+                message="Catalog manager should exist but does not.",
+            )
+        if state_messages and self._source_name:
+            self._catalog_manager.save_state(
+                source_name=self._source_name,
+                stream_name=stream_name,
+                state=state_messages[-1],
+            )
 
     def _setup(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Create the database.
@@ -356,30 +234,12 @@ class RecordProcessor(abc.ABC):
         """
         pass
 
-    def _teardown(self) -> None:
-        """Teardown the processor resources.
-
-        By default, the base implementation simply calls _cleanup_batch() for all pending batches.
-        """
-        for stream_name, pending_batches in self._pending_batches.items():
-            for batch_id, batch_handle in pending_batches.items():
-                self._cleanup_batch(
-                    stream_name=stream_name,
-                    batch_id=batch_id,
-                    batch_handle=batch_handle,
-                )
-
-    @final
-    def __del__(self) -> None:
-        """Teardown temporary resources when instance is unloaded from memory."""
-        self._teardown()
-
     @final
     def _get_stream_config(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
-        """Return the column definitions for the given stream."""
+        """Return the definition of the given stream."""
         if not self._catalog_manager:
             raise exc.AirbyteLibInternalError(
                 message="Catalog manager should exist but does not.",
@@ -395,16 +255,9 @@ class RecordProcessor(abc.ABC):
         """Return the column definitions for the given stream."""
         return self._get_stream_config(stream_name).stream.json_schema
 
-    def _get_stream_pyarrow_schema(
-        self,
-        stream_name: str,
-    ) -> pa.Schema:
-        """Return the column definitions for the given stream."""
-        return pa.schema(
-            fields=[
-                pa.field(prop_name, _get_pyarrow_type(prop_def))
-                for prop_name, prop_def in self._get_stream_json_schema(stream_name)[
-                    "properties"
-                ].items()
-            ]
-        )
+    def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
+        """Clean up all resources.
+
+        The default implementation is a no-op.
+        """
+        pass

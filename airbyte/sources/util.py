@@ -1,15 +1,19 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Utility functions for working with sources."""
+
 from __future__ import annotations
 
 import shutil
+import sys
 import warnings
 from pathlib import Path
 from typing import Any
 
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
-from airbyte.registry import ConnectorMetadata, get_connector_metadata
-from airbyte.source import Source
+from airbyte._util.telemetry import EventState, log_install_state
+from airbyte.sources.base import Source
+from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
 def get_connector(
@@ -83,9 +87,21 @@ def get_source(
                 # Assume this is a path
                 local_executable = Path(local_executable).absolute()
             else:
+                which_executable: str | None = None
                 which_executable = shutil.which(local_executable)
+                if not which_executable and sys.platform == "win32":
+                    # Try with the .exe extension
+                    local_executable = f"{local_executable}.exe"
+                    which_executable = shutil.which(local_executable)
+
                 if which_executable is None:
-                    raise FileNotFoundError(local_executable)
+                    raise exc.AirbyteConnectorExecutableNotFoundError(
+                        connector_name=name,
+                        context={
+                            "executable": local_executable,
+                            "working_directory": Path.cwd().absolute(),
+                        },
+                    ) from FileNotFoundError(local_executable)
                 local_executable = Path(which_executable).absolute()
 
         print(f"Using local `{name}` executable: {local_executable!s}")
@@ -104,23 +120,33 @@ def get_source(
     metadata: ConnectorMetadata | None = None
     try:
         metadata = get_connector_metadata(name)
-    except exc.AirbyteConnectorNotRegisteredError:
+    except exc.AirbyteConnectorNotRegisteredError as ex:
         if not pip_url:
+            log_install_state(name, state=EventState.FAILED, exception=ex)
             # We don't have a pip url or registry entry, so we can't install the connector
             raise
 
-    executor = VenvExecutor(
-        name=name,
-        metadata=metadata,
-        target_version=version,
-        pip_url=pip_url,
-    )
-    if install_if_missing:
-        executor.ensure_installation()
+    try:
+        executor = VenvExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+            pip_url=pip_url,
+        )
+        if install_if_missing:
+            executor.ensure_installation()
 
-    return Source(
-        name=name,
-        config=config,
-        streams=streams,
-        executor=executor,
-    )
+        return Source(
+            name=name,
+            config=config,
+            streams=streams,
+            executor=executor,
+        )
+    except Exception as e:
+        log_install_state(name, state=EventState.FAILED, exception=e)
+        raise
+
+
+__all__ = [
+    "get_source",
+]

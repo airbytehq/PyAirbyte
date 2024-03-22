@@ -7,29 +7,20 @@ Usage:
 
 from __future__ import annotations
 
-import json
-import os
 import tempfile
 import warnings
 
-from google.cloud import secretmanager
-
 import airbyte as ab
+from airbyte._util.google_secrets import get_gcp_secret_json
 from airbyte.caches.bigquery import BigQueryCache
 
 
 warnings.filterwarnings("ignore", message="Cannot create BigQuery Storage client")
 
 
-# load secrets from GSM using the GCP_GSM_CREDENTIALS env variable
-secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
-    json.loads(os.environ["GCP_GSM_CREDENTIALS"])
-)
-
-bigquery_destination_secret = json.loads(
-    secret_client.access_secret_version(
-        name="projects/dataline-integration-testing/secrets/SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS/versions/latest"
-    ).payload.data.decode("UTF-8")
+bigquery_destination_secret = get_gcp_secret_json(
+    project_name="dataline-integration-testing",
+    secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS",
 )
 
 
@@ -53,6 +44,9 @@ def main() -> None:
             credentials_path=temp.name,
         )
 
+        result = source.read(cache)
+
+        # Read a second time to make sure table swaps and incremental are working.
         result = source.read(cache)
 
         for name, records in result.streams.items():

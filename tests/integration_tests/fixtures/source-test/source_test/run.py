@@ -1,4 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+from __future__ import annotations
 
 import json
 import sys
@@ -16,8 +17,8 @@ sample_catalog = {
                     "$schema": "http://json-schema.org/draft-07/schema#",
                     "type": "object",
                     "properties": {
-                        "column1": {"type": "string"},
-                        "column2": {"type": "number"},
+                        "Column1": {"type": "string"},
+                        "Column2": {"type": "number"},
                     },
                 },
             },
@@ -29,8 +30,8 @@ sample_catalog = {
                     "$schema": "http://json-schema.org/draft-07/schema#",
                     "type": "object",
                     "properties": {
-                        "column1": {"type": "string"},
-                        "column2": {"type": "number"},
+                        "Column1": {"type": "string"},
+                        "Column2": {"type": "number"},
                         "empty_column": {"type": "string"},
                     },
                 },
@@ -44,8 +45,8 @@ sample_catalog = {
                     "$schema": "http://json-schema.org/draft-07/schema#",
                     "type": "object",
                     "properties": {
-                        "column1": {"type": "string"},
-                        "column2": {"type": "number"},
+                        "Column1": {"type": "string"},
+                        "Column2": {"type": "number"},
                         "empty_column": {"type": "string"},
                     },
                 },
@@ -85,7 +86,7 @@ sample_connection_check_failure = {
 sample_record1_stream1 = {
     "type": "RECORD",
     "record": {
-        "data": {"column1": "value1", "column2": 1},
+        "data": {"Column1": "value1", "Column2": 1},
         "stream": "stream1",
         "emitted_at": 123456789,
     },
@@ -93,7 +94,7 @@ sample_record1_stream1 = {
 sample_record2_stream1 = {
     "type": "RECORD",
     "record": {
-        "data": {"column1": "value2", "column2": 2},
+        "data": {"Column1": "value2", "Column2": 2},
         "stream": "stream1",
         "emitted_at": 123456789,
     },
@@ -101,7 +102,7 @@ sample_record2_stream1 = {
 sample_record_stream2 = {
     "type": "RECORD",
     "record": {
-        "data": {"column1": "value1", "column2": 1},
+        "data": {"Column1": "value1", "Column2": 1},
         "stream": "stream2",
         "emitted_at": 123456789,
     },

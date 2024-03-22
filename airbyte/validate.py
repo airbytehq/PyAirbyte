@@ -18,6 +18,7 @@ from rich import print
 
 import airbyte as ab
 from airbyte import exceptions as exc
+from airbyte._executor import _get_bin_dir
 
 
 def _parse_args() -> argparse.Namespace:
@@ -91,7 +92,7 @@ def full_tests(connector_name: str, sample_config: str) -> None:
 def install_only_test(connector_name: str) -> None:
     print("Creating source and validating spec is returned successfully...")
     source = ab.get_source(connector_name)
-    source._get_spec(force_refresh=True)  # noqa: SLF001
+    source._get_spec(force_refresh=True)  # noqa: SLF001  # Member is private until we have a public API for it.
 
 
 def run() -> None:
@@ -128,7 +129,7 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     if not venv_path.exists():
         _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
 
-    pip_path = str(venv_path / "bin" / "pip")
+    pip_path = str(_get_bin_dir(Path(venv_path)) / "pip")
 
     _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
 

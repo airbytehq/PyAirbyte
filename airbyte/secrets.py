@@ -126,3 +126,9 @@ def get_secret(
         secret_name=secret_name,
         sources=[str(s) for s in sources],
     )
+
+
+__all__ = [
+    "get_secret",
+    "SecretSource",
+]

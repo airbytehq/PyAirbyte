@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-from .base import FileWriterBase, FileWriterBatchHandle
-from .jsonl import JsonlWriter
-from .parquet import ParquetWriter
+from airbyte._batch_handles import BatchHandle
+from airbyte._processors.file.base import FileWriterBase
+from airbyte._processors.file.jsonl import JsonlWriter
 
 
 __all__ = [
-    "FileWriterBatchHandle",
+    "BatchHandle",
     "FileWriterBase",
     "JsonlWriter",
-    "ParquetWriter",
 ]

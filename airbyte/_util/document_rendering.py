@@ -2,7 +2,7 @@
 """Methods for converting Airbyte records into documents."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 import yaml
 from pydantic import BaseModel
@@ -27,7 +27,7 @@ def _to_title_case(name: str, /) -> str:
 class CustomRenderingInstructions(BaseModel):
     """Instructions for rendering a stream's records as documents."""
 
-    title_property: str | None
+    title_property: Optional[str]
     content_properties: list[str]
     frontmatter_properties: list[str]
     metadata_properties: list[str]
@@ -36,9 +36,9 @@ class CustomRenderingInstructions(BaseModel):
 class DocumentRenderer(BaseModel):
     """Instructions for rendering a stream's records as documents."""
 
-    title_property: str | None
-    content_properties: list[str] | None
-    metadata_properties: list[str] | None
+    title_property: Optional[str]
+    content_properties: Optional[list[str]]
+    metadata_properties: Optional[list[str]]
     render_metadata: bool = False
 
     # TODO: Add primary key and cursor key support:

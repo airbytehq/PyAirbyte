@@ -1,12 +1,26 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""A DuckDB implementation of the cache."""
+"""A DuckDB implementation of the PyAirbyte cache.
+
+## Usage Example
+
+```python
+from airbyte as ab
+from airbyte.caches import DuckDBCache
+
+cache = DuckDBCache(
+    db_path="/path/to/my/database.duckdb",
+    schema_name="myschema",
+)
+"""
 
 from __future__ import annotations
 
 import warnings
 from pathlib import Path  # noqa: TCH003  # Used in Pydantic init
+from typing import Union
 
 from overrides import overrides
+from typing_extensions import Literal
 
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte.caches.base import CacheBase
@@ -23,11 +37,11 @@ warnings.filterwarnings(
 class DuckDBCache(CacheBase):
     """A DuckDB cache."""
 
-    db_path: Path | str
+    db_path: Union[Path, str]
     """Normally db_path is a Path object.
 
-    There are some cases, such as when connecting to MotherDuck, where it could be a string that
-    is not also a path, such as "md:" to connect the user's default MotherDuck DB.
+    The database name will be inferred from the file name. For example, given a `db_path` of
+    `/path/to/my/my_db.duckdb`, the database name is `my_db`.
     """
 
     schema_name: str = "main"
@@ -47,5 +61,8 @@ class DuckDBCache(CacheBase):
         if self.db_path == ":memory:":
             return "memory"
 
+        # Split the path on the appropriate separator ("/" or "\")
+        split_on: Literal["/", "\\"] = "\\" if "\\" in str(self.db_path) else "/"
+
         # Return the file name without the extension
-        return str(self.db_path).split("/")[-1].split(".")[0]
+        return str(self.db_path).split(sep=split_on)[-1].split(".")[0]

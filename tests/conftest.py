@@ -1,27 +1,36 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-
 """Global pytest fixtures."""
+from __future__ import annotations
 
+from contextlib import suppress
 import json
 import logging
 import os
+from pathlib import Path
 import shutil
 import socket
 import subprocess
 import time
+from requests.exceptions import HTTPError
 
 import ulid
+from airbyte._util.google_secrets import get_gcp_secret
+from airbyte._util.meta import is_windows
+from airbyte.caches.base import CacheBase
+from airbyte.caches.bigquery import BigQueryCache
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
 import psycopg2 as psycopg
 import pytest
 from _pytest.nodes import Item
-from google.cloud import secretmanager
-from pytest_docker.plugin import get_docker_ip
 from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
+from airbyte._executor import _get_bin_dir
+from airbyte.caches.util import new_local_cache
+from airbyte.sources.base import as_temp_files
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +40,23 @@ PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
 LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
+
+AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
+
+
+def get_ci_secret(
+    secret_name,
+    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
+) -> str:
+    return get_gcp_secret(project_name=project_name, secret_name=secret_name)
+
+
+def get_ci_secret_json(
+    secret_name,
+    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
+) -> dict:
+    return json.loads(get_ci_secret(secret_name=secret_name, project_name=project_name))
+
 
 
 def pytest_collection_modifyitems(items: list[Item]) -> None:
@@ -59,6 +85,12 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
 
     # Sort the items list in-place based on the test_priority function
     items.sort(key=test_priority)
+
+    for item in items:
+        # Skip tests that require Docker if Docker is not available (including on Windows).
+        if "new_postgres_cache" in item.fixturenames or "postgres_cache" in item.fixturenames:
+            if True or not is_docker_available():
+                item.add_marker(pytest.mark.skip(reason="Skipping tests (Docker not available)"))
 
 
 def is_port_in_use(port):
@@ -97,12 +129,27 @@ def test_pg_connection(host) -> bool:
         return False
 
 
+def is_docker_available():
+    if is_windows():
+        # Linux containers are not supported on Windows CI runners
+        return False
+    try:
+        _ = docker.from_env()
+        return True
+    except docker.errors.DockerException:
+        return False
+
+
 @pytest.fixture(scope="session")
-def pg_dsn():
+def new_postgres_cache():
+    """Fixture to return a fresh Postgres cache.
+
+    Each test that uses this fixture will get a unique table prefix.
+    """
     client = docker.from_env()
     try:
         client.images.get(PYTEST_POSTGRES_IMAGE)
-    except docker.errors.ImageNotFound:
+    except (docker.errors.ImageNotFound, HTTPError):
         # Pull the image if it doesn't exist, to avoid failing our sleep timer
         # if the image needs to download on-demand.
         client.images.pull(PYTEST_POSTGRES_IMAGE)
@@ -146,20 +193,8 @@ def pg_dsn():
     if final_host is None:
         raise Exception(f"Failed to connect to the PostgreSQL database on host {host}.")
 
-    yield final_host
-    # Stop and remove the container after the tests are done
-    postgres.stop()
-    postgres.remove()
-
-
-@pytest.fixture
-def new_pg_cache(pg_dsn):
-    """Fixture to return a fresh cache.
-
-    Each test that uses this fixture will get a unique table prefix.
-    """
     config = PostgresCache(
-        host=pg_dsn,
+        host=final_host,
         port=PYTEST_POSTGRES_PORT,
         username="postgres",
         password="postgres",
@@ -171,18 +206,15 @@ def new_pg_cache(pg_dsn):
     )
     yield config
 
+    # Stop and remove the container after the tests are done
+    postgres.stop()
+    postgres.remove()
+
 
 @pytest.fixture
 def new_snowflake_cache():
-    if "GCP_GSM_CREDENTIALS" not in os.environ:
-        raise Exception("GCP_GSM_CREDENTIALS env variable not set, can't fetch secrets for Snowflake. Make sure they are set up as described: https://github.com/airbytehq/airbyte/blob/master/airbyte-ci/connectors/ci_credentials/README.md#get-gsm-access")
-    secret_client = secretmanager.SecretManagerServiceClient.from_service_account_info(
-        json.loads(os.environ["GCP_GSM_CREDENTIALS"])
-    )
-    secret = json.loads(
-        secret_client.access_secret_version(
-            name="projects/dataline-integration-testing/secrets/AIRBYTE_LIB_SNOWFLAKE_CREDS/versions/latest"
-        ).payload.data.decode("UTF-8")
+    secret = get_ci_secret_json(
+        "AIRBYTE_LIB_SNOWFLAKE_CREDS",
     )
     config = SnowflakeCache(
         account=secret["account"],
@@ -199,6 +231,30 @@ def new_snowflake_cache():
     engine = create_engine(config.get_sql_alchemy_url())
     with engine.begin() as connection:
         connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
+
+
+@pytest.fixture
+@pytest.mark.requires_creds
+def new_bigquery_cache():
+    dest_bigquery_config = get_ci_secret_json(
+        "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    )
+
+    dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
+    credentials_json = dest_bigquery_config["credentials_json"]
+    with as_temp_files([credentials_json]) as (credentials_path,):
+        cache = BigQueryCache(
+            credentials_path=credentials_path,
+            project_name=dest_bigquery_config["project_id"],
+            dataset_name=dataset_name
+        )
+        yield cache
+
+        url = cache.get_sql_alchemy_url()
+        engine = create_engine(url)
+        with suppress(Exception):
+            with engine.begin() as connection:
+                connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
 @pytest.fixture(autouse=True)
@@ -243,8 +299,46 @@ def source_test_installation():
         shutil.rmtree(venv_dir)
 
     subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-    subprocess.run([f"{venv_dir}/bin/pip", "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
+    pip_path = str(_get_bin_dir(Path(venv_dir)) / "pip")
+    subprocess.run([pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
 
     yield
 
     shutil.rmtree(venv_dir)
+
+
+@pytest.fixture(scope="function")
+def new_duckdb_cache() -> DuckDBCache:
+    return new_local_cache()
+
+
+@pytest.fixture(scope="function")
+def new_generic_cache(request) -> CacheBase:
+    """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
+    return request.getfixturevalue(request.param)
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Override default pytest behavior, parameterizing our tests based on the available cache types.
+
+    This is useful for running the same tests with different cache types, to ensure that the tests
+    can pass across all cache types.
+    """
+    all_cache_type_fixtures: dict[str, str] = {
+        "BigQuery": "new_bigquery_cache",
+        "DuckDB": "new_duckdb_cache",
+        "Postgres": "new_postgres_cache",
+        "Snowflake": "new_snowflake_cache",
+    }
+    if is_windows():
+        # Postgres tests require Linux containers
+        all_cache_type_fixtures.pop("Postgres")
+
+    if "new_generic_cache" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "new_generic_cache",
+            all_cache_type_fixtures.values(),
+            ids=all_cache_type_fixtures.keys(),
+            indirect=True,
+            scope="function",
+        )

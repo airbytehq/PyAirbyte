@@ -6,14 +6,15 @@ Since source-faker is included in dev dependencies, we can assume `source-faker`
 and available on PATH for the poetry-managed venv.
 """
 from __future__ import annotations
-from collections.abc import Generator
+
 import os
+from pathlib import Path
 import sys
 
 import pytest
 
 import airbyte as ab
-from airbyte import caches
+from airbyte._executor import _get_bin_dir
 
 
 # Product count is always the same, regardless of faker scale.
@@ -33,10 +34,10 @@ FAKER_SCALE_B = 300
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = os.path.join(sys.prefix, 'bin')
+    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}:{os.environ['PATH']}"
+    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
     monkeypatch.setenv('PATH', new_path)
 
 
@@ -85,13 +86,13 @@ def source_faker_seed_b() -> ab.Source:
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
 @pytest.mark.requires_creds
 @pytest.mark.slow
-def test_faker_read_to_snowflake(
+def test_faker_read(
     source_faker_seed_a: ab.Source,
-    new_snowflake_cache: ab.SnowflakeCache,
+    new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
     result = source_faker_seed_a.read(
-        new_snowflake_cache, write_strategy="replace", force_full_refresh=True
+        new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
@@ -100,12 +101,12 @@ def test_faker_read_to_snowflake(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    new_snowflake_cache: ab.SnowflakeCache,
+    new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
     for _ in range(2):
         result = source_faker_seed_a.read(
-            new_snowflake_cache, write_strategy="replace", force_full_refresh=True
+            new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
@@ -115,27 +116,31 @@ def test_replace_strategy(
 def test_merge_strategy(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    new_snowflake_cache: ab.caches.SnowflakeCache,
+    new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the merge strategy works as expected.
 
     Since all streams have primary keys, we should expect the auto strategy to be identical to the
     merge strategy.
     """
+
+    assert new_generic_cache, "Cache should not be None."
+
     # First run, seed A (counts should match the scale or the product count)
-    result = source_faker_seed_a.read(new_snowflake_cache, write_strategy="merge")
-    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+    result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A, \
+        f"Incorrect number of records in the cache. {new_generic_cache}"
 
     # Second run, also seed A (should have same exact data, no change in counts)
-    result = source_faker_seed_a.read(new_snowflake_cache, write_strategy="merge")
+    result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
     # Third run, seed B - should increase record count to the scale of B, which is greater than A.
     # TODO: See if we can reliably predict the exact number of records, since we use fixed seeds.
-    result = source_faker_seed_b.read(new_snowflake_cache, write_strategy="merge")
+    result = source_faker_seed_b.read(new_generic_cache, write_strategy="merge")
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_B
 
     # Third run, seed A again - count should stay at scale B, since A is smaller.
     # TODO: See if we can reliably predict the exact number of records, since we use fixed seeds.
-    result = source_faker_seed_a.read(new_snowflake_cache, write_strategy="merge")
+    result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_B
