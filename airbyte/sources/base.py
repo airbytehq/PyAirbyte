@@ -44,6 +44,7 @@ from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
+from airbyte.warnings import PyAirbyteDataLossWarning
 
 
 if TYPE_CHECKING:
@@ -655,12 +656,16 @@ class Source:
                 must be True when using the "replace" strategy.
         """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
-            raise exc.AirbyteLibInputError(
-                message="The replace strategy requires full refresh mode.",
-                context={
-                    "write_strategy": write_strategy,
-                    "force_full_refresh": force_full_refresh,
-                },
+            warnings.warn(
+                message=(
+                    "Using `REPLACE` strategy without also setting `full_refresh_mode=True` "
+                    "could result in data loss. "
+                    "To silence this warning, use the following: "
+                    'warnings.filterwarnings("ignore", '
+                    'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
+                ),
+                category=PyAirbyteDataLossWarning,
+                stacklevel=1,
             )
         if cache is None:
             cache = get_default_cache()
