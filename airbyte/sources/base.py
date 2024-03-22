@@ -5,12 +5,15 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import jsonschema
 import pendulum
 import yaml
 from rich import print
+from rich.syntax import Syntax
+from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -251,6 +254,51 @@ class Source:
         raise exc.AirbyteConnectorMissingSpecError(
             log_text=self._last_log_messages,
         )
+
+    @property
+    def config_spec(self) -> dict[str, Any]:
+        """Generate a configuration spec for this connector, as a JSON Schema definition.
+
+        This function generates a JSON Schema dictionary with configuration specs for the
+        current connector, as a dictionary.
+
+        Returns:
+            dict: The JSON Schema configuration spec as a dictionary.
+        """
+        return self._get_spec(force_refresh=True).connectionSpecification
+
+    def print_config_spec(
+        self,
+        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
+        *,
+        output_file: Path | str | None = None,
+    ) -> None:
+        """Print the configuration spec for this connector.
+
+        Args:
+        - format: The format to print the spec in. Must be "yaml" or "json".
+        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
+          it will be printed to the console.
+        """
+        if format not in ["yaml", "json"]:
+            raise exc.AirbyteLibInputError(
+                message="Invalid format. Expected 'yaml' or 'json'",
+                input_value=format,
+            )
+        if isinstance(output_file, str):
+            output_file = Path(output_file)
+
+        if format == "yaml":
+            content = yaml.dump(self.config_spec, indent=2)
+        elif format == "json":
+            content = json.dumps(self.config_spec, indent=2)
+
+        if output_file:
+            output_file.write_text(content)
+            return
+
+        syntax_highlighted = Syntax(content, format)
+        print(syntax_highlighted)
 
     @property
     def _yaml_spec(self) -> str:
