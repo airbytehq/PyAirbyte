@@ -11,7 +11,7 @@ from typing import Any
 
 from airbyte import exceptions as exc
 from airbyte._executor import PathExecutor, VenvExecutor
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import EventState, log_install_state
 from airbyte.sources.base import Source
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
@@ -122,7 +122,7 @@ def get_source(
         metadata = get_connector_metadata(name)
     except exc.AirbyteConnectorNotRegisteredError as ex:
         if not pip_url:
-            _log_install_state(name, state=EventState.FAILED, exception=ex)
+            log_install_state(name, state=EventState.FAILED, exception=ex)
             # We don't have a pip url or registry entry, so we can't install the connector
             raise
 
@@ -143,25 +143,10 @@ def get_source(
             executor=executor,
         )
     except Exception as e:
-        _log_install_state(name, state=EventState.FAILED, exception=e)
+        log_install_state(name, state=EventState.FAILED, exception=e)
         raise
 
 
 __all__ = [
     "get_source",
 ]
-
-
-def _log_install_state(
-    name: str,
-    state: EventState,
-    exception: Exception | None = None,
-) -> None:
-    """Log an install event."""
-    send_telemetry(
-        source=name,
-        cache=None,
-        state=state,
-        event_type=EventType.INSTALL,
-        exception=exception,
-    )

@@ -2,9 +2,12 @@
 """Unit tests specific to BigQuery caches."""
 from __future__ import annotations
 
+import pytest
+
 import airbyte as ab
 
 
+@pytest.mark.requires_creds
 def test_bigquery_props(
     new_bigquery_cache: ab.BigQueryCache,
 ) -> None:

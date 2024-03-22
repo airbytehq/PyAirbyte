@@ -5,12 +5,15 @@ import json
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import jsonschema
 import pendulum
 import yaml
 from rich import print
+from rich.syntax import Syntax
+from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -29,12 +32,19 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._util import protocol_util
 from airbyte._util.name_normalizers import normalize_records
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import (
+    EventState,
+    EventType,
+    log_config_validation_result,
+    log_source_check_result,
+    send_telemetry,
+)
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
+from airbyte.warnings import PyAirbyteDataLossWarning
 
 
 if TYPE_CHECKING:
@@ -200,8 +210,12 @@ class Source:
         config = self._config if config is None else config
         try:
             jsonschema.validate(config, spec.connectionSpecification)
+            log_config_validation_result(
+                name=self.name,
+                state=EventState.SUCCEEDED,
+            )
         except jsonschema.ValidationError as ex:
-            raise exc.AirbyteConnectorValidationFailedError(
+            validation_ex = exc.AirbyteConnectorValidationFailedError(
                 message="The provided config is not valid.",
                 context={
                     "error_message": ex.message,
@@ -209,7 +223,13 @@ class Source:
                     "error_instance": ex.instance,
                     "error_schema": ex.schema,
                 },
-            ) from ex
+            )
+            log_config_validation_result(
+                name=self.name,
+                state=EventState.FAILED,
+                exception=validation_ex,
+            )
+            raise validation_ex from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
@@ -235,6 +255,51 @@ class Source:
         raise exc.AirbyteConnectorMissingSpecError(
             log_text=self._last_log_messages,
         )
+
+    @property
+    def config_spec(self) -> dict[str, Any]:
+        """Generate a configuration spec for this connector, as a JSON Schema definition.
+
+        This function generates a JSON Schema dictionary with configuration specs for the
+        current connector, as a dictionary.
+
+        Returns:
+            dict: The JSON Schema configuration spec as a dictionary.
+        """
+        return self._get_spec(force_refresh=True).connectionSpecification
+
+    def print_config_spec(
+        self,
+        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
+        *,
+        output_file: Path | str | None = None,
+    ) -> None:
+        """Print the configuration spec for this connector.
+
+        Args:
+        - format: The format to print the spec in. Must be "yaml" or "json".
+        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
+          it will be printed to the console.
+        """
+        if format not in ["yaml", "json"]:
+            raise exc.AirbyteLibInputError(
+                message="Invalid format. Expected 'yaml' or 'json'",
+                input_value=format,
+            )
+        if isinstance(output_file, str):
+            output_file = Path(output_file)
+
+        if format == "yaml":
+            content = yaml.dump(self.config_spec, indent=2)
+        elif format == "json":
+            content = json.dumps(self.config_spec, indent=2)
+
+        if output_file:
+            output_file.write_text(content)
+            return
+
+        syntax_highlighted = Syntax(content, format)
+        print(syntax_highlighted)
 
     @property
     def _yaml_spec(self) -> str:
@@ -398,8 +463,16 @@ class Source:
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             print(f"Connection check succeeded for `{self.name}`.")
+                            log_source_check_result(
+                                name=self.name,
+                                state=EventState.SUCCEEDED,
+                            )
                             return
 
+                        log_source_check_result(
+                            name=self.name,
+                            state=EventState.FAILED,
+                        )
                         raise exc.AirbyteConnectorCheckFailedError(
                             help_url=self.docs_url,
                             context={
@@ -583,12 +656,16 @@ class Source:
                 must be True when using the "replace" strategy.
         """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
-            raise exc.AirbyteLibInputError(
-                message="The replace strategy requires full refresh mode.",
-                context={
-                    "write_strategy": write_strategy,
-                    "force_full_refresh": force_full_refresh,
-                },
+            warnings.warn(
+                message=(
+                    "Using `REPLACE` strategy without also setting `full_refresh_mode=True` "
+                    "could result in data loss. "
+                    "To silence this warning, use the following: "
+                    'warnings.filterwarnings("ignore", '
+                    'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
+                ),
+                category=PyAirbyteDataLossWarning,
+                stacklevel=1,
             )
         if cache is None:
             cache = get_default_cache()

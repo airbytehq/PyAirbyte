@@ -12,6 +12,7 @@ import os
 import sys
 import shutil
 from pathlib import Path
+import tempfile
 
 import pytest
 import ulid
@@ -289,3 +290,15 @@ def test_incremental_state_prefix_isolation(
 
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_B
+
+
+def test_config_spec(source_faker_seed_a: ab.Source) -> None:
+    assert source_faker_seed_a.config_spec
+
+def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp:
+        source_faker_seed_a.print_config_spec(
+            format="json",
+            output_file=temp.name,
+        )
+        assert Path(temp.name).exists()
