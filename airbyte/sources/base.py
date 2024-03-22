@@ -7,7 +7,6 @@ import warnings
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any, cast
 
-from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 import jsonschema
 import pendulum
 import yaml
@@ -40,6 +39,8 @@ from airbyte.strategies import WriteStrategy
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
+
+    from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executor import Executor
     from airbyte.caches import CacheBase

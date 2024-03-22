@@ -77,9 +77,9 @@ def airbyte_record_message_to_dict(
             raise exc.AirbyteLibInternalError(
                 message="A valid `stream_schema` is required when `prune_extra_fields` is `True`."
             )
-        for prop_name in record_message:
+        for prop_name in list(result.keys()):
             if prop_name not in stream_schema["properties"]:
-                record_message.pop(property)
+                result.pop(prop_name)
 
     # TODO: Add the metadata columns (this breaks tests)
     # result["_airbyte_extracted_at"] = datetime.datetime.fromtimestamp(

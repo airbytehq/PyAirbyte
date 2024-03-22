@@ -173,13 +173,14 @@ class RecordProcessor(abc.ABC):
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
-                stream_name: str = message.stream
+                record_msg = cast(AirbyteRecordMessage, message.record)
+                stream_name = record_msg.stream
+
                 if stream_name not in stream_schemas:
                     stream_schemas[stream_name] = self.cache.processor.get_stream_json_schema(
-                        stream_name=message.stream
+                        stream_name=stream_name
                     )
 
-                record_msg = cast(AirbyteRecordMessage, message.record)
                 self.process_record_message(
                     record_msg,
                     stream_schema=stream_schemas[stream_name],
