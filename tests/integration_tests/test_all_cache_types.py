@@ -112,6 +112,8 @@ def test_replace_strategy(
     (expected 200 records). We assert the correct count of records at each step,
     first 300 and then 200 records.
     """
+    # We attach a monitor to the cache processor to check if the swap and merge methods are called
+    # as expected.
     mocker.spy(new_generic_cache.processor, '_swap_temp_table_with_final_table')
     mocker.spy(new_generic_cache.processor, '_merge_temp_table_to_final_table')
 
