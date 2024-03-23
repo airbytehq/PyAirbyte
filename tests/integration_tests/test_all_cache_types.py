@@ -101,14 +101,42 @@ def test_faker_read(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
+    source_faker_seed_b: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
+    mocker: pytest.MockerFixture,
 ) -> None:
-    """Test that the append strategy works as expected."""
-    for _ in range(2):
-        result = source_faker_seed_a.read(
-            new_generic_cache, write_strategy="replace", force_full_refresh=True
-        )
+    """Test that the replace strategy works as expected.
+
+    We expect old data to be fully replaced with newer data. For this test,
+    we run the 'seed b' test (expected 300 records) before the 'seed a' test
+    (expected 200 records). We assert the correct count of records at each step,
+    first 300 and then 200 records.
+    """
+    # We attach a monitor to the cache processor to check if the swap and merge methods are called
+    # as expected.
+    mocker.spy(new_generic_cache.processor, '_swap_temp_table_with_final_table')
+    mocker.spy(new_generic_cache.processor, '_merge_temp_table_to_final_table')
+
+    assert FAKER_SCALE_B > FAKER_SCALE_A, \
+        "The test requires that 'b' has a greater count of records than 'a'."
+
+    result = source_faker_seed_b.read(
+        new_generic_cache,
+        write_strategy="replace",
+        force_full_refresh=False,
+    )
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_B
+
+    result = source_faker_seed_a.read(
+        new_generic_cache,
+        write_strategy="replace",
+        force_full_refresh=False,
+    )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+
+    # Check the call count
+    assert new_generic_cache.processor._swap_temp_table_with_final_table.call_count == 2
+    assert new_generic_cache.processor._merge_temp_table_to_final_table.call_count == 0
 
 
 @pytest.mark.requires_creds
