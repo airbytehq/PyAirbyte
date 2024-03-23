@@ -102,13 +102,19 @@ def test_faker_read(
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
+    mocker: pytest.MockerFixture,
 ) -> None:
     """Test that the append strategy works as expected."""
+    mocker.spy(source_faker_seed_a, '_swap_temp_table_with_final_table')
+
     for _ in range(2):
         result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+
+    # Check the call count
+    assert source_faker_seed_a._swap_temp_table_with_final_table.call_count == 2
 
 
 @pytest.mark.requires_creds
