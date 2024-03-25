@@ -39,7 +39,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from textwrap import indent
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
@@ -303,3 +307,34 @@ class AirbyteLibSecretNotFoundError(AirbyteError):
 
     secret_name: str | None = None
     sources: list[str] | None = None
+
+
+# Airbyte API Errors
+
+
+@dataclass
+class HostedAirbyteError(AirbyteError):
+    """An error occurred while communicating with the hosted Airbyte instance."""
+
+    response: AirbyteApiResponseDuckType | None = None
+    """The API response from the failed request."""
+
+
+@dataclass
+class MissingResourceError(HostedAirbyteError):
+    """Remote Airbyte resources does not exist."""
+
+    resource_type: str | None = None
+    resource_name_or_id: str | None = None
+
+
+@dataclass
+class MultipleResourcesError(HostedAirbyteError):
+    """Could not locate the resource because multiple matching resources were found."""
+
+    resource_type: str | None = None
+    resource_name_or_id: str | None = None
+
+
+class HostedConnectionSyncError(HostedAirbyteError):
+    """An error occurred while executing the remote Airbyte job."""
