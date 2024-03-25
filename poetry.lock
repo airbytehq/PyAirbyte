@@ -3,13 +3,11 @@
 [[package]]
 name = "airbyte-api"
 version = "0.47.3"
-description = "Python Client SDK for Airbyte API"
+description = ""
 optional = false
 python-versions = ">=3.8"
-files = [
-    {file = "airbyte-api-0.47.3.tar.gz", hash = "sha256:1ae86209bd3996f37d192bd0022155d2cb0dd8df9c4bfc0d81a7d5d46feffb1e"},
-    {file = "airbyte_api-0.47.3-py3-none-any.whl", hash = "sha256:68606b5be11ce2e4538ed6ab106095495bd8bc4dc23fc6bd02b940f8d63e0337"},
-]
+files = []
+develop = false
 
 [package.dependencies]
 certifi = ">=2023.7.22"
@@ -23,12 +21,18 @@ packaging = ">=23.1"
 python-dateutil = ">=2.8.2"
 requests = ">=2.31.0"
 six = ">=1.16.0"
-typing-extensions = ">=4.7.1"
+typing_extensions = ">=4.7.1"
 typing-inspect = ">=0.9.0"
 urllib3 = ">=1.26.18"
 
 [package.extras]
 dev = ["pylint (==2.16.2)"]
+
+[package.source]
+type = "git"
+url = "https://github.com/airbytehq/airbyte-api-python-sdk.git"
+reference = "aj/manual_rename_dir"
+resolved_reference = "856599a4861ee1f0ee4e994feff22e44ffb4cbd4"
 
 [[package]]
 name = "airbyte-cdk"
@@ -2832,4 +2836,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "e92eecde380c5a1cd9adc0621e7e051b80db4f0eb4cc949d3c84b320d4faf23d"
+content-hash = "900d34579c968518dd45a05103ee7a5d6efbca181c3c1509bc7273e7b553886e"
