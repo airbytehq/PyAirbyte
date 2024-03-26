@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from airbyte.caches import bigquery, duckdb, motherduck, postgres, snowflake, util
 from airbyte.caches.base import CacheBase
+from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.postgres import PostgresCache
@@ -17,6 +18,7 @@ __all__ = [
     "get_default_cache",
     "new_local_cache",
     # Classes
+    "BigQueryCache",
     "CacheBase",
     "DuckDBCache",
     "MotherDuckCache",
