@@ -368,7 +368,6 @@ def create_destination(
                 name=name,
                 workspace_id=workspace_id,
                 configuration=config,  # TODO: wrap in a proper configuration object
-                # definition_id="a7bcc9d8-13b3-4e49-b80d-d020b90045e3",  # Not used alternative to config.destinationType.
             ),
         )
     )
