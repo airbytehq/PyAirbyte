@@ -34,29 +34,6 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
 
 
-def _get_deploy_name(
-    resource_desc: str,
-    deploy_key: str,
-) -> str:
-    """Get the name of the source to deploy."""
-    return f"{resource_desc} (id={deploy_key})"
-
-
-def _new_deploy_key() -> str:
-    """Generate a new deploy key."""
-    return str(ulid.ULID())
-
-
-def _get_deploy_key(deploy_name: str) -> str:
-    """Get the deploy key from a deployed resource name."""
-    if " (id=" not in deploy_name:
-        raise ValueError(  # noqa: TRY003
-            f"Could not extract deploy key from {deploy_name}.",
-        )
-
-    return deploy_name.split(" (id=")[-1].split(")")[0]
-
-
 @dataclass
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
@@ -68,8 +45,6 @@ class CloudWorkspace:
     workspace_id: str
     api_key: str
     api_root: str = CLOUD_API_ROOT
-
-    _deploy_key: str | None = None
 
     def connect(self) -> None:
         """Check that the workspace is reachable and raise an exception otherwise."""
@@ -87,17 +62,11 @@ class CloudWorkspace:
 
         Returns the newly deployed source ID.
         """
-        if self._deploy_key is None:
-            self._deploy_key = str(ulid.ULID())
-
         source_configuration = source.get_config().copy()
         source_configuration["sourceType"] = source.name.replace("source-", "")
 
         deployed_source = create_source(
-            name=_get_deploy_name(
-                resource_desc=f"Source {source.name.replace('-', ' ').title()}",
-                deploy_key=self._deploy_key,
-            ),
+            name=f"{source.name.replace('-', ' ').title()} (Deployed by PyAirbyte)",
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
@@ -145,16 +114,10 @@ class CloudWorkspace:
 
         Returns the newly deployed destination ID.
         """
-        if self._deploy_key is None:
-            self._deploy_key = str(ulid.ULID())
-
         cache_type_name = cache.__class__.__name__.replace("Cache", "")
 
         deployed_destination: DestinationResponse = create_destination(
-            name=_get_deploy_name(
-                resource_desc=f"Destination {cache_type_name} (Deployed by PyAirbyte)",
-                deploy_key=self._deploy_key,
-            ),
+            name=f"Destination {cache_type_name} (Deployed by PyAirbyte)",
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
@@ -209,9 +172,6 @@ class CloudWorkspace:
 
         Returns the newly deployed connection ID as a `str`.
         """
-        if self._deploy_key is None:
-            self._deploy_key = str(ulid.ULID())
-
         self.deploy_source(source)
         self.deploy_cache_as_destination(cache)
 
@@ -219,10 +179,7 @@ class CloudWorkspace:
         assert cache._deployed_destination_id is not None  # noqa: SLF001  # Accessing nn-public API
 
         deployed_connection = create_connection(
-            name=_get_deploy_name(
-                resource_desc=f"Connection {source.name.replace('-', ' ').title()}",
-                deploy_key=self._deploy_key,
-            ),
+            name=f"Connection {source.name.replace('-', ' ').title()} (Deployed by PyAirbyte)",
             source_id=source._deployed_source_id,  # noqa: SLF001  # Accessing nn-public API
             destination_id=cache._deployed_destination_id,  # noqa: SLF001  # Accessing nn-public API
             api_root=self.api_root,
