@@ -27,6 +27,7 @@ from airbyte.exceptions import (
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
+JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 
 
@@ -145,8 +146,6 @@ def run_connection(
     *,
     api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
-    wait_for_job: bool = True,
-    raise_on_failure: bool = True,
 ) -> api_models.ConnectionResponse:
     """Get a connection.
 
@@ -167,21 +166,12 @@ def run_connection(
         ),
     )
     if status_ok(response.status_code) and response.job_response:
-        if wait_for_job:
-            job_info = wait_for_airbyte_job(
-                workspace_id=workspace_id,
-                job_id=response.job_response.job_id,
-                api_key=api_key,
-                api_root=api_root,
-                raise_on_failure=raise_on_failure,
-            )
-
-        return job_info
+        return response.job_response
 
     raise HostedConnectionSyncError(
+        connection_id=connection_id,
         context={
             "workspace_id": workspace_id,
-            "connection_id": connection_id,
         },
         response=response,
     )
@@ -208,55 +198,6 @@ def get_job_info(
         return response.job_response
 
     raise MissingResourceError(job_id, "job", response.text)
-
-
-def wait_for_airbyte_job(
-    workspace_id: str,
-    job_id: str,
-    *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
-    raise_on_failure: bool = True,
-) -> api_models.JobResponse:
-    """Wait for a job to finish running."""
-    _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    while True:
-        sleep(JOB_WAIT_INTERVAL_SECS)
-        response: api_operations.GetJobResponse = airbyte_instance.jobs.get_job(
-            api_operations.GetJobRequest(
-                job_id=job_id,
-            ),
-        )
-        if status_ok(response.status_code) and response.job_response:
-            job_info = response.job_response
-            if job_info.status == api_models.JobStatusEnum.SUCCEEDED:
-                return job_info
-
-            if job_info.status in (
-                api_models.JobStatusEnum.FAILED,
-                api_models.JobStatusEnum.CANCELLED,
-            ):
-                if raise_on_failure:
-                    raise HostedConnectionSyncError(
-                        context={
-                            "job_id": job_id,
-                            "job_status": job_info.status,
-                            "workspace_id": workspace_id,
-                            "message": job_info.message,
-                        },
-                    )
-
-                return job_info
-
-            # Else: Job is still running
-            pass
-        else:
-            raise MissingResourceError(job_id, "job", response.text)
 
 
 def get_connection_by_name(

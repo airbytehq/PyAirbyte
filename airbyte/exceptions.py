@@ -37,6 +37,7 @@ In addition, the following principles are applied for exception class design:
 """
 from __future__ import annotations
 
+from ast import Not
 from dataclasses import dataclass
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
@@ -44,6 +45,8 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
+    from airbyte.cloud._sync_results import SyncResult
+    from airbyte.cloud._workspaces import CloudWorkspace
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
@@ -319,6 +322,67 @@ class HostedAirbyteError(AirbyteError):
     response: AirbyteApiResponseDuckType | None = None
     """The API response from the failed request."""
 
+    workspace: CloudWorkspace | None = None
+    """The workspace where the error occurred."""
+
+    @property
+    def workspace_url(self) -> str | None:
+        if self.workspace:
+            return f"{self.workspace.api_root}/workspaces/{self.workspace.workspace_id}"
+
+        return None
+
+
+@dataclass
+class HostedAirbyteConnectionError(HostedAirbyteError):
+    """An connection error occurred while communicating with the hosted Airbyte instance."""
+
+    connection_id: str | None = None
+    """The connection ID where the error occurred."""
+
+    job_id: str | None = None
+    """The job ID where the error occurred (if applicable)."""
+
+    job_status: str | None = None
+    """The latest status of the job where the error occurred (if applicable)."""
+
+    @property
+    def connection_url(self) -> str | None:
+        if self.workspace_url and self.connection_id:
+            return f"{self.workspace_url}/connections/{self.connection_id}"
+
+        return None
+
+    @property
+    def job_history_url(self) -> str | None:
+        if self.connection_url:
+            return f"{self.connection_url}/job-history"
+
+        return None
+
+    @property
+    def job_url(self) -> str | None:
+        if self.job_history_url and self.job_id:
+            return f"{self.job_history_url}#{self.job_id}::0"
+
+        return None
+
+
+@dataclass
+class HostedConnectionSyncError(HostedAirbyteConnectionError):
+    """An error occurred while executing the remote Airbyte job."""
+
+
+@dataclass
+class HostedConnectionSyncTimeoutError(HostedConnectionSyncError):
+    """An timeout occurred while waiting for the remote Airbyte job to complete."""
+
+    timeout: int | None = None
+    """The timeout in seconds that was reached."""
+
+
+# Airbyte Resource Errors (General)
+
 
 @dataclass
 class MissingResourceError(HostedAirbyteError):
@@ -334,7 +398,3 @@ class MultipleResourcesError(HostedAirbyteError):
 
     resource_type: str | None = None
     resource_name_or_id: str | None = None
-
-
-class HostedConnectionSyncError(HostedAirbyteError):
-    """An error occurred while executing the remote Airbyte job."""

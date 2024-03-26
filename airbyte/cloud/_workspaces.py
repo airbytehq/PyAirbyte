@@ -224,6 +224,8 @@ class CloudWorkspace:
     def run_sync(
         self,
         connection_id: str,
+        wait_for_job: bool = True,
+        wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync on a deployed connection."""
         connection_response = api_util.run_connection(
@@ -231,11 +233,17 @@ class CloudWorkspace:
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
-            wait_for_job=True,
-            raise_on_failure=True,
         )
-        return SyncResult(
+        sync_result = SyncResult(
             workspace=self,
             connection_id=connection_response.connection_id,
             job_id=connection_response.job_id,
         )
+        if wait_for_job:
+            sync_result.wait_for_completion(
+                wait_timeout=wait_timeout,
+                raise_failure=True,
+                raise_timeout=True,
+            )
+
+        return sync_result
