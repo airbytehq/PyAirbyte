@@ -47,10 +47,10 @@ def get_airbyte_server_instance(
     """Get an Airbyte instance."""
     api_key = api_key or get_default_bearer_token()
     return airbyte_api.Airbyte(
-        api_models.Security(
+        security=api_models.Security(
             bearer_auth=api_key,
         ),
-        api_root=api_root,
+        server_url=api_root,
     )
 
 
@@ -310,13 +310,118 @@ def create_source(
             secret_id=None,  # For OAuth, not yet supported
         ),
     )
-    if status_ok(response.status_code) and response.connection_response:
+    if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
     raise HostedAirbyteError(
         message="Could not create source.",
         response=response,
     )
+
+
+def delete_source(
+    source_id: str,
+    *,
+    api_root: str = "https://api.airbyte.com/v1",
+    api_key: str | None = None,
+    workspace_id: str | None = None,
+) -> None:
+    """Delete a source."""
+    _ = workspace_id  # Not used (yet)
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response = airbyte_instance.sources.delete_source(
+        api_operations.DeleteSourceRequest(
+            source_id=source_id,
+        ),
+    )
+    if not status_ok(response.status_code):
+        raise HostedAirbyteError(
+            context={
+                "source_id": source_id,
+                "response": response,
+            },
+        )
+
+
+def create_destination(
+    name: str,
+    *,
+    workspace_id: str,
+    config: dict[str, Any],
+    api_root: str = "https://api.airbyte.com/v1",
+    api_key: str | None = None,
+) -> api_models.SourceResponse:
+    """Get a connection."""
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response: api_operations.CreateDestinationResponse = (
+        airbyte_instance.destinations.create_destination(
+            api_models.DestinationCreateRequest(
+                name=name,
+                workspace_id=workspace_id,
+                configuration=config,  # TODO: wrap in a proper configuration object
+                # definition_id="a7bcc9d8-13b3-4e49-b80d-d020b90045e3",  # Not used alternative to config.destinationType.
+            ),
+        )
+    )
+    if status_ok(response.status_code) and response.destination_response:
+        return response.destination_response
+
+    raise HostedAirbyteError(
+        message="Could not create destination.",
+        response=response,
+    )
+
+
+def delete_destination(
+    destination_id: str,
+    *,
+    api_root: str = "https://api.airbyte.com/v1",
+    api_key: str | None = None,
+    workspace_id: str | None = None,
+) -> None:
+    """Delete a destination."""
+    _ = workspace_id  # Not used (yet)
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response = airbyte_instance.destinations.delete_destination(
+        api_operations.DeleteDestinationRequest(
+            destination_id=destination_id,
+        ),
+    )
+    if not status_ok(response.status_code):
+        raise HostedAirbyteError(
+            context={
+                "destination_id": destination_id,
+                "response": response,
+            },
+        )
+
+
+def check_source(
+    source_id: str,
+    *,
+    api_root: str = "https://api.airbyte.com/v1",
+    api_key: str | None = None,
+    workspace_id: str | None = None,
+) -> api_models.SourceCheckResponse:
+    """Check a source.
+
+    # TODO: Need to use legacy Configuration API for this:
+    # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
+    """
+    _ = source_id, workspace_id, api_root, api_key
+    raise NotImplementedError
 
 
 def get_destination(
