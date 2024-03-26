@@ -31,6 +31,9 @@ JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 
 
+# Helper functions
+
+
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
@@ -54,6 +57,9 @@ def get_airbyte_server_instance(
         ),
         server_url=api_root,
     )
+
+
+# Get workspace
 
 
 def get_workspace(
@@ -83,6 +89,9 @@ def get_workspace(
             "response": response,
         },
     )
+
+
+# List, get, and run connections
 
 
 def list_connections(
@@ -177,6 +186,9 @@ def run_connection(
     )
 
 
+# Get job info (logs)
+
+
 def get_job_info(
     job_id: str,
     *,
@@ -200,59 +212,8 @@ def get_job_info(
     raise MissingResourceError(job_id, "job", response.text)
 
 
-def get_connection_by_name(
-    workspace_id: str,
-    connection_name: str,
-    *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
-) -> api_models.ConnectionResponse:
-    """Get a connection."""
-    connections = list_connections(
-        workspace_id=workspace_id,
-        api_key=api_key,
-        api_root=api_root,
-    )
-    found: list[api_models.ConnectionResponse] = [
-        connection for connection in connections if connection.name == connection_name
-    ]
-    if len(found) == 0:
-        raise MissingResourceError(connection_name, "connection", f"Workspace: {workspace_id}")
 
-    if len(found) > 1:
-        raise MultipleResourcesError(
-            resource_type="connection",
-            resource_name_or_id=connection_name,
-            context={
-                "workspace_id": workspace_id,
-                "multiples": found,
-            },
-        )
-
-    return found[0]
-
-
-def get_source(
-    source_id: str,
-    *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
-) -> api_models.SourceResponse:
-    """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    response = airbyte_instance.sources.get_source(
-        api_operations.GetSourceRequest(
-            source_id=source_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
-
-    raise MissingResourceError(source_id, "source", response.text)
+# Create, get, and delete sources
 
 
 def create_source(
@@ -286,6 +247,28 @@ def create_source(
         response=response,
     )
 
+def get_source(
+    source_id: str,
+    *,
+    api_root: str = CLOUD_API_ROOT,
+    api_key: str | None = None,
+) -> api_models.SourceResponse:
+    """Get a connection."""
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response = airbyte_instance.sources.get_source(
+        api_operations.GetSourceRequest(
+            source_id=source_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.connection_response:
+        return response.connection_response
+
+    raise MissingResourceError(source_id, "source", response.text)
+
 
 def delete_source(
     source_id: str,
@@ -313,6 +296,9 @@ def delete_source(
                 "response": response,
             },
         )
+
+
+# Create, get, and delete destinations
 
 
 def create_destination(
@@ -347,6 +333,29 @@ def create_destination(
     )
 
 
+def get_destination(
+    destination_id: str,
+    *,
+    api_root: str = CLOUD_API_ROOT,
+    api_key: str | None = None,
+) -> api_models.DestinationResponse:
+    """Get a connection."""
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response = airbyte_instance.sources.get_destination(
+        api_operations.GetDestinationRequest(
+            destination_id=destination_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.connection_response:
+        return response.connection_response
+
+    raise MissingResourceError(destination_id, "destination", response.text)
+
+
 def delete_destination(
     destination_id: str,
     *,
@@ -373,6 +382,9 @@ def delete_destination(
                 "response": response,
             },
         )
+
+
+# Create and delete connections
 
 
 def create_connection(
@@ -414,6 +426,38 @@ def create_connection(
     return response.connection_response
 
 
+def get_connection_by_name(
+    workspace_id: str,
+    connection_name: str,
+    *,
+    api_root: str = CLOUD_API_ROOT,
+    api_key: str | None = None,
+) -> api_models.ConnectionResponse:
+    """Get a connection."""
+    connections = list_connections(
+        workspace_id=workspace_id,
+        api_key=api_key,
+        api_root=api_root,
+    )
+    found: list[api_models.ConnectionResponse] = [
+        connection for connection in connections if connection.name == connection_name
+    ]
+    if len(found) == 0:
+        raise MissingResourceError(connection_name, "connection", f"Workspace: {workspace_id}")
+
+    if len(found) > 1:
+        raise MultipleResourcesError(
+            resource_type="connection",
+            resource_name_or_id=connection_name,
+            context={
+                "workspace_id": workspace_id,
+                "multiples": found,
+            },
+        )
+
+    return found[0]
+
+
 def delete_connection(
     connection_id: str,
     api_root: str,
@@ -440,6 +484,9 @@ def delete_connection(
         )
 
 
+# Not yet implemented
+
+
 def check_source(
     source_id: str,
     *,
@@ -454,26 +501,3 @@ def check_source(
     """
     _ = source_id, workspace_id, api_root, api_key
     raise NotImplementedError
-
-
-def get_destination(
-    destination_id: str,
-    *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
-) -> api_models.DestinationResponse:
-    """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    response = airbyte_instance.sources.get_destination(
-        api_operations.GetDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
-
-    raise MissingResourceError(destination_id, "destination", response.text)

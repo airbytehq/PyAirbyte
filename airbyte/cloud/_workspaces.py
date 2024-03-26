@@ -46,13 +46,22 @@ class CloudWorkspace:
     api_key: str
     api_root: str = CLOUD_API_ROOT
 
+    # Test connection and creds
+
     def connect(self) -> None:
-        """Check that the workspace is reachable and raise an exception otherwise."""
+        """Check that the workspace is reachable and raise an exception otherwise.
+
+        Note: It is not necessary to call this method before calling other operations. It
+              serves primarily as a simple check to ensure that the workspace is reachable
+              and credentials are correct.
+        """
         _ = get_workspace(
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
         )
+
+    # Deploy and delete sources
 
     def deploy_source(
         self,
@@ -105,6 +114,8 @@ class CloudWorkspace:
             api_root=self.api_root,
             api_key=self.api_key,
         )
+
+    # Deploy and delete destinations
 
     def deploy_cache_as_destination(
         self,
@@ -162,6 +173,8 @@ class CloudWorkspace:
             api_root=self.api_root,
             api_key=self.api_key,
         )
+
+    # Deploy and delete connections
 
     def deploy_connection(
         self,
@@ -221,6 +234,8 @@ class CloudWorkspace:
         if delete_destination:
             self.delete_destination(destination_id=connection.destination_id)
 
+    # Run syncs
+
     def run_sync(
         self,
         connection_id: str,
@@ -248,3 +263,55 @@ class CloudWorkspace:
             )
 
         return sync_result
+
+    # Get sync results and previous sync logs
+
+    def get_sync_result(
+        self,
+        connection_id: str,
+        job_id: str | None,
+    ) -> SyncResult | None:
+        """Get the sync result for a connection job.
+
+        If `job_id` is not provided, the most recent sync job will be used.
+
+        Returns `None` if job_id is omitted and no previous jobs are found.
+        """
+        if job_id is None:
+            results = self.get_previous_sync_logs(
+                connection_id=connection_id,
+                num_sync_logs=1,
+            )
+            if results:
+                return results[0]
+
+            return None
+
+        return SyncResult(
+            workspace=self,
+            connection_id=connection_id,
+            job_id=job_id,
+        )
+
+    def get_previous_sync_logs(
+        self,
+        connection_id: str,
+        *,
+        num_sync_logs: int = 10,
+    ) -> list[SyncResult]:
+        """Get the previous sync logs for a connection."""
+        sync_logs = api_util.get_connection_sync_logs(
+            connection_id=connection_id,
+            api_root=self.api_root,
+            api_key=self.api_key,
+            workspace_id=self.workspace_id,
+            num_sync_logs=num_sync_logs,
+        )
+        return [
+            SyncResult(
+                workspace=self,
+                connection_id=sync_log.connection_id,
+                job_id=sync_log.job_id,
+            )
+            for sync_log in sync_logs
+        ]
