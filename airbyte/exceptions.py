@@ -37,7 +37,6 @@ In addition, the following principles are applied for exception class design:
 """
 from __future__ import annotations
 
-from ast import Not
 from dataclasses import dataclass
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
@@ -45,7 +44,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
-    from airbyte.cloud._sync_results import SyncResult
     from airbyte.cloud._workspaces import CloudWorkspace
 
 
