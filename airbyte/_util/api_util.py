@@ -408,6 +408,70 @@ def delete_destination(
         )
 
 
+def create_connection(
+    name: str,
+    *,
+    source_id: str,
+    destination_id: str,
+    api_root: str,
+    api_key: str | None = None,
+    workspace_id: str | None = None,
+) -> api_models.ConnectionResponse:
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    stream_configuration = api_models.StreamConfiguration(
+        name="users",
+    )
+    stream_configurations = api_models.StreamConfigurations([stream_configuration])
+    response = airbyte_instance.connections.create_connection(
+        api_models.ConnectionCreateRequest(
+            name=name,
+            source_id=source_id,
+            destination_id=destination_id,
+            configurations=stream_configurations,
+        ),
+    )
+    if not status_ok(response.status_code):
+        raise HostedAirbyteError(
+            context={
+                "source_id": source_id,
+                "destination_id": destination_id,
+                "response": response,
+            },
+        )
+
+    return response.connection_response
+
+
+def delete_connection(
+    connection_id: str,
+    api_root: str,
+    workspace_id: str | None = None,
+    api_key: str | None = None,
+) -> None:
+    _ = workspace_id  # Not used (yet)
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response = airbyte_instance.connections.delete_connection(
+        api_operations.DeleteConnectionRequest(
+            connection_id=connection_id,
+        ),
+    )
+    if not status_ok(response.status_code):
+        raise HostedAirbyteError(
+            context={
+                "connection_id": connection_id,
+                "response": response,
+            },
+        )
+
+
 def check_source(
     source_id: str,
     *,
