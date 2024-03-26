@@ -65,7 +65,7 @@ def test_create_and_delete_source(
 ) -> None:
     new_resource_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
     source_config = SourceFaker()
-    source: SourceResponse = api_util.create_source(
+    source = api_util.create_source(
         name=new_resource_name,
         api_root=api_root,
         api_key=api_key,
@@ -96,7 +96,7 @@ def test_create_and_delete_destination(
         motherduck_api_key=motherduck_api_key,
     )
 
-    destination: SourceResponse = api_util.create_destination(
+    destination = api_util.create_destination(
         name=new_resource_name,
         api_root=api_root,
         api_key=api_key,
