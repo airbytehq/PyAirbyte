@@ -129,7 +129,7 @@ def get_connection(
         api_root=api_root,
     )
     response = airbyte_instance.connections.get_connection(
-        api_models.GetConnectionRequest(
+        api_operations.GetConnectionRequest(
             connection_id=connection_id,
         ),
     )
