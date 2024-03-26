@@ -30,6 +30,7 @@ from airbyte.sources.base import Source
 if TYPE_CHECKING:
     from airbyte_api.models.shared.connectionresponse import ConnectionResponse
     from airbyte_api.models.shared.destinationresponse import DestinationResponse
+    from airbyte_api.models.shared.jobresponse import JobResponse
 
     from airbyte.caches.base import CacheBase
 
@@ -300,18 +301,19 @@ class CloudWorkspace:
         num_sync_logs: int = 10,
     ) -> list[SyncResult]:
         """Get the previous sync logs for a connection."""
-        sync_logs = api_util.get_connection_sync_logs(
+        sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=connection_id,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
-            num_sync_logs=num_sync_logs,
+            limit=num_sync_logs,
         )
         return [
             SyncResult(
                 workspace=self,
                 connection_id=sync_log.connection_id,
                 job_id=sync_log.job_id,
+                _latest_status=sync_log.status,
             )
             for sync_log in sync_logs
         ]

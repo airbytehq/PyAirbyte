@@ -65,9 +65,9 @@ class SyncResult:
     ) -> None:
         """Raise an exception if the sync job failed.
 
-        By default, this method will use the latest status available. If you want to refresh the status
-        before checking for failure, set `refresh_status=True`. If the job has failed, this method will
-        raise a `HostedConnectionSyncError`.
+        By default, this method will use the latest status available. If you want to refresh the
+        status before checking for failure, set `refresh_status=True`. If the job has failed, this
+        method will raise a `HostedConnectionSyncError`.
 
         Otherwise, do nothing.
         """
