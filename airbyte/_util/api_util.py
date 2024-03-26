@@ -354,7 +354,7 @@ def create_destination(
     config: dict[str, Any],
     api_root: str = "https://api.airbyte.com/v1",
     api_key: str | None = None,
-) -> api_models.SourceResponse:
+) -> api_models.DestinationResponse:
     """Get a connection."""
     api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
@@ -417,6 +417,7 @@ def create_connection(
     api_key: str | None = None,
     workspace_id: str | None = None,
 ) -> api_models.ConnectionResponse:
+    _ = workspace_id  # Not used (yet)
     api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
