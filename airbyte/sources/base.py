@@ -103,6 +103,10 @@ class Source:
         if streams is not None:
             self.select_streams(streams)
 
+        self._deployed_api_root: str | None = None
+        self._deployed_workspace_id: str | None = None
+        self._deployed_source_id: str | None = None
+
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
         warnings.warn(

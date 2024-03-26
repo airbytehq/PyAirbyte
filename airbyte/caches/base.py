@@ -47,6 +47,10 @@ class CacheBase(BaseModel):
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
 
+    _deployed_api_root: str | None = None
+    _deployed_workspace_id: str | None = None
+    _deployed_destination_id: str | None = None
+
     @final
     @property
     def processor(self) -> SqlProcessorBase:
