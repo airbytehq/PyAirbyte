@@ -27,6 +27,7 @@ from airbyte.exceptions import (
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
+CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 
 
 def status_ok(status_code: int) -> bool:
@@ -42,7 +43,7 @@ def get_default_bearer_token() -> str | None:
 def get_airbyte_server_instance(
     *,
     api_key: str | None = None,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
 ) -> airbyte_api.Airbyte:
     """Get an Airbyte instance."""
     api_key = api_key or get_default_bearer_token()
@@ -57,7 +58,7 @@ def get_airbyte_server_instance(
 def get_workspace(
     workspace_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.WorkspaceResponse:
     """Get a connection."""
@@ -86,7 +87,7 @@ def get_workspace(
 def list_connections(
     workspace_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> list[api_models.ConnectionResponse]:
     """Get a connection."""
@@ -117,7 +118,7 @@ def get_connection(
     workspace_id: str,
     connection_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.ConnectionResponse:
     """Get a connection."""
@@ -142,7 +143,7 @@ def run_connection(
     workspace_id: str,
     connection_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
     wait_for_job: bool = True,
     raise_on_failure: bool = True,
@@ -190,7 +191,7 @@ def wait_for_airbyte_job(
     workspace_id: str,
     job_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
     raise_on_failure: bool = True,
 ) -> api_models.JobInfo:
@@ -236,7 +237,7 @@ def get_connection_by_name(
     workspace_id: str,
     connection_name: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.ConnectionResponse:
     """Get a connection."""
@@ -267,7 +268,7 @@ def get_connection_by_name(
 def get_source(
     source_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.SourceResponse:
     """Get a connection."""
@@ -292,7 +293,7 @@ def create_source(
     *,
     workspace_id: str,
     config: dict[str, Any],
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.SourceResponse:
     """Get a connection."""
@@ -322,7 +323,7 @@ def create_source(
 def delete_source(
     source_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
     workspace_id: str | None = None,
 ) -> None:
@@ -352,7 +353,7 @@ def create_destination(
     *,
     workspace_id: str,
     config: dict[str, Any],
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.DestinationResponse:
     """Get a connection."""
@@ -383,7 +384,7 @@ def create_destination(
 def delete_destination(
     destination_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
     workspace_id: str | None = None,
 ) -> None:
@@ -476,7 +477,7 @@ def delete_connection(
 def check_source(
     source_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
     workspace_id: str | None = None,
 ) -> api_models.SourceCheckResponse:
@@ -492,7 +493,7 @@ def check_source(
 def get_destination(
     destination_id: str,
     *,
-    api_root: str = "https://api.airbyte.com/v1",
+    api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
 ) -> api_models.DestinationResponse:
     """Get a connection."""

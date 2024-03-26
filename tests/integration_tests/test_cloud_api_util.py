@@ -13,12 +13,12 @@ import ulid
 
 import airbyte as ab
 from airbyte._util import api_util, api_duck_types
+from airbyte._util.api_util import CLOUD_API_ROOT
 from airbyte_api.models.shared import SourceFaker, DestinationDevNull, DestinationDuckdb
 from dotenv import dotenv_values
 
 from airbyte.caches.duckdb import DuckDBCache
 
-CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 ENV_AIRBYTE_API_KEY = "AIRBYTE_API_KEY"
 ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_API_WORKSPACE_ID"
 ENV_MOTHERDUCK_API_KEY = "MOTHERDUCK_API_KEY"
@@ -113,7 +113,6 @@ def test_create_and_delete_destination(
         api_key=api_key,
         workspace_id=workspace_id,
     )
-
 
 
 def test_create_and_delete_connection(
