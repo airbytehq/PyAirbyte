@@ -23,6 +23,7 @@ from airbyte._util.api_util import (
     get_workspace,
 )
 from airbyte.cloud._destinations import get_destination_config_from_cache
+from airbyte.cloud._sync_results import SyncResult
 from airbyte.sources.base import Source
 
 
@@ -31,24 +32,6 @@ if TYPE_CHECKING:
     from airbyte_api.models.shared.destinationresponse import DestinationResponse
 
     from airbyte.caches.base import CacheBase
-
-
-@dataclass
-class SyncResult:
-    """The result of a sync operation."""
-
-    workspace: CloudWorkspace
-    connection_id: str
-    job_id: str
-
-    @property
-    def is_running(self) -> bool:
-        """Check if the sync job is still running."""
-        return api_util.get_job_info(
-            job_id=self.job_id,
-            api_root=CLOUD_API_ROOT,
-            api_key=self.workspace.api_key,
-        )
 
 
 @dataclass
@@ -241,7 +224,7 @@ class CloudWorkspace:
     def run_sync(
         self,
         connection_id: str,
-    ) -> str:
+    ) -> SyncResult:
         """Run a sync on a deployed connection."""
         connection_response = api_util.run_connection(
             connection_id=connection_id,
@@ -251,4 +234,8 @@ class CloudWorkspace:
             wait_for_job=True,
             raise_on_failure=True,
         )
-        return connection_response.job_id
+        return SyncResult(
+            workspace=self,
+            connection_id=connection_response.connection_id,
+            job_id=connection_response.job_id,
+        )

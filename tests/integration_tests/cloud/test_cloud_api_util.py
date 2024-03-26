@@ -5,57 +5,11 @@
 These tests are designed to be run against a running instance of the Airbyte API.
 """
 from __future__ import annotations
-import os
 
-from airbyte_api.models.shared.sourceresponse import SourceResponse
-import pytest
 import ulid
 
-import airbyte as ab
-from airbyte._util import api_util, api_duck_types
-from airbyte._util.api_util import CLOUD_API_ROOT
-from airbyte_api.models.shared import SourceFaker, DestinationDevNull, DestinationDuckdb
-from dotenv import dotenv_values
-
-from airbyte.caches.duckdb import DuckDBCache
-
-ENV_AIRBYTE_API_KEY = "AIRBYTE_API_KEY"
-ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_API_WORKSPACE_ID"
-ENV_MOTHERDUCK_API_KEY = "MOTHERDUCK_API_KEY"
-
-
-@pytest.fixture
-def workspace_id() -> str:
-    return os.environ[ENV_AIRBYTE_API_WORKSPACE_ID]
-
-
-@pytest.fixture
-def api_root() -> str:
-    return CLOUD_API_ROOT
-
-
-@pytest.fixture
-def api_key() -> str:
-    dotenv_vars: dict[str, str | None] = dotenv_values()
-    if ENV_AIRBYTE_API_KEY in dotenv_vars:
-        return dotenv_vars[ENV_AIRBYTE_API_KEY]
-
-    if ENV_AIRBYTE_API_KEY not in os.environ:
-        raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
-
-    return os.environ[ENV_AIRBYTE_API_KEY]
-
-
-@pytest.fixture
-def motherduck_api_key() -> str:
-    dotenv_vars: dict[str, str | None] = dotenv_values()
-    if ENV_MOTHERDUCK_API_KEY in dotenv_vars:
-        return dotenv_vars[ENV_MOTHERDUCK_API_KEY]
-
-    if ENV_MOTHERDUCK_API_KEY not in os.environ:
-        raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
-
-    return os.environ[ENV_MOTHERDUCK_API_KEY]
+from airbyte._util import api_util
+from airbyte_api.models.shared import SourceFaker, DestinationDuckdb
 
 
 def test_create_and_delete_source(
