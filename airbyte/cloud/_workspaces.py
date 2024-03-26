@@ -10,8 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import ulid
-
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
     create_connection,
