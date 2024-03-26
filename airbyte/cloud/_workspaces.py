@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from airbyte._util import api_util
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
     create_connection,
@@ -30,6 +31,24 @@ if TYPE_CHECKING:
     from airbyte_api.models.shared.destinationresponse import DestinationResponse
 
     from airbyte.caches.base import CacheBase
+
+
+@dataclass
+class SyncResult:
+    """The result of a sync operation."""
+
+    workspace: CloudWorkspace
+    connection_id: str
+    job_id: str
+
+    @property
+    def is_running(self) -> bool:
+        """Check if the sync job is still running."""
+        return api_util.get_job_info(
+            job_id=self.job_id,
+            api_root=CLOUD_API_ROOT,
+            api_key=self.workspace.api_key,
+        )
 
 
 @dataclass
@@ -218,3 +237,18 @@ class CloudWorkspace:
 
         if delete_destination:
             self.delete_destination(destination_id=connection.destination_id)
+
+    def run_sync(
+        self,
+        connection_id: str,
+    ) -> str:
+        """Run a sync on a deployed connection."""
+        connection_response = api_util.run_connection(
+            connection_id=connection_id,
+            api_root=self.api_root,
+            api_key=self.api_key,
+            workspace_id=self.workspace_id,
+            wait_for_job=True,
+            raise_on_failure=True,
+        )
+        return connection_response.job_id

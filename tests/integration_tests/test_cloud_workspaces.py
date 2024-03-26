@@ -143,3 +143,34 @@ def test_deploy_connection(
 
     connection_id: str = workspace.deploy_connection(source=source, cache=cache)
     workspace.delete_connection(connection_id=connection_id)
+
+@pytest.mark.skip(reason="This test is not yet complete. It is hanging currently.")
+def test_deploy_and_run_connection(
+    workspace_id: str,
+    api_key: str,
+    motherduck_api_key: str,
+) -> None:
+    """Test deploying a source and cache to a workspace as a new connection."""
+    workspace = CloudWorkspace(
+        workspace_id=workspace_id,
+        api_key=api_key,
+    )
+
+    source = ab.get_source(
+        "source-faker",
+        local_executable="source-faker",
+        config={"count": 100},
+        install_if_missing=False,
+    )
+    source.check()
+
+    cache = MotherDuckCache(
+        api_key=motherduck_api_key,
+        database="temp",
+        schema_name="public",
+    )
+
+    connection_id: str = workspace.deploy_connection(source=source, cache=cache)
+    sync_result = workspace.run_sync(connection_id=connection_id)
+
+    workspace.delete_connection(connection_id=connection_id)

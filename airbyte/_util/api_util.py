@@ -187,6 +187,29 @@ def run_connection(
     )
 
 
+def get_job_info(
+    job_id: str,
+    *,
+    api_root: str = CLOUD_API_ROOT,
+    api_key: str | None = None,
+) -> api_models.JobResponse:
+    """Get a job."""
+    api_key = api_key or get_default_bearer_token()
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response = airbyte_instance.jobs.get_job(
+        api_operations.GetJobRequest(
+            job_id=job_id,
+        ),
+    )
+    if status_ok(response.status_code) and response.job_response:
+        return response.job_response
+
+    raise MissingResourceError(job_id, "job", response.text)
+
+
 def wait_for_airbyte_job(
     workspace_id: str,
     job_id: str,
@@ -194,7 +217,7 @@ def wait_for_airbyte_job(
     api_root: str = CLOUD_API_ROOT,
     api_key: str | None = None,
     raise_on_failure: bool = True,
-) -> api_models.JobInfo:
+) -> api_models.JobResponse:
     """Wait for a job to finish running."""
     _ = workspace_id  # Not used (yet)
     api_key = api_key or get_default_bearer_token()
@@ -204,23 +227,26 @@ def wait_for_airbyte_job(
     )
     while True:
         sleep(JOB_WAIT_INTERVAL_SECS)
-        response = airbyte_instance.jobs.get_job(
+        response: api_operations.GetJobResponse = airbyte_instance.jobs.get_job(
             api_operations.GetJobRequest(
                 job_id=job_id,
             ),
         )
-        if status_ok(response.status_code) and response.job_info:
-            job_info = response.job_info
-            if job_info.status == api_models.StatusEnum.succeeded:
+        if status_ok(response.status_code) and response.job_response:
+            job_info = response.job_response
+            if job_info.status == api_models.JobStatusEnum.SUCCEEDED:
                 return job_info
 
-            if job_info.status == api_models.StatusEnum.failed:
+            if job_info.status in (
+                api_models.JobStatusEnum.FAILED,
+                api_models.JobStatusEnum.CANCELLED,
+            ):
                 if raise_on_failure:
                     raise HostedConnectionSyncError(
                         context={
+                            "job_id": job_id,
                             "job_status": job_info.status,
                             "workspace_id": workspace_id,
-                            "job_id": job_id,
                             "message": job_info.message,
                         },
                     )
