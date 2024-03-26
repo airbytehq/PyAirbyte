@@ -1,3 +1,4 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """PyAirbyte brings Airbyte ELT to every Python developer.
 
 .. include:: ../README.md

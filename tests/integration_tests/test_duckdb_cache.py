@@ -34,10 +34,9 @@ FAKER_SCALE_A = 200
 FAKER_SCALE_B = 300
 
 
-# Patch PATH to include the source-faker executable.
-
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
+    """Patch the PATH to include the virtual environment's bin directory."""
     # Get the path to the bin directory of the virtual environment
     venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
 
