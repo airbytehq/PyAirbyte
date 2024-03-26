@@ -10,7 +10,6 @@ AirbyteLib classes - unless there's a very compelling reason to surface these mo
 from __future__ import annotations
 
 import os
-from time import sleep
 from typing import Any
 
 import airbyte_api
@@ -46,11 +45,10 @@ def get_default_bearer_token() -> str | None:
 
 def get_airbyte_server_instance(
     *,
-    api_key: str | None = None,
-    api_root: str = CLOUD_API_ROOT,
+    api_key: str,
+    api_root: str,
 ) -> airbyte_api.Airbyte:
     """Get an Airbyte instance."""
-    api_key = api_key or get_default_bearer_token()
     return airbyte_api.Airbyte(
         security=api_models.Security(
             bearer_auth=api_key,
@@ -65,11 +63,10 @@ def get_airbyte_server_instance(
 def get_workspace(
     workspace_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.WorkspaceResponse:
     """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -97,12 +94,11 @@ def get_workspace(
 def list_connections(
     workspace_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> list[api_models.ConnectionResponse]:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -128,12 +124,11 @@ def get_connection(
     workspace_id: str,
     connection_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.ConnectionResponse:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -153,8 +148,8 @@ def run_connection(
     workspace_id: str,
     connection_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.ConnectionResponse:
     """Get a connection.
 
@@ -163,7 +158,6 @@ def run_connection(
     If raise_on_failure is True, this will raise an exception if the connection fails.
     """
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -189,14 +183,46 @@ def run_connection(
 # Get job info (logs)
 
 
+def get_job_logs(
+    workspace_id: str,
+    connection_id: str,
+    limit: int = 20,
+    *,
+    api_root: str,
+    api_key: str,
+) -> list[api_models.JobResponse]:
+    """Get a job's logs."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    response: api_operations.ListJobsResponse = airbyte_instance.jobs.list_jobs(
+        api_operations.ListJobsRequest(
+            workspace_ids=[workspace_id],
+            connection_id=connection_id,
+            limit=limit,
+        ),
+    )
+    if status_ok(response.status_code) and response.jobs_response:
+        return response.jobs_response.data
+
+    raise MissingResourceError(
+        response=response,
+        resource_type="job",
+        context={
+            "workspace_id": workspace_id,
+            "connection_id": connection_id,
+        },
+    )
+
+
 def get_job_info(
     job_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.JobResponse:
     """Get a job."""
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -221,11 +247,10 @@ def create_source(
     *,
     workspace_id: str,
     config: dict[str, Any],
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.SourceResponse:
     """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -250,11 +275,10 @@ def create_source(
 def get_source(
     source_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.SourceResponse:
     """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -273,13 +297,12 @@ def get_source(
 def delete_source(
     source_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
     workspace_id: str | None = None,
 ) -> None:
     """Delete a source."""
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -306,11 +329,10 @@ def create_destination(
     *,
     workspace_id: str,
     config: dict[str, Any],
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.DestinationResponse:
     """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -336,11 +358,10 @@ def create_destination(
 def get_destination(
     destination_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.DestinationResponse:
     """Get a connection."""
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -359,13 +380,12 @@ def get_destination(
 def delete_destination(
     destination_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
     workspace_id: str | None = None,
 ) -> None:
     """Delete a destination."""
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -393,11 +413,10 @@ def create_connection(
     source_id: str,
     destination_id: str,
     api_root: str,
-    api_key: str | None = None,
+    api_key: str,
     workspace_id: str | None = None,
 ) -> api_models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -430,8 +449,8 @@ def get_connection_by_name(
     workspace_id: str,
     connection_name: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
 ) -> api_models.ConnectionResponse:
     """Get a connection."""
     connections = list_connections(
@@ -461,11 +480,10 @@ def get_connection_by_name(
 def delete_connection(
     connection_id: str,
     api_root: str,
-    workspace_id: str | None = None,
-    api_key: str | None = None,
+    workspace_id: str,
+    api_key: str,
 ) -> None:
     _ = workspace_id  # Not used (yet)
-    api_key = api_key or get_default_bearer_token()
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
@@ -490,8 +508,8 @@ def delete_connection(
 def check_source(
     source_id: str,
     *,
-    api_root: str = CLOUD_API_ROOT,
-    api_key: str | None = None,
+    api_root: str,
+    api_key: str,
     workspace_id: str | None = None,
 ) -> api_models.SourceCheckResponse:
     """Check a source.
