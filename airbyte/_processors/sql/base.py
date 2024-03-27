@@ -482,9 +482,9 @@ class SqlProcessorBase(RecordProcessor):
                 json_schema_property_def,
             )
 
-        # TODO: Add the metadata columns (this breaks tests)
-        # columns["_airbyte_extracted_at"] = sqlalchemy.TIMESTAMP()
-        # columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
+        columns["_airbyte_extracted_at"] = sqlalchemy.TIMESTAMP()
+        columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
+        columns["_airbyte_meta"] = sqlalchemy.JSON()
         return columns
 
     @final
