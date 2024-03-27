@@ -611,7 +611,7 @@ class Source:
 
         for message in messages:
             yield message
-            progress.log_records_read(self._processed_records)
+            progress.log_records_read(new_total_count=self._processed_records)
 
     def _log_sync_start(
         self,
