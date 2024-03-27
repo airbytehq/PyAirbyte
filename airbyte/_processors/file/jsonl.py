@@ -23,6 +23,7 @@ class JsonlWriter(FileWriterBase):
     """A Jsonl cache implementation."""
 
     default_cache_file_suffix = ".jsonl.gz"
+    prune_extra_fields = True
 
     def _open_new_file(
         self,

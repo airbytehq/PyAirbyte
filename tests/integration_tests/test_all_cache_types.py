@@ -81,6 +81,42 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
+
+@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
+def source_pokeapi() -> ab.Source:
+    """Fixture to return a source-faker connector instance."""
+    source = ab.get_source(
+        "source-pokeapi",
+        local_executable="source-pokeapi",
+        config={
+            "pokemon_name": "pikachu",
+        },
+        install_if_missing=False,  # Should already be on PATH
+        streams="*",
+    )
+    source.check()
+    return source
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    "CI" in os.environ,
+    reason="Fails inexplicably when run in CI. https://github.com/airbytehq/PyAirbyte/issues/146"
+)
+def test_pokeapi_read(
+    source_pokeapi: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that PokeAPI source can load to all cache types.
+
+    This is a meaningful test because the PokeAPI source uses JSON data types.
+    """
+    result = source_pokeapi.read(
+        new_generic_cache, write_strategy="replace", force_full_refresh=True
+    )
+    assert len(list(result.cache.streams["pokemon"])) == 1
+
+
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")

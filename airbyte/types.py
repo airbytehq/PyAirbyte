@@ -122,11 +122,9 @@ class SQLTypeConverter:
             return sqlalchemy.types.TIMESTAMP()
 
         if json_schema_type == "array":
-            # TODO: Implement array type conversion.
-            return self.get_failover_type()
+            return sqlalchemy.types.JSON()
 
         if json_schema_type == "object":
-            # TODO: Implement object type handling.
-            return self.get_failover_type()
+            return sqlalchemy.types.JSON()
 
         return self.get_failover_type()

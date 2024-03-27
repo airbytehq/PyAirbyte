@@ -145,6 +145,7 @@ class RecordProcessor(abc.ABC):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
+        stream_schema: dict,
     ) -> None:
         """Write a record to the cache.
 
@@ -167,11 +168,23 @@ class RecordProcessor(abc.ABC):
                 context={"write_strategy": write_strategy},
             )
 
+        stream_schemas: dict[str, dict] = {}
+
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
                 record_msg = cast(AirbyteRecordMessage, message.record)
-                self.process_record_message(record_msg)
+                stream_name = record_msg.stream
+
+                if stream_name not in stream_schemas:
+                    stream_schemas[stream_name] = self.cache.processor.get_stream_json_schema(
+                        stream_name=stream_name
+                    )
+
+                self.process_record_message(
+                    record_msg,
+                    stream_schema=stream_schemas[stream_name],
+                )
 
             elif message.type is Type.STATE:
                 state_msg = cast(AirbyteStateMessage, message.state)
@@ -248,7 +261,7 @@ class RecordProcessor(abc.ABC):
         return self._catalog_manager.get_stream_config(stream_name)
 
     @final
-    def _get_stream_json_schema(
+    def get_stream_json_schema(
         self,
         stream_name: str,
     ) -> dict[str, Any]:

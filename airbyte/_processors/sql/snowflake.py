@@ -68,7 +68,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
             [f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};" for file_path in files]
         )
         self._execute_sql(put_files_statements)
-        properties_list: list[str] = list(self._get_stream_properties(stream_name).keys())
+        properties_list: list[str] = list(self.get_stream_properties(stream_name).keys())
         columns_list = [
             self._quote_identifier(c)
             for c in list(self._get_sql_column_definitions(stream_name).keys())

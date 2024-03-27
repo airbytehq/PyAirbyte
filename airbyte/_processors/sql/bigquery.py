@@ -75,8 +75,12 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     @final
     @overrides
     def _quote_identifier(self, identifier: str) -> str:
-        """Return the identifier name as is. BigQuery does not require quoting identifiers"""
-        return f"{identifier}"
+        """Return the identifier name.
+
+        BigQuery uses backticks to quote identifiers. Because BigQuery is case-sensitive for quoted
+        identifiers, we convert the identifier to lowercase before quoting it.
+        """
+        return f"`{identifier.lower()}`"
 
     def _write_files_to_new_table(
         self,
