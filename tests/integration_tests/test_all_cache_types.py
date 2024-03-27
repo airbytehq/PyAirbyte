@@ -15,7 +15,7 @@ import pytest
 
 import airbyte as ab
 from airbyte._executor import _get_bin_dir
-from airbyte.progress import progress
+from airbyte.progress import progress, ReadProgress
 
 
 # Product count is always the same, regardless of faker scale.
@@ -121,7 +121,7 @@ def test_pokeapi_read(
 @pytest.fixture(scope="function")
 def progress_mock(
     mocker: pytest.MockerFixture,
-) -> ab.ReadProgress:
+) -> ReadProgress:
     """Fixture to return a mocked version of progress.progress."""
     # Mock the progress object.
     mocker.spy(progress, 'reset')
@@ -142,7 +142,7 @@ def progress_mock(
 def test_faker_read(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
-    progress_mock: ab.ReadProgress,
+    progress_mock: ReadProgress,
 ) -> None:
     """Test that the append strategy works as expected."""
     result = source_faker_seed_a.read(
@@ -164,6 +164,10 @@ def test_faker_read(
     assert progress_mock.finalized_stream_names == {"users"}
     assert progress_mock.log_stream_finalized.call_count == 1
     assert progress_mock.log_success.call_count == 1
+
+    status_msg: str = progress_mock._get_status_message()
+    assert "Read **0** records" not in status_msg
+    assert f"Read **{configured_count}** records" in status_msg
 
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 

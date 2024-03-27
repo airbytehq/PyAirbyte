@@ -35,7 +35,7 @@ cache = MotherDuckCache(
     api_key=MOTHERDUCK_API_KEY,
 )
 
-result = source.read(cache=cache)
+result = source.read(cache=cache, force_full_refresh=True)
 
 for name, records in result.streams.items():
     print(f"Stream {name}: {len(records)} records")
