@@ -55,6 +55,7 @@ def airbyte_record_message_to_dict(
 
     result["_airbyte_extracted_at"] = datetime.fromtimestamp(record_message.emitted_at, tz=UTC)
     result["_airbyte_loaded_at"] = datetime.now(tz=UTC)
+    result["_airbyte_meta"] = {}
 
     return result
 

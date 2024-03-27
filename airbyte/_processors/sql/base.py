@@ -484,6 +484,7 @@ class SqlProcessorBase(RecordProcessor):
 
         columns["_airbyte_extracted_at"] = sqlalchemy.TIMESTAMP()
         columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
+        columns["_airbyte_meta"] = sqlalchemy.JSON()
         return columns
 
     @final
