@@ -152,7 +152,7 @@ def test_faker_read(
 
     # These numbers expect only 'users' stream selected:
 
-    assert progress_mock.log_records_read.call_count >= configured_count
+    assert progress_mock.log_records_read.call_count == configured_count
     # TODO: This 👆 is a bug. Count should be == configured count. Diff is non-record messages.
 
     assert progress_mock.reset.call_count == 1
