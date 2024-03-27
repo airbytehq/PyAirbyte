@@ -548,6 +548,8 @@ class SqlProcessorBase(RecordProcessor):
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
 
+        progress.log_stream_finalized(stream_name)
+
         # Return the batch handles as measure of work completed.
         return batches_to_finalize
 
