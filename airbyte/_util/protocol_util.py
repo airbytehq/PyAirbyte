@@ -3,7 +3,10 @@
 """Internal utility functions, especially for dealing with Airbyte Protocol."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
+
+from pytz import UTC
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -50,12 +53,10 @@ def airbyte_record_message_to_dict(
     """
     result = record_message.data
 
-    # TODO: Add the metadata columns (this breaks tests)
-    # result["_airbyte_extracted_at"] = datetime.datetime.fromtimestamp(
-    #     record_message.emitted_at
-    # )
+    result["_airbyte_extracted_at"] = datetime.fromtimestamp(record_message.emitted_at, tz=UTC)
+    result["_airbyte_loaded_at"] = datetime.now(tz=UTC)
 
-    return result  # noqa: RET504 # unnecessary assignment and then return (see TODO above)
+    return result
 
 
 def get_primary_keys_from_stream(
