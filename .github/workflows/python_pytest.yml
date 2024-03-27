@@ -81,3 +81,29 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: poetry run pytest
+
+  pytest-no-creds:
+    name: Pytest (No Creds)
+    runs-on: ubuntu-latest
+    steps:
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
+
+    # Job-specific step(s):
+    - name: Run Pytest (Fast Tests Only)
+      env:
+        # Force this to an invalid value to ensure tests that no creds are required are run.
+        GCP_GSM_CREDENTIALS: "no-creds"
+      run: poetry run pytest -m "not requires_creds"
