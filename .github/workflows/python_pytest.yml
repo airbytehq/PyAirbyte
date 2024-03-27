@@ -2,10 +2,10 @@
 #
 # There are three jobs which run in parallel:
 # 1. pytest-fast: Run fast tests only, and fail fast so the dev knows asap if they broke something.
-# 1. pytest-no-creds: Run tests only if they don't require creds. The main use case is to run tests
+# 2. pytest-no-creds: Run tests only if they don't require creds. The main use case is to run tests
 #    on forks, where secrets are not available. We flush the GCP_GSM_CREDENTIALS env var to an
 #    invalid value to ensure that tests that require creds are not run.
-# 2. pytest: Run all tests, across multiple python versions.
+# 3. pytest: Run all tests, across multiple python versions.
 #
 # Note that pytest-fast also skips tests that require credentials, allowing it to run on forks.
 name: Run Tests
