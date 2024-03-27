@@ -148,12 +148,18 @@ def test_faker_read(
     result = source_faker_seed_a.read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
+    configured_count = source_faker_seed_a._config["count"]
+
+    # These numbers expect only 'users' stream selected:
+
+    assert progress_mock.log_records_read.call_count >= configured_count
+    # TODO: This 👆 is a bug. Count should be == configured count. Diff is non-record messages.
+
     assert progress_mock.reset.call_count == 1
-    assert progress_mock.log_records_read.call_count >= 1
-    assert progress_mock.log_batch_written.call_count >= 1
-    assert progress_mock.log_batches_finalizing.call_count >= 1
-    assert progress_mock.log_batches_finalized.call_count >= 1
-    assert progress_mock.log_stream_finalized.call_count >= 1
+    assert progress_mock.log_batch_written.call_count == 1
+    assert progress_mock.log_batches_finalizing.call_count == 1
+    assert progress_mock.log_batches_finalized.call_count == 1
+    assert progress_mock.log_stream_finalized.call_count == 1
     assert progress_mock.log_success.call_count == 1
 
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
