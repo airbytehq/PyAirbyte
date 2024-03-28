@@ -73,8 +73,10 @@ jobs:
 
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
-    # Don't run on forks
-    if: github.repository_owner == 'airbytehq'
+    # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event.pull_request.head.repo.fork == false)
     strategy:
       matrix:
         python-version: [
