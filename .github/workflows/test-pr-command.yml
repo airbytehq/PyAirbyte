@@ -35,18 +35,6 @@ jobs:
 
     # Custom steps to fetch the PR and checkout the code:
 
-    # - name: Fetch PR
-    #   id: fetch-pr
-    #   uses: actions/github-script@v5
-    #   with:
-    #     script: |
-    #       const pr = await github.pulls.get({
-    #         owner: context.repo.owner,
-    #         repo: context.repo.repo,
-    #         pull_number: ${{ github.event.inputs.pr }}
-    #       });
-    #       return pr.data.head.sha;
-    #       result-encoding: string
     - name: Checkout PR
       uses: actions/checkout@v4
       with:
