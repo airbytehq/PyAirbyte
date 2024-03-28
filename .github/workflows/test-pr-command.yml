@@ -1,7 +1,7 @@
 on:
   workflow_dispatch:
     inputs:
-      pr_number:
+      pr:
         description: 'PR Number'
         type: number
         required: true
@@ -38,7 +38,7 @@ jobs:
           const pr = await github.pulls.get({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            pull_number: ${{ github.event.inputs.pr_number }}
+            pull_number: ${{ github.event.inputs.pr }}
           });
           return pr.data.head.sha;
           result-encoding: string
