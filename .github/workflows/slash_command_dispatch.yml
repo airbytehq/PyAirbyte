@@ -14,6 +14,14 @@ jobs:
       - name: Slash Command Dispatch
         uses: peter-evans/slash-command-dispatch@v4
         with:
+          repository: ${{ github.repository }}
           token: ${{ secrets.GITHUB_TOKEN }}
+          issue-type: pr
           commands: |
             autofix
+            test-pr
+          static-args: |
+            pr=${{ github.event.issue.number }}
+
+          # Only run for users with 'write' permission on the main repository
+          permission: write
