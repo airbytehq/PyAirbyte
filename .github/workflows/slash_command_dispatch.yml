@@ -20,6 +20,8 @@ jobs:
           commands: |
             autofix
             test-pr
+          static-args: |
+            pr=${{ github.event.issue.number }}
 
           # Only run for users with 'write' permission on the main repository
           permission: write
