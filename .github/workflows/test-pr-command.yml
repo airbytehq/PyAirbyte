@@ -1,0 +1,64 @@
+name: On-Demand PR Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR Number'
+        type: number
+        required: true
+
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
+jobs:
+  # This is copied from the `python_pytest.yml` file.
+  # Only the first two steps of the job are different, and they check out the PR's branch.
+  pytest-on-demand:
+    name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
+    strategy:
+      matrix:
+        python-version: [
+          '3.9',
+          '3.10',
+          '3.11',
+        ]
+        os: [
+          Ubuntu,
+          Windows,
+        ]
+      fail-fast: false
+
+    runs-on: "${{ matrix.os }}-latest"
+    steps:
+
+    # Custom steps to fetch the PR and checkout the code:
+
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Checkout PR (${{ github.event.inputs.pr }})
+      uses: dawidd6/action-checkout-pr@v1
+      with:
+        pr: ${{ github.event.inputs.pr }}
+
+    # Same as the `python_pytest.yml` file:
+
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
+
+    - name: Run Pytest
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      run: poetry run pytest
