@@ -9,19 +9,32 @@ env:
 
 jobs:
   slashCommandDispatch:
+    # Only allow slash commands on pull request (not on issues)
+    if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
+
       - name: Slash Command Dispatch
+        id: dispatch
         uses: peter-evans/slash-command-dispatch@v4
         with:
           repository: ${{ github.repository }}
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
           issue-type: pull-request
           commands: |
             autofix
             test-pr
           static-args: |
             pr=${{ github.event.issue.number }}
+            comment-id=${{ github.event.comment.id }}
 
           # Only run for users with 'write' permission on the main repository
           permission: write
+
+      - name: Edit comment with error message
+        if: steps.dispatch.outputs.error-message
+        uses: peter-evans/create-or-update-comment@v1
+        with:
+          comment-id: ${{ github.event.comment.id }}
+          body: |
+            > Error: ${{ steps.dispatch.outputs.error-message }}

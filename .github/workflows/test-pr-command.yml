@@ -7,6 +7,10 @@ on:
         description: 'PR Number'
         type: number
         required: true
+      comment-id:
+        description: 'Comment ID (Optional)'
+        type: string
+        required: false
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
