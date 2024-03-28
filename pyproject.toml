@@ -60,6 +60,7 @@ airbyte-source-faker = "^6.0.0"
 tomli = "^2.0"
 responses = "^0.25.0"
 airbyte-source-pokeapi = "^0.2.0"
+pytest-mock = "^3.14.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]

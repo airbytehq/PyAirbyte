@@ -15,6 +15,7 @@ import pytest
 
 import airbyte as ab
 from airbyte._executor import _get_bin_dir
+from airbyte.progress import progress, ReadProgress
 
 
 # Product count is always the same, regardless of faker scale.
@@ -117,6 +118,22 @@ def test_pokeapi_read(
     assert len(list(result.cache.streams["pokemon"])) == 1
 
 
+@pytest.fixture(scope="function")
+def progress_mock(
+    mocker: pytest.MockerFixture,
+) -> ReadProgress:
+    """Fixture to return a mocked version of progress.progress."""
+    # Mock the progress object.
+    mocker.spy(progress, 'reset')
+    mocker.spy(progress, 'log_records_read')
+    mocker.spy(progress, 'log_batch_written')
+    mocker.spy(progress, 'log_batches_finalizing')
+    mocker.spy(progress, 'log_batches_finalized')
+    mocker.spy(progress, 'log_stream_finalized')
+    mocker.spy(progress, 'log_success')
+    return progress
+
+
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
@@ -125,11 +142,33 @@ def test_pokeapi_read(
 def test_faker_read(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
+    progress_mock: ReadProgress,
 ) -> None:
     """Test that the append strategy works as expected."""
     result = source_faker_seed_a.read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
+    configured_count = source_faker_seed_a._config["count"]
+
+    # These numbers expect only 'users' stream selected:
+
+    assert progress_mock.total_records_read == configured_count
+    assert progress_mock.total_records_written == configured_count
+    assert progress_mock.log_records_read.call_count >= configured_count
+    assert progress_mock.reset.call_count == 1
+    assert progress_mock.log_batch_written.call_count == 1
+    assert progress_mock.total_batches_written == 1
+    assert progress_mock.log_batches_finalizing.call_count == 1
+    assert progress_mock.log_batches_finalized.call_count == 1
+    assert progress_mock.total_batches_finalized == 1
+    assert progress_mock.finalized_stream_names == {"users"}
+    assert progress_mock.log_stream_finalized.call_count == 1
+    assert progress_mock.log_success.call_count == 1
+
+    status_msg: str = progress_mock._get_status_message()
+    assert "Read **0** records" not in status_msg
+    assert f"Read **{configured_count}** records" in status_msg
+
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
 
