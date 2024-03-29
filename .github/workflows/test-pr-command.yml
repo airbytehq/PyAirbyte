@@ -5,7 +5,7 @@ on:
     inputs:
       pr:
         description: 'PR Number'
-        type: number
+        type: string
         required: true
       comment-id:
         description: 'Comment ID (Optional)'
