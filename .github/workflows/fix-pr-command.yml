@@ -27,7 +27,7 @@ jobs:
           '3.10',
         ]
         os: [
-          Windows,
+          Ubuntu,
         ]
       fail-fast: false
 
