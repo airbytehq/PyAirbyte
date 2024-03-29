@@ -39,7 +39,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from textwrap import indent
-
 from typing import Any
 
 
