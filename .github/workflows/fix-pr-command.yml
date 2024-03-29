@@ -24,13 +24,10 @@ jobs:
     strategy:
       matrix:
         python-version: [
-          '3.9',
           '3.10',
-          '3.11',
         ]
         os: [
           Ubuntu,
-          Windows,
         ]
       fail-fast: false
 
@@ -80,6 +77,8 @@ jobs:
     - name: Commit changes
       if: steps.git-diff.outputs.changes == 'true'
       run: |
+        git config --global user.name "octavia-squidington-iii"
+        git config --global user.email "contact@airbyte.com"
         git add .
         git commit -m "Auto-fix lint and format issues"
 
