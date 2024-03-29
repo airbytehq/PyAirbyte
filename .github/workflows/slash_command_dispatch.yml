@@ -20,6 +20,7 @@ jobs:
         with:
           repository: ${{ github.repository }}
           token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
+          dispatch-type: workflow
           issue-type: pull-request
           commands: |
             autofix
