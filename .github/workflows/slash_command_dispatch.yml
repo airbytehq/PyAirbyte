@@ -23,7 +23,7 @@ jobs:
           dispatch-type: workflow
           issue-type: pull-request
           commands: |
-            autofix
+            fix-pr
             test-pr
           static-args: |
             pr=${{ github.event.issue.number }}

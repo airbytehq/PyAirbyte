@@ -1,0 +1,88 @@
+name: On-Demand PR Auto-Fix
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR Number'
+        type: string
+        required: true
+      comment-id:
+        description: 'Comment ID (Optional)'
+        type: string
+        required: false
+
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
+jobs:
+  # This is copied from the `python_pytest.yml` file.
+  # Only the first two steps of the job are different, and they check out the PR's branch.
+  pytest-on-demand:
+    name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
+    strategy:
+      matrix:
+        python-version: [
+          '3.9',
+          '3.10',
+          '3.11',
+        ]
+        os: [
+          Ubuntu,
+          Windows,
+        ]
+      fail-fast: false
+
+    runs-on: "${{ matrix.os }}-latest"
+    steps:
+
+    # Custom steps to fetch the PR and checkout the code:
+
+    - name: Checkout PR
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Checkout PR (${{ github.event.inputs.pr }})
+      uses: dawidd6/action-checkout-pr@v1
+      with:
+        pr: ${{ github.event.inputs.pr }}
+
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
+
+    # Fix any lint or format issues
+
+    - name: Auto-Fix Ruff Lint Issues
+      run: poetry run ruff check --fix .
+    - name: Auto-Fix Ruff Format Issues
+      run: poetry run ruff format .
+
+    # Check for changes in git
+
+    - name: Check for changes
+      id: git-diff
+      run: |
+        git diff --quiet && echo "No changes to commit" || echo "::set-output name=changes::true"
+      shell: bash
+
+    # Commit and push the changes (if any)
+
+    - name: Commit changes
+      if: steps.git-diff.outputs.changes == 'true'
+      run: |
+        git add .
+        git commit -m "Auto-fix lint and format issues"
+
+    - name: Push changes
+      if: steps.git-diff.outputs.changes == 'true'
+      run: git push origin HEAD
