@@ -366,13 +366,13 @@ def get_destination(
         api_key=api_key,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.get_destination(
+    response = airbyte_instance.destinations.get_destination(
         api_operations.GetDestinationRequest(
             destination_id=destination_id,
         ),
     )
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
+    if status_ok(response.status_code) and response.destination_response:
+        return response.destination_response
 
     raise MissingResourceError(destination_id, "destination", response.text)
 
