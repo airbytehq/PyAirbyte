@@ -317,10 +317,3 @@ class CloudWorkspace:
             )
             for sync_log in sync_logs
         ]
-
-    def _get_destination_sql_engine(
-        self,
-        destination_id: str,
-    ) -> Engine:
-        """Get the SQL engine for a deployed destination."""
-        return cache.processor.get_sql_engine()
