@@ -22,7 +22,7 @@ from airbyte._util.api_util import (
     get_connection,
     get_workspace,
 )
-from airbyte.cloud._destinations import get_destination_config_from_cache
+from airbyte.cloud._destination_util import get_destination_config_from_cache
 from airbyte.cloud._sync_results import SyncResult
 from airbyte.sources.base import Source
 
@@ -317,3 +317,10 @@ class CloudWorkspace:
             )
             for sync_log in sync_logs
         ]
+
+    def _get_destination_sql_engine(
+        self,
+        destination_id: str,
+    ) -> Engine:
+        """Get the SQL engine for a deployed destination."""
+        return cache.processor.get_sql_engine()
