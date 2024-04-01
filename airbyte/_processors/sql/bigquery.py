@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, final
 import sqlalchemy
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
+import google.oauth2
 from google.oauth2 import service_account
 from overrides import overrides
 
@@ -59,7 +60,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     cache: BigQueryCache
 
     def __init__(self, cache: CacheBase, file_writer: FileWriterBase | None = None) -> None:
-        self._credentials: service_account.Credentials | None = None
+        self._credentials: google.auth.credentials.Credentials | None = None
         self._schema_exists: bool | None = None
         super().__init__(cache, file_writer)
 
@@ -142,13 +143,15 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
         self._schema_exists = True
 
-    def _get_credentials(self) -> service_account.Credentials:
+    def _get_credentials(self) -> google.auth.credentials.Credentials:
         """Return the GCP credentials."""
         if self._credentials is None:
-            self._credentials = service_account.Credentials.from_service_account_file(
-                self.cache.credentials_path
-            )
-
+            if self.cache.credentials_path:
+                self._credentials = service_account.Credentials.from_service_account_file(
+                    self.cache.credentials_path
+                )
+            else:
+                self._credentials, _ = google.auth.default()
         return self._credentials
 
     def _table_exists(
