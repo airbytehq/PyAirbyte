@@ -72,7 +72,7 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
     finally:
         for temp_file in temp_files:
             with suppress(Exception):
-                temp_file.unlink()
+                Path(temp_file.name).unlink()
 
 
 class Source:
@@ -438,11 +438,12 @@ class Source:
         iterator: Iterator[dict[str, Any]] = _with_logging(
             records=(  # Generator comprehension yields StreamRecord objects for each record
                 StreamRecord(
-                    from_dict=record,
+                    from_dict=record.record.data,
                     expected_keys=all_properties,
                     prune_extra_fields=True,
                 )
                 for record in self._read_with_catalog(configured_catalog)
+                if record.record
             )
         )
         return LazyDataset(
