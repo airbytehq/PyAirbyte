@@ -11,13 +11,12 @@ import orjson
 from airbyte._processors.file.base import (
     FileWriterBase,
 )
-from airbyte._util.name_normalizers import StreamRecord
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    pass
+    from airbyte._util.name_normalizers import StreamRecord
 
 
 class JsonlWriter(FileWriterBase):
