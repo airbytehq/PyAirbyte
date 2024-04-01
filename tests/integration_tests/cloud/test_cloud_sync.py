@@ -54,4 +54,8 @@ def test_deploy_and_run_connection(
     sync_result = cloud_workspace.run_sync(connection_id=connection_id)
     _ = sync_result
 
+    cache = sync_result.get_sql_cache()
+    assert cache.stream_names
+    assert cache.streams["users"].to_pandas()
+
     cloud_workspace.delete_connection(connection_id=connection_id)
