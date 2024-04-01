@@ -50,8 +50,8 @@ class LowerCaseNormalizer(NameNormalizerBase):
         return name.lower().replace(" ", "_").replace("-", "_")
 
 
-class CaseInsensitiveDict(dict[str, Any]):
-    """A case-aware, case-insensitive dictionary implementation.
+class StreamRecord(dict[str, Any]):
+    """The StreamRecord class is a case-aware, case-insensitive dictionary implementation.
 
     It has these behaviors:
     - When a key is retrieved, deleted, or checked for existence, it is always checked in a
@@ -59,7 +59,10 @@ class CaseInsensitiveDict(dict[str, Any]):
     - The original case is stored in a separate dictionary, so that the original case can be
       retrieved when needed.
 
-    There are two ways to store keys internally:
+    This behavior mirrors how a case-aware, case-insensitive SQL database would handle column
+    references.
+
+    There are two ways this class can store keys internally:
     - If normalize_keys is True, the keys are normalized using the given normalizer.
     - If normalize_keys is False, the original case of the keys is stored.
 
@@ -88,14 +91,18 @@ class CaseInsensitiveDict(dict[str, Any]):
         self,
         from_dict: dict,
         *,
+        prune_extra_fields: bool,
         normalize_keys: bool = True,
         normalizer: type[NameNormalizerBase] | None = None,
         expected_keys: list[str] | None = None,
     ) -> None:
         """Initialize the dictionary with the given data.
 
-        If normalize_keys is True, the keys will be normalized using the given normalizer.
-        If expected_keys is provided, the dictionary will be initialized with the given keys.
+        Args:
+        - normalize_keys: If `True`, the keys will be normalized using the given normalizer.
+        - expected_keys: If provided, the dictionary will be initialized with these given keys.
+        - expected_keys: If provided and `prune_extra_fields` is True, then unexpected fields
+          will be removed. This option is ignored if `expected_keys` is not provided.
         """
         # If no normalizer is provided, use LowerCaseNormalizer.
         self._normalize_keys = normalize_keys
@@ -104,6 +111,7 @@ class CaseInsensitiveDict(dict[str, Any]):
         # If no expected keys are provided, use all keys from the input dictionary.
         if not expected_keys:
             expected_keys = list(from_dict.keys())
+            prune_extra_fields = False  # No expected keys provided.
 
         # Store a lookup from normalized keys to pretty cased (originally cased) keys.
         self._pretty_case_keys: dict[str, str] = {
@@ -118,7 +126,12 @@ class CaseInsensitiveDict(dict[str, Any]):
 
         self.update({k: None for k in index_keys})  # Start by initializing all values to None
         for k, v in from_dict.items():
-            self[self._index_case(k)] = v
+            index_cased_key = self._index_case(k)
+            if prune_extra_fields and index_cased_key not in index_keys:
+                # Dropping undeclared field
+                continue
+
+            self[index_cased_key] = v
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
         if super().__contains__(key):
@@ -166,7 +179,7 @@ class CaseInsensitiveDict(dict[str, Any]):
         return super().__len__()
 
     def __eq__(self, other: object) -> bool:
-        if isinstance(other, CaseInsensitiveDict):
+        if isinstance(other, StreamRecord):
             return dict(self) == dict(other)
 
         if isinstance(other, dict):
@@ -176,30 +189,8 @@ class CaseInsensitiveDict(dict[str, Any]):
         return False
 
 
-def normalize_records(
-    records: Iterable[dict[str, Any]],
-    expected_keys: list[str],
-) -> Iterator[CaseInsensitiveDict]:
-    """Add missing columns to the record with null values.
-
-    Also conform the column names to the case in the catalog.
-
-    This is a generator that yields CaseInsensitiveDicts, which allows for case-insensitive
-    lookups of columns. This is useful because the case of the columns in the records may
-    not match the case of the columns in the catalog.
-    """
-    yield from (
-        CaseInsensitiveDict(
-            from_dict=record,
-            expected_keys=expected_keys,
-        )
-        for record in records
-    )
-
-
 __all__ = [
     "NameNormalizerBase",
     "LowerCaseNormalizer",
-    "CaseInsensitiveDict",
-    "normalize_records",
+    "StreamRecord",
 ]

@@ -11,6 +11,7 @@ import orjson
 from airbyte._processors.file.base import (
     FileWriterBase,
 )
+from airbyte._util.name_normalizers import StreamRecord
 
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ class JsonlWriter(FileWriterBase):
 
     def _write_record_dict(
         self,
-        record_dict: dict,
+        record_dict: StreamRecord,
         open_file_writer: gzip.GzipFile | IO[bytes],
     ) -> None:
         open_file_writer.write(orjson.dumps(record_dict) + b"\n")
