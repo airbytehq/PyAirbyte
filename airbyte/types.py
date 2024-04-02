@@ -99,6 +99,11 @@ class SQLTypeConverter:
         """Get the 'last resort' type to use if no other type is found."""
         return sqlalchemy.types.VARCHAR()
 
+    @staticmethod
+    def get_json_type() -> sqlalchemy.types.TypeEngine:
+        """Get the type to use for nested JSON data."""
+        return sqlalchemy.types.JSON()
+
     def to_sql_type(
         self,
         json_schema_property_def: dict[str, str | dict | list],
