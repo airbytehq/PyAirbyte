@@ -1,10 +1,13 @@
 from math import exp
 import pytest
-from airbyte._util.name_normalizers import CaseInsensitiveDict, LowerCaseNormalizer
+from airbyte._util.name_normalizers import StreamRecord, LowerCaseNormalizer
 
-def test_case_insensitive_dict():
-    # Initialize a CaseInsensitiveDict
-    cid = CaseInsensitiveDict({"Upper": 1, "lower": 2})
+def test_case_insensitive_dict() -> None:
+    # Initialize a StreamRecord
+    cid = StreamRecord(
+        {"Upper": 1, "lower": 2},
+        prune_extra_fields=True,
+    )
 
     # Test __getitem__
     assert cid["Upper"] == 1
@@ -59,8 +62,12 @@ def test_case_insensitive_dict():
 
 
 def test_case_insensitive_dict_w() -> None:
-    # Initialize a CaseInsensitiveDict
-    cid = CaseInsensitiveDict({"Upper": 1, "lower": 2}, expected_keys=["Upper", "lower", "other"])
+    # Initialize a StreamRecord
+    cid = StreamRecord(
+        {"Upper": 1, "lower": 2},
+        expected_keys=["Upper", "lower", "other"],
+        prune_extra_fields=True,
+    )
 
     # Test __len__
     assert len(cid) == 3
@@ -80,11 +87,12 @@ def test_case_insensitive_dict_w() -> None:
 
 
 def test_case_insensitive_w_pretty_keys() -> None:
-    # Initialize a CaseInsensitiveDict
-    cid = CaseInsensitiveDict(
+    # Initialize a StreamRecord
+    cid = StreamRecord(
         {"Upper": 1, "lower": 2},
         expected_keys=["Upper", "lower", "other"],
         normalize_keys=False,
+        prune_extra_fields=True,
     )
 
     # Test __len__

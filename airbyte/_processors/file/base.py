@@ -12,7 +12,7 @@ import ulid
 
 from airbyte import exceptions as exc
 from airbyte._batch_handles import BatchHandle
-from airbyte._util.protocol_util import airbyte_record_message_to_dict
+from airbyte._util.name_normalizers import LowerCaseNormalizer, StreamRecord
 from airbyte.progress import progress
 
 
@@ -146,9 +146,6 @@ class FileWriterBase(abc.ABC):
         """Write a record to the cache.
 
         This method is called for each record message, before the batch is written.
-
-        Returns:
-            A tuple of the stream name and the batch handle.
         """
         stream_name = record_msg.stream
 
@@ -167,9 +164,10 @@ class FileWriterBase(abc.ABC):
             raise exc.AirbyteLibInternalError(message="Expected open file writer.")
 
         self._write_record_dict(
-            record_dict=airbyte_record_message_to_dict(
-                record_message=record_msg,
-                stream_schema=stream_schema,
+            record_dict=StreamRecord(
+                from_dict=record_msg.data,
+                expected_keys=stream_schema["properties"].keys(),
+                normalizer=LowerCaseNormalizer,
                 prune_extra_fields=self.prune_extra_fields,
             ),
             open_file_writer=batch_handle.open_file_writer,
@@ -216,7 +214,7 @@ class FileWriterBase(abc.ABC):
     @abc.abstractmethod
     def _write_record_dict(
         self,
-        record_dict: dict,
+        record_dict: StreamRecord,
         open_file_writer: IO[bytes],
     ) -> None:
         """Write one record to a file."""

@@ -76,7 +76,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
-            [f"$1:{col}" for col in properties_list]
+            [f"$1:{self.normalizer.normalize(col)}" for col in properties_list]
         )
         copy_statement = dedent(
             f"""

@@ -30,8 +30,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import protocol_util
-from airbyte._util.name_normalizers import normalize_records
+from airbyte._util.name_normalizers import StreamRecord
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -73,7 +72,7 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
     finally:
         for temp_file in temp_files:
             with suppress(Exception):
-                temp_file.unlink()
+                Path(temp_file.name).unlink()
 
 
 class Source:
@@ -437,13 +436,14 @@ class Source:
             self._log_sync_success(cache=None)
 
         iterator: Iterator[dict[str, Any]] = _with_logging(
-            normalize_records(
-                records=protocol_util.airbyte_messages_to_record_dicts(
-                    self._read_with_catalog(configured_catalog),
-                    stream_schema=self.get_stream_json_schema(stream),
+            records=(  # Generator comprehension yields StreamRecord objects for each record
+                StreamRecord(
+                    from_dict=record.record.data,
+                    expected_keys=all_properties,
                     prune_extra_fields=True,
-                ),
-                expected_keys=all_properties,
+                )
+                for record in self._read_with_catalog(configured_catalog)
+                if record.record
             )
         )
         return LazyDataset(
