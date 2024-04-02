@@ -18,17 +18,20 @@ cache = BigQueryCache(
 from __future__ import annotations
 
 import urllib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from overrides import overrides
 from pydantic import root_validator
 from sqlalchemy.engine import make_url
-from sqlalchemy.engine.url import URL
 
 from airbyte._processors.sql.bigquery import BigQuerySqlProcessor
 from airbyte.caches.base import (
     CacheBase,
 )
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine.url import URL
 
 
 class BigQueryCache(CacheBase):
