@@ -38,7 +38,6 @@ if TYPE_CHECKING:
     from airbyte.caches._catalog_manager import CatalogManager
 
 
-
 class AirbyteMessageParsingError(Exception):
     """Raised when an Airbyte message is invalid or cannot be parsed."""
 
