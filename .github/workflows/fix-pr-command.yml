@@ -18,8 +18,8 @@ env:
 jobs:
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
-  pytest-on-demand:
-    name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
+  pr-fix-on-demand:
+    name: On-Demand PR Fix
     # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
     strategy:
       matrix:
@@ -62,8 +62,6 @@ jobs:
     - name: Append comment with job run link
       uses: peter-evans/create-or-update-comment@v4
       with:
-        # token: ${{ secrets.PAT }}
-        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
         comment-id: ${{ github.event.inputs.comment-id }}
         body: |
 
@@ -141,8 +139,6 @@ jobs:
       uses: peter-evans/create-or-update-comment@v4
       if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
       with:
-        # token: ${{ secrets.PAT }}
-        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
         comment-id: ${{ github.event.inputs.comment-id }}
         reactions: hooray
         body: |
@@ -152,8 +148,6 @@ jobs:
       uses: peter-evans/create-or-update-comment@v4
       if: steps.git-diff.outputs.changes != 'true' && steps.git-diff-2.outputs.changes != 'true'
       with:
-        # token: ${{ secrets.PAT }}
-        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
         comment-id: ${{ github.event.inputs.comment-id }}
         reactions: "+1"
         body: |
@@ -163,8 +157,6 @@ jobs:
       uses: peter-evans/create-or-update-comment@v4
       if: failure()
       with:
-        # token: ${{ secrets.PAT }}
-        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
         comment-id: ${{ github.event.inputs.comment-id }}
         reactions: confused
         body: |
