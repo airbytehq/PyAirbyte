@@ -17,7 +17,7 @@ env:
 
 jobs:
   log-starting-comment:
-    name: Post Start Comment
+    name: Append 'Starting' Comment
     runs-on: ubuntu-latest
     steps:
     - name: Create URL to the run output
@@ -85,7 +85,7 @@ jobs:
       run: poetry run pytest
 
   log-success-comment:
-    name: Post Completion Comment
+    name: Append 'Success' Comment
     needs: [pytest-on-demand]
     runs-on: ubuntu-latest
     steps:
@@ -98,9 +98,10 @@ jobs:
           > ✅ Tests passed.
 
   log-failure-comment:
-    name: Post Completion Comment (Success)
+    name: Append 'Failure' Comment
     # This job will only run if the workflow fails
-    if: failure()
+    needs: [pytest-on-demand]
+    if: always() && needs.pytest-on-demand.result == 'failure'
     runs-on: ubuntu-latest
     steps:
     - name: Append failure comment
