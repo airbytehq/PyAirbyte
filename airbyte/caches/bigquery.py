@@ -17,7 +17,6 @@ cache = BigQueryCache(
 
 from __future__ import annotations
 
-import urllib
 from typing import TYPE_CHECKING, Any, Optional
 
 from overrides import overrides
