@@ -149,7 +149,7 @@ jobs:
 
     - name: Append success comment (no-op)
       uses: peter-evans/create-or-update-comment@v4
-      if: ! (steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true')
+      if: steps.git-diff.outputs.changes != 'true' && steps.git-diff-2.outputs.changes != 'true'
       with:
         # token: ${{ secrets.PAT }}
         # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
