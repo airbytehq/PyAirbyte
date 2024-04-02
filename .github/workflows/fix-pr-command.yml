@@ -45,12 +45,6 @@ jobs:
       with:
         pr: ${{ github.event.inputs.pr }}
 
-    # - name: Install GitHub CLI
-    #   run: |
-    #     sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key C99B11DEB97541F0
-    #     sudo apt-add-repository https://cli.github.com/packages
-    #     sudo apt update
-    #     sudo apt install gh
     - name: Get PR info
       id: pr-info
       run: |
@@ -60,6 +54,21 @@ jobs:
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       shell: bash
+
+    - name: Create URL to the run output
+      id: vars
+      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+
+    - name: Append comment with job run link
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        # token: ${{ secrets.PAT }}
+        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        comment-id: ${{ github.event.inputs.comment-id }}
+        body: |
+          Job started... [Check job output.][1]
+
+          [1]: ${{ steps.vars.outputs.run-url }}
 
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v8
@@ -126,3 +135,35 @@ jobs:
       run: |
         git remote add contributor https://github.com/${{ steps.pr-info.outputs.repo }}.git
         git push contributor HEAD:${{ steps.pr-info.outputs.branch }}
+
+    - name: Append success comment
+      uses: peter-evans/create-or-update-comment@v4
+      if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
+      with:
+        # token: ${{ secrets.PAT }}
+        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: hooray
+        body: |
+          ✅ Changes applied successfully.
+
+    - name: Append success comment (no-op)
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        # token: ${{ secrets.PAT }}
+        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: thumbsup
+        body: |
+          🟦 Job completed successfully (no changes).
+
+    - name: Append failure comment
+      uses: peter-evans/create-or-update-comment@v4
+      if: failure()
+      with:
+        # token: ${{ secrets.PAT }}
+        # repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: confused
+        body: |
+          ❌ Job failed.
