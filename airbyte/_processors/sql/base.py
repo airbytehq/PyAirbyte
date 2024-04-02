@@ -52,6 +52,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
     from sqlalchemy.sql.base import Executable
+    from sqlalchemy.sql.type_api import TypeEngine
 
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
@@ -640,10 +641,14 @@ class SqlProcessorBase(RecordProcessor):
         for file_path in files:
             dataframe = pd.read_json(file_path, lines=True)
 
+            sql_column_definitions: dict[str, TypeEngine] = self._get_sql_column_definitions(
+                stream_name
+            )
+
             # Remove fields that are not in the schema
             for col_name in dataframe.columns:
-                if col_name not in self.get_stream_properties(stream_name):
-                    dataframe = dataframe.drop(columns=property)
+                if col_name not in sql_column_definitions:
+                    dataframe = dataframe.drop(columns=col_name)
 
             # Pandas will auto-create the table if it doesn't exist, which we don't want.
             if not self._table_exists(temp_table_name):
@@ -655,9 +660,7 @@ class SqlProcessorBase(RecordProcessor):
                 )
 
             # Normalize all column names to lower case.
-            dataframe.columns = Index(
-                [LowerCaseNormalizer.normalize(col) for col in dataframe.columns]
-            )
+            dataframe.columns = Index([self.normalizer.normalize(col) for col in dataframe.columns])
 
             # Write the data to the table.
             dataframe.to_sql(
@@ -666,7 +669,7 @@ class SqlProcessorBase(RecordProcessor):
                 schema=self.cache.schema_name,
                 if_exists="append",
                 index=False,
-                dtype=self._get_sql_column_definitions(stream_name),
+                dtype=sql_column_definitions,
             )
         return temp_table_name
 
