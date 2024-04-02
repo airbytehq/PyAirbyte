@@ -42,11 +42,13 @@ def pop_internal_columns_from_dataset(
         for internal_column in AB_INTERNAL_COLUMNS:
             if not isinstance(record, dict):
                 record = dict(record)
+
             assert internal_column in record, \
                 f"Column '{internal_column}' should exist in stream data."
-            record.pop(internal_column, None)
+            assert record[internal_column] is not None, \
+                f"Column '{internal_column}' should not contain null values."
 
-            # TODO: Assert that internal columns do not contain null values
+            record.pop(internal_column, None)
 
         result.append(record)
 
@@ -58,9 +60,33 @@ def pop_internal_columns_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         assert internal_column in df.columns, \
             f"Column '{internal_column}' should exist in stream data."
 
-        # TODO: Assert that internal columns do not contain null values
+        assert df[internal_column].notnull().all(), \
+            f"Column '{internal_column}' should not contain null values "
 
     return df.drop(columns=AB_INTERNAL_COLUMNS)
+
+
+def assert_data_matches_cache(
+    expected_test_stream_data: dict[str, list[dict[str, str | int]]],
+    cache: SqlProcessorBase, streams: list[str] = None,
+) -> None:
+    for stream_name in streams or expected_test_stream_data.keys():
+        if len(cache[stream_name]) > 0:
+            cache_df = pop_internal_columns_from_dataframe(
+                cache[stream_name].to_pandas(),
+            )
+            pd.testing.assert_frame_equal(
+                cache_df,
+                pd.DataFrame(expected_test_stream_data[stream_name]),
+                check_dtype=False,
+            )
+        else:
+            # stream is empty
+            assert len(expected_test_stream_data[stream_name]) == 0
+
+    # validate that the cache doesn't contain any other streams
+    if streams:
+        assert len(list(cache.__iter__())) == len(streams)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -240,37 +266,6 @@ def test_file_write_and_cleanup() -> None:
     with suppress(Exception):
         shutil.rmtree(str(temp_dir_root))
 
-def assert_data_matches_cache(
-    expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-    cache: SqlProcessorBase, streams: list[str] = None,
-) -> None:
-    for stream_name in streams or expected_test_stream_data.keys():
-        if len(cache[stream_name]) > 0:
-            cache_df = cache[stream_name].to_pandas()
-            # Drop AB_EXTRACTED_AT column if it exists
-            for internal_column in AB_INTERNAL_COLUMNS:
-                assert internal_column in cache_df.columns, \
-                    f"Column '{internal_column}' should exist in '{stream_name}' stream data."
-
-                # TODO: Bring back this failing assertion once we can fix it.
-                # assert cache_df[internal_column].notnull().all(), \
-                #     f"Column '{internal_column}' should not contain null values " \
-                #     f"in '{stream_name}' stream data."
-
-            cache_df = cache_df.drop(columns=AB_INTERNAL_COLUMNS)
-            pd.testing.assert_frame_equal(
-                cache_df,
-                pd.DataFrame(expected_test_stream_data[stream_name]),
-                check_dtype=False,
-            )
-        else:
-            # stream is empty
-            assert len(expected_test_stream_data[stream_name]) == 0
-
-    # validate that the cache doesn't contain any other streams
-    if streams:
-        assert len(list(cache.__iter__())) == len(streams)
-
 
 def test_sync_to_duckdb(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     source = ab.get_source("source-test", config={"apiKey": "test"})
@@ -308,7 +303,9 @@ def test_dataset_list_and_len(expected_test_stream_data):
     # Make sure counts are correct
     assert len(list(lazy_dataset_list)) == 2
     # Make sure records are correct
-    assert list(lazy_dataset_list) == [{"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}]
+    assert list(pop_internal_columns_from_dataset(lazy_dataset_list)) == [
+        {"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}
+    ]
 
     # Test the cached dataset implementation
     result: ReadResult = source.read(ab.new_local_cache())
