@@ -110,7 +110,7 @@ jobs:
     # Fix any further 'unsafe' lint issues in a separate commit
 
     - name: Auto-Fix Ruff Lint Issues (Unsafe)
-      run: poetry run ruff check --fix --unsafe . || true
+      run: poetry run ruff check --fix --unsafe-fixes . || true
     - name: Auto-Fix Ruff Format Issues
       run: poetry run ruff format . || true
 
