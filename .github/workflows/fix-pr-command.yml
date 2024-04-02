@@ -18,8 +18,8 @@ env:
 jobs:
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
-  pytest-on-demand:
-    name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
+  pr-fix-on-demand:
+    name: On-Demand PR Fix
     # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
     strategy:
       matrix:
@@ -44,6 +44,30 @@ jobs:
       uses: dawidd6/action-checkout-pr@v1
       with:
         pr: ${{ github.event.inputs.pr }}
+
+    - name: Get PR info
+      id: pr-info
+      run: |
+        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
+        echo "::set-output name=repo::$(echo "$PR_JSON" | jq -r .head.repo.full_name)"
+        echo "::set-output name=branch::$(echo "$PR_JSON" | jq -r .head.ref)"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+
+    - name: Create URL to the run output
+      id: vars
+      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+
+    - name: Append comment with job run link
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        body: |
+
+          > PR auto-fix job started... [Check job output.][1]
+
+          [1]: ${{ steps.vars.outputs.run-url }}
 
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v8
@@ -85,7 +109,7 @@ jobs:
     # Fix any further 'unsafe' lint issues in a separate commit
 
     - name: Auto-Fix Ruff Lint Issues (Unsafe)
-      run: poetry run ruff check --fix --unsafe . || true
+      run: poetry run ruff check --fix --unsafe-fixes . || true
     - name: Auto-Fix Ruff Format Issues
       run: poetry run ruff format . || true
 
@@ -107,4 +131,33 @@ jobs:
 
     - name: Push changes
       if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
-      run: git push origin HEAD
+      run: |
+        git remote add contributor https://github.com/${{ steps.pr-info.outputs.repo }}.git
+        git push contributor HEAD:${{ steps.pr-info.outputs.branch }}
+
+    - name: Append success comment
+      uses: peter-evans/create-or-update-comment@v4
+      if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: hooray
+        body: |
+          > ✅ Changes applied successfully.
+
+    - name: Append success comment (no-op)
+      uses: peter-evans/create-or-update-comment@v4
+      if: steps.git-diff.outputs.changes != 'true' && steps.git-diff-2.outputs.changes != 'true'
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: "+1"
+        body: |
+          > 🟦 Job completed successfully (no changes).
+
+    - name: Append failure comment
+      uses: peter-evans/create-or-update-comment@v4
+      if: failure()
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: confused
+        body: |
+          > ❌ Job failed.

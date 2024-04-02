@@ -16,6 +16,23 @@ env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
 jobs:
+  log-starting-comment:
+    name: Append 'Starting' Comment
+    runs-on: ubuntu-latest
+    steps:
+    - name: Create URL to the run output
+      id: vars
+      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+    - name: Append comment with job run link
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        body: |
+
+          > PR test job started... [Check job output.][1]
+
+          [1]: ${{ steps.vars.outputs.run-url }}
+
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
   pytest-on-demand:
@@ -66,3 +83,31 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: poetry run pytest
+
+  log-success-comment:
+    name: Append 'Success' Comment
+    needs: [pytest-on-demand]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Append success comment
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: hooray
+        body: |
+          > ✅ Tests passed.
+
+  log-failure-comment:
+    name: Append 'Failure' Comment
+    # This job will only run if the workflow fails
+    needs: [pytest-on-demand]
+    if: always() && needs.pytest-on-demand.result == 'failure'
+    runs-on: ubuntu-latest
+    steps:
+    - name: Append failure comment
+      uses: peter-evans/create-or-update-comment@v4
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        reactions: confused
+        body: |
+          > ❌ Tests failed.
