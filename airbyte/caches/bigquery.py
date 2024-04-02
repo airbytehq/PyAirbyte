@@ -18,13 +18,12 @@ cache = BigQueryCache(
 from __future__ import annotations
 
 import urllib
-from typing import Any, Optional
+from typing import Any
 
 from overrides import overrides
 from pydantic import root_validator
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine.url import URL
-
 
 from airbyte._processors.sql.bigquery import BigQuerySqlProcessor
 from airbyte.caches.base import (
@@ -42,7 +41,7 @@ class BigQueryCache(CacheBase):
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
     credentials_path: str | None
-    """The path to the credentials file to use. 
+    """The path to the credentials file to use.
     If not passed, falls back to the default inferred from the environment."""
 
     _sql_processor_class: type[BigQuerySqlProcessor] = BigQuerySqlProcessor
