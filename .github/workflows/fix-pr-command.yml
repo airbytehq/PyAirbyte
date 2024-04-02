@@ -60,9 +60,9 @@ jobs:
     # Fix any lint or format issues
 
     - name: Auto-Fix Ruff Lint Issues
-      run: poetry run ruff check --fix .
+      run: poetry run ruff check --fix . || true
     - name: Auto-Fix Ruff Format Issues
-      run: poetry run ruff format .
+      run: poetry run ruff format . || true
 
     # Check for changes in git
 
@@ -72,7 +72,7 @@ jobs:
         git diff --quiet && echo "No changes to commit" || echo "::set-output name=changes::true"
       shell: bash
 
-    # Commit and push the changes (if any)
+    # Commit changes (if any)
 
     - name: Commit changes
       if: steps.git-diff.outputs.changes == 'true'
@@ -82,6 +82,29 @@ jobs:
         git add .
         git commit -m "Auto-fix lint and format issues"
 
+    # Fix any further 'unsafe' lint issues in a separate commit
+
+    - name: Auto-Fix Ruff Lint Issues (Unsafe)
+      run: poetry run ruff check --fix --unsafe . || true
+    - name: Auto-Fix Ruff Format Issues
+      run: poetry run ruff format . || true
+
+    # Check for changes in git (2nd time, for 'unsafe' lint fixes)
+
+    - name: Check for changes ('unsafe' fixes)
+      id: git-diff-2
+      run: |
+        git diff --quiet && echo "No changes to commit" || echo "::set-output name=changes::true"
+      shell: bash
+
+    - name: Commit 'unsafe' lint fixes
+      if: steps.git-diff-2.outputs.changes == 'true'
+      run: |
+        git config --global user.name "octavia-squidington-iii"
+        git config --global user.email "contact@airbyte.com"
+        git add .
+        git commit -m "Auto-fix lint issues (unsafe)"
+
     - name: Push changes
-      if: steps.git-diff.outputs.changes == 'true'
+      if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
       run: git push origin HEAD
