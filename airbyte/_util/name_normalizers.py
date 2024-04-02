@@ -11,6 +11,7 @@ import pytz
 
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
+    AB_INTERNAL_COLUMNS,
     AB_LOADED_AT_COLUMN,
     AB_META_COLUMN,
 )
@@ -112,7 +113,9 @@ class StreamRecord(dict[str, Any]):
     ) -> StreamRecord:
         """Return a StreamRecord from a RecordMessage."""
         data_dict: dict[str, Any] = record_message.data.copy()
-        data_dict[AB_EXTRACTED_AT_COLUMN] = record_message.emitted_at
+        data_dict[AB_EXTRACTED_AT_COLUMN] = datetime.fromtimestamp(
+            record_message.emitted_at / 1000, tz=pytz.utc
+        )
         data_dict[AB_LOADED_AT_COLUMN] = datetime.now(tz=pytz.utc)
         data_dict[AB_META_COLUMN] = {}
 
@@ -149,6 +152,12 @@ class StreamRecord(dict[str, Any]):
         if not expected_keys:
             expected_keys = list(from_dict.keys())
             prune_extra_fields = False  # No expected keys provided.
+        else:
+            expected_keys = list(expected_keys)
+
+        for internal_col in AB_INTERNAL_COLUMNS:
+            if internal_col not in expected_keys:
+                expected_keys.append(internal_col)
 
         # Store a lookup from normalized keys to pretty cased (originally cased) keys.
         self._pretty_case_keys: dict[str, str] = {
