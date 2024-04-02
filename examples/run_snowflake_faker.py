@@ -1,4 +1,10 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""
+Usage:
+    poetry install
+    poetry run python examples/run_snowflake_faker.py
+"""
+
 from __future__ import annotations
 
 import airbyte as ab

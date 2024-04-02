@@ -16,13 +16,14 @@ from airbyte._processors.file.base import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    pass
+    from airbyte._util.name_normalizers import StreamRecord
 
 
 class JsonlWriter(FileWriterBase):
     """A Jsonl cache implementation."""
 
     default_cache_file_suffix = ".jsonl.gz"
+    prune_extra_fields = True
 
     def _open_new_file(
         self,
@@ -33,7 +34,7 @@ class JsonlWriter(FileWriterBase):
 
     def _write_record_dict(
         self,
-        record_dict: dict,
+        record_dict: StreamRecord,
         open_file_writer: gzip.GzipFile | IO[bytes],
     ) -> None:
         open_file_writer.write(orjson.dumps(record_dict) + b"\n")

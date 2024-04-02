@@ -84,17 +84,17 @@ class DuckDBSqlProcessor(SqlProcessorBase):
             stream_name=stream_name,
             batch_id=batch_id,
         )
-        properties_list = list(self._get_stream_properties(stream_name).keys())
+        properties_list = list(self.get_stream_properties(stream_name).keys())
         columns_list = list(self._get_sql_column_definitions(stream_name=stream_name).keys())
         columns_list_str = indent(
-            "\n, ".join([self._quote_identifier(c) for c in columns_list]),
+            "\n, ".join([self._quote_identifier(col) for col in columns_list]),
             "    ",
         )
         files_list = ", ".join([f"'{f!s}'" for f in files])
         columns_type_map = indent(
             "\n, ".join(
                 [
-                    self._quote_identifier(prop_name)
+                    self._quote_identifier(self.normalizer.normalize(prop_name))
                     + ": "
                     + str(
                         self._get_sql_column_definitions(stream_name)[

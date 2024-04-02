@@ -21,7 +21,7 @@ duckdb-engine = "0.9.2"  # TODO: Change to "^0.10.0" once supported by MotherDuc
 google-auth = ">=2.27.0,<3.0"
 google-cloud-bigquery = ">=3.12.0,<4.0"
 jsonschema = ">=3.2.0,<5.0"
-orjson = "^3.9.10"
+orjson = "3.9.15"
 overrides = "^7.4.0"
 pandas = ">=1.5.3,<=2.1.4" # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
 pendulum = "<=3.0.0"
@@ -59,6 +59,8 @@ freezegun = "^1.4.0"
 airbyte-source-faker = "^6.0.0"
 tomli = "^2.0"
 responses = "^0.25.0"
+airbyte-source-pokeapi = "^0.2.0"
+pytest-mock = "^3.14.0"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]

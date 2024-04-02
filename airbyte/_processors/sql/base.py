@@ -241,6 +241,7 @@ class SqlProcessorBase(RecordProcessor):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
+        stream_schema: dict,
     ) -> None:
         """Write a record to the cache.
 
@@ -249,7 +250,10 @@ class SqlProcessorBase(RecordProcessor):
         In most cases, the SQL processor will not perform any action, but will pass this along to to
         the file processor.
         """
-        self.file_writer.process_record_message(record_msg)
+        self.file_writer.process_record_message(
+            record_msg,
+            stream_schema=stream_schema,
+        )
 
     # Protected members (non-public interface):
 
@@ -419,7 +423,7 @@ class SqlProcessorBase(RecordProcessor):
 
         Returns true if the table is compatible, false if it is not.
         """
-        json_schema = self._get_stream_json_schema(stream_name)
+        json_schema = self.get_stream_json_schema(stream_name)
         stream_column_names: list[str] = json_schema["properties"].keys()
         table_column_names: list[str] = self.get_sql_table(stream_name).columns.keys()
 
@@ -461,12 +465,12 @@ class SqlProcessorBase(RecordProcessor):
         """
         _ = self._execute_sql(cmd)
 
-    def _get_stream_properties(
+    def get_stream_properties(
         self,
         stream_name: str,
     ) -> dict[str, dict]:
         """Return the names of the top-level properties for the given stream."""
-        return self._get_stream_json_schema(stream_name)["properties"]
+        return self.get_stream_json_schema(stream_name)["properties"]
 
     @final
     def _get_sql_column_definitions(
@@ -475,7 +479,7 @@ class SqlProcessorBase(RecordProcessor):
     ) -> dict[str, sqlalchemy.types.TypeEngine]:
         """Return the column definitions for the given stream."""
         columns: dict[str, sqlalchemy.types.TypeEngine] = {}
-        properties = self._get_stream_properties(stream_name)
+        properties = self.get_stream_properties(stream_name)
         for property_name, json_schema_property_def in properties.items():
             clean_prop_name = self.normalizer.normalize(property_name)
             columns[clean_prop_name] = self.type_converter.to_sql_type(
@@ -543,6 +547,8 @@ class SqlProcessorBase(RecordProcessor):
                 )
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
+
+        progress.log_stream_finalized(stream_name)
 
         # Return the batch handles as measure of work completed.
         return batches_to_finalize
@@ -629,6 +635,11 @@ class SqlProcessorBase(RecordProcessor):
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
         for file_path in files:
             dataframe = pd.read_json(file_path, lines=True)
+
+            # Remove fields that are not in the schema
+            for col_name in dataframe.columns:
+                if col_name not in self.get_stream_properties(stream_name):
+                    dataframe = dataframe.drop(columns=property)
 
             # Pandas will auto-create the table if it doesn't exist, which we don't want.
             if not self._table_exists(temp_table_name):
@@ -783,9 +794,11 @@ class SqlProcessorBase(RecordProcessor):
         deletion_name = f"{final_table_name}_deleteme"
         commands = "\n".join(
             [
-                f"ALTER TABLE {final_table_name} RENAME TO {deletion_name};",
-                f"ALTER TABLE {temp_table_name} RENAME TO {final_table_name};",
-                f"DROP TABLE {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME "
+                f"TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME "
+                f"TO {final_table_name};",
+                f"DROP TABLE {self._fully_qualified(deletion_name)};",
             ]
         )
         self._execute_sql(commands)

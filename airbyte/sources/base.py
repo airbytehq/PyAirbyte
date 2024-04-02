@@ -30,8 +30,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import protocol_util
-from airbyte._util.name_normalizers import normalize_records
+from airbyte._util.name_normalizers import StreamRecord
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -49,6 +48,8 @@ from airbyte.warnings import PyAirbyteDataLossWarning
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
+
+    from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executor import Executor
     from airbyte.caches import CacheBase
@@ -71,7 +72,7 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
     finally:
         for temp_file in temp_files:
             with suppress(Exception):
-                temp_file.unlink()
+                Path(temp_file.name).unlink()
 
 
 class Source:
@@ -368,6 +369,29 @@ class Source:
             ],
         )
 
+    def get_stream_json_schema(self, stream_name: str) -> dict[str, Any]:
+        """Return the JSON Schema spec for the specified stream name."""
+        catalog: AirbyteCatalog = self.discovered_catalog
+        found: list[AirbyteStream] = [
+            stream for stream in catalog.streams if stream.name == stream_name
+        ]
+
+        if len(found) == 0:
+            raise exc.AirbyteLibInputError(
+                message="Stream name does not exist in catalog.",
+                input_value=stream_name,
+            )
+
+        if len(found) > 1:
+            raise exc.AirbyteLibInternalError(
+                message="Duplicate streams found with the same name.",
+                context={
+                    "found_streams": found,
+                },
+            )
+
+        return found[0].json_schema
+
     def get_records(self, stream: str) -> LazyDataset:
         """Read a stream from the connector.
 
@@ -412,11 +436,14 @@ class Source:
             self._log_sync_success(cache=None)
 
         iterator: Iterator[dict[str, Any]] = _with_logging(
-            normalize_records(
-                records=protocol_util.airbyte_messages_to_record_dicts(
-                    self._read_with_catalog(configured_catalog),
-                ),
-                expected_keys=all_properties,
+            records=(  # Generator comprehension yields StreamRecord objects for each record
+                StreamRecord(
+                    from_dict=record.record.data,
+                    expected_keys=all_properties,
+                    prune_extra_fields=True,
+                )
+                for record in self._read_with_catalog(configured_catalog)
+                if record.record
             )
         )
         return LazyDataset(
@@ -584,7 +611,7 @@ class Source:
 
         for message in messages:
             yield message
-            progress.log_records_read(self._processed_records)
+            progress.log_records_read(new_total_count=self._processed_records)
 
     def _log_sync_start(
         self,
