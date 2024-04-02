@@ -164,8 +164,8 @@ class FileWriterBase(abc.ABC):
             raise exc.AirbyteLibInternalError(message="Expected open file writer.")
 
         self._write_record_dict(
-            record_dict=StreamRecord(
-                from_dict=record_msg.data,
+            record_dict=StreamRecord.from_record_message(
+                record_message=record_msg,
                 expected_keys=stream_schema["properties"].keys(),
                 normalizer=LowerCaseNormalizer,
                 prune_extra_fields=self.prune_extra_fields,

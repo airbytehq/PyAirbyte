@@ -61,6 +61,11 @@ if TYPE_CHECKING:
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
 
 
+AB_LOADED_AT_COLUMN = "_airbyte_loaded_at"
+AB_EXTRACTED_AT_COLUMN = "_airbyte_extracted_at"
+AB_META_COLUMN = "_airbyte_meta"
+
+
 class RecordDedupeMode(enum.Enum):
     APPEND = "append"
     REPLACE = "replace"
@@ -486,9 +491,10 @@ class SqlProcessorBase(RecordProcessor):
                 json_schema_property_def,
             )
 
-        columns["_airbyte_extracted_at"] = sqlalchemy.TIMESTAMP()
-        columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
-        columns["_airbyte_meta"] = sqlalchemy.JSON()
+        columns[AB_EXTRACTED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
+        columns[AB_LOADED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
+        columns[AB_META_COLUMN] = sqlalchemy.JSON()
+
         return columns
 
     @final

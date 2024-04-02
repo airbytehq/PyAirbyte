@@ -4,11 +4,20 @@
 from __future__ import annotations
 
 import abc
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+
+import pytz
+
+from airbyte._processors.sql.base import AB_EXTRACTED_AT_COLUMN, AB_LOADED_AT_COLUMN, AB_META_COLUMN
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from airbyte_protocol.models import (
+        AirbyteRecordMessage,
+    )
 
 
 class NameNormalizerBase(abc.ABC):
@@ -86,6 +95,30 @@ class StreamRecord(dict[str, Any]):
             return self._normalizer.normalize(key)
 
         return self._display_case(key)
+
+    @classmethod
+    def from_record_message(
+        cls,
+        record_message: AirbyteRecordMessage,
+        *,
+        prune_extra_fields: bool,
+        normalize_keys: bool = True,
+        normalizer: type[NameNormalizerBase] | None = None,
+        expected_keys: list[str] | None = None,
+    ) -> StreamRecord:
+        """Return a StreamRecord from a RecordMessage."""
+        data_dict: dict[str, Any] = record_message.data.copy()
+        data_dict[AB_EXTRACTED_AT_COLUMN] = record_message.emitted_at
+        data_dict[AB_LOADED_AT_COLUMN] = datetime.now(tz=pytz.utc)
+        data_dict[AB_META_COLUMN] = {}
+
+        return cls(
+            from_dict=data_dict,
+            prune_extra_fields=prune_extra_fields,
+            normalize_keys=normalize_keys,
+            normalizer=normalizer,
+            expected_keys=expected_keys,
+        )
 
     def __init__(
         self,
