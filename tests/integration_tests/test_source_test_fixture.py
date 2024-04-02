@@ -4,12 +4,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 import os
 import shutil
-import itertools
-from contextlib import nullcontext as does_not_raise, suppress
+from contextlib import suppress
 from typing import Any
-from unittest.mock import Mock, call, patch
+from unittest.mock import patch
 import tempfile
 from pathlib import Path
+
+from airbyte import datasets
 from airbyte._processors.sql.base import SqlProcessorBase
 
 from sqlalchemy import column, text
@@ -31,6 +32,35 @@ import airbyte as ab
 from airbyte.results import ReadResult
 from airbyte import exceptions as exc
 import ulid
+
+
+def pop_internal_columns_from_dataset(
+    dataset: datasets.DatasetBase | list[dict[str, Any]],
+) -> list[dict]:
+    result: list[dict] = []
+    for record in list(dataset):
+        for internal_column in AB_INTERNAL_COLUMNS:
+            if not isinstance(record, dict):
+                record = dict(record)
+            assert internal_column in record, \
+                f"Column '{internal_column}' should exist in stream data."
+            record.pop(internal_column, None)
+
+            # TODO: Assert that internal columns do not contain null values
+
+        result.append(record)
+
+    return result
+
+
+def pop_internal_columns_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    for internal_column in AB_INTERNAL_COLUMNS:
+        assert internal_column in df.columns, \
+            f"Column '{internal_column}' should exist in stream data."
+
+        # TODO: Assert that internal columns do not contain null values
+
+    return df.drop(columns=AB_INTERNAL_COLUMNS)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -286,9 +316,13 @@ def test_dataset_list_and_len(expected_test_stream_data):
     assert len(stream_1) == 2
     assert len(list(stream_1)) == 2
     # Make sure we can iterate over the stream after calling len
-    assert list(stream_1) == [{"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}]
+    assert list(pop_internal_columns_from_dataset(stream_1)) == [
+        {"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}
+    ]
     # Make sure we can iterate over the stream a second time
-    assert list(stream_1) == [{"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}]
+    assert list(pop_internal_columns_from_dataset(stream_1)) == [
+        {"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}
+    ]
 
     assert isinstance(result, Mapping)
     assert "stream1" in result
@@ -396,9 +430,9 @@ def test_read_result_as_list(expected_test_stream_data: dict[str, list[dict[str,
     stream_1_list = list(result["stream1"])
     stream_2_list = list(result["stream2"])
     always_empty_stream_list = list(result["always-empty-stream"])
-    assert stream_1_list == expected_test_stream_data["stream1"]
-    assert stream_2_list == expected_test_stream_data["stream2"]
-    assert always_empty_stream_list == expected_test_stream_data["always-empty-stream"]
+    assert pop_internal_columns_from_dataset(stream_1_list) == expected_test_stream_data["stream1"]
+    assert pop_internal_columns_from_dataset(stream_2_list) == expected_test_stream_data["stream2"]
+    assert pop_internal_columns_from_dataset(always_empty_stream_list) == expected_test_stream_data["always-empty-stream"]
 
 
 def test_get_records_result_as_list(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
@@ -435,7 +469,7 @@ def test_sync_with_merge_to_duckdb(expected_test_stream_data: dict[str, list[dic
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
-                result[stream_name].to_pandas(),
+                pop_internal_columns_from_dataframe(result[stream_name].to_pandas()),
                 pd.DataFrame(expected_data),
                 check_dtype=False,
             )
@@ -499,7 +533,7 @@ def test_cached_dataset(
         assert isinstance(stream_name, str)
 
         list_data = list(cached_dataset)
-        assert list_data == expected_test_stream_data[stream_name]
+        assert pop_internal_columns_from_dataset(list_data) == expected_test_stream_data[stream_name]
 
     # Make sure we can use "result.cache.streams.items()"
     for stream_name, cached_dataset in result.cache.streams.items():
@@ -507,7 +541,7 @@ def test_cached_dataset(
         assert isinstance(stream_name, str)
 
         list_data = list(cached_dataset)
-        assert list_data == expected_test_stream_data[stream_name]
+        assert pop_internal_columns_from_dataset(list_data) == expected_test_stream_data[stream_name]
 
 
 def test_cached_dataset_filter():
@@ -651,7 +685,7 @@ def test_sync_to_postgres(
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
-                result[stream_name].to_pandas(),
+                pop_internal_columns_from_dataframe(result[stream_name].to_pandas()),
                 pd.DataFrame(expected_data),
                 check_dtype=False,
             )
@@ -671,7 +705,7 @@ def test_sync_to_snowflake(new_snowflake_cache: SnowflakeCache, expected_test_st
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
-                result[stream_name].to_pandas(),
+                pop_internal_columns_from_dataframe(result[stream_name].to_pandas()),
                 pd.DataFrame(expected_data),
                 check_dtype=False,
             )
@@ -690,7 +724,7 @@ def test_sync_limited_streams(expected_test_stream_data):
 
     assert result.processed_records == 1
     pd.testing.assert_frame_equal(
-        result["stream2"].to_pandas(),
+        pop_internal_columns_from_dataframe(result["stream2"].to_pandas()),
         pd.DataFrame(expected_test_stream_data["stream2"]),
         check_dtype=False,
     )
