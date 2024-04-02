@@ -209,7 +209,10 @@ def test_file_write_and_cleanup() -> None:
     with suppress(Exception):
         shutil.rmtree(str(temp_dir_root))
 
-def assert_cache_data(expected_test_stream_data: dict[str, list[dict[str, str | int]]], cache: SqlProcessorBase, streams: list[str] = None):
+def assert_data_matches_cache(
+    expected_test_stream_data: dict[str, list[dict[str, str | int]]],
+    cache: SqlProcessorBase, streams: list[str] = None,
+) -> None:
     for stream_name in streams or expected_test_stream_data.keys():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -235,7 +238,7 @@ def test_sync_to_duckdb(expected_test_stream_data: dict[str, list[dict[str, str 
     result: ReadResult = source.read(cache)
 
     assert result.processed_records == 3
-    assert_cache_data(expected_test_stream_data, cache)
+    assert_data_matches_cache(expected_test_stream_data, cache)
 
 
 def test_read_result_mapping():
@@ -298,7 +301,7 @@ def test_read_from_cache(expected_test_stream_data: dict[str, list[dict[str, str
     second_cache = ab.new_local_cache(cache_name)
 
 
-    assert_cache_data(expected_test_stream_data, second_cache)
+    assert_data_matches_cache(expected_test_stream_data, second_cache)
 
 
 def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
@@ -318,7 +321,7 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the cache with the same prefix has the data as expected, while the other two are empty
-    assert_cache_data(expected_test_stream_data, same_prefix_cache)
+    assert_data_matches_cache(expected_test_stream_data, same_prefix_cache)
     assert len(list(different_prefix_cache.__iter__())) == 0
     assert len(list(no_prefix_cache.__iter__())) == 0
 
@@ -332,9 +335,9 @@ def test_read_isolated_by_prefix(expected_test_stream_data: dict[str, list[dict[
     second_no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the first cache still has full data, while the other two have partial data
-    assert_cache_data(expected_test_stream_data, second_same_prefix_cache)
-    assert_cache_data(expected_test_stream_data, second_different_prefix_cache, streams=["stream1"])
-    assert_cache_data(expected_test_stream_data, second_no_prefix_cache, streams=["stream1"])
+    assert_data_matches_cache(expected_test_stream_data, second_same_prefix_cache)
+    assert_data_matches_cache(expected_test_stream_data, second_different_prefix_cache, streams=["stream1"])
+    assert_data_matches_cache(expected_test_stream_data, second_no_prefix_cache, streams=["stream1"])
 
 
 def test_merge_streams_in_cache(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
@@ -367,7 +370,7 @@ def test_merge_streams_in_cache(expected_test_stream_data: dict[str, list[dict[s
     with pytest.raises(KeyError):
         result["stream2"]
 
-    assert_cache_data(expected_test_stream_data, third_cache)
+    assert_data_matches_cache(expected_test_stream_data, third_cache)
 
 
 def test_read_result_as_list(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
