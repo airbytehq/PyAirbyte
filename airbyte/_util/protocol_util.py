@@ -3,8 +3,8 @@
 """Internal utility functions, especially for dealing with Airbyte Protocol."""
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
 from datetime import datetime
+from typing import TYPE_CHECKING, Any, cast
 
 from pytz import UTC
 
