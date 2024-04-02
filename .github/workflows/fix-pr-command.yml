@@ -45,6 +45,22 @@ jobs:
       with:
         pr: ${{ github.event.inputs.pr }}
 
+    - name: Install GitHub CLI
+      run: |
+        sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-key C99B11DEB97541F0
+        sudo apt-add-repository https://cli.github.com/packages
+        sudo apt update
+        sudo apt install gh
+    - name: Get PR info
+      id: pr-info
+      run: |
+        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
+        echo "::set-output name=repo::$(echo "$PR_JSON" | jq -r .head.repo.full_name)"
+        echo "::set-output name=branch::$(echo "$PR_JSON" | jq -r .head.ref)"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v8
       with:
@@ -107,4 +123,6 @@ jobs:
 
     - name: Push changes
       if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
-      run: git push origin HEAD
+      run: |
+        git remote add contributor https://github.com/${{ steps.pr-info.outputs.repo }}.git
+        git push contributor HEAD:${{ steps.pr-info.outputs.branch }}
