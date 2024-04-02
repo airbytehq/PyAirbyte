@@ -10,3 +10,9 @@ DEBUG_MODE = False  # Set to True to enable additional debug logging.
 AB_EXTRACTED_AT_COLUMN = "_airbyte_extracted_at"
 AB_LOADED_AT_COLUMN = "_airbyte_loaded_at"
 AB_META_COLUMN = "_airbyte_meta"
+
+AB_INTERNAL_COLUMNS = {
+    AB_EXTRACTED_AT_COLUMN,
+    AB_LOADED_AT_COLUMN,
+    AB_META_COLUMN,
+}
