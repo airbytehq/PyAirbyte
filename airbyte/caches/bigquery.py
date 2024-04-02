@@ -68,6 +68,6 @@ class BigQueryCache(CacheBase):
         """Return the SQLAlchemy URL to use."""
         url: URL = make_url(f"bigquery://{self.project_name!s}")
         if self.credentials_path:
-            credentials_path_encoded = urllib.parse.quote(self.credentials_path)
-            url = url.update_query_dict({"credentials_path": credentials_path_encoded})
+            url = url.update_query_dict({"credentials_path": credentials_path})
+
         return str(url)
