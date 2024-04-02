@@ -32,6 +32,12 @@ from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.caches._catalog_manager import CatalogManager
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_LOADED_AT_COLUMN,
+    AB_META_COLUMN,
+    DEBUG_MODE,
+)
 from airbyte.datasets._sql import CachedDataset
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
@@ -56,14 +62,6 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
-
-
-DEBUG_MODE = False  # Set to True to enable additional debug logging.
-
-
-AB_LOADED_AT_COLUMN = "_airbyte_loaded_at"
-AB_EXTRACTED_AT_COLUMN = "_airbyte_extracted_at"
-AB_META_COLUMN = "_airbyte_meta"
 
 
 class RecordDedupeMode(enum.Enum):

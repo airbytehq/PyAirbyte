@@ -9,7 +9,11 @@ from typing import TYPE_CHECKING, Any
 
 import pytz
 
-from airbyte._processors.sql.base import AB_EXTRACTED_AT_COLUMN, AB_LOADED_AT_COLUMN, AB_META_COLUMN
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_LOADED_AT_COLUMN,
+    AB_META_COLUMN,
+)
 
 
 if TYPE_CHECKING:
