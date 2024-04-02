@@ -18,7 +18,7 @@ cache = BigQueryCache(
 from __future__ import annotations
 
 import urllib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from overrides import overrides
 from pydantic import root_validator
@@ -43,7 +43,7 @@ class BigQueryCache(CacheBase):
     dataset_name: str = "airbyte_raw"
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
-    credentials_path: str | None
+    credentials_path: Optional[str] = None
     """The path to the credentials file to use.
     If not passed, falls back to the default inferred from the environment."""
 
