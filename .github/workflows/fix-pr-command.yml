@@ -65,7 +65,7 @@ jobs:
         comment-id: ${{ github.event.inputs.comment-id }}
         body: |
 
-          > Job started... [Check job output.][1]
+          > PR auto-fix job started... [Check job output.][1]
 
           [1]: ${{ steps.vars.outputs.run-url }}
 
