@@ -6,10 +6,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, final
 
+import google.oauth2
 import sqlalchemy
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
-import google.oauth2
 from google.oauth2 import service_account
 from overrides import overrides
 
