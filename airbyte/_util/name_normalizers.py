@@ -50,7 +50,6 @@ class LowerCaseNormalizer(NameNormalizerBase):
         return name.lower().replace(" ", "_").replace("-", "_")
 
 
-
 __all__ = [
     "NameNormalizerBase",
     "LowerCaseNormalizer",
