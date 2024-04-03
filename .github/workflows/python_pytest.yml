@@ -43,7 +43,10 @@ jobs:
     - name: Run Pytest (Fast Tests Only)
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest -m "not slow and not requires_creds" --durations=5 --exitfirst
+      run: >
+        poetry run pytest -m
+        "not slow and not requires_creds and not linting"
+        --durations=5 --exitfirst
 
   pytest-no-creds:
     name: Pytest (No Creds)
@@ -111,4 +114,4 @@ jobs:
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest
+      run: poetry run pytest -m "not linting"
