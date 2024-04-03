@@ -231,22 +231,24 @@ def test_auto_add_columns(
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the auto-add columns works as expected."""
-    sql_engine = new_generic_cache.get_sql_engine()
-
+    # Start with a normal read.
     result = source_faker_seed_a.read(
         new_generic_cache,
         write_strategy="auto",
     )
-    assert "_airbyte_raw_id" in result["users"].to_pandas().columns
-    users_table = result['users'].to_sql_table().name
-    sql_engine.execute(
-        f"ALTER TABLE {users_table} DROP COLUMN _airbyte_raw_id",
-    )
+    table_name: str = result['users'].to_sql_table().name
 
-    # Force-invalidate cached table definition
-    _ = result.cache.processor._get_table_by_name(users_table, force_refresh=True)
-
-    assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
-
-    result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="append")
+    # Ensure that the raw ID column is present. Then delete it and confirm it's gone.
     assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
+    new_generic_cache.get_sql_engine().execute(
+        f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
+        "DROP COLUMN _airbyte_raw_id",
+    )
+    new_generic_cache.processor._invalidate_table_cache(table_name)
+
+    assert "_airbyte_raw_id" not in result["users"].to_sql_table(force_schema_refresh=True).columns
+
+    # Now re-read the stream with the auto strategy and ensure the column is back.
+    result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")
+
+    assert "_airbyte_raw_id" in result["users"].to_sql_table(force_schema_refresh=True).columns

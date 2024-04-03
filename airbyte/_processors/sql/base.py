@@ -269,6 +269,17 @@ class SqlProcessorBase(RecordProcessor):
         """
         pass
 
+    def _invalidate_table_cache(
+        self,
+        table_name: str,
+    ) -> None:
+        """Invalidate the the named table cache.
+
+        This should be called whenever the table schema is known to have changed.
+        """
+        if table_name in self._cached_table_definitions:
+            del self._cached_table_definitions[table_name]
+
     def _get_table_by_name(
         self,
         table_name: str,
@@ -289,7 +300,10 @@ class SqlProcessorBase(RecordProcessor):
                 message="Cannot force refresh and use shallow query at the same time."
             )
 
-        if force_refresh or table_name not in self._cached_table_definitions:
+        if force_refresh and table_name not in self._cached_table_definitions:
+            self._invalidate_table_cache(table_name)
+
+        if table_name not in self._cached_table_definitions:
             if shallow_okay:
                 # Return a shallow instance, without column declarations. Do not cache
                 # the table definition in this case.
@@ -698,6 +712,8 @@ class SqlProcessorBase(RecordProcessor):
         for column_name, column_type in columns.items():
             if column_name not in table.columns:
                 self._add_column_to_table(table, column_name, column_type)
+
+        self._invalidate_table_cache(table_name)
 
     @final
     def _write_temp_table_to_final_table(
