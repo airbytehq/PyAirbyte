@@ -171,6 +171,9 @@ def test_faker_read(
 
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
+    # TODO: Uncomment this line after resolving https://github.com/airbytehq/PyAirbyte/issues/165
+    # assert len(result["users"].to_pandas()) == FAKER_SCALE_A
+
 
 @pytest.mark.requires_creds
 @pytest.mark.slow
