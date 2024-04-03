@@ -36,6 +36,7 @@ import ulid
 
 def pop_internal_columns_from_dataset(
     dataset: datasets.DatasetBase | list[dict[str, Any]],
+    /,
 ) -> list[dict]:
     result: list[dict] = []
     for record in list(dataset):
@@ -429,19 +430,19 @@ def test_read_result_as_list(expected_test_stream_data: dict[str, list[dict[str,
     always_empty_stream_list = list(result["always-empty-stream"])
     assert pop_internal_columns_from_dataset(stream_1_list) == expected_test_stream_data["stream1"]
     assert pop_internal_columns_from_dataset(stream_2_list) == expected_test_stream_data["stream2"]
-    assert pop_internal_columns_from_dataset(always_empty_stream_list) == expected_test_stream_data["always-empty-stream"]
+    assert pop_internal_columns_from_dataset(always_empty_stream_list) == \
+        expected_test_stream_data["always-empty-stream"]
 
 
 def test_get_records_result_as_list(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
     source = ab.get_source("source-test", config={"apiKey": "test"})
-    cache = ab.new_local_cache()
 
     stream_1_list = list(source.get_records("stream1"))
     stream_2_list = list(source.get_records("stream2"))
     always_empty_stream_list = list(source.get_records("always-empty-stream"))
-    assert stream_1_list == expected_test_stream_data["stream1"]
-    assert stream_2_list == expected_test_stream_data["stream2"]
-    assert always_empty_stream_list == expected_test_stream_data["always-empty-stream"]
+    assert pop_internal_columns_from_dataset(stream_1_list) == expected_test_stream_data["stream1"]
+    assert pop_internal_columns_from_dataset(stream_2_list) == expected_test_stream_data["stream2"]
+    assert pop_internal_columns_from_dataset(always_empty_stream_list) == expected_test_stream_data["always-empty-stream"]
 
 
 
@@ -602,7 +603,8 @@ def test_lazy_dataset_from_source(
     list_from_iter_a = list(lazy_dataset_a)
     list_from_iter_b = [row for row in lazy_dataset_b]
 
-    assert list_from_iter_a == list_from_iter_b
+    assert pop_internal_columns_from_dataset(list_from_iter_a) == \
+        pop_internal_columns_from_dataset(list_from_iter_b)
 
     # Make sure that we get a key error if we try to access a stream that doesn't exist
     with pytest.raises(exc.AirbyteLibInputError):
@@ -616,7 +618,8 @@ def test_lazy_dataset_from_source(
         assert isinstance(lazy_dataset, LazyDataset)
 
         list_data = list(lazy_dataset)
-        assert list_data == expected_test_stream_data[stream_name]
+        assert pop_internal_columns_from_dataset(list_data) == \
+            expected_test_stream_data[stream_name]
 
 
 @pytest.mark.parametrize(
@@ -730,7 +733,8 @@ def test_sync_limited_streams(expected_test_stream_data):
 def test_read_stream():
     source = ab.get_source("source-test", config={"apiKey": "test"})
 
-    assert list(source.get_records("stream1")) == [{"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}]
+    assert pop_internal_columns_from_dataset(source.get_records("stream1")) == \
+        [{"column1": "value1", "column2": 1}, {"column1": "value2", "column2": 2}]
 
 
 def test_read_stream_nonexisting():
