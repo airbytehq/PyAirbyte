@@ -8,8 +8,32 @@ includes the below implementation details.
 
 ### Field Name Normalization
 
-1. PyAirbyte normalizes top-level record keys to lowercase.
+1. PyAirbyte normalizes top-level record keys to lowercase, replacing spaces and hyphens with
+   underscores.
 2. PyAirbyte does not normalize nested keys on sub-properties.
+
+For example, the following record:
+
+```json
+{
+
+    "My-Field": "value",
+    "Nested": {
+        "MySubField": "value"
+    }
+}
+```
+
+Would be normalized to:
+
+```json
+{
+    "my_field": "value",
+    "nested": {
+        "MySubField": "value"
+    }
+}
+```
 
 ### Table Name Normalization
 
