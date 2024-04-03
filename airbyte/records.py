@@ -55,12 +55,12 @@ reference.
 
 PyAirbyte supports a very basic form of schema evolution:
 
-1. Columns are always auto-added to cache tables whenever a newly arriving properties are detected
+1. Columns are always auto-added to cache tables whenever newly arriving properties are detected
    as not present in the cache table.
 2. Column types will not be modified or expanded to fit changed types in the source catalog.
    - If column types change, we recommend user to manually alter the column types.
 3. At any time, users can run a full sync with a `WriteStategy` of 'replace'. This will create a
-   fresh table from scratch and thenswap the old and new tables after table sync is complete.
+   fresh table from scratch and then swap the old and new tables after table sync is complete.
 
 # `records` Module API Reference
 
