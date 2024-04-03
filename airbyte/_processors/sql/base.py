@@ -300,7 +300,7 @@ class SqlProcessorBase(RecordProcessor):
                 message="Cannot force refresh and use shallow query at the same time."
             )
 
-        if force_refresh and table_name not in self._cached_table_definitions:
+        if force_refresh and table_name in self._cached_table_definitions:
             self._invalidate_table_cache(table_name)
 
         if table_name not in self._cached_table_definitions:
