@@ -11,10 +11,10 @@ import pytz
 import ulid
 
 from airbyte.constants import (
-    AB_RAW_ID_COLUMN,
     AB_EXTRACTED_AT_COLUMN,
     AB_INTERNAL_COLUMNS,
     AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
 )
 
 
