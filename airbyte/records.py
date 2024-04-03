@@ -3,12 +3,12 @@
 
 ## Understanding record handling in PyAirbyte
 
-PyAirbyte models record handling after Airbyte's "Destination V2" or "Dv2" record handling. This
-includes the following implementation details:
+PyAirbyte models record handling after Airbyte's "Destination V2" ("Dv2") record handling. This
+includes the below implementation details.
 
 ### Field Name Normalization
 
-1. PyAirbyte normalizes top-level keys to lowercase.
+1. PyAirbyte normalizes top-level record keys to lowercase.
 2. PyAirbyte does not normalize nested keys on sub-properties.
 
 ### Table Name Normalization
@@ -32,6 +32,7 @@ reference.
 This module contains the StreamRecord class, which is a case-aware, case-insensitive dictionary.
 It is used to store records in PyAirbyte. Since it is subclassed from `dict`, it can be used like a
 normal dictionary.
+
 """
 
 from __future__ import annotations
