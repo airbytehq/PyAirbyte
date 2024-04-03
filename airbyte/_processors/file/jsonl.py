@@ -16,7 +16,7 @@ from airbyte._processors.file.base import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from airbyte._util.name_normalizers import StreamRecord
+    from airbyte.records import StreamRecord
 
 
 class JsonlWriter(FileWriterBase):

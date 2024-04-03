@@ -1,7 +1,7 @@
 from math import exp
 import pytest
-from airbyte._util.name_normalizers import StreamRecord, LowerCaseNormalizer
 from airbyte.constants import AB_INTERNAL_COLUMNS
+from airbyte.records import StreamRecord
 
 def test_case_insensitive_dict() -> None:
     # Initialize a StreamRecord
