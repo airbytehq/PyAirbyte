@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 
+@pytest.mark.linting
 def test_mypy_typing():
     # Run the check command
     check_result = subprocess.run(
