@@ -62,7 +62,7 @@ PyAirbyte supports a very basic form of schema evolution:
 3. At any time, users can run a full sync with a `WriteStategy` of 'replace'. This will create a
    fresh table from scratch and then swap the old and new tables after table sync is complete.
 
-# `records` Module API Reference
+## `records` Module API Reference
 
 This module contains the `StreamRecord` class, which is a case-aware, case-insensitive dictionary.
 It is used to store records in PyAirbyte. Since it is subclassed from `dict`, it can be used like a
