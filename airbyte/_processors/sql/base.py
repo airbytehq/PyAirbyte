@@ -240,7 +240,7 @@ class SqlProcessorBase(RecordProcessor):
         """Return a Pandas data frame with the stream's data."""
         table_name = self.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
-        return pd.read_sql_table(table_name, engine)
+        return pd.read_sql_table(table_name, engine, schema=self.cache.schema_name)
 
     def process_record_message(
         self,
@@ -680,8 +680,12 @@ class SqlProcessorBase(RecordProcessor):
         column_type: sqlalchemy.types.TypeEngine,
     ) -> None:
         """Add a column to the given table."""
-        column = Column(column_name, column_type)
-        column.create(table)
+        self._execute_sql(
+            text(
+                f"ALTER TABLE {self._fully_qualified(table.name)} "
+                f"ADD COLUMN {column_name} {column_type}"
+            ),
+        )
 
     def _add_missing_columns_to_table(
         self,
@@ -690,7 +694,7 @@ class SqlProcessorBase(RecordProcessor):
     ) -> None:
         """Add missing columns to the table."""
         columns = self._get_sql_column_definitions(stream_name)
-        table = self._get_table_by_name(table_name)
+        table = self._get_table_by_name(table_name, force_refresh=True)
         for column_name, column_type in columns.items():
             if column_name not in table.columns:
                 self._add_column_to_table(table, column_name, column_type)

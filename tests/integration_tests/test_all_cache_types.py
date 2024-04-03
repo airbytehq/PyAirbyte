@@ -219,3 +219,31 @@ def test_merge_strategy(
     # TODO: See if we can reliably predict the exact number of records, since we use fixed seeds.
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_B
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
+def test_auto_add_columns(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the auto-add columns works as expected."""
+    sql_engine = new_generic_cache.get_sql_engine()
+
+    result = source_faker_seed_a.read(
+        new_generic_cache,
+        write_strategy="auto",
+    )
+    assert "_airbyte_raw_id" in result["users"].to_pandas().columns
+    users_table = result['users'].to_sql_table().name
+    sql_engine.execute(
+        f"ALTER TABLE {users_table} DROP COLUMN _airbyte_raw_id",
+    )
+
+    # Force-invalidate cached table definition
+    _ = result.cache.processor._get_table_by_name(users_table, force_refresh=True)
+
+    assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
+
+    result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="append")
+    assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
