@@ -12,8 +12,9 @@ import ulid
 
 from airbyte import exceptions as exc
 from airbyte._batch_handles import BatchHandle
-from airbyte._util.name_normalizers import LowerCaseNormalizer, StreamRecord
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.progress import progress
+from airbyte.records import StreamRecord
 
 
 if TYPE_CHECKING:

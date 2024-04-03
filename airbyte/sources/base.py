@@ -30,7 +30,6 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util.name_normalizers import StreamRecord
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -41,6 +40,7 @@ from airbyte._util.telemetry import (
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
+from airbyte.records import StreamRecord
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
 from airbyte.warnings import PyAirbyteDataLossWarning
