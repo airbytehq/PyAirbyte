@@ -51,9 +51,20 @@ PyAirbyte adds the following columns to every record:
 The names of these columns are included in the `airbyte.constants` module for programmatic
 reference.
 
-## Module Overview
+## Schema Evolution
 
-This module contains the StreamRecord class, which is a case-aware, case-insensitive dictionary.
+PyAirbyte supports a very basic form of schema evolution:
+
+1. Columns are always auto-added to cache tables whenever newly arriving properties are detected
+   as not present in the cache table.
+2. Column types will not be modified or expanded to fit changed types in the source catalog.
+   - If column types change, we recommend user to manually alter the column types.
+3. At any time, users can run a full sync with a `WriteStategy` of 'replace'. This will create a
+   fresh table from scratch and then swap the old and new tables after table sync is complete.
+
+# `records` Module API Reference
+
+This module contains the `StreamRecord` class, which is a case-aware, case-insensitive dictionary.
 It is used to store records in PyAirbyte. Since it is subclassed from `dict`, it can be used like a
 normal dictionary.
 
