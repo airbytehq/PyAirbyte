@@ -246,9 +246,9 @@ def test_auto_add_columns(
     )
     new_generic_cache.processor._invalidate_table_cache(table_name)
 
-    assert "_airbyte_raw_id" not in result["users"].to_sql_table(force_schema_refresh=True).columns
+    assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
 
     # Now re-read the stream with the auto strategy and ensure the column is back.
     result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")
 
-    assert "_airbyte_raw_id" in result["users"].to_sql_table(force_schema_refresh=True).columns
+    assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
