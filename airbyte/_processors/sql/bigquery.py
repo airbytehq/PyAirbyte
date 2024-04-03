@@ -30,6 +30,11 @@ if TYPE_CHECKING:
 class BigQueryTypeConverter(SQLTypeConverter):
     """A class to convert types for BigQuery."""
 
+    @classmethod
+    def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
+        """Return the string type for BigQuery."""
+        return "String"
+
     @overrides
     def to_sql_type(
         self,
@@ -43,7 +48,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
         sql_type = super().to_sql_type(json_schema_property_def)
         # to-do: replace hardcoded return types with some sort of snowflake Variant equivalent
         if isinstance(sql_type, sqlalchemy.types.VARCHAR):
-            return "String"
+            return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
             return "INT64"
 

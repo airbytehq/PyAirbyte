@@ -437,8 +437,8 @@ class Source:
 
         iterator: Iterator[dict[str, Any]] = _with_logging(
             records=(  # Generator comprehension yields StreamRecord objects for each record
-                StreamRecord(
-                    from_dict=record.record.data,
+                StreamRecord.from_record_message(
+                    record_message=record.record,
                     expected_keys=all_properties,
                     prune_extra_fields=True,
                 )

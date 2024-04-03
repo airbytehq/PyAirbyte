@@ -32,6 +32,12 @@ from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.caches._catalog_manager import CatalogManager
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
+    DEBUG_MODE,
+)
 from airbyte.datasets._sql import CachedDataset
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
@@ -46,6 +52,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
     from sqlalchemy.sql.base import Executable
+    from sqlalchemy.sql.type_api import TypeEngine
 
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
@@ -56,9 +63,6 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
-
-
-DEBUG_MODE = False  # Set to True to enable additional debug logging.
 
 
 class RecordDedupeMode(enum.Enum):
@@ -236,7 +240,7 @@ class SqlProcessorBase(RecordProcessor):
         """Return a Pandas data frame with the stream's data."""
         table_name = self.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
-        return pd.read_sql_table(table_name, engine)
+        return pd.read_sql_table(table_name, engine, schema=self.cache.schema_name)
 
     def process_record_message(
         self,
@@ -265,6 +269,17 @@ class SqlProcessorBase(RecordProcessor):
         """
         pass
 
+    def _invalidate_table_cache(
+        self,
+        table_name: str,
+    ) -> None:
+        """Invalidate the the named table cache.
+
+        This should be called whenever the table schema is known to have changed.
+        """
+        if table_name in self._cached_table_definitions:
+            del self._cached_table_definitions[table_name]
+
     def _get_table_by_name(
         self,
         table_name: str,
@@ -285,7 +300,10 @@ class SqlProcessorBase(RecordProcessor):
                 message="Cannot force refresh and use shallow query at the same time."
             )
 
-        if force_refresh or table_name not in self._cached_table_definitions:
+        if force_refresh and table_name in self._cached_table_definitions:
+            self._invalidate_table_cache(table_name)
+
+        if table_name not in self._cached_table_definitions:
             if shallow_okay:
                 # Return a shallow instance, without column declarations. Do not cache
                 # the table definition in this case.
@@ -486,9 +504,10 @@ class SqlProcessorBase(RecordProcessor):
                 json_schema_property_def,
             )
 
-        # TODO: Add the metadata columns (this breaks tests)
-        # columns["_airbyte_extracted_at"] = sqlalchemy.TIMESTAMP()
-        # columns["_airbyte_loaded_at"] = sqlalchemy.TIMESTAMP()
+        columns[AB_RAW_ID_COLUMN] = self.type_converter_class.get_string_type()
+        columns[AB_EXTRACTED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
+        columns[AB_META_COLUMN] = self.type_converter_class.get_json_type()
+
         return columns
 
     @final
@@ -636,10 +655,14 @@ class SqlProcessorBase(RecordProcessor):
         for file_path in files:
             dataframe = pd.read_json(file_path, lines=True)
 
+            sql_column_definitions: dict[str, TypeEngine] = self._get_sql_column_definitions(
+                stream_name
+            )
+
             # Remove fields that are not in the schema
             for col_name in dataframe.columns:
-                if col_name not in self.get_stream_properties(stream_name):
-                    dataframe = dataframe.drop(columns=property)
+                if col_name not in sql_column_definitions:
+                    dataframe = dataframe.drop(columns=col_name)
 
             # Pandas will auto-create the table if it doesn't exist, which we don't want.
             if not self._table_exists(temp_table_name):
@@ -651,9 +674,7 @@ class SqlProcessorBase(RecordProcessor):
                 )
 
             # Normalize all column names to lower case.
-            dataframe.columns = Index(
-                [LowerCaseNormalizer.normalize(col) for col in dataframe.columns]
-            )
+            dataframe.columns = Index([self.normalizer.normalize(col) for col in dataframe.columns])
 
             # Write the data to the table.
             dataframe.to_sql(
@@ -662,9 +683,37 @@ class SqlProcessorBase(RecordProcessor):
                 schema=self.cache.schema_name,
                 if_exists="append",
                 index=False,
-                dtype=self._get_sql_column_definitions(stream_name),
+                dtype=sql_column_definitions,
             )
         return temp_table_name
+
+    def _add_column_to_table(
+        self,
+        table: Table,
+        column_name: str,
+        column_type: sqlalchemy.types.TypeEngine,
+    ) -> None:
+        """Add a column to the given table."""
+        self._execute_sql(
+            text(
+                f"ALTER TABLE {self._fully_qualified(table.name)} "
+                f"ADD COLUMN {column_name} {column_type}"
+            ),
+        )
+
+    def _add_missing_columns_to_table(
+        self,
+        stream_name: str,
+        table_name: str,
+    ) -> None:
+        """Add missing columns to the table."""
+        columns = self._get_sql_column_definitions(stream_name)
+        table = self._get_table_by_name(table_name, force_refresh=True)
+        for column_name, column_type in columns.items():
+            if column_name not in table.columns:
+                self._add_column_to_table(table, column_name, column_type)
+
+        self._invalidate_table_cache(table_name)
 
     @final
     def _write_temp_table_to_final_table(
@@ -702,6 +751,10 @@ class SqlProcessorBase(RecordProcessor):
             return
 
         if write_strategy == WriteStrategy.APPEND:
+            self._add_missing_columns_to_table(
+                stream_name=stream_name,
+                table_name=final_table_name,
+            )
             self._append_temp_table_to_final_table(
                 stream_name=stream_name,
                 temp_table_name=temp_table_name,
@@ -710,6 +763,10 @@ class SqlProcessorBase(RecordProcessor):
             return
 
         if write_strategy == WriteStrategy.MERGE:
+            self._add_missing_columns_to_table(
+                stream_name=stream_name,
+                table_name=final_table_name,
+            )
             if not self.supports_merge_insert:
                 # Fallback to emulated merge if the database does not support merge natively.
                 self._emulated_merge_temp_table_to_final_table(

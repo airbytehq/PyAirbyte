@@ -4,11 +4,26 @@
 from __future__ import annotations
 
 import abc
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+
+import pytz
+import ulid
+
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_INTERNAL_COLUMNS,
+    AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
+)
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+
+    from airbyte_protocol.models import (
+        AirbyteRecordMessage,
+    )
 
 
 class NameNormalizerBase(abc.ABC):
@@ -87,6 +102,32 @@ class StreamRecord(dict[str, Any]):
 
         return self._display_case(key)
 
+    @classmethod
+    def from_record_message(
+        cls,
+        record_message: AirbyteRecordMessage,
+        *,
+        prune_extra_fields: bool,
+        normalize_keys: bool = True,
+        normalizer: type[NameNormalizerBase] | None = None,
+        expected_keys: list[str] | None = None,
+    ) -> StreamRecord:
+        """Return a StreamRecord from a RecordMessage."""
+        data_dict: dict[str, Any] = record_message.data.copy()
+        data_dict[AB_RAW_ID_COLUMN] = str(ulid.ULID())
+        data_dict[AB_EXTRACTED_AT_COLUMN] = datetime.fromtimestamp(
+            record_message.emitted_at / 1000, tz=pytz.utc
+        )
+        data_dict[AB_META_COLUMN] = {}
+
+        return cls(
+            from_dict=data_dict,
+            prune_extra_fields=prune_extra_fields,
+            normalize_keys=normalize_keys,
+            normalizer=normalizer,
+            expected_keys=expected_keys,
+        )
+
     def __init__(
         self,
         from_dict: dict,
@@ -112,6 +153,12 @@ class StreamRecord(dict[str, Any]):
         if not expected_keys:
             expected_keys = list(from_dict.keys())
             prune_extra_fields = False  # No expected keys provided.
+        else:
+            expected_keys = list(expected_keys)
+
+        for internal_col in AB_INTERNAL_COLUMNS:
+            if internal_col not in expected_keys:
+                expected_keys.append(internal_col)
 
         # Store a lookup from normalized keys to pretty cased (originally cased) keys.
         self._pretty_case_keys: dict[str, str] = {

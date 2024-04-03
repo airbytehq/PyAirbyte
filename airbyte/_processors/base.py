@@ -38,9 +38,6 @@ if TYPE_CHECKING:
     from airbyte.caches._catalog_manager import CatalogManager
 
 
-DEBUG_MODE = False  # Set to True to enable additional debug logging.
-
-
 class AirbyteMessageParsingError(Exception):
     """Raised when an Airbyte message is invalid or cannot be parsed."""
 

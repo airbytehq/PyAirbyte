@@ -171,6 +171,9 @@ def test_faker_read(
 
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
+    # TODO: Uncomment this line after resolving https://github.com/airbytehq/PyAirbyte/issues/165
+    # assert len(result["users"].to_pandas()) == FAKER_SCALE_A
+
 
 @pytest.mark.requires_creds
 @pytest.mark.slow
@@ -219,3 +222,33 @@ def test_merge_strategy(
     # TODO: See if we can reliably predict the exact number of records, since we use fixed seeds.
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_B
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
+def test_auto_add_columns(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the auto-add columns works as expected."""
+    # Start with a normal read.
+    result = source_faker_seed_a.read(
+        new_generic_cache,
+        write_strategy="auto",
+    )
+    table_name: str = result['users'].to_sql_table().name
+
+    # Ensure that the raw ID column is present. Then delete it and confirm it's gone.
+    assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
+    new_generic_cache.get_sql_engine().execute(
+        f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
+        "DROP COLUMN _airbyte_raw_id",
+    )
+    new_generic_cache.processor._invalidate_table_cache(table_name)
+
+    assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
+
+    # Now re-read the stream with the auto strategy and ensure the column is back.
+    result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")
+
+    assert "_airbyte_raw_id" in result["users"].to_sql_table().columns

@@ -84,7 +84,6 @@ class DuckDBSqlProcessor(SqlProcessorBase):
             stream_name=stream_name,
             batch_id=batch_id,
         )
-        properties_list = list(self.get_stream_properties(stream_name).keys())
         columns_list = list(self._get_sql_column_definitions(stream_name=stream_name).keys())
         columns_list_str = indent(
             "\n, ".join([self._quote_identifier(col) for col in columns_list]),
@@ -101,7 +100,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
                             self.normalizer.normalize(prop_name)
                         ]
                     )
-                    for prop_name in properties_list
+                    for prop_name in columns_list
                 ]
             ),
             "    ",
