@@ -34,8 +34,8 @@ from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
-    AB_LOADED_AT_COLUMN,
     AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
     DEBUG_MODE,
 )
 from airbyte.datasets._sql import CachedDataset
@@ -490,9 +490,12 @@ class SqlProcessorBase(RecordProcessor):
                 json_schema_property_def,
             )
 
+        columns[AB_RAW_ID_COLUMN] = self.type_converter_class.get_string_type()
         columns[AB_EXTRACTED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
-        columns[AB_LOADED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
         columns[AB_META_COLUMN] = self.type_converter_class.get_json_type()
+
+        # We may add this back in the future. For now, it is not needed.
+        # columns[AB_LOADED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
 
         return columns
 

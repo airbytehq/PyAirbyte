@@ -8,11 +8,12 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import pytz
+import ulid
 
 from airbyte.constants import (
+    AB_RAW_ID_COLUMN,
     AB_EXTRACTED_AT_COLUMN,
     AB_INTERNAL_COLUMNS,
-    AB_LOADED_AT_COLUMN,
     AB_META_COLUMN,
 )
 
@@ -113,11 +114,14 @@ class StreamRecord(dict[str, Any]):
     ) -> StreamRecord:
         """Return a StreamRecord from a RecordMessage."""
         data_dict: dict[str, Any] = record_message.data.copy()
+        data_dict[AB_RAW_ID_COLUMN] = str(ulid.ULID())
         data_dict[AB_EXTRACTED_AT_COLUMN] = datetime.fromtimestamp(
             record_message.emitted_at / 1000, tz=pytz.utc
         )
-        data_dict[AB_LOADED_AT_COLUMN] = datetime.now(tz=pytz.utc)
         data_dict[AB_META_COLUMN] = {}
+
+        # We may add this back in the future. For now, it is not needed.
+        # data_dict[AB_LOADED_AT_COLUMN] = datetime.now(tz=pytz.utc)
 
         return cls(
             from_dict=data_dict,
