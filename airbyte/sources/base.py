@@ -42,6 +42,7 @@ from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
 from airbyte.results import ReadResult
+from airbyte.secrets import get_secret
 from airbyte.strategies import WriteStrategy
 from airbyte.warnings import PyAirbyteDataLossWarning
 
@@ -103,6 +104,30 @@ class Source:
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
+
+    def _get_secret(
+        self,
+        secret_names: str | list[str],
+        /,
+    ) -> str | None:
+        """Return a secret matching the provided name or names.
+
+        If multiple names are provided, the first secret found is returned.
+
+        If no secrets are found, `None` is returned
+        """
+        if isinstance(secret_names, str):
+            secret_names = [secret_names]
+
+        prefix = type(self).__name__.upper().replace("CACHE", "") + "_"
+
+        for secret_name in secret_names:
+            full_secret_name = f"{prefix}{secret_name.upper()}"
+            result = get_secret(full_secret_name)
+            if result is not None:
+                return result
+
+        return None
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""

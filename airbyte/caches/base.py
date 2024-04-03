@@ -12,6 +12,7 @@ from pydantic import BaseModel, PrivateAttr
 from airbyte import exceptions as exc
 from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
+from airbyte.secrets import get_secret
 
 
 if TYPE_CHECKING:
@@ -84,6 +85,30 @@ class CacheBase(BaseModel):
             result[stream_name] = CachedDataset(self, stream_name)
 
         return result
+
+    def _get_secret(
+        self,
+        secret_names: str | list[str],
+        /,
+    ) -> str | None:
+        """Return a secret matching the provided name or names.
+
+        If multiple names are provided, the first secret found is returned.
+
+        If no secrets are found, `None` is returned
+        """
+        if isinstance(secret_names, str):
+            secret_names = [secret_names]
+
+        prefix = type(self).__name__.upper().replace("CACHE", "") + "_"
+
+        for secret_name in secret_names:
+            full_secret_name = f"{prefix}{secret_name.upper()}"
+            result = get_secret(full_secret_name)
+            if result is not None:
+                return result
+
+        return None
 
     def _get_state(
         self,
