@@ -494,9 +494,6 @@ class SqlProcessorBase(RecordProcessor):
         columns[AB_EXTRACTED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
         columns[AB_META_COLUMN] = self.type_converter_class.get_json_type()
 
-        # We may add this back in the future. For now, it is not needed.
-        # columns[AB_LOADED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
-
         return columns
 
     @final

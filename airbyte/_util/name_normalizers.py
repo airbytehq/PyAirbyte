@@ -120,9 +120,6 @@ class StreamRecord(dict[str, Any]):
         )
         data_dict[AB_META_COLUMN] = {}
 
-        # We may add this back in the future. For now, it is not needed.
-        # data_dict[AB_LOADED_AT_COLUMN] = datetime.now(tz=pytz.utc)
-
         return cls(
             from_dict=data_dict,
             prune_extra_fields=prune_extra_fields,
