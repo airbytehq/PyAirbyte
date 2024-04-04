@@ -44,10 +44,10 @@ class CacheBase(BaseModel):
     table_suffix: str = ""
     """A suffix to add to all table names."""
 
-    _deployed_api_root: str | None = PrivateAttr(default=None)
-    _deployed_workspace_id: str | None = PrivateAttr(default=None)
-    _deployed_destination_id: str | None = PrivateAttr(default=None)
-    _deployed_connection_id: str | None = PrivateAttr(default=None)
+    _deployed_api_root: Optional[str] = PrivateAttr(default=None)
+    _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
+    _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
+    _deployed_connection_id: Optional[str] = PrivateAttr(default=None)
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
