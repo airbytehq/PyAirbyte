@@ -47,7 +47,7 @@ class Executor(ABC):
         The 'name' param is required if 'metadata' is None.
         """
         if not name and not metadata:
-            raise exc.AirbyteLibInternalError(message="Either name or metadata must be provided.")
+            raise exc.PyAirbyteInternalError(message="Either name or metadata must be provided.")
 
         self.name: str = name or cast(ConnectorMetadata, metadata).name  # metadata is not None here
         self.metadata: ConnectorMetadata | None = metadata
@@ -270,7 +270,7 @@ class VenvExecutor(Executor):
         if not self.interpreter_path.exists():
             # No point in trying to detect the version if the interpreter does not exist
             if raise_on_error:
-                raise exc.AirbyteLibInternalError(
+                raise exc.PyAirbyteInternalError(
                     message="Connector's virtual environment interpreter could not be found.",
                     context={
                         "interpreter_path": self.interpreter_path,

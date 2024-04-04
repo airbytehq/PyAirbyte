@@ -296,7 +296,7 @@ class SqlProcessorBase(RecordProcessor):
         query. To ignore the cache and force a refresh, set 'force_refresh' to True.
         """
         if force_refresh and shallow_okay:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Cannot force refresh and use shallow query at the same time."
             )
 
@@ -453,7 +453,7 @@ class SqlProcessorBase(RecordProcessor):
         ]
         if missing_columns:
             if raise_on_error:
-                raise exc.AirbyteLibCacheTableValidationError(
+                raise exc.PyAirbyteCacheTableValidationError(
                     violation="Cache table is missing expected columns.",
                     context={
                         "stream_column_names": stream_column_names,
@@ -666,7 +666,7 @@ class SqlProcessorBase(RecordProcessor):
 
             # Pandas will auto-create the table if it doesn't exist, which we don't want.
             if not self._table_exists(temp_table_name):
-                raise exc.AirbyteLibInternalError(
+                raise exc.PyAirbyteInternalError(
                     message="Table does not exist after creation.",
                     context={
                         "temp_table_name": temp_table_name,
@@ -727,7 +727,7 @@ class SqlProcessorBase(RecordProcessor):
         has_pks: bool = bool(self._get_primary_keys(stream_name))
         has_incremental_key: bool = bool(self._get_incremental_key(stream_name))
         if write_strategy == WriteStrategy.MERGE and not has_pks:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Cannot use merge strategy on a stream with no primary keys.",
                 context={
                     "stream_name": stream_name,
@@ -783,7 +783,7 @@ class SqlProcessorBase(RecordProcessor):
             )
             return
 
-        raise exc.AirbyteLibInternalError(
+        raise exc.PyAirbyteInternalError(
             message="Write strategy is not supported.",
             context={
                 "write_strategy": write_strategy,
@@ -843,9 +843,9 @@ class SqlProcessorBase(RecordProcessor):
         Databases that do not support this syntax can override this method.
         """
         if final_table_name is None:
-            raise exc.AirbyteLibInternalError(message="Arg 'final_table_name' cannot be None.")
+            raise exc.PyAirbyteInternalError(message="Arg 'final_table_name' cannot be None.")
         if temp_table_name is None:
-            raise exc.AirbyteLibInternalError(message="Arg 'temp_table_name' cannot be None.")
+            raise exc.PyAirbyteInternalError(message="Arg 'temp_table_name' cannot be None.")
 
         _ = stream_name
         deletion_name = f"{final_table_name}_deleteme"
@@ -909,7 +909,7 @@ class SqlProcessorBase(RecordProcessor):
             # Try to get the column in a case-insensitive manner
             return next(col for col in table.c if col.name.lower() == column_name.lower())
         except StopIteration:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Could not find matching column.",
                 context={
                     "table": table,

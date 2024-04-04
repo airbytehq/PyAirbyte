@@ -122,7 +122,7 @@ def get_secret(
         if val:
             return val
 
-    raise exc.AirbyteLibSecretNotFoundError(
+    raise exc.PyAirbyteSecretNotFoundError(
         secret_name=secret_name,
         sources=[str(s) for s in sources],
     )

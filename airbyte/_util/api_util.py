@@ -3,8 +3,8 @@
 
 In order to insulate users from breaking changes and to avoid general confusion around naming
 and design inconsistencies, we do not expose these functions or other Airbyte API classes within
-AirbyteLib. Classes and functions from the Airbyte API external library should always be wrapped in
-AirbyteLib classes - unless there's a very compelling reason to surface these models intentionally.
+PyAirbyte. Classes and functions from the Airbyte API external library should always be wrapped in
+PyAirbyte classes - unless there's a very compelling reason to surface these models intentionally.
 """
 
 from __future__ import annotations

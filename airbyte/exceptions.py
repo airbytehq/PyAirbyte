@@ -135,7 +135,7 @@ class AirbyteError(Exception):
 
 
 @dataclass
-class AirbyteLibInternalError(AirbyteError):
+class PyAirbyteInternalError(AirbyteError):
     """An internal error occurred in PyAirbyte."""
 
     guidance = "Please consider reporting this error to the Airbyte team."
@@ -146,7 +146,7 @@ class AirbyteLibInternalError(AirbyteError):
 
 
 @dataclass
-class AirbyteLibInputError(AirbyteError, ValueError):
+class PyAirbyteInputError(AirbyteError, ValueError):
     """The input provided to PyAirbyte did not match expected validation rules.
 
     This inherits from ValueError so that it can be used as a drop-in replacement for
@@ -160,7 +160,7 @@ class AirbyteLibInputError(AirbyteError, ValueError):
 
 
 @dataclass
-class AirbyteLibNoStreamsSelectedError(AirbyteLibInputError):
+class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
     """No streams were selected for the source."""
 
     guidance = (
@@ -174,19 +174,19 @@ class AirbyteLibNoStreamsSelectedError(AirbyteLibInputError):
 # PyAirbyte Cache Errors
 
 
-class AirbyteLibCacheError(AirbyteError):
+class PyAirbyteCacheError(AirbyteError):
     """Error occurred while accessing the cache."""
 
 
 @dataclass
-class AirbyteLibCacheTableValidationError(AirbyteLibCacheError):
+class PyAirbyteCacheTableValidationError(PyAirbyteCacheError):
     """Cache table validation failed."""
 
     violation: str | None = None
 
 
 @dataclass
-class AirbyteConnectorConfigurationMissingError(AirbyteLibCacheError):
+class AirbyteConnectorConfigurationMissingError(PyAirbyteCacheError):
     """Connector is missing configuration."""
 
     connector_name: str | None = None
@@ -298,7 +298,7 @@ class AirbyteStreamNotFoundError(AirbyteConnectorError):
 
 
 @dataclass
-class AirbyteLibSecretNotFoundError(AirbyteError):
+class PyAirbyteSecretNotFoundError(AirbyteError):
     """Secret not found."""
 
     guidance = "Please ensure that the secret is set."
@@ -314,7 +314,7 @@ class AirbyteLibSecretNotFoundError(AirbyteError):
 
 
 @dataclass
-class HostedAirbyteError(AirbyteError):
+class AirbyteError(AirbyteError):
     """An error occurred while communicating with the hosted Airbyte instance."""
 
     response: AirbyteApiResponseDuckType | None = None
@@ -332,7 +332,7 @@ class HostedAirbyteError(AirbyteError):
 
 
 @dataclass
-class HostedAirbyteConnectionError(HostedAirbyteError):
+class AirbyteConnectionError(AirbyteError):
     """An connection error occurred while communicating with the hosted Airbyte instance."""
 
     connection_id: str | None = None
@@ -367,12 +367,12 @@ class HostedAirbyteConnectionError(HostedAirbyteError):
 
 
 @dataclass
-class HostedConnectionSyncError(HostedAirbyteConnectionError):
+class AirbyteConnectionSyncError(AirbyteConnectionError):
     """An error occurred while executing the remote Airbyte job."""
 
 
 @dataclass
-class HostedConnectionSyncTimeoutError(HostedConnectionSyncError):
+class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
     """An timeout occurred while waiting for the remote Airbyte job to complete."""
 
     timeout: int | None = None
@@ -383,7 +383,7 @@ class HostedConnectionSyncTimeoutError(HostedConnectionSyncError):
 
 
 @dataclass
-class MissingResourceError(HostedAirbyteError):
+class AirbyteMissingResourceError(AirbyteError):
     """Remote Airbyte resources does not exist."""
 
     resource_type: str | None = None
@@ -391,7 +391,7 @@ class MissingResourceError(HostedAirbyteError):
 
 
 @dataclass
-class MultipleResourcesError(HostedAirbyteError):
+class AirbyteMultipleResourcesError(AirbyteError):
     """Could not locate the resource because multiple matching resources were found."""
 
     resource_type: str | None = None

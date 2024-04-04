@@ -113,7 +113,7 @@ class CacheBase(BaseModel):
         self,
     ) -> CatalogManager:
         if not self._has_catalog_manager:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
 

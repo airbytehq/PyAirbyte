@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""Generate docs for all public modules in AirbyteLib and save them to docs/generated.
+"""Generate docs for all public modules in PyAirbyte and save them to docs/generated.
 
 Usage:
     poetry run python docs/generate.py
@@ -19,7 +19,7 @@ import airbyte as ab
 
 
 def run() -> None:
-    """Generate docs for all public modules in AirbyteLib and save them to docs/generated."""
+    """Generate docs for all public modules in PyAirbyte and save them to docs/generated."""
     public_modules = ["airbyte"]
 
     # recursively delete the docs/generated folder if it exists

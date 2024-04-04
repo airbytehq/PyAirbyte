@@ -154,7 +154,7 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
             install_only_test(connector_name)
         else:
             if not sample_config:
-                raise exc.AirbyteLibInputError(
+                raise exc.PyAirbyteInputError(
                     input_value="--sample-config is required without --validate-install-only set"
                 )
             full_tests(connector_name, sample_config)

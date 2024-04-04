@@ -288,7 +288,7 @@ class Source:
           it will be printed to the console.
         """
         if format not in ["yaml", "json"]:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,
             )
@@ -382,13 +382,13 @@ class Source:
         ]
 
         if len(found) == 0:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Stream name does not exist in catalog.",
                 input_value=stream_name,
             )
 
         if len(found) > 1:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Duplicate streams found with the same name.",
                 context={
                     "found_streams": found,
@@ -421,7 +421,7 @@ class Source:
             ],
         )
         if len(configured_catalog.streams) == 0:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Requested stream does not exist.",
                 context={
                     "stream": stream,
@@ -706,7 +706,7 @@ class Source:
             try:
                 write_strategy = WriteStrategy(write_strategy)
             except ValueError:
-                raise exc.AirbyteLibInputError(
+                raise exc.PyAirbyteInputError(
                     message="Invalid strategy",
                     context={
                         "write_strategy": write_strategy,
@@ -718,7 +718,7 @@ class Source:
             self.select_streams(streams)
 
         if not self._selected_stream_names:
-            raise exc.AirbyteLibNoStreamsSelectedError(
+            raise exc.PyAirbyteNoStreamsSelectedError(
                 connector_name=self.name,
                 available_streams=self.get_available_streams(),
             )
