@@ -325,9 +325,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     can pass across all cache types.
     """
     all_cache_type_fixtures: dict[str, str] = {
-        "BigQuery": "new_bigquery_cache",
+        # Ordered by priority (fastest first)
         "DuckDB": "new_duckdb_cache",
         "Postgres": "new_postgres_cache",
+        "BigQuery": "new_bigquery_cache",
         "Snowflake": "new_snowflake_cache",
     }
     if is_windows():

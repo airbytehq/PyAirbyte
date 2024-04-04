@@ -1,6 +1,6 @@
 # PyAirbyte
 
-PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provides a set of utilities to use Airbyte connectors in Python. It is meant to be used in situations where setting up an Airbyte server or cloud account is not possible or desirable. 
+PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provides a set of utilities to use Airbyte connectors in Python. It is meant to be used in situations where setting up an Airbyte server or cloud account is not possible or desirable.
 
 - [Getting Started](#getting-started)
 - [Secrets Management](#secrets-management)
@@ -8,16 +8,16 @@ PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provi
 - [Contributing](#contributing)
 - [Frequently asked Questions](#frequently-asked-questions)
 
-## Getting Started 
+## Getting Started
 
-Watch this [Getting Started Loom video](https://www.loom.com/share/3de81ca3ce914feca209bf83777efa3f?sid=8804e8d7-096c-4aaa-a8a4-9eb93a44e850) or run one of our Quickstart tutorials below to see how you can use PyAirbyte in your python code. 
+Watch this [Getting Started Loom video](https://www.loom.com/share/3de81ca3ce914feca209bf83777efa3f?sid=8804e8d7-096c-4aaa-a8a4-9eb93a44e850) or run one of our Quickstart tutorials below to see how you can use PyAirbyte in your python code.
 
 * [Basic Demo](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Basic_Features_Demo.ipynb)
 * [CoinAPI](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_CoinAPI_Demo.ipynb)
-* [GA4](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_GA4_Demo.ipynb) 
-* [Shopify](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Shopify_Demo.ipynb) 
-* [GitHub](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Github_Incremental_Demo.ipynb) 
-* [Postgres (cache)](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Postgres_Custom_Cache_Demo.ipynb)  
+* [GA4](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_GA4_Demo.ipynb)
+* [Shopify](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Shopify_Demo.ipynb)
+* [GitHub](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Github_Incremental_Demo.ipynb)
+* [Postgres (cache)](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Postgres_Custom_Cache_Demo.ipynb)
 
 
 ## Secrets Management
@@ -36,7 +36,7 @@ _Note: Additional secret store options may be supported in the future. [More inf
 ```python
 from airbyte import get_secret, SecretSource
 
-source = get_connection("source-github")
+source = get_source("source-github")
 source.set_config(
    "credentials": {
       "personal_access_token": get_secret("GITHUB_PERSONAL_ACCESS_TOKEN"),
@@ -100,10 +100,10 @@ For a more lightweight check, the `--validate-install-only` flag can be used. Th
 
 To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./CONTRIBUTING.md).
 
-## Frequently asked Questions 
+## Frequently asked Questions
 
 **1. Does PyAirbyte replace Airbyte?**
-No. 
+No.
 
 **2. What is the PyAirbyte cache? Is it a destination?**
 Yes, you can think of it as a built-in destination implementation, but we avoid the word "destination" in our docs to prevent confusion with our certified destinations list [here](https://docs.airbyte.com/integrations/destinations/).
@@ -118,7 +118,7 @@ Yes, you can, but only for Python-based sources.
 Yes. Just pick the cache type matching the destination - like SnowflakeCache for landing data in Snowflake.
 
 **6. Can PyAirbyte import a connector from a local directory that has python project files, or does it have to be pip install**
-Yes, PyAirbyte can use any local install that has a CLI - and will automatically find connectors by name if they are on PATH. 
+Yes, PyAirbyte can use any local install that has a CLI - and will automatically find connectors by name if they are on PATH.
 
 
 ## Changelog and Release Notes

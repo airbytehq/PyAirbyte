@@ -15,6 +15,7 @@ import pytest
 
 import airbyte as ab
 from airbyte._executor import _get_bin_dir
+from airbyte.progress import progress, ReadProgress
 
 
 # Product count is always the same, regardless of faker scale.
@@ -81,6 +82,58 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
+
+@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
+def source_pokeapi() -> ab.Source:
+    """Fixture to return a source-faker connector instance."""
+    source = ab.get_source(
+        "source-pokeapi",
+        local_executable="source-pokeapi",
+        config={
+            "pokemon_name": "pikachu",
+        },
+        install_if_missing=False,  # Should already be on PATH
+        streams="*",
+    )
+    source.check()
+    return source
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(
+    "CI" in os.environ,
+    reason="Fails inexplicably when run in CI. https://github.com/airbytehq/PyAirbyte/issues/146"
+)
+def test_pokeapi_read(
+    source_pokeapi: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that PokeAPI source can load to all cache types.
+
+    This is a meaningful test because the PokeAPI source uses JSON data types.
+    """
+    result = source_pokeapi.read(
+        new_generic_cache, write_strategy="replace", force_full_refresh=True
+    )
+    assert len(list(result.cache.streams["pokemon"])) == 1
+
+
+@pytest.fixture(scope="function")
+def progress_mock(
+    mocker: pytest.MockerFixture,
+) -> ReadProgress:
+    """Fixture to return a mocked version of progress.progress."""
+    # Mock the progress object.
+    mocker.spy(progress, 'reset')
+    mocker.spy(progress, 'log_records_read')
+    mocker.spy(progress, 'log_batch_written')
+    mocker.spy(progress, 'log_batches_finalizing')
+    mocker.spy(progress, 'log_batches_finalized')
+    mocker.spy(progress, 'log_stream_finalized')
+    mocker.spy(progress, 'log_success')
+    return progress
+
+
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
 #@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
@@ -89,12 +142,37 @@ def source_faker_seed_b() -> ab.Source:
 def test_faker_read(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
+    progress_mock: ReadProgress,
 ) -> None:
     """Test that the append strategy works as expected."""
     result = source_faker_seed_a.read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
+    configured_count = source_faker_seed_a._config["count"]
+
+    # These numbers expect only 'users' stream selected:
+
+    assert progress_mock.total_records_read == configured_count
+    assert progress_mock.total_records_written == configured_count
+    assert progress_mock.log_records_read.call_count >= configured_count
+    assert progress_mock.reset.call_count == 1
+    assert progress_mock.log_batch_written.call_count == 1
+    assert progress_mock.total_batches_written == 1
+    assert progress_mock.log_batches_finalizing.call_count == 1
+    assert progress_mock.log_batches_finalized.call_count == 1
+    assert progress_mock.total_batches_finalized == 1
+    assert progress_mock.finalized_stream_names == {"users"}
+    assert progress_mock.log_stream_finalized.call_count == 1
+    assert progress_mock.log_success.call_count == 1
+
+    status_msg: str = progress_mock._get_status_message()
+    assert "Read **0** records" not in status_msg
+    assert f"Read **{configured_count}** records" in status_msg
+
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+
+    # TODO: Uncomment this line after resolving https://github.com/airbytehq/PyAirbyte/issues/165
+    # assert len(result["users"].to_pandas()) == FAKER_SCALE_A
 
 
 @pytest.mark.requires_creds
@@ -144,3 +222,33 @@ def test_merge_strategy(
     # TODO: See if we can reliably predict the exact number of records, since we use fixed seeds.
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_B
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
+def test_auto_add_columns(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the auto-add columns works as expected."""
+    # Start with a normal read.
+    result = source_faker_seed_a.read(
+        new_generic_cache,
+        write_strategy="auto",
+    )
+    table_name: str = result['users'].to_sql_table().name
+
+    # Ensure that the raw ID column is present. Then delete it and confirm it's gone.
+    assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
+    new_generic_cache.get_sql_engine().execute(
+        f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
+        "DROP COLUMN _airbyte_raw_id",
+    )
+    new_generic_cache.processor._invalidate_table_cache(table_name)
+
+    assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
+
+    # Now re-read the stream with the auto strategy and ensure the column is back.
+    result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")
+
+    assert "_airbyte_raw_id" in result["users"].to_sql_table().columns

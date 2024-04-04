@@ -13,6 +13,7 @@ from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
+from airbyte.records import StreamRecord
 from airbyte.results import ReadResult
 from airbyte.secrets import SecretSource, get_secret
 from airbyte.sources import registry
@@ -27,6 +28,7 @@ __all__ = [
     "datasets",
     "documents",
     "exceptions",
+    "records",
     "registry",
     "results",
     "secrets",
@@ -44,6 +46,7 @@ __all__ = [
     "ReadResult",
     "SecretSource",
     "Source",
+    "StreamRecord",
 ]
 
 __docformat__ = "google"

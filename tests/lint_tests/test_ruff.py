@@ -6,6 +6,7 @@ import subprocess
 import pytest
 
 
+@pytest.mark.linting
 def test_ruff_linting():
     # Run the check command
     check_result = subprocess.run(
@@ -22,6 +23,7 @@ def test_ruff_linting():
     )
 
 
+@pytest.mark.linting
 def test_ruff_linting_fixable():
     # Run the check command
     fix_diff_result = subprocess.run(
@@ -38,6 +40,7 @@ def test_ruff_linting_fixable():
     )
 
 
+@pytest.mark.linting
 def test_ruff_format():
     # Define the command to run Ruff
     command = ["poetry", "run", "ruff", "format", "--check", "--diff"]

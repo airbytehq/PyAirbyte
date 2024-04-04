@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, final
 
+import google.oauth2
 import sqlalchemy
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
@@ -29,6 +30,11 @@ if TYPE_CHECKING:
 class BigQueryTypeConverter(SQLTypeConverter):
     """A class to convert types for BigQuery."""
 
+    @classmethod
+    def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
+        """Return the string type for BigQuery."""
+        return "String"
+
     @overrides
     def to_sql_type(
         self,
@@ -42,7 +48,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
         sql_type = super().to_sql_type(json_schema_property_def)
         # to-do: replace hardcoded return types with some sort of snowflake Variant equivalent
         if isinstance(sql_type, sqlalchemy.types.VARCHAR):
-            return "String"
+            return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
             return "INT64"
 
@@ -59,7 +65,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     cache: BigQueryCache
 
     def __init__(self, cache: CacheBase, file_writer: FileWriterBase | None = None) -> None:
-        self._credentials: service_account.Credentials | None = None
+        self._credentials: google.auth.credentials.Credentials | None = None
         self._schema_exists: bool | None = None
         super().__init__(cache, file_writer)
 
@@ -75,8 +81,12 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     @final
     @overrides
     def _quote_identifier(self, identifier: str) -> str:
-        """Return the identifier name as is. BigQuery does not require quoting identifiers"""
-        return f"{identifier}"
+        """Return the identifier name.
+
+        BigQuery uses backticks to quote identifiers. Because BigQuery is case-sensitive for quoted
+        identifiers, we convert the identifier to lowercase before quoting it.
+        """
+        return f"`{identifier.lower()}`"
 
     def _write_files_to_new_table(
         self,
@@ -138,13 +148,15 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
         self._schema_exists = True
 
-    def _get_credentials(self) -> service_account.Credentials:
+    def _get_credentials(self) -> google.auth.credentials.Credentials:
         """Return the GCP credentials."""
         if self._credentials is None:
-            self._credentials = service_account.Credentials.from_service_account_file(
-                self.cache.credentials_path
-            )
-
+            if self.cache.credentials_path:
+                self._credentials = service_account.Credentials.from_service_account_file(
+                    self.cache.credentials_path
+                )
+            else:
+                self._credentials, _ = google.auth.default()
         return self._credentials
 
     def _table_exists(

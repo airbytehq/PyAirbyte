@@ -94,10 +94,20 @@ class SQLTypeConverter:
     ) -> None:
         self.conversion_map = conversion_map or CONVERSION_MAP
 
-    @staticmethod
-    def get_failover_type() -> sqlalchemy.types.TypeEngine:
-        """Get the 'last resort' type to use if no other type is found."""
+    @classmethod
+    def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
+        """Get the type to use for string data."""
         return sqlalchemy.types.VARCHAR()
+
+    @classmethod
+    def get_failover_type(cls) -> sqlalchemy.types.TypeEngine:
+        """Get the 'last resort' type to use if no other type is found."""
+        return cls.get_string_type()
+
+    @classmethod
+    def get_json_type(cls) -> sqlalchemy.types.TypeEngine:
+        """Get the type to use for nested JSON data."""
+        return sqlalchemy.types.JSON()
 
     def to_sql_type(
         self,
@@ -122,11 +132,9 @@ class SQLTypeConverter:
             return sqlalchemy.types.TIMESTAMP()
 
         if json_schema_type == "array":
-            # TODO: Implement array type conversion.
-            return self.get_failover_type()
+            return sqlalchemy.types.JSON()
 
         if json_schema_type == "object":
-            # TODO: Implement object type handling.
-            return self.get_failover_type()
+            return sqlalchemy.types.JSON()
 
         return self.get_failover_type()

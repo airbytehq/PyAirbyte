@@ -88,7 +88,7 @@ sample_record1_stream1 = {
     "record": {
         "data": {"Column1": "value1", "Column2": 1},
         "stream": "stream1",
-        "emitted_at": 123456789,
+        "emitted_at": 1704067200,
     },
 }
 sample_record2_stream1 = {
@@ -96,7 +96,7 @@ sample_record2_stream1 = {
     "record": {
         "data": {"Column1": "value2", "Column2": 2},
         "stream": "stream1",
-        "emitted_at": 123456789,
+        "emitted_at": 1704067200,
     },
 }
 sample_record_stream2 = {
@@ -104,7 +104,7 @@ sample_record_stream2 = {
     "record": {
         "data": {"Column1": "value1", "Column2": 1},
         "stream": "stream2",
-        "emitted_at": 123456789,
+        "emitted_at": 1704067200,
     },
 }
 

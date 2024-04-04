@@ -1,8 +1,11 @@
 # This workflow will run pytest.
 #
-# There are two jobs which run in parallel:
+# There are three jobs which run in parallel:
 # 1. pytest-fast: Run fast tests only, and fail fast so the dev knows asap if they broke something.
-# 2. pytest: Run all tests, across multiple python versions.
+# 2. pytest-no-creds: Run tests only if they don't require creds. The main use case is to run tests
+#    on forks, where secrets are not available. We flush the GCP_GSM_CREDENTIALS env var to an
+#    invalid value to ensure that tests that require creds are not run.
+# 3. pytest: Run all tests, across multiple python versions.
 #
 # Note that pytest-fast also skips tests that require credentials, allowing it to run on forks.
 name: Run Tests
@@ -40,12 +43,43 @@ jobs:
     - name: Run Pytest (Fast Tests Only)
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest -m "not slow and not requires_creds" --durations=5 --exitfirst
+      run: >
+        poetry run pytest -m
+        "not slow and not requires_creds and not linting"
+        --durations=5 --exitfirst
+
+  pytest-no-creds:
+    name: Pytest (No Creds)
+    runs-on: ubuntu-latest
+    steps:
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v8
+      with:
+        poetry-version: "1.7.1"
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
+
+    # Job-specific step(s):
+    - name: Run Pytest (No-Creds)
+      env:
+        # Force this to an invalid value to ensure tests that no creds are required are run.
+        GCP_GSM_CREDENTIALS: "no-creds"
+      run: poetry run pytest -m "not requires_creds"
 
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
-    # Don't run on forks
-    if: github.repository_owner == 'airbytehq'
+    # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
+    if: >
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      (github.event.pull_request.head.repo.fork == false)
     strategy:
       matrix:
         python-version: [
@@ -80,4 +114,4 @@ jobs:
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest
+      run: poetry run pytest -m "not linting"
