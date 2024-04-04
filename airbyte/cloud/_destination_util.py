@@ -105,11 +105,14 @@ def get_bigquery_destination_config(
     cache: BigQueryCache,
 ) -> dict[str, str]:
     """Get the destination configuration from the BigQuery cache."""
+    credentials_json: str | None = (
+        Path(cache.credentials_path).read_text() if cache.credentials_path else None
+    )
     return DestinationBigquery(
         project_id=cache.project_name,
         dataset_id=cache.dataset_name,
         schema=cache.schema_name,
-        credentials_json=Path(cache.credentials_path).read_text(),
+        credentials_json=credentials_json,
     ).to_dict()
 
 
