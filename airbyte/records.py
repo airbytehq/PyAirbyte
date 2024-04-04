@@ -59,14 +59,10 @@ PyAirbyte supports a very basic form of schema evolution:
    as not present in the cache table.
 2. Column types will not be modified or expanded to fit changed types in the source catalog.
    - If column types change, we recommend user to manually alter the column types.
-3. At any time, users can run a full sync with a `WriteStategy` of 'replace'. This will create a
+3. At any time, users can run a full sync with a `WriteStrategy` of 'replace'. This will create a
    fresh table from scratch and then swap the old and new tables after table sync is complete.
 
-## `records` Module API Reference
-
-This module contains the `StreamRecord` class, which is a case-aware, case-insensitive dictionary.
-It is used to store records in PyAirbyte. Since it is subclassed from `dict`, it can be used like a
-normal dictionary.
+---
 
 """
 
@@ -101,6 +97,10 @@ class StreamRecord(dict[str, Any]):
       case-insensitive manner.
     - The original case is stored in a separate dictionary, so that the original case can be
       retrieved when needed.
+    - Because it is subclassed from `dict`, the `StreamRecord` class can be passed as a normal
+      Python dictionary.
+    - In addition to the properties of the stream's records, the dictionary also stores the Airbyte
+      metadata columns: `_airbyte_raw_id`, `_airbyte_extracted_at`, and `_airbyte_meta`.
 
     This behavior mirrors how a case-aware, case-insensitive SQL database would handle column
     references.
