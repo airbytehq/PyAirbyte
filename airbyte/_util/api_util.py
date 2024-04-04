@@ -18,10 +18,10 @@ from airbyte_api.models import shared as api_models
 from airbyte_api.models.shared.jobcreaterequest import JobCreateRequest, JobTypeEnum
 
 from airbyte.exceptions import (
-    HostedAirbyteError,
-    HostedConnectionSyncError,
-    MissingResourceError,
-    MultipleResourcesError,
+    AirbyteConnectionSyncError,
+    AirbyteError,
+    AirbyteMissingResourceError,
+    AirbyteMultipleResourcesError,
 )
 
 
@@ -79,7 +79,7 @@ def get_workspace(
     if status_ok(response.status_code) and response.workspace_response:
         return response.workspace_response
 
-    raise MissingResourceError(
+    raise AirbyteMissingResourceError(
         resource_type="workspace",
         context={
             "workspace_id": workspace_id,
@@ -112,7 +112,7 @@ def list_connections(
     if status_ok(response.status_code) and response.connections_response:
         return response.connections_response.data
 
-    raise HostedAirbyteError(
+    raise AirbyteError(
         context={
             "workspace_id": workspace_id,
             "response": response,
@@ -141,7 +141,7 @@ def get_connection(
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
-    raise MissingResourceError(connection_id, "connection", response.text)
+    raise AirbyteMissingResourceError(connection_id, "connection", response.text)
 
 
 def run_connection(
@@ -171,7 +171,7 @@ def run_connection(
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 
-    raise HostedConnectionSyncError(
+    raise AirbyteConnectionSyncError(
         connection_id=connection_id,
         context={
             "workspace_id": workspace_id,
@@ -206,7 +206,7 @@ def get_job_logs(
     if status_ok(response.status_code) and response.jobs_response:
         return response.jobs_response.data
 
-    raise MissingResourceError(
+    raise AirbyteMissingResourceError(
         response=response,
         resource_type="job",
         context={
@@ -235,7 +235,7 @@ def get_job_info(
     if status_ok(response.status_code) and response.job_response:
         return response.job_response
 
-    raise MissingResourceError(job_id, "job", response.text)
+    raise AirbyteMissingResourceError(job_id, "job", response.text)
 
 
 # Create, get, and delete sources
@@ -266,7 +266,7 @@ def create_source(
     if status_ok(response.status_code) and response.source_response:
         return response.source_response
 
-    raise HostedAirbyteError(
+    raise AirbyteError(
         message="Could not create source.",
         response=response,
     )
@@ -291,7 +291,7 @@ def get_source(
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
-    raise MissingResourceError(source_id, "source", response.text)
+    raise AirbyteMissingResourceError(source_id, "source", response.text)
 
 
 def delete_source(
@@ -313,7 +313,7 @@ def delete_source(
         ),
     )
     if not status_ok(response.status_code):
-        raise HostedAirbyteError(
+        raise AirbyteError(
             context={
                 "source_id": source_id,
                 "response": response,
@@ -349,7 +349,7 @@ def create_destination(
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
-    raise HostedAirbyteError(
+    raise AirbyteError(
         message="Could not create destination.",
         response=response,
     )
@@ -374,7 +374,7 @@ def get_destination(
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
 
-    raise MissingResourceError(destination_id, "destination", response.text)
+    raise AirbyteMissingResourceError(destination_id, "destination", response.text)
 
 
 def delete_destination(
@@ -396,7 +396,7 @@ def delete_destination(
         ),
     )
     if not status_ok(response.status_code):
-        raise HostedAirbyteError(
+        raise AirbyteError(
             context={
                 "destination_id": destination_id,
                 "response": response,
@@ -434,7 +434,7 @@ def create_connection(
         ),
     )
     if not status_ok(response.status_code):
-        raise HostedAirbyteError(
+        raise AirbyteError(
             context={
                 "source_id": source_id,
                 "destination_id": destination_id,
@@ -462,10 +462,12 @@ def get_connection_by_name(
         connection for connection in connections if connection.name == connection_name
     ]
     if len(found) == 0:
-        raise MissingResourceError(connection_name, "connection", f"Workspace: {workspace_id}")
+        raise AirbyteMissingResourceError(
+            connection_name, "connection", f"Workspace: {workspace_id}"
+        )
 
     if len(found) > 1:
-        raise MultipleResourcesError(
+        raise AirbyteMultipleResourcesError(
             resource_type="connection",
             resource_name_or_id=connection_name,
             context={
@@ -494,7 +496,7 @@ def delete_connection(
         ),
     )
     if not status_ok(response.status_code):
-        raise HostedAirbyteError(
+        raise AirbyteError(
             context={
                 "connection_id": connection_id,
                 "response": response,

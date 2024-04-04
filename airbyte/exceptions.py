@@ -55,7 +55,7 @@ DOCS_URL = "https://docs.airbyte.io/"
 
 
 @dataclass
-class AirbyteError(Exception):
+class PyAirbyteError(Exception):
     """Base class for exceptions in Airbyte."""
 
     guidance: str | None = None
@@ -135,7 +135,7 @@ class AirbyteError(Exception):
 
 
 @dataclass
-class PyAirbyteInternalError(AirbyteError):
+class PyAirbyteInternalError(PyAirbyteError):
     """An internal error occurred in PyAirbyte."""
 
     guidance = "Please consider reporting this error to the Airbyte team."
@@ -146,7 +146,7 @@ class PyAirbyteInternalError(AirbyteError):
 
 
 @dataclass
-class PyAirbyteInputError(AirbyteError, ValueError):
+class PyAirbyteInputError(PyAirbyteError, ValueError):
     """The input provided to PyAirbyte did not match expected validation rules.
 
     This inherits from ValueError so that it can be used as a drop-in replacement for
@@ -174,7 +174,7 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
 # PyAirbyte Cache Errors
 
 
-class PyAirbyteCacheError(AirbyteError):
+class PyAirbyteCacheError(PyAirbyteError):
     """Error occurred while accessing the cache."""
 
 
@@ -196,7 +196,7 @@ class AirbyteConnectorConfigurationMissingError(PyAirbyteCacheError):
 
 
 @dataclass
-class AirbyteSubprocessError(AirbyteError):
+class AirbyteSubprocessError(PyAirbyteError):
     """Error when running subprocess."""
 
     run_args: list[str] | None = None
@@ -212,7 +212,7 @@ class AirbyteSubprocessFailedError(AirbyteSubprocessError):
 # Connector Registry Errors
 
 
-class AirbyteConnectorRegistryError(AirbyteError):
+class AirbyteConnectorRegistryError(PyAirbyteError):
     """Error when accessing the connector registry."""
 
 
@@ -236,7 +236,7 @@ class AirbyteConnectorNotPyPiPublishedError(AirbyteConnectorRegistryError):
 
 
 @dataclass
-class AirbyteConnectorError(AirbyteError):
+class AirbyteConnectorError(PyAirbyteError):
     """Error when running the connector."""
 
     connector_name: str | None = None
@@ -298,7 +298,7 @@ class AirbyteStreamNotFoundError(AirbyteConnectorError):
 
 
 @dataclass
-class PyAirbyteSecretNotFoundError(AirbyteError):
+class PyAirbyteSecretNotFoundError(PyAirbyteError):
     """Secret not found."""
 
     guidance = "Please ensure that the secret is set."
@@ -314,7 +314,7 @@ class PyAirbyteSecretNotFoundError(AirbyteError):
 
 
 @dataclass
-class AirbyteError(AirbyteError):
+class AirbyteError(PyAirbyteError):
     """An error occurred while communicating with the hosted Airbyte instance."""
 
     response: AirbyteApiResponseDuckType | None = None

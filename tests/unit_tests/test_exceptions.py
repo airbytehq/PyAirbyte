@@ -22,8 +22,8 @@ def test_exceptions():
         assert message != ""
         assert message.strip() == message
         assert any(
-            [name.startswith(prefix) for prefix in ["Airbyte", "HostedAirbyte", "PyAirbyte"]]
-        ), f"{name} does not start with Airbyte, HostedAirbyte, or PyAirbyte"
+            [name.startswith(prefix) for prefix in ["Airbyte", "PyAirbyte"]]
+        ), f"{name} does not start with Airbyte or PyAirbyte"
         assert name.endswith("Error")
 
 

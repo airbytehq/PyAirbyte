@@ -13,7 +13,7 @@ from airbyte_api.models.shared import ConnectionResponse, JobStatusEnum
 from airbyte._util import api_util
 from airbyte.cloud._destination_util import create_cache_from_destination
 from airbyte.datasets import CachedDataset
-from airbyte.exceptions import HostedConnectionSyncError, HostedConnectionSyncTimeoutError
+from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
@@ -97,7 +97,7 @@ class SyncResult:
 
         By default, this method will use the latest status available. If you want to refresh the
         status before checking for failure, set `refresh_status=True`. If the job has failed, this
-        method will raise a `HostedConnectionSyncError`.
+        method will raise a `AirbyteConnectionSyncError`.
 
         Otherwise, do nothing.
         """
@@ -106,7 +106,7 @@ class SyncResult:
             latest_status = self.get_job_status()
 
         if latest_status in FAILED_STATUSES:
-            raise HostedConnectionSyncError(
+            raise AirbyteConnectionSyncError(
                 workspace=self.workspace,
                 connection_id=self.connection_id,
                 job_id=self.job_id,
@@ -133,7 +133,7 @@ class SyncResult:
 
             if time.time() - start_time > wait_timeout:
                 if raise_timeout:
-                    raise HostedConnectionSyncTimeoutError(
+                    raise AirbyteConnectionSyncTimeoutError(
                         workspace=self.workspace,
                         connection_id=self.connection_id,
                         job_id=self.job_id,
