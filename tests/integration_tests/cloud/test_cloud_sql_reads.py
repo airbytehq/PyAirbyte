@@ -8,7 +8,6 @@ import pytest
 import airbyte as ab
 from airbyte import cloud
 from airbyte.cloud._sync_results import SyncResult
-from tests.conftest import new_bigquery_cache
 
 
 @pytest.fixture
