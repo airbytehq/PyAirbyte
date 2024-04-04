@@ -48,7 +48,7 @@ class SyncResult:
     _connection_response: ConnectionResponse | None = None
 
     def _get_connection_info(self, *, force_refresh: bool = False) -> ConnectionResponse:
-        """TODO"""
+        """Return connection info for the sync job."""
         if self._connection_response and not force_refresh:
             return self._connection_response
 
@@ -61,6 +61,7 @@ class SyncResult:
         return self._connection_response
 
     def _get_destination_configuration(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        """Return the destination configuration for the sync job."""
         connection_info: ConnectionResponse = self._get_connection_info(force_refresh=force_refresh)
         destination_response = api_util.get_destination(
             destination_id=connection_info.destination_id,
@@ -146,7 +147,7 @@ class SyncResult:
 
     def get_sql_cache(self) -> CacheBase:
         """Return a SQL Cache object for working with the data in a SQL-based destination's."""
-        # TODO: Implement
+        destination_configuration = self._get_destination_configuration()
         return create_cache_from_destination(destination_configuration)
 
     def get_sql_engine(self) -> sqlalchemy.engine.Engine:
@@ -181,7 +182,7 @@ class SyncResult:
 
     @property
     def stream_names(self) -> set[str]:
-        """TODO"""
+        """Return the set of stream names."""
         return self.get_sql_cache().processor.expected_streams
 
     @final
@@ -193,7 +194,7 @@ class SyncResult:
         return self.SyncResultStreams(self)
 
     class SyncResultStreams(Mapping[str, CachedDataset]):
-        """TODO"""
+        """A mapping of stream names to cached datasets."""
 
         def __init__(
             self,
