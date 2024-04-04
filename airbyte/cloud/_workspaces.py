@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
@@ -179,30 +180,63 @@ class CloudWorkspace:
 
     def deploy_connection(
         self,
-        source: Source,
-        cache: CacheBase,
+        source: Source | str,
+        cache: CacheBase | None = None,
+        destination: str | None = None,
     ) -> str:
         """Deploy a source and cache to the workspace as a new connection.
 
         Returns the newly deployed connection ID as a `str`.
-        """
-        self.deploy_source(source)
-        self.deploy_cache_as_destination(cache)
 
-        assert source._deployed_source_id is not None  # noqa: SLF001  # Accessing nn-public API
-        assert cache._deployed_destination_id is not None  # noqa: SLF001  # Accessing nn-public API
+        Args:
+            source (Source | str): The source to deploy. You can pass either an already deployed
+                source ID `str` or a PyAirbyte `Source` object. If you pass a `Source` object,
+                it will be deployed automatically.
+            cache (CacheBase, optional): The cache to deploy as a new destination. You can provide
+                `cache` or `destination`, but not both.
+            destination (str, optional): The destination ID to use. You can provide
+                `cache` or `destination`, but not both.
+        """
+        # Resolve source ID
+        source_id: str
+        if isinstance(source, Source):
+            if source._deployed_source_id:  # noqa: SLF001
+                source_id = source._deployed_source_id  # noqa: SLF001
+            else:
+                source_id = self.deploy_source(source)
+        else:
+            source_id = source
+
+        # Resolve destination ID
+        destination_id: str
+        if destination:
+            destination_id = destination
+        elif cache:
+            if not cache._deployed_destination_id:  # noqa: SLF001
+                destination_id = self.deploy_cache_as_destination(cache)
+            else:
+                destination_id = cache._deployed_destination_id  # noqa: SLF001
+        else:
+            raise exc.PyAirbyteInputError(
+                guidance="You must provide either a destination ID or a cache object."
+            )
+
+        assert source_id is not None
+        assert destination_id is not None
 
         deployed_connection = create_connection(
-            name=f"Connection {source.name.replace('-', ' ').title()} (Deployed by PyAirbyte)",
-            source_id=source._deployed_source_id,  # noqa: SLF001  # Accessing nn-public API
-            destination_id=cache._deployed_destination_id,  # noqa: SLF001  # Accessing nn-public API
+            name="Connection (Deployed by PyAirbyte)",
+            source_id=source_id,
+            destination_id=destination_id,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
         )
 
-        source._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
-        cache._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
+        if isinstance(source, Source):
+            source._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
+        if cache:
+            cache._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
 
         return deployed_connection.connection_id
 
