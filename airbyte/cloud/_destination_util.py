@@ -11,6 +11,7 @@ from airbyte_api.models.shared import (
     DestinationDuckdb,
     DestinationPostgres,
     DestinationSnowflake,
+    StandardInserts,
 )
 
 from airbyte.caches import (
@@ -108,12 +109,14 @@ def get_bigquery_destination_config(
     credentials_json: str | None = (
         Path(cache.credentials_path).read_text() if cache.credentials_path else None
     )
-    return DestinationBigquery(
+    destination = DestinationBigquery(
         project_id=cache.project_name,
         dataset_id=cache.dataset_name,
-        schema=cache.schema_name,
+        dataset_location="us-west1",
         credentials_json=credentials_json,
-    ).to_dict()
+        loading_method=StandardInserts,
+    )
+    return destination.to_dict()
 
 
 def create_bigquery_cache(
