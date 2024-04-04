@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, Any, final
 
 from airbyte_api.models.shared import ConnectionResponse, JobStatusEnum
 

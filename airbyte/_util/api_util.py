@@ -238,7 +238,6 @@ def get_job_info(
     raise MissingResourceError(job_id, "job", response.text)
 
 
-
 # Create, get, and delete sources
 
 
@@ -271,6 +270,7 @@ def create_source(
         message="Could not create source.",
         response=response,
     )
+
 
 def get_source(
     source_id: str,
