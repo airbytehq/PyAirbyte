@@ -9,17 +9,22 @@ from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
 from airbyte import cloud
+from airbyte.caches.postgres import PostgresCache
 from airbyte.cloud._sync_results import SyncResult
 
 
 @pytest.fixture
 def deployable_cache(
-    new_bigquery_cache,
-    new_snowflake_cache,
-) -> ab.BigQueryCache | ab.SnowflakeCache:
+    # new_bigquery_cache,
+    # new_snowflake_cache,
+    # new_remote_postgres_cache: PostgresCache,
+    new_motherduck_cache: ab.MotherDuckCache,
+) -> ab.BigQueryCache | ab.SnowflakeCache | ab.MotherDuckCache | ab.PostgresCache:
     # TODO: Add Snowflake here as well
-    return new_snowflake_cache
+    # return new_snowflake_cache
     # return new_bigquery_cache
+    return new_motherduck_cache
+    # return new_remote_postgres_cache
 
 
 @pytest.fixture

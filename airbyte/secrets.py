@@ -90,6 +90,7 @@ _SOURCE_FUNCTIONS: dict[SecretSource, Callable] = {
 
 def get_secret(
     secret_name: str,
+    /,
     source: SecretSource | list[SecretSource] = SecretSource.ANY,
     *,
     prompt: bool = True,

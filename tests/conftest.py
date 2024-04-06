@@ -20,6 +20,7 @@ from airbyte._util.meta import is_windows
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
+from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
@@ -32,6 +33,8 @@ from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.util import new_local_cache
 from airbyte.sources.base import as_temp_files
+
+import airbyte as ab
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +95,11 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
         if "new_postgres_cache" in item.fixturenames or "postgres_cache" in item.fixturenames:
             if True or not is_docker_available():
                 item.add_marker(pytest.mark.skip(reason="Skipping tests (Docker not available)"))
+
+        # Every test in the cloud directory is slow abd requires credentials
+        if "integration_tests/cloud" in str(item.fspath):
+            item.add_marker(pytest.mark.slow)
+            item.add_marker(pytest.mark.requires_creds)
 
 
 def is_port_in_use(port):
@@ -312,6 +320,15 @@ def source_test_installation():
 @pytest.fixture(scope="function")
 def new_duckdb_cache() -> DuckDBCache:
     return new_local_cache()
+
+
+@pytest.fixture(scope="function")
+def new_motherduck_cache() -> MotherDuckCache:
+    return MotherDuckCache(
+        api_key=ab.get_secret("MOTHERDUCK_API_KEY"),
+        schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
+        database="integration_tests_deleteany",
+    )
 
 
 @pytest.fixture(scope="function")
