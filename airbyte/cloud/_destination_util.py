@@ -203,7 +203,7 @@ def create_cache_from_destination_config(
         "DestinationPostgres": create_postgres_cache,
         "DestinationSnowflake": create_snowflake_cache,
     }
-    destination_class_name = type(destination_config).__name__
+    destination_class_name = type(destination_configuration).__name__
     if destination_class_name not in conversion_fn_map:
         raise ValueError(  # noqa: TRY003
             "Cannot convert destination configuration to cache. Destination type not supported. ",
