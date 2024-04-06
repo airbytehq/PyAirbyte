@@ -5,11 +5,10 @@ These tests are designed to be run against a running instance of the Airbyte API
 """
 from __future__ import annotations
 
-import pytest
-
 import airbyte as ab
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
+
 
 ENV_AIRBYTE_API_KEY = "AIRBYTE_API_KEY"
 ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_API_WORKSPACE_ID"

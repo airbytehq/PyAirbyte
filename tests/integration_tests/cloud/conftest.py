@@ -9,6 +9,7 @@ import pytest
 from airbyte._util.api_util import CLOUD_API_ROOT
 from dotenv import dotenv_values
 from airbyte._executor import _get_bin_dir
+from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
 
 
@@ -107,3 +108,33 @@ def motherduck_api_key() -> str:
         raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
 
     return os.environ[ENV_MOTHERDUCK_API_KEY]
+
+
+@pytest.fixture(scope="function")
+def new_deployable_cache(request) -> CacheBase:
+    """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
+    return request.getfixturevalue(request.param)
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Override default pytest behavior, parameterizing our tests based on the available cache types.
+
+    This is useful for running the same tests with different cache types, to ensure that the tests
+    can pass across all cache types.
+    """
+    deployable_cache_fixtures: dict[str, str] = {
+        # Ordered by priority (fastest first)
+        # "DuckDB": "new_duckdb_cache",
+        # "Postgres": "new_remote_postgres_cache",
+        # "BigQuery": "new_bigquery_cache",
+        "Snowflake": "new_snowflake_cache",
+    }
+
+    if "new_deployable_cache" in metafunc.fixturenames:
+        metafunc.parametrize(
+            "new_deployable_cache",
+            deployable_cache_fixtures.values(),
+            ids=deployable_cache_fixtures.keys(),
+            indirect=True,
+            scope="function",
+        )
