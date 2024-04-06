@@ -22,11 +22,6 @@ def deployable_source() -> ab.Source:
 
 
 @pytest.fixture
-def deployed_connection_id() -> str:
-    return "c7b4d838-a612-495a-9d91-a14e477add51"
-
-
-@pytest.fixture
 def previous_job_run_id() -> str:
     return "10136196"
 
@@ -78,7 +73,15 @@ def test_deploy_and_run_and_read(
     with suppress(Exception):
         cloud_workspace.delete_destination(destination_id=destination_id)
 
-
+@pytest.mark.parametrize(
+    "deployed_connection_id",
+    [
+        pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
+        pytest.param("", id="Faker->BigQuery", marks=pytest.mark.skip(reason="Not yet supported")),
+        pytest.param("", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")),
+        pytest.param("", id="Faker->MotherDuck", marks=pytest.mark.skip(reason="Not yet supported")),
+    ],
+)
 def test_read_from_deployed_connection(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
