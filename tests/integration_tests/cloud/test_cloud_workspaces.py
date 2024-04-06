@@ -64,5 +64,8 @@ def test_deploy_connection(
         schema_name="public",
     )
 
-    connection_id: str = cloud_workspace.deploy_connection(source=source, cache=cache)
+    connection_id: str = cloud_workspace.deploy_connection(
+        source=source,
+        cache=cache,
+    )
     cloud_workspace.delete_connection(connection_id=connection_id)

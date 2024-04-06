@@ -183,6 +183,8 @@ class CloudWorkspace:
         source: Source | str,
         cache: CacheBase | None = None,
         destination: str | None = None,
+        table_prefix: str | None = None,
+        selected_streams: list[str] | None = None,
     ) -> str:
         """Deploy a source and cache to the workspace as a new connection.
 
@@ -200,18 +202,24 @@ class CloudWorkspace:
         # Resolve source ID
         source_id: str
         if isinstance(source, Source):
+            selected_streams = selected_streams or source.get_selected_streams()
             if source._deployed_source_id:  # noqa: SLF001
                 source_id = source._deployed_source_id  # noqa: SLF001
             else:
                 source_id = self.deploy_source(source)
         else:
             source_id = source
+            if not selected_streams:
+                raise exc.PyAirbyteInputError(
+                    guidance="You must provide `selected_streams` when deploying a source ID."
+                )
 
         # Resolve destination ID
         destination_id: str
         if destination:
             destination_id = destination
         elif cache:
+            table_prefix = table_prefix if table_prefix is not None else (cache.table_prefix or "")
             if not cache._deployed_destination_id:  # noqa: SLF001
                 destination_id = self.deploy_cache_as_destination(cache)
             else:
@@ -231,6 +239,8 @@ class CloudWorkspace:
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
+            selected_stream_names=selected_streams,
+            prefix=table_prefix or "",
         )
 
         if isinstance(source, Source):

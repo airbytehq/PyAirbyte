@@ -4,7 +4,6 @@ from __future__ import annotations
 from contextlib import suppress
 
 import pytest
-import sqlalchemy
 from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
@@ -45,15 +44,14 @@ def test_deploy_and_run_and_read(
     connection_id = cloud_workspace.deploy_connection(
         source=source_id,
         destination=destination_id,
+        table_prefix=cache.table_prefix,
+        selected_streams=source.get_selected_streams(),
     )
 
     # Run sync and get result:
     sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
 
-    # Test sync result:
-    assert sync_result.is_job_complete()
-
-    # TODO: Remove this after Destination bug is resolved:
+    # TODO: Remove this second run after Destination bug is resolved:
     #       https://github.com/airbytehq/airbyte/issues/36875
     sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
 

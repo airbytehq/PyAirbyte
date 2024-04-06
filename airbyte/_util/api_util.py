@@ -438,22 +438,30 @@ def create_connection(
     api_root: str,
     api_key: str,
     workspace_id: str | None = None,
+    prefix: str,
+    selected_stream_names: list[str],
 ) -> api_models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    stream_configuration = api_models.StreamConfiguration(
-        name="users",
-    )
-    stream_configurations = api_models.StreamConfigurations([stream_configuration])
+    stream_configurations: list[api_models.StreamConfiguration] = []
+    if selected_stream_names:
+        for stream_name in selected_stream_names:
+            stream_configuration = api_models.StreamConfiguration(
+                name=stream_name,
+            )
+            stream_configurations.append(stream_configuration)
+
+    stream_configurations = api_models.StreamConfigurations(stream_configurations)
     response = airbyte_instance.connections.create_connection(
         api_models.ConnectionCreateRequest(
             name=name,
             source_id=source_id,
             destination_id=destination_id,
             configurations=stream_configurations,
+            prefix=prefix,
         ),
     )
     if not status_ok(response.status_code):
