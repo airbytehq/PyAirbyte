@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, final
 from airbyte_api.models.shared import ConnectionResponse, JobStatusEnum
 
 from airbyte._util import api_util
-from airbyte.cloud._destination_util import create_cache_from_destination
+from airbyte.cloud._destination_util import create_cache_from_destination_config
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
@@ -44,6 +44,8 @@ class SyncResult:
     workspace: CloudWorkspace
     connection_id: str
     job_id: str
+    table_name_prefix: str = ""
+    table_name_suffix: str = ""
     _latest_status: JobStatusEnum | None = None
     _connection_response: ConnectionResponse | None = None
 
@@ -148,7 +150,9 @@ class SyncResult:
     def get_sql_cache(self) -> CacheBase:
         """Return a SQL Cache object for working with the data in a SQL-based destination's."""
         destination_configuration = self._get_destination_configuration()
-        return create_cache_from_destination(destination_configuration)
+        return create_cache_from_destination_config(
+            destination_configuration,
+        )
 
     def get_sql_engine(self) -> sqlalchemy.engine.Engine:
         """Return a SQL Engine for querying a SQL-based destination."""
@@ -167,8 +171,7 @@ class SyncResult:
 
     def get_dataset(self, stream_name: str) -> CachedDataset:
         """Return cached dataset."""
-        cache = self.get_sql_cache()
-        return cache.streams[stream_name]
+        return CachedDataset(self.get_sql_cache(), stream_name=stream_name)
 
     def get_sql_database_name(self) -> str:
         """Return the SQL database name."""

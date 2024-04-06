@@ -304,7 +304,7 @@ class CloudWorkspace:
     def get_sync_result(
         self,
         connection_id: str,
-        job_id: str | None,
+        job_id: str | None = None,
     ) -> SyncResult | None:
         """Get the sync result for a connection job.
 
@@ -315,7 +315,7 @@ class CloudWorkspace:
         if job_id is None:
             results = self.get_previous_sync_logs(
                 connection_id=connection_id,
-                num_sync_logs=1,
+                limit=1,
             )
             if results:
                 return results[0]
@@ -332,7 +332,7 @@ class CloudWorkspace:
         self,
         connection_id: str,
         *,
-        num_sync_logs: int = 10,
+        limit: int = 10,
     ) -> list[SyncResult]:
         """Get the previous sync logs for a connection."""
         sync_logs: list[JobResponse] = api_util.get_job_logs(
@@ -340,7 +340,7 @@ class CloudWorkspace:
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
-            limit=num_sync_logs,
+            limit=limit,
         )
         return [
             SyncResult(

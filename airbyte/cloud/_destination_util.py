@@ -12,6 +12,7 @@ from airbyte_api.models.shared import (
     DestinationPostgres,
     DestinationSnowflake,
     StandardInserts,
+    UsernameAndPassword,
 )
 
 from airbyte.caches import (
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from airbyte.caches.base import CacheBase
+
+
+SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 
 def get_destination_config_from_cache(
@@ -92,13 +96,15 @@ def get_snowflake_destination_config(
 ) -> dict[str, str]:
     """Get the destination configuration from the Snowflake cache."""
     return DestinationSnowflake(
-        account=cache.account,
-        database=cache.database,
-        password=cache.password,
-        role=cache.role,
-        schema=cache.schema_name,
-        username=cache.username,
+        host=f"{cache.account}.snowflakecomputing.com",
+        database=cache.get_database_name().upper(),
+        schema=cache.schema_name.upper(),
         warehouse=cache.warehouse,
+        role=cache.role,
+        username=cache.username,
+        credentials=UsernameAndPassword(
+            password=cache.password,
+        ),
     ).to_dict()
 
 
@@ -120,73 +126,75 @@ def get_bigquery_destination_config(
 
 
 def create_bigquery_cache(
-    destination_configuration: dict[str, str],
+    destination_configuration: DestinationBigquery,
 ) -> BigQueryCache:
     """Create a new BigQuery cache from the destination configuration."""
     credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
     return BigQueryCache(
-        project_name=destination_configuration["project_id"],
-        dataset_name=destination_configuration["dataset_id"],
-        schema_name=destination_configuration["schema"],
+        project_name=destination_configuration.project_id,
+        dataset_name=destination_configuration.dataset_id,
+        schema_name=destination_configuration.schema,
         credentials_path=credentials_path,
     )
 
 
 def create_duckdb_cache(
-    destination_configuration: dict[str, str],
+    destination_configuration: DestinationDuckdb,
 ) -> DuckDBCache:
     """Create a new DuckDB cache from the destination configuration."""
     return DuckDBCache(
-        db_path=destination_configuration["destination_path"],
-        schema_name=destination_configuration["schema"],
+        db_path=destination_configuration.destination_path,
+        schema_name=destination_configuration.schema,
     )
 
 
 def create_motherduck_cache(
-    destination_configuration: dict[str, str],
+    destination_configuration: DestinationDuckdb,
 ) -> MotherDuckCache:
     """Create a new DuckDB cache from the destination configuration."""
     return MotherDuckCache(
-        database=destination_configuration["destination_path"],
-        schema_name=destination_configuration["schema"],
-        api_key=destination_configuration["motherduck_api_key"],
+        database=destination_configuration.destination_path,
+        schema_name=destination_configuration.schema,
+        api_key=destination_configuration.motherduck_api_key,
     )
 
 
 def create_postgres_cache(
-    destination_configuration: dict[str, str],
+    destination_configuration: DestinationPostgres,
 ) -> PostgresCache:
     """Create a new Postgres cache from the destination configuration."""
-    port: int = (
-        int(destination_configuration["port"]) if "port" in destination_configuration else 5432
-    )
+    port: int = int(destination_configuration.port) if "port" in destination_configuration else 5432
     return PostgresCache(
-        database=destination_configuration["database"],
-        host=destination_configuration["host"],
-        password=destination_configuration["password"],
+        database=destination_configuration.database,
+        host=destination_configuration.host,
+        password=destination_configuration.password,
         port=port,
-        schema_name=destination_configuration["schema"],
-        username=destination_configuration["username"],
+        schema_name=destination_configuration.schema,
+        username=destination_configuration.username,
     )
 
 
 def create_snowflake_cache(
-    destination_configuration: dict[str, str],
+    destination_configuration: DestinationSnowflake,
+    password_secret_name: str = SNOWFLAKE_PASSWORD_SECRET_NAME,
 ) -> SnowflakeCache:
     """Create a new Snowflake cache from the destination configuration."""
     return SnowflakeCache(
-        account=destination_configuration["account"],
-        database=destination_configuration["database"],
-        password=destination_configuration["password"],
-        role=destination_configuration["role"],
-        schema_name=destination_configuration["schema"],
-        username=destination_configuration["username"],
-        warehouse=destination_configuration["warehouse"],
+        account=destination_configuration.host.split(".snowflakecomputing")[0],
+        database=destination_configuration.database,
+        schema_name=destination_configuration.schema,
+        warehouse=destination_configuration.warehouse,
+        role=destination_configuration.role,
+        username=destination_configuration.username,
+        password=get_secret(password_secret_name),
     )
 
 
-def create_cache_from_destination(
-    destination_configuration: dict[str, str],
+def create_cache_from_destination_config(
+    destination_configuration: DestinationBigquery
+    | DestinationDuckdb
+    | DestinationPostgres
+    | DestinationSnowflake,
 ) -> CacheBase:
     """Create a new cache from the destination."""
     conversion_fn_map: dict[str, Callable[[dict[str, str]], CacheBase]] = {
@@ -195,7 +203,7 @@ def create_cache_from_destination(
         "DestinationPostgres": create_postgres_cache,
         "DestinationSnowflake": create_snowflake_cache,
     }
-    destination_class_name = destination_configuration["destination_type"]
+    destination_class_name = type(destination_config).__name__
     if destination_class_name not in conversion_fn_map:
         raise ValueError(  # noqa: TRY003
             "Cannot convert destination configuration to cache. Destination type not supported. ",

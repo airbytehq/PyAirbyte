@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING, Any, cast
 
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
+from typing_extensions import Literal
+
+from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
 
 from airbyte.datasets._base import DatasetBase
 
@@ -17,6 +20,8 @@ if TYPE_CHECKING:
     from pandas import DataFrame
     from sqlalchemy import Selectable, Table
     from sqlalchemy.sql import ClauseElement
+
+    from airbyte_protocol.models import ConfiguredAirbyteStream
 
     from airbyte.caches.base import CacheBase
 
@@ -33,16 +38,36 @@ class SQLDataset(DatasetBase):
         cache: CacheBase,
         stream_name: str,
         query_statement: Selectable,
+        stream_configuration: ConfiguredAirbyteStream | None | Literal[False] = None,
     ) -> None:
+        """Initialize the dataset with a cache, stream name, and query statement.
+
+        The query statement should be a SQLAlchemy Selectable object that can be executed to
+        retrieve records from the dataset.
+
+        If stream_configuration is not provided, we attempt to retrieve the stream configuration
+        from the cache processor. This is useful when constructing a dataset from a CachedDataset
+        object, which already has the stream configuration.
+
+        If stream_configuration is set to False, we skip the stream configuration retrieval.
+        """
         self._length: int | None = None
         self._cache: CacheBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
-        super().__init__(
-            stream_metadata=cache.processor._get_stream_config(  # noqa: SLF001  # Member is private until we have a public API for it.
-                stream_name=stream_name
-            ),
-        )
+        if stream_configuration is None:
+            try:
+                stream_configuration = cache.processor._get_stream_config(  # noqa: SLF001  # Member is private until we have a public API for it.
+                    stream_name=stream_name
+                )
+            except Exception as ex:
+                Warning(f"Failed to get stream configuration for {stream_name}: {ex}")
+
+            stream_configuration: ConfiguredAirbyteStream | None = (
+                stream_configuration or None  # Coalesce False to None
+            )
+
+        super().__init__(stream_metadata=stream_configuration)
 
     @property
     def stream_name(self) -> str:

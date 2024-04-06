@@ -13,6 +13,7 @@ import subprocess
 import time
 from requests.exceptions import HTTPError
 
+import sqlalchemy
 import ulid
 from airbyte._util.google_secrets import get_gcp_secret
 from airbyte._util.meta import is_windows
@@ -225,6 +226,7 @@ def new_snowflake_cache():
         role=secret["role"],
         schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
     )
+    sqlalchemy_url = config.get_sql_alchemy_url()
 
     yield config
 

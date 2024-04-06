@@ -4,14 +4,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
 from airbyte.cloud import _destination_util as dest_util
 
 
 if TYPE_CHECKING:
-    from airbyte_api.models.shared.destinationresponse import DestinationResponse
+    from airbyte_api.models.shared import (
+        DestinationBigquery,
+        DestinationDuckdb,
+        DestinationPostgres,
+        DestinationResponse,
+        DestinationSnowflake,
+    )
     from sqlalchemy.engine import Engine
 
     from airbyte.caches.base import CacheBase
@@ -40,14 +46,16 @@ class CloudDestination:
 
         return self._destination_response
 
-    def get_destination_config(self) -> dict[str, str]:
+    def get_destination_config(
+        self,
+    ) -> DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake | Any:
         """Get the destination configuration."""
         return self._get_destination_response().configuration
 
     def as_cache(self) -> CacheBase:
         """Get the cache for the destination."""
         if self._as_cache is None:
-            self._as_cache = dest_util.create_cache_from_destination(
+            self._as_cache = dest_util.create_cache_from_destination_config(
                 destination_configuration=self.get_destination_config(),
             )
 

@@ -9,6 +9,7 @@ PyAirbyte classes - unless there's a very compelling reason to surface these mod
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -371,7 +372,29 @@ def get_destination(
             destination_id=destination_id,
         ),
     )
-    if status_ok(response.status_code) and response.destination_response:
+    if status_ok(response.status_code):
+        # TODO: This is a temporary workaround to resolve an issue where
+        # the destination API response is of the wrong type.
+        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
+        raw_configuration: dict[str, Any] = raw_response["configuration"]
+        destination_type = raw_response.get("destinationType")
+        if destination_type == "snowflake":
+            response.destination_response.configuration = api_models.DestinationSnowflake.from_dict(
+                raw_configuration,
+            )
+        if destination_type == "bigquery":
+            response.destination_response.configuration = api_models.DestinationBigquery.from_dict(
+                raw_configuration,
+            )
+        if destination_type == "postgres":
+            response.destination_response.configuration = api_models.DestinationPostgres.from_dict(
+                raw_configuration,
+            )
+        if destination_type == "duckdb":
+            response.destination_response.configuration = api_models.DestinationDuckdb.from_dict(
+                raw_configuration,
+            )
+
         return response.destination_response
 
     raise AirbyteMissingResourceError(destination_id, "destination", response.text)

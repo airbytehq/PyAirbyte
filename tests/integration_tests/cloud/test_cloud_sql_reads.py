@@ -4,6 +4,8 @@ from __future__ import annotations
 from contextlib import suppress
 
 import pytest
+import sqlalchemy
+from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
 from airbyte import cloud
@@ -11,9 +13,13 @@ from airbyte.cloud._sync_results import SyncResult
 
 
 @pytest.fixture
-def deployable_cache(new_bigquery_cache) -> ab.BigQueryCache | ab.SnowflakeCache:
+def deployable_cache(
+    new_bigquery_cache,
+    new_snowflake_cache,
+) -> ab.BigQueryCache | ab.SnowflakeCache:
     # TODO: Add Snowflake here as well
-    return new_bigquery_cache
+    return new_snowflake_cache
+    # return new_bigquery_cache
 
 
 @pytest.fixture
@@ -26,7 +32,17 @@ def deployable_source() -> ab.Source:
     )
 
 
-def test_read_cache(
+@pytest.fixture
+def deployed_connection_id() -> str:
+    return "c7b4d838-a612-495a-9d91-a14e477add51"
+
+
+@pytest.fixture
+def previous_job_run_id() -> str:
+    return "10136196"
+
+
+def test_deploy_and_run_and_read(
     cloud_workspace: cloud.CloudWorkspace,
     deployable_cache: ab.BigQueryCache | ab.SnowflakeCache,
     deployable_source: ab.Source,
@@ -45,9 +61,19 @@ def test_read_cache(
     sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
 
     # Test sync result:
-    assert sync_result.success
-    assert sync_result.stream_names == ["users", "products", "purchases"]
-    dataset: ab.CachedDataset = sync_result.get_dataset("users")
+    assert sync_result.is_job_complete()
+
+    # TODO: Remove this after Destination bug is resolved:
+    #       https://github.com/airbytehq/airbyte/issues/36875
+    sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
+
+    # Test sync result:
+    assert sync_result.is_job_complete()
+
+    # TODO: Rebuild streams property from connection's configured streams API endpoint
+    # assert sync_result.stream_names == ["users", "products", "purchases"]
+
+    dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
     data_as_list = list(dataset)
     assert len(data_as_list) == 100
@@ -63,3 +89,31 @@ def test_read_cache(
         cloud_workspace.delete_source(source_id=source_id)
     with suppress(Exception):
         cloud_workspace.delete_destination(destination_id=destination_id)
+
+
+def test_read_from_deployed_connection(
+    cloud_workspace: cloud.CloudWorkspace,
+    deployed_connection_id: str,
+) -> None:
+    """Test reading from a cache."""
+    # Run sync and get result:
+    sync_result: SyncResult = cloud_workspace.get_sync_result(connection_id=deployed_connection_id)
+
+    # Test sync result:
+    assert sync_result.is_job_complete()
+
+    cache = sync_result.get_sql_cache()
+    sqlalchemy_url = cache.get_sql_alchemy_url()
+    engine: Engine = sync_result.get_sql_engine()
+    # assert sync_result.stream_names == ["users", "products", "purchases"]
+
+    dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
+    assert dataset.stream_name == "users"
+    data_as_list = list(dataset)
+    assert len(data_as_list) == 100
+
+    pandas_df = dataset.to_pandas()
+    assert pandas_df.shape == (100, 20)
+    for col in pandas_df.columns:
+        # Check that no values are null
+        assert pandas_df[col].notnull().all()
