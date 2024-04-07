@@ -48,6 +48,7 @@ class SyncResult:
     table_name_suffix: str = ""
     _latest_status: JobStatusEnum | None = None
     _connection_response: ConnectionResponse | None = None
+    _cache: CacheBase | None = None
 
     def _get_connection_info(self, *, force_refresh: bool = False) -> ConnectionResponse:
         """Return connection info for the sync job."""
@@ -149,10 +150,14 @@ class SyncResult:
 
     def get_sql_cache(self) -> CacheBase:
         """Return a SQL Cache object for working with the data in a SQL-based destination's."""
-        destination_configuration = self._get_destination_configuration()
-        return create_cache_from_destination_config(
-            destination_configuration,
+        if self._cache:
+            return self._cache
+
+        destination_configuration: dict[str, Any] = self._get_destination_configuration()
+        self._cache = create_cache_from_destination_config(
+            destination_configuration=destination_configuration
         )
+        return self._cache
 
     def get_sql_engine(self) -> sqlalchemy.engine.Engine:
         """Return a SQL Engine for querying a SQL-based destination."""
