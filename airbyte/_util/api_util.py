@@ -30,6 +30,7 @@ JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 
+AIRBYTE_API_KEY_SECRET_NAME = "AIRBYTE_CLOUD_API_KEY"
 
 # Helper functions
 
@@ -41,7 +42,7 @@ def status_ok(status_code: int) -> bool:
 
 def get_default_bearer_token() -> str | None:
     """Get the default bearer token from env variables."""
-    return os.environ.get("AIRBYTE_API_KEY", None)
+    return os.environ.get(AIRBYTE_API_KEY_SECRET_NAME, None)
 
 
 def get_airbyte_server_instance(
