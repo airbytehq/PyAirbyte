@@ -74,9 +74,11 @@ requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)"
+    "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
+    "linting: marks a test as a linting test",
 ]
 
 [tool.ruff.pylint]
