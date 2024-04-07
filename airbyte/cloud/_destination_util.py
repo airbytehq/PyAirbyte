@@ -118,7 +118,7 @@ def get_bigquery_destination_config(
     destination = DestinationBigquery(
         project_id=cache.project_name,
         dataset_id=cache.dataset_name,
-        dataset_location="us-west1",
+        dataset_location="US",
         credentials_json=credentials_json,
         loading_method=StandardInserts,
     )
