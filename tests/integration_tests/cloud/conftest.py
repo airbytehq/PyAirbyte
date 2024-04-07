@@ -2,6 +2,7 @@
 """Fixtures for Cloud Workspace integration tests."""
 from __future__ import annotations
 
+from enum import auto
 import os
 from pathlib import Path
 import sys
@@ -13,8 +14,8 @@ from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
 
 
-ENV_AIRBYTE_API_KEY = "AIRBYTE_API_KEY"
-ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_API_WORKSPACE_ID"
+ENV_AIRBYTE_API_KEY = "AIRBYTE_CLOUD_API_KEY"
+ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_CLOUD_API_WORKSPACE_ID"
 ENV_MOTHERDUCK_API_KEY = "MOTHERDUCK_API_KEY"
 
 
@@ -46,7 +47,7 @@ def api_key() -> str:
         return dotenv_vars[ENV_AIRBYTE_API_KEY]
 
     if ENV_AIRBYTE_API_KEY not in os.environ:
-        raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
+        raise ValueError(f"Please set the '{ENV_AIRBYTE_API_KEY}' environment variable.")
 
     return os.environ[ENV_AIRBYTE_API_KEY]
 
@@ -58,7 +59,7 @@ def motherduck_api_key() -> str:
         return dotenv_vars[ENV_MOTHERDUCK_API_KEY]
 
     if ENV_MOTHERDUCK_API_KEY not in os.environ:
-        raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
+        raise ValueError(f"Please set the '{ENV_MOTHERDUCK_API_KEY}' environment variable.")
 
     return os.environ[ENV_MOTHERDUCK_API_KEY]
 
@@ -93,21 +94,9 @@ def api_key() -> str:
         return dotenv_vars[ENV_AIRBYTE_API_KEY]
 
     if ENV_AIRBYTE_API_KEY not in os.environ:
-        raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
+        raise ValueError(f"Please set the {ENV_AIRBYTE_API_KEY} environment variable.")
 
     return os.environ[ENV_AIRBYTE_API_KEY]
-
-
-@pytest.fixture
-def motherduck_api_key() -> str:
-    dotenv_vars: dict[str, str | None] = dotenv_values()
-    if ENV_MOTHERDUCK_API_KEY in dotenv_vars:
-        return dotenv_vars[ENV_MOTHERDUCK_API_KEY]
-
-    if ENV_MOTHERDUCK_API_KEY not in os.environ:
-        raise ValueError("Please set the AIRBYTE_API_KEY environment variable.")
-
-    return os.environ[ENV_MOTHERDUCK_API_KEY]
 
 
 @pytest.fixture(scope="function")
@@ -124,9 +113,9 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """
     deployable_cache_fixtures: dict[str, str] = {
         # Ordered by priority (fastest first)
-        # "DuckDB": "new_duckdb_cache",
+        # "MotherDuck": "new_motherduck_cache",
         # "Postgres": "new_remote_postgres_cache",
-        # "BigQuery": "new_bigquery_cache",
+        "BigQuery": "new_bigquery_cache",
         "Snowflake": "new_snowflake_cache",
     }
 

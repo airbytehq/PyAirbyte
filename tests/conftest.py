@@ -11,9 +11,9 @@ import shutil
 import socket
 import subprocess
 import time
+from ci_credentials import RemoteSecret, get_connector_secrets
 from requests.exceptions import HTTPError
 
-import sqlalchemy
 import ulid
 from airbyte._util.google_secrets import get_gcp_secret
 from airbyte._util.meta import is_windows
@@ -32,6 +32,7 @@ from sqlalchemy import create_engine
 from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.util import new_local_cache
+from airbyte.secrets import CustomSecretManager
 from airbyte.sources.base import as_temp_files
 
 import airbyte as ab
@@ -62,6 +63,90 @@ def get_ci_secret_json(
     return json.loads(get_ci_secret(secret_name=secret_name, project_name=project_name))
 
 
+class AirbyteIntegrationTestSecretManager(CustomSecretManager):
+    """Custom secret manager for Airbyte integration tests.
+
+    This class is used to auto-retrieve needed secrets from GSM.
+    """
+    auto_register = True
+    replace_existing = False
+    as_backup = True
+
+    def get_secret(
+        self,
+        secret_name: str,
+        *,
+        required: bool = False,
+    ) -> str | None:
+        """This method attempts to find matching properties within the integration test config.
+
+        If `required` is `True`, this method will raise an exception if the secret is not found.
+        Otherwise, it will return None.
+        """
+        system_name = secret_name.split("_")[0].lower()
+        property_name = "_".join(secret_name.split("_")[1:]).lower()
+
+        mapping = {
+            "snowflake": "destination-snowflake",
+            "bigquery": "destination-bigquery",
+            "postgres": "destination-postgres",
+            "duckdb": "destination-duckdb",
+        }
+        if system_name not in mapping:
+            return None
+
+        connector_name = mapping[system_name]
+        connector_config = self.get_connector_config(connector_name)
+        if "credentials" in connector_config:
+            if property_name in connector_config["credentials"]:
+                return connector_config["credentials"][property_name]
+
+        if property_name in connector_config:
+            return connector_config[property_name]
+
+        if not required:
+            return None
+
+        raise KeyError(
+            f"Property '{property_name}' not found in '{connector_name}' connector config. "
+            f"\nAvailable config keys: {', '.join(connector_config.keys())} "
+            f"\nAvailable 'credential' keys: {', '.join(connector_config.get('credentials', {}).keys())} "
+        )
+
+
+    def get_connector_config(self, connector_name: str, index: int = 0) -> dict | None:
+        assert connector_name is not None and connector_name != "all", \
+            "We can only retrieve one connector config at a time."
+
+        gcp_gsm_credentials = ab.get_secret("GCP_GSM_CREDENTIALS")
+        secrets: list[RemoteSecret] = []
+        secrets, _ = get_connector_secrets(
+            connector_name=connector_name,
+            gcp_gsm_credentials=gcp_gsm_credentials,
+            disable_masking=True,
+        )
+
+        if len(secrets) > 1:
+            print(
+                f"Found {len(secrets)} secrets for connector '{connector_name}'."
+            )
+        else:
+            print(
+                f"Found '{connector_name}' credentials."
+            )
+
+        if index >= len(secrets):
+            raise IndexError(f"Index {index} is out of range for connector '{connector_name}'.")
+
+        return secrets[index].value_dict
+
+
+@pytest.fixture(autouse=True, scope="session")
+def airbyte_integration_test_secrets_manager() -> AirbyteIntegrationTestSecretManager:
+    """Create a new instance of the custom secret manager."""
+
+    return AirbyteIntegrationTestSecretManager()
+
 
 def pytest_collection_modifyitems(items: list[Item]) -> None:
     """Override default pytest behavior, sorting our tests in a sensible execution order.
@@ -76,13 +161,13 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     def test_priority(item: Item) -> int:
         if item.get_closest_marker(name="slow"):
             return 9  # slow tests have the lowest priority
-        elif 'lint_tests' in str(item.fspath):
+        elif "lint_tests" in str(item.fspath):
             return 1  # lint tests have high priority
-        elif 'unit_tests' in str(item.fspath):
+        elif "unit_tests" in str(item.fspath):
             return 2  # unit tests have highest priority
-        elif 'docs_tests' in str(item.fspath):
+        elif "docs_tests" in str(item.fspath):
             return 3  # doc tests have medium priority
-        elif 'integration_tests' in str(item.fspath):
+        elif "integration_tests" in str(item.fspath):
             return 4  # integration tests have the lowest priority
         else:
             return 5  # all other tests have lower priority
@@ -221,6 +306,20 @@ def new_postgres_cache():
 
 
 @pytest.fixture
+def new_motherduck_cache(
+    airbyte_integration_test_secrets_manager: AirbyteIntegrationTestSecretManager,
+) -> MotherDuckCache:
+    config = airbyte_integration_test_secrets_manager.get_connector_config(
+        connector_name="destination-duckdb",
+    )
+    return MotherDuckCache(
+        database="integration_tests_deleteany",
+        schema_name=f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}",
+        api_key=config["motherduck_api_key"],
+    )
+
+
+@pytest.fixture
 def new_snowflake_cache():
     secret = get_ci_secret_json(
         "AIRBYTE_LIB_SNOWFLAKE_CREDS",
@@ -243,6 +342,21 @@ def new_snowflake_cache():
         connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
 
 
+@pytest.fixture(autouse=True, scope="session")
+def with_bigquery_credentials_path_env_var():
+    dest_bigquery_config = get_ci_secret_json(
+        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    )
+    credentials_json = dest_bigquery_config["credentials_json"]
+
+    with as_temp_files([credentials_json]) as (credentials_path,):
+        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
+
+        yield
+
+    return
+
+
 @pytest.fixture
 @pytest.mark.requires_creds
 def new_bigquery_cache():
@@ -256,7 +370,7 @@ def new_bigquery_cache():
         cache = BigQueryCache(
             credentials_path=credentials_path,
             project_name=dest_bigquery_config["project_id"],
-            dataset_name=dataset_name
+            dataset_name=dataset_name,
         )
         yield cache
 
