@@ -11,7 +11,7 @@ from airbyte import cloud
 
 workspace = cloud.CloudWorkspace(
     workspace_id="123",
-    api_key=ab.get_secret("AIRBYTE_API_KEY"),
+    api_key=ab.get_secret("AIRBYTE_CLOUD_API_KEY"),
 )
 
 source = ab.get_source("source-faker", config={})
