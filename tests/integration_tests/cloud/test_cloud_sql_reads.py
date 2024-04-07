@@ -4,12 +4,12 @@ from __future__ import annotations
 from contextlib import suppress
 
 import pytest
+import pandas as pd
 from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
 from airbyte import cloud
 from airbyte.cloud._sync_results import SyncResult
-
 
 @pytest.fixture
 def deployable_source() -> ab.Source:
@@ -37,10 +37,10 @@ def test_deploy_and_run_and_read(
     source_id = cloud_workspace.deploy_source(source=deployable_source)
     destination_id = cloud_workspace.deploy_cache_as_destination(cache=new_deployable_cache)
     connection_id = cloud_workspace.deploy_connection(
-        source=source_id,
-        destination=destination_id,
-        table_prefix=cache.table_prefix,
-        selected_streams=source.get_selected_streams(),
+        source=deployable_source,
+        cache=new_deployable_cache,
+        table_prefix=new_deployable_cache.table_prefix,
+        selected_streams=deployable_source.get_selected_streams(),
     )
 
     # Run sync and get result:
@@ -50,7 +50,7 @@ def test_deploy_and_run_and_read(
     #       https://github.com/airbytehq/airbyte/issues/36875
     sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
 
-    # Test sync result:
+    # Check sync result:
     assert sync_result.is_job_complete()
 
     # TODO: Rebuild streams property from connection's configured streams API endpoint
@@ -73,11 +73,12 @@ def test_deploy_and_run_and_read(
     with suppress(Exception):
         cloud_workspace.delete_destination(destination_id=destination_id)
 
+
 @pytest.mark.parametrize(
     "deployed_connection_id",
     [
         pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
-        pytest.param("", id="Faker->BigQuery", marks=pytest.mark.skip(reason="Not yet supported")),
+        pytest.param("0e1d6b32-b8e3-4b68-91a3-3a314599c782", id="Faker->BigQuery"),
         pytest.param("", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")),
         pytest.param("", id="Faker->MotherDuck", marks=pytest.mark.skip(reason="Not yet supported")),
     ],
@@ -103,10 +104,14 @@ def test_read_from_deployed_connection(
     data_as_list = list(dataset)
     assert len(data_as_list) == 100
 
-    pandas_df = dataset.to_pandas()
+    # TODO: Debug why this is super slow:
+    # pandas_df = dataset.to_pandas()
+    pandas_df = pd.DataFrame(data_as_list)
+
     assert pandas_df.shape == (100, 20)
+
+    # Check that no values are null
     for col in pandas_df.columns:
-        # Check that no values are null
         assert pandas_df[col].notnull().all()
 
 

@@ -10,11 +10,6 @@ from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 
 
-ENV_AIRBYTE_API_KEY = "AIRBYTE_API_KEY"
-ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_API_WORKSPACE_ID"
-ENV_MOTHERDUCK_API_KEY = "MOTHERDUCK_API_KEY"
-
-
 def test_deploy_source(
     cloud_workspace: CloudWorkspace,
 ) -> None:

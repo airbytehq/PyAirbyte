@@ -110,6 +110,8 @@ def test_create_and_delete_connection(
         workspace_id=workspace_id,
         source_id=source.source_id,
         destination_id=destination.destination_id,
+        prefix="",
+        selected_stream_names=["users", "purchases", "products"],
     )
     assert connection.source_id == source.source_id
     assert connection.destination_id == destination.destination_id
