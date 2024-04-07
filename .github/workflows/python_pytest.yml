@@ -37,7 +37,7 @@ jobs:
         python-version: '3.10'
         cache: 'poetry'
     - name: Install dependencies
-      run: poetry install
+      run: poetry install --all-extras
 
     # Job-specific step(s):
     - name: Run Pytest (Fast Tests Only)
@@ -65,7 +65,7 @@ jobs:
         python-version: '3.10'
         cache: 'poetry'
     - name: Install dependencies
-      run: poetry install
+      run: poetry install --all-extras
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
@@ -108,7 +108,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
         cache: 'poetry'
     - name: Install dependencies
-      run: poetry install
+      run: poetry install --all-extras
 
     # Job-specific step(s):
     - name: Run Pytest
