@@ -135,7 +135,7 @@ class CustomSecretManager(SecretManager, ABC):
 class EnvVarSecretManager(CustomSecretManager):
     """Secret manager that retrieves secrets from environment variables."""
 
-    name = str(SecretSourceEnum.ENV)
+    name = SecretSourceEnum.ENV.value
 
     def get_secret(self, secret_name: str) -> str | None:
         """Get a named secret from the environment."""
@@ -148,7 +148,7 @@ class EnvVarSecretManager(CustomSecretManager):
 class DotenvSecretManager(CustomSecretManager):
     """Secret manager that retrieves secrets from a `.env` file."""
 
-    name = str(SecretSourceEnum.DOTENV)
+    name = SecretSourceEnum.DOTENV.value
 
     def get_secret(self, secret_name: str) -> str | None:
         """Get a named secret from the `.env` file."""
@@ -168,7 +168,7 @@ class DotenvSecretManager(CustomSecretManager):
 class ColabSecretManager(CustomSecretManager):
     """Secret manager that retrieves secrets from Google Colab user secrets."""
 
-    name = str(SecretSourceEnum.GOOGLE_COLAB)
+    name = SecretSourceEnum.GOOGLE_COLAB.value
 
     def get_secret(self, secret_name: str) -> str | None:
         """Get a named secret from Google Colab user secrets."""
@@ -186,7 +186,7 @@ class ColabSecretManager(CustomSecretManager):
 class SecretsPrompt(CustomSecretManager):
     """Secret manager that prompts the user to enter a secret."""
 
-    name = str(SecretSourceEnum.PROMPT)
+    name = SecretSourceEnum.PROMPT.value
 
     def get_secret(
         self,
@@ -253,12 +253,11 @@ def get_secret(
     """Get a secret from the environment.
 
     The optional `sources` argument of enum type `SecretSourceEnum` or list of `SecretSourceEnum`
-    options. If left blank, the `sources` arg will be `SecretSourceEnum.ANY`. If `source` is set to
-    a specific source, then only that source will be checked. If a list of `SecretSourceEnum`
+    options. If left blank, all available sources will be checked. If a list of `SecretSourceEnum`
     entries is passed, then the sources will be checked using the provided ordering.
 
-    If `prompt` to `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then the
-    user will be prompted to enter the secret if it is not found in any of the other sources.
+    If `allow_prompt` is `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then
+    the user will be prompted to enter the secret if it is not found in any of the other sources.
     """
     if "source" in kwargs:
         warnings.warn(
