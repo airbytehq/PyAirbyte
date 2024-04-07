@@ -33,6 +33,19 @@ class SecretSourceEnum(str, Enum):
 _SECRETS_SOURCES: list[SecretManager] = []
 
 
+class SecretString(str):
+    """A string that represents a secret.
+
+    This class is used to mark a string as a secret. When a secret is printed, it
+    will be masked to prevent accidental exposure of sensitive information.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<SecretString: ****>"
+
+
 class SecretManager(ABC):
     """Abstract base class for secret managers.
 
@@ -65,7 +78,7 @@ class SecretManager(ABC):
             self.name: str = self.__class__.__name__
 
     @abstractmethod
-    def get_secret(self, secret_name: str) -> str | None:
+    def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from the secret manager.
 
         This method should be implemented by subclasses to retrieve secrets from
@@ -137,12 +150,12 @@ class EnvVarSecretManager(CustomSecretManager):
 
     name = SecretSourceEnum.ENV.value
 
-    def get_secret(self, secret_name: str) -> str | None:
+    def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from the environment."""
         if secret_name not in os.environ:
             return None
 
-        return os.environ[secret_name]
+        return SecretString(os.environ[secret_name])
 
 
 class DotenvSecretManager(CustomSecretManager):
@@ -150,7 +163,7 @@ class DotenvSecretManager(CustomSecretManager):
 
     name = SecretSourceEnum.DOTENV.value
 
-    def get_secret(self, secret_name: str) -> str | None:
+    def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from the `.env` file."""
         try:
             dotenv_vars: dict[str, str | None] = dotenv_values()
@@ -162,7 +175,7 @@ class DotenvSecretManager(CustomSecretManager):
             # Secret not found
             return None
 
-        return dotenv_vars[secret_name]
+        return SecretString(dotenv_vars[secret_name])
 
 
 class ColabSecretManager(CustomSecretManager):
@@ -170,14 +183,14 @@ class ColabSecretManager(CustomSecretManager):
 
     name = SecretSourceEnum.GOOGLE_COLAB.value
 
-    def get_secret(self, secret_name: str) -> str | None:
+    def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from Google Colab user secrets."""
         if colab_userdata is None:
             # The module doesn't exist. We probably aren't in Colab.
             return None
 
         try:
-            return colab_userdata.get(secret_name)
+            return SecretString(colab_userdata.get(secret_name))
         except Exception:
             # Secret name not found. Continue.
             return None
@@ -191,9 +204,9 @@ class SecretsPrompt(CustomSecretManager):
     def get_secret(
         self,
         secret_name: str,
-    ) -> str | None:
+    ) -> SecretString | None:
         with contextlib.suppress(Exception):
-            return getpass(f"Enter the value for secret '{secret_name}': ")
+            return SecretString(getpass(f"Enter the value for secret '{secret_name}': "))
 
         return None
 
@@ -249,7 +262,7 @@ def get_secret(
     sources: list[SecretManager | SecretSourceEnum] | None = None,
     allow_prompt: bool = True,
     **kwargs: dict[str, Any],
-) -> str:
+) -> SecretString:
     """Get a secret from the environment.
 
     The optional `sources` argument of enum type `SecretSourceEnum` or list of `SecretSourceEnum`
@@ -308,7 +321,7 @@ def get_secret(
     for secret_mgr in secret_managers:
         val = secret_mgr.get_secret(secret_name)
         if val:
-            return val
+            return SecretString(val)
 
     raise exc.PyAirbyteSecretNotFoundError(
         secret_name=secret_name,
