@@ -31,7 +31,6 @@ from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.util import new_local_cache
 from airbyte.secrets import CustomSecretManager
-from airbyte.sources.base import as_temp_files
 
 import airbyte as ab
 

@@ -12,6 +12,7 @@ from dotenv import dotenv_values
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
+from airbyte._util.temp_files import as_temp_files
 
 
 ENV_AIRBYTE_API_KEY = "AIRBYTE_CLOUD_API_KEY"
@@ -50,22 +51,6 @@ def api_key() -> str:
         raise ValueError(f"Please set the '{ENV_AIRBYTE_API_KEY}' environment variable.")
 
     return os.environ[ENV_AIRBYTE_API_KEY]
-
-
-@pytest.mark.requires_creds
-@pytest.fixture(autouse=True, scope="session")
-def bigquery_credentials_file():
-    dest_bigquery_config = get_ci_secret_json(
-        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
-    )
-    credentials_json = dest_bigquery_config["credentials_json"]
-
-    with as_temp_files([credentials_json]) as (credentials_path,):
-        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
-
-        yield
-
-    return
 
 
 @pytest.fixture

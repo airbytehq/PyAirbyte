@@ -2,7 +2,9 @@
 """Fixtures for integration tests."""
 
 from __future__ import annotations
+from contextlib import suppress
 import json
+import os
 
 import pytest
 import ulid
@@ -10,9 +12,12 @@ from sqlalchemy import create_engine
 
 from airbyte._util import meta
 from airbyte._util.google_secrets import get_gcp_secret
+from airbyte.caches.base import CacheBase
+from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
 from airbyte.secrets import CustomSecretManager
+from airbyte._util.temp_files import as_temp_files
 
 import airbyte as ab
 
@@ -182,6 +187,22 @@ def new_bigquery_cache():
                 connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
+@pytest.mark.requires_creds
+@pytest.fixture(autouse=True, scope="session")
+def bigquery_credentials_file():
+    dest_bigquery_config = get_ci_secret_json(
+        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    )
+    credentials_json = dest_bigquery_config["credentials_json"]
+
+    with as_temp_files([credentials_json]) as (credentials_path,):
+        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
+
+        yield
+
+    return
+
+
 @pytest.fixture(scope="function")
 def new_motherduck_cache() -> MotherDuckCache:
     return MotherDuckCache(
@@ -189,8 +210,6 @@ def new_motherduck_cache() -> MotherDuckCache:
         schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
         database="integration_tests_deleteany",
     )
-
-
 
 
 @pytest.fixture(scope="function")
