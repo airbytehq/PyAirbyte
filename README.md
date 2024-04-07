@@ -34,7 +34,7 @@ _Note: Additional secret store options may be supported in the future. [More inf
 ### Retrieving Secrets
 
 ```python
-from airbyte import get_secret, SecretSource
+from airbyte import get_secret, SecretSourceEnum
 
 source = get_source("source-github")
 source.set_config(
@@ -44,7 +44,7 @@ source.set_config(
 )
 ```
 
-The `get_secret()` function accepts an optional `source` argument of enum type `SecretSource`. If omitted or set to `SecretSource.ANY`, PyAirbyte will search all available secrets sources. If `source` is set to a specific source, then only that source will be checked. If a list of `SecretSource` entries is passed, then the sources will be checked using the provided ordering.
+The `get_secret()` function accepts an optional `source` argument of enum type `SecretSourceEnum`. If omitted or set to `SecretSourceEnum.ANY`, PyAirbyte will search all available secrets sources. If `source` is set to a specific source, then only that source will be checked. If a list of `SecretSourceEnum` entries is passed, then the sources will be checked using the provided ordering.
 
 By default, PyAirbyte will prompt the user for any requested secrets that are not provided via other secret managers. You can disable this prompt by passing `prompt=False` to `get_secret()`.
 

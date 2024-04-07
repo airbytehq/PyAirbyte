@@ -15,7 +15,7 @@ from airbyte.caches.util import get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
 from airbyte.records import StreamRecord
 from airbyte.results import ReadResult
-from airbyte.secrets import SecretSource, get_secret
+from airbyte.secrets import SecretSourceEnum, get_secret
 from airbyte.sources import registry
 from airbyte.sources.base import Source
 from airbyte.sources.registry import get_available_connectors
@@ -44,7 +44,7 @@ __all__ = [
     "CachedDataset",
     "DuckDBCache",
     "ReadResult",
-    "SecretSource",
+    "SecretSourceEnum",
     "Source",
     "StreamRecord",
 ]
