@@ -15,7 +15,7 @@ enable = true
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
 
-airbyte-cdk = "^0.73.0"
+airbyte-cdk = "^0.79.1"
 duckdb = "0.9.2"  # TODO: Change to "^0.10.0" once supported by MotherDuck
 duckdb-engine = "0.9.2"  # TODO: Change to "^0.10.0" once supported by MotherDuck
 google-auth = ">=2.27.0,<3.0"
@@ -41,6 +41,8 @@ ulid = "^1.1"
 
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
+
+airbyte-source-declarative-manifest = { version = "0.79.1", python = ">=3.9,<3.12" }
 
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
