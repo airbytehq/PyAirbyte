@@ -3,7 +3,7 @@ name = "airbyte"
 description = "PyAirbyte"
 authors = ["Airbyte <contact@airbyte.io>"]
 readme = "README.md"
-packages = [{include = "airbyte"}]
+packages = [{ include = "airbyte" }]
 
 # This project uses dynamic versioning
 # https://github.com/mtkennerly/poetry-dynamic-versioning
@@ -16,14 +16,14 @@ enable = true
 python = ">=3.9,<4.0"
 
 airbyte-cdk = "^0.73.0"
-duckdb = "0.9.2"  # TODO: Change to "^0.10.0" once supported by MotherDuck
-duckdb-engine = "0.9.2"  # TODO: Change to "^0.10.0" once supported by MotherDuck
+duckdb = "0.9.2"                        # TODO: Change to "^0.10.0" once supported by MotherDuck
+duckdb-engine = "0.9.2"                 # TODO: Change to "^0.10.0" once supported by MotherDuck
 google-auth = ">=2.27.0,<3.0"
 google-cloud-bigquery = ">=3.12.0,<4.0"
 jsonschema = ">=3.2.0,<5.0"
 orjson = "3.9.15"
 overrides = "^7.4.0"
-pandas = ">=1.5.3,<=2.1.4" # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
+pandas = ">=1.5.3,<=2.1.4"              # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
 pendulum = "<=3.0.0"
 psycopg2-binary = "^2.9.9"
 # psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
@@ -69,72 +69,72 @@ build-backend = "poetry_dynamic_versioning.backend"
 [tool.pytest.ini_options]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)"
+    "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
 ]
 
 [tool.ruff.pylint]
-max-args = 8  # Relaxed from default of 5
+max-args = 8      # Relaxed from default of 5
 max-branches = 15 # Relaxed from default of 12
 
 [tool.ruff]
 target-version = "py39"
 select = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
-    "A", # flake8-builtins
-    "ANN", # flake8-annotations
-    "ARG", # flake8-unused-arguments
+    "A",     # flake8-builtins
+    "ANN",   # flake8-annotations
+    "ARG",   # flake8-unused-arguments
     "ASYNC", # flake8-async
-    "B", # flake8-bugbear
-    "FBT", # flake8-boolean-trap
-    "BLE", # Blind except
-    "C4", # flake8-comprehensions
-    "C90", # mccabe (complexity)
-    "COM", # flake8-commas
-    "CPY", # missing copyright notice
+    "B",     # flake8-bugbear
+    "FBT",   # flake8-boolean-trap
+    "BLE",   # Blind except
+    "C4",    # flake8-comprehensions
+    "C90",   # mccabe (complexity)
+    "COM",   # flake8-commas
+    "CPY",   # missing copyright notice
     # "D", # pydocstyle # TODO: Re-enable when adding docstrings
-    "DTZ", # flake8-datetimez
-    "E", # pycodestyle (errors)
-    "ERA", # flake8-eradicate (commented out code)
-    "EXE", # flake8-executable
-    "F", # Pyflakes
-    "FA", # flake8-future-annotations
-    "FIX", # flake8-fixme
-    "FLY", # flynt
+    "DTZ",  # flake8-datetimez
+    "E",    # pycodestyle (errors)
+    "ERA",  # flake8-eradicate (commented out code)
+    "EXE",  # flake8-executable
+    "F",    # Pyflakes
+    "FA",   # flake8-future-annotations
+    "FIX",  # flake8-fixme
+    "FLY",  # flynt
     "FURB", # Refurb
-    "I", # isort
-    "ICN", # flake8-import-conventions
-    "INP", # flake8-no-pep420
-    "INT", # flake8-gettext
-    "ISC", # flake8-implicit-str-concat
-    "ICN", # flake8-import-conventions
-    "LOG", # flake8-logging
-    "N", # pep8-naming
-    "PD", # pandas-vet
+    "I",    # isort
+    "ICN",  # flake8-import-conventions
+    "INP",  # flake8-no-pep420
+    "INT",  # flake8-gettext
+    "ISC",  # flake8-implicit-str-concat
+    "ICN",  # flake8-import-conventions
+    "LOG",  # flake8-logging
+    "N",    # pep8-naming
+    "PD",   # pandas-vet
     "PERF", # Perflint
-    "PIE", # flake8-pie
-    "PGH", # pygrep-hooks
-    "PL", # Pylint
-    "PT", # flake8-pytest-style
-    "PTH", # flake8-use-pathlib
-    "PYI", # flake8-pyi
-    "Q", # flake8-quotes
-    "RET", # flake8-return
-    "RSE", # flake8-raise
-    "RUF", # Ruff-specific rules
-    "SIM", # flake8-simplify
-    "SLF", # flake8-self
+    "PIE",  # flake8-pie
+    "PGH",  # pygrep-hooks
+    "PL",   # Pylint
+    "PT",   # flake8-pytest-style
+    "PTH",  # flake8-use-pathlib
+    "PYI",  # flake8-pyi
+    "Q",    # flake8-quotes
+    "RET",  # flake8-return
+    "RSE",  # flake8-raise
+    "RUF",  # Ruff-specific rules
+    "SIM",  # flake8-simplify
+    "SLF",  # flake8-self
     "SLOT", # flake8-slots
-    "T10", # debugger calls
+    "T10",  # debugger calls
     # "T20", # flake8-print # TODO: Re-enable once we have logging
-    "TCH", # flake8-type-checking
-    "TD", # flake8-todos
-    "TID", # flake8-tidy-imports
-    "TRY", # tryceratops
+    "TCH",    # flake8-type-checking
+    "TD",     # flake8-todos
+    "TID",    # flake8-tidy-imports
+    "TRY",    # tryceratops
     "TRY002", # Disallow raising vanilla Exception. Create or use a custom exception instead.
     "TRY003", # Disallow vanilla string passing. Prefer kwargs to the exception constructur.
-    "UP", # pyupgrade
-    "W", # pycodestyle (warnings)
-    "YTT", # flake8-2020
+    "UP",     # pyupgrade
+    "W",      # pycodestyle (warnings)
+    "YTT",    # flake8-2020
 ]
 ignore = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
@@ -143,34 +143,34 @@ ignore = [
     "ANN003",  # kwargs missing type annotations
     "ANN101",  # Type annotations for 'self' args
     "ANN102",  # Type annotations for 'cls' args
-    "COM812", # Because it conflicts with ruff auto-format
-    "EM", # flake8-errmsgs (may reconsider later)
-    "DJ", # Django linting
-    "G", # flake8-logging-format
-    "ISC001", # Conflicts with ruff auto-format
-    "NPY", # NumPy-specific rules
-    "PIE790", # Allow unnecssary 'pass' (sometimes useful for readability)
-    "PERF203",  # exception handling in loop
-    "S", # flake8-bandit (noisy, security related)
-    "SIM910", # Allow "None" as second argument to Dict.get(). "Explicit is better than implicit."
-    "TD002", # Require author for TODOs
-    "TRIO", # flake8-trio (opinionated, noisy)
-    "INP001", # Dir 'examples' is part of an implicit namespace package. Add an __init__.py.
+    "COM812",  # Because it conflicts with ruff auto-format
+    "EM",      # flake8-errmsgs (may reconsider later)
+    "DJ",      # Django linting
+    "G",       # flake8-logging-format
+    "ISC001",  # Conflicts with ruff auto-format
+    "NPY",     # NumPy-specific rules
+    "PIE790",  # Allow unnecssary 'pass' (sometimes useful for readability)
+    "PERF203", # exception handling in loop
+    "S",       # flake8-bandit (noisy, security related)
+    "SIM910",  # Allow "None" as second argument to Dict.get(). "Explicit is better than implicit."
+    "TD002",   # Require author for TODOs
+    "TRIO",    # flake8-trio (opinionated, noisy)
+    "INP001",  # Dir 'examples' is part of an implicit namespace package. Add an __init__.py.
 
     # TODO: Consider re-enabling these before release:
-    "A003", # Class attribute 'type' is shadowing a Python builtin
-    "BLE001", # Do not catch blind exception: Exception
-    "ERA001", # Remove commented-out code
-    "FIX002", # Allow "TODO:" until release (then switch to requiring links via TDO003)
+    "A003",    # Class attribute 'type' is shadowing a Python builtin
+    "BLE001",  # Do not catch blind exception: Exception
+    "ERA001",  # Remove commented-out code
+    "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
     "PLW0603", # Using the global statement to update _cache is discouraged
-    "TD003", # Require links for TODOs # TODO: Re-enable when we disable FIX002
+    "TD003",   # Require links for TODOs # TODO: Re-enable when we disable FIX002
 
     "UP007", # Allow legacy `Union[a, b]` and `Optional[a]` for Pydantic, until we drop Python 3.9 (Pydantic doesn't like it)
 ]
 fixable = ["ALL"]
 unfixable = [
     "ERA001", # Commented-out code (avoid silent loss of code)
-    "T201" # print() calls (avoid silent loss of code / log messages)
+    "T201",   # print() calls (avoid silent loss of code / log messages)
 ]
 line-length = 100
 extend-exclude = ["docs", "test", "tests"]
@@ -188,7 +188,7 @@ section-order = [
     "standard-library",
     "third-party",
     "first-party",
-    "local-folder"
+    "local-folder",
 ]
 
 [tool.ruff.mccabe]
@@ -254,11 +254,13 @@ show_error_codes = true
 exclude = ["docs", "test", "tests"]
 
 [[tool.mypy.overrides]]
-module = [
-    "airbyte_protocol",
-    "airbyte_protocol.models"
-]
-ignore_missing_imports = true  # No stubs yet (😢)
+module = ["airbyte_protocol", "airbyte_protocol.models"]
+ignore_missing_imports = true                            # No stubs yet (😢)
+
+[tool.pyright]
+pythonVersion = "3.9"
+venvPath = "./"       # Assuming .venv is at the root of your project
+venv = ".venv"
 
 [tool.poetry.scripts]
 generate-docs = "docs.generate:run"
