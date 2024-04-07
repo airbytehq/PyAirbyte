@@ -186,6 +186,9 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
             item.add_marker(pytest.mark.slow)
             item.add_marker(pytest.mark.requires_creds)
 
+        if "super_slow" in item.keywords:
+            # Super slow tests are also slow
+            item.add_marker("slow")
 
 def is_port_in_use(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:

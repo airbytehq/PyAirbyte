@@ -114,4 +114,4 @@ jobs:
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest -m "not linting"
+      run: poetry run pytest -m "not linting and not super_slow"

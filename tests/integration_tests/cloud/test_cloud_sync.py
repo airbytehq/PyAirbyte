@@ -17,6 +17,7 @@ def pre_created_connection_id() -> str:
     return "80857d37-1f21-4500-a802-f5ac08d1a3dd"
 
 
+@pytest.mark.super_slow
 def test_run_connection(
     cloud_workspace: CloudWorkspace,
     pre_created_connection_id: str,
@@ -26,6 +27,7 @@ def test_run_connection(
     _ = sync_result
 
 
+@pytest.mark.super_slow
 @pytest.mark.skip(reason="This test is not yet complete. It is hanging currently.")
 def test_deploy_and_run_connection(
     cloud_workspace: CloudWorkspace,

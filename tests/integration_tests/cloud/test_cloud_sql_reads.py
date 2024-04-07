@@ -26,6 +26,7 @@ def previous_job_run_id() -> str:
     return "10136196"
 
 
+@pytest.mark.super_slow
 def test_deploy_and_run_and_read(
     cloud_workspace: cloud.CloudWorkspace,
     new_deployable_cache: ab.BigQueryCache | ab.SnowflakeCache,

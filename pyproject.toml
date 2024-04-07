@@ -79,6 +79,7 @@ markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
     "linting: marks a test as a linting test",
+    "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
 ]
 
 [tool.ruff.pylint]
