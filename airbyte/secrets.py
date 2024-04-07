@@ -8,16 +8,12 @@ import warnings
 from abc import ABC, abstractmethod
 from enum import Enum
 from getpass import getpass
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from dotenv import dotenv_values
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
-
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 try:
