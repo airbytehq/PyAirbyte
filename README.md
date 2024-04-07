@@ -29,24 +29,34 @@ PyAirbyte can auto-import secrets from the following sources:
 3. [Google Colab secrets](https://medium.com/@parthdasawant/how-to-use-secrets-in-google-colab-450c38e3ec75).
 4. Manual entry via [`getpass`](https://docs.python.org/3.9/library/getpass.html).
 
-_Note: Additional secret store options may be supported in the future. [More info here.](https://github.com/airbytehq/airbyte-lib-private-beta/discussions/5)_
+_Note: You can also build your own secret manager by subclassing the `CustomSecretManager` implementation. For more information, see the `airbyte.secrets.CustomSecretManager` class definiton._
 
 ### Retrieving Secrets
 
 ```python
-from airbyte import get_secret, SecretSourceEnum
+import airbyte as ab
 
-source = get_source("source-github")
+source = ab.get_source("source-github")
 source.set_config(
    "credentials": {
-      "personal_access_token": get_secret("GITHUB_PERSONAL_ACCESS_TOKEN"),
+      "personal_access_token": ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN"),
    }
 )
 ```
 
-The `get_secret()` function accepts an optional `source` argument of enum type `SecretSourceEnum`. If omitted or set to `SecretSourceEnum.ANY`, PyAirbyte will search all available secrets sources. If `source` is set to a specific source, then only that source will be checked. If a list of `SecretSourceEnum` entries is passed, then the sources will be checked using the provided ordering.
+By default, PyAirbyte will search all available secrets sources. The `get_secret()` function also accepts an optional `sources` argument of specific source names (`SecretSourceEnum`) and/or secret manager objects to check.
 
-By default, PyAirbyte will prompt the user for any requested secrets that are not provided via other secret managers. You can disable this prompt by passing `prompt=False` to `get_secret()`.
+By default, PyAirbyte will prompt the user for any requested secrets that are not provided via other secret managers. You can disable this prompt by passing `allow_prompt=False` to `get_secret()`.
+
+For more information, see the `airbyte.secrets` module.
+
+### Secrets Auto-Discovery
+
+If you have a secret matching an expected name, PyAirbyte will automatically use it. For example, if you have a secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, PyAirbyte will automatically use it when configuring the GitHub source.
+
+The naming convention for secrets is as `{CONNECTOR_NAME}_{PROPERTY_NAME}`, for instance `SNOWFLAKE_PASSWORD` and `BIGQUERY_CREDENTIALS_PATH`.
+
+PyAirbyte will also auto-discover secrets for interop with hosted Airbyte: `AIRBYTE_CLOUD_API_URL`, `AIRBYTE_CLOUD_API_KEY`, etc.
 
 ## Connector compatibility
 
@@ -119,7 +129,6 @@ Yes. Just pick the cache type matching the destination - like SnowflakeCache for
 
 **6. Can PyAirbyte import a connector from a local directory that has python project files, or does it have to be pip install**
 Yes, PyAirbyte can use any local install that has a CLI - and will automatically find connectors by name if they are on PATH.
-
 
 ## Changelog and Release Notes
 
