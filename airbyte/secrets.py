@@ -58,12 +58,11 @@ class SecretManager(ABC):
     replace_existing = False
     as_backup = False
 
-    def __init__(self, name: str | None = None) -> None:
+    def __init__(self) -> None:
         """Instantiate the new secret manager."""
-
-        self.name: str = (  # Default to the class name if no name is provided
-            name or self.__class__.__name__
-        )
+        if not hasattr(self, "name"):
+            # Default to the class name if no name is provided
+            self.name: str = self.__class__.__name__
 
     @abstractmethod
     def get_secret(self, secret_name: str) -> str | None:
@@ -102,8 +101,8 @@ class CustomSecretManager(SecretManager, ABC):
     replace_existing = False
     as_backup = False
 
-    def __init__(self, name: str | None = None) -> None:
-        super().__init__(name)
+    def __init__(self) -> None:
+        super().__init__()
         if self.auto_register:
             self.register()
 
