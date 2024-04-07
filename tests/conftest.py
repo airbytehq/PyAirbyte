@@ -345,21 +345,6 @@ def new_snowflake_cache():
         connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
 
 
-@pytest.fixture(autouse=True, scope="session")
-def with_bigquery_credentials_path_env_var():
-    dest_bigquery_config = get_ci_secret_json(
-        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
-    )
-    credentials_json = dest_bigquery_config["credentials_json"]
-
-    with as_temp_files([credentials_json]) as (credentials_path,):
-        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
-
-        yield
-
-    return
-
-
 @pytest.fixture
 @pytest.mark.requires_creds
 def new_bigquery_cache():

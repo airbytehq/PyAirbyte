@@ -52,6 +52,22 @@ def api_key() -> str:
     return os.environ[ENV_AIRBYTE_API_KEY]
 
 
+@pytest.mark.requires_creds
+@pytest.fixture(autouse=True, scope="session")
+def bigquery_credentials_file():
+    dest_bigquery_config = get_ci_secret_json(
+        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    )
+    credentials_json = dest_bigquery_config["credentials_json"]
+
+    with as_temp_files([credentials_json]) as (credentials_path,):
+        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
+
+        yield
+
+    return
+
+
 @pytest.fixture
 def motherduck_api_key() -> str:
     dotenv_vars: dict[str, str | None] = dotenv_values()
