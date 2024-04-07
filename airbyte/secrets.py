@@ -230,8 +230,8 @@ def register_secret_manager(secret_manager: CustomSecretManager) -> None:
 def disable_secret_source(source: SecretManager | SecretSourceEnum) -> None:
     """Disable one of the default secrets sources.
 
-    This function can accept either a `SecretManager` instance, a `SecretSourceEnum` enum value, or a
-    string representing the name of the source to disable.
+    This function can accept either a `SecretManager` instance, a `SecretSourceEnum` enum value, or
+    a string representing the name of the source to disable.
     """
     if isinstance(source, SecretManager) and source in _SECRETS_SOURCES:
         _SECRETS_SOURCES.remove(source)
@@ -253,10 +253,10 @@ def get_secret(
 ) -> str:
     """Get a secret from the environment.
 
-    The optional `sources` argument of enum type `SecretSourceEnum` or list of `SecretSourceEnum` options.
-    If left blank, the `sources` arg will be `SecretSourceEnum.ANY`. If `source` is set to a specific
-    source, then only that source will be checked. If a list of `SecretSourceEnum` entries is passed,
-    then the sources will be checked using the provided ordering.
+    The optional `sources` argument of enum type `SecretSourceEnum` or list of `SecretSourceEnum`
+    options. If left blank, the `sources` arg will be `SecretSourceEnum.ANY`. If `source` is set to
+    a specific source, then only that source will be checked. If a list of `SecretSourceEnum`
+    entries is passed, then the sources will be checked using the provided ordering.
 
     If `prompt` to `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then the
     user will be prompted to enter the secret if it is not found in any of the other sources.

@@ -48,7 +48,7 @@ class CloudDestination:
 
     def get_destination_config(
         self,
-    ) -> DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake | Any:
+    ) -> DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake | Any:  # noqa: ANN401
         """Get the destination configuration."""
         return self._get_destination_response().configuration
 
