@@ -63,9 +63,8 @@ class SQLDataset(DatasetBase):
             except Exception as ex:
                 Warning(f"Failed to get stream configuration for {stream_name}: {ex}")
 
-            stream_configuration: ConfiguredAirbyteStream | None = (
-                stream_configuration or None  # Coalesce False to None
-            )
+            # Coalesce False to None
+            stream_configuration = stream_configuration or None
 
         super().__init__(stream_metadata=stream_configuration)
 

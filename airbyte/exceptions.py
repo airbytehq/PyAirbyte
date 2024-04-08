@@ -326,7 +326,7 @@ class AirbyteError(PyAirbyteError):
     @property
     def workspace_url(self) -> str | None:
         if self.workspace:
-            return f"{self.workspace.api_root}/workspaces/{self.workspace.workspace_id}"
+            return self.workspace.workspace_url
 
         return None
 

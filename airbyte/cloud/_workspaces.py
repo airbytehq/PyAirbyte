@@ -23,6 +23,7 @@ from airbyte._util.api_util import (
     get_connection,
     get_workspace,
 )
+from airbyte.cloud._connections import CloudConnection
 from airbyte.cloud._destination_util import get_destination_config_from_cache
 from airbyte.cloud._sync_results import SyncResult
 from airbyte.sources.base import Source
@@ -48,6 +49,10 @@ class CloudWorkspace:
     api_key: str
     api_root: str = CLOUD_API_ROOT
 
+    @property
+    def workspace_url(self) -> str | None:
+        return f"{self.api_root}/workspaces/{self.workspace_id}"
+
     # Test connection and creds
 
     def connect(self) -> None:
@@ -62,6 +67,7 @@ class CloudWorkspace:
             api_key=self.api_key,
             workspace_id=self.workspace_id,
         )
+        print(f"Successfully connected to workspace: {self.workspace_url}")
 
     # Deploy and delete sources
 
@@ -147,16 +153,16 @@ class CloudWorkspace:
     def delete_destination(
         self,
         *,
-        destination_id: str | None = None,
+        destination: str | None = None,
         cache: CacheBase | None = None,
     ) -> None:
         """Delete a deployed destination from the workspace.
 
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
         """
-        if destination_id is None and cache is None:
+        if destination is None and cache is None:
             raise ValueError("You must provide either a destination ID or a cache object.")  # noqa: TRY003
-        if destination_id is not None and cache is not None:
+        if destination is not None and cache is not None:
             raise ValueError(  # noqa: TRY003
                 "You must provide either a destination ID or a cache object, not both."
             )
@@ -165,13 +171,13 @@ class CloudWorkspace:
             if not cache._deployed_destination_id:  # noqa: SLF001
                 raise ValueError("Cache has not been deployed.")  # noqa: TRY003
 
-            destination_id = cache._deployed_destination_id  # noqa: SLF001
+            destination = cache._deployed_destination_id  # noqa: SLF001
 
-        if destination_id is None:
+        if destination is None:
             raise ValueError("No destination ID provided.")  # noqa: TRY003
 
         delete_destination(
-            destination_id=destination_id,
+            destination_id=destination,
             api_root=self.api_root,
             api_key=self.api_key,
         )
@@ -277,7 +283,7 @@ class CloudWorkspace:
             self.delete_source(source=connection.source_id)
 
         if delete_destination:
-            self.delete_destination(destination_id=connection.destination_id)
+            self.delete_destination(destination=connection.destination_id)
 
     # Run syncs
 
@@ -289,25 +295,11 @@ class CloudWorkspace:
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync on a deployed connection."""
-        connection_response = api_util.run_connection(
-            connection_id=connection_id,
-            api_root=self.api_root,
-            api_key=self.api_key,
-            workspace_id=self.workspace_id,
-        )
-        sync_result = SyncResult(
+        connection = CloudConnection(
             workspace=self,
-            connection_id=connection_response.connection_id,
-            job_id=connection_response.job_id,
+            connection_id=connection_id,
         )
-        if wait:
-            sync_result.wait_for_completion(
-                wait_timeout=wait_timeout,
-                raise_failure=True,
-                raise_timeout=True,
-            )
-
-        return sync_result
+        return connection.run_sync(wait=wait, wait_timeout=wait_timeout)
 
     # Get sync results and previous sync logs
 
@@ -322,6 +314,10 @@ class CloudWorkspace:
 
         Returns `None` if job_id is omitted and no previous jobs are found.
         """
+        connection = CloudConnection(
+            workspace=self,
+            connection_id=connection_id,
+        )
         if job_id is None:
             results = self.get_previous_sync_logs(
                 connection_id=connection_id,
@@ -331,10 +327,13 @@ class CloudWorkspace:
                 return results[0]
 
             return None
-
-        return SyncResult(
+        connection = CloudConnection(
             workspace=self,
             connection_id=connection_id,
+        )
+        return SyncResult(
+            workspace=self,
+            connection=connection,
             job_id=job_id,
         )
 
@@ -345,19 +344,10 @@ class CloudWorkspace:
         limit: int = 10,
     ) -> list[SyncResult]:
         """Get the previous sync logs for a connection."""
-        sync_logs: list[JobResponse] = api_util.get_job_logs(
+        connection = CloudConnection(
+            workspace=self,
             connection_id=connection_id,
-            api_root=self.api_root,
-            api_key=self.api_key,
-            workspace_id=self.workspace_id,
+        )
+        return connection.get_previous_sync_logs(
             limit=limit,
         )
-        return [
-            SyncResult(
-                workspace=self,
-                connection_id=sync_log.connection_id,
-                job_id=sync_log.job_id,
-                _latest_status=sync_log.status,
-            )
-            for sync_log in sync_logs
-        ]

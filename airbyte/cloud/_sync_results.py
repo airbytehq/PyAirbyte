@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     import sqlalchemy
 
     from airbyte.caches.base import CacheBase
+    from airbyte.cloud._connections import CloudConnection
     from airbyte.cloud._workspaces import CloudWorkspace
 
 
@@ -42,13 +43,18 @@ class SyncResult:
     """The result of a sync operation."""
 
     workspace: CloudWorkspace
-    connection_id: str
+    connection: CloudConnection
     job_id: str
     table_name_prefix: str = ""
     table_name_suffix: str = ""
     _latest_status: JobStatusEnum | None = None
     _connection_response: ConnectionResponse | None = None
     _cache: CacheBase | None = None
+
+    @property
+    def job_url(self) -> str:
+        """Return the URL of the sync job."""
+        return f"{self.connection.job_history_url}/{self.job_id}"
 
     def _get_connection_info(self, *, force_refresh: bool = False) -> ConnectionResponse:
         """Return connection info for the sync job."""
@@ -59,7 +65,7 @@ class SyncResult:
             workspace_id=self.workspace.workspace_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
-            connection_id=self.connection_id,
+            connection_id=self.connection.connection_id,
         )
         return self._connection_response
 
@@ -111,7 +117,7 @@ class SyncResult:
         if latest_status in FAILED_STATUSES:
             raise AirbyteConnectionSyncError(
                 workspace=self.workspace,
-                connection_id=self.connection_id,
+                connection_id=self.connection.connection_id,
                 job_id=self.job_id,
                 job_status=self._latest_status,
             )
@@ -138,7 +144,7 @@ class SyncResult:
                 if raise_timeout:
                     raise AirbyteConnectionSyncTimeoutError(
                         workspace=self.workspace,
-                        connection_id=self.connection_id,
+                        connection_id=self.connection.connection_id,
                         job_id=self.job_id,
                         job_status=latest_status,
                         timeout=wait_timeout,

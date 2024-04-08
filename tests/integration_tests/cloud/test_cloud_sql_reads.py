@@ -116,6 +116,15 @@ def test_read_from_deployed_connection(
         assert pandas_df[col].notnull().all()
 
 
+@pytest.mark.parametrize(
+    "deployed_connection_id",
+    [
+        pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
+        pytest.param("0e1d6b32-b8e3-4b68-91a3-3a314599c782", id="Faker->BigQuery"),
+        pytest.param("", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")),
+        pytest.param("", id="Faker->MotherDuck", marks=pytest.mark.skip(reason="Not yet supported")),
+    ],
+)
 def test_read_from_previous_job(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
