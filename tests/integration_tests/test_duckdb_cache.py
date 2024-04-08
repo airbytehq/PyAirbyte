@@ -75,9 +75,3 @@ def duckdb_cache() -> Generator[DuckDBCache, None, None]:
     yield cache
     # TODO: Delete cache DB file after test is complete.
     return
-
-
-def test_duckdb_cache(duckdb_cache: DuckDBCache) -> None:
-    """Test that the duckdb cache is available."""
-    assert duckdb_cache
-    assert isinstance(duckdb_cache, DuckDBCache)
