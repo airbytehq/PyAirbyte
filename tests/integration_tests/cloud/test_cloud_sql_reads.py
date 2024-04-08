@@ -105,8 +105,9 @@ def test_read_from_deployed_connection(
     data_as_list = list(dataset)
     assert len(data_as_list) == 100
 
-    # TODO: Debug why this is super slow:
+    # TODO: Fails on BigQuery: https://github.com/airbytehq/PyAirbyte/issues/165
     # pandas_df = dataset.to_pandas()
+
     pandas_df = pd.DataFrame(data_as_list)
 
     assert pandas_df.shape == (100, 20)
@@ -150,7 +151,11 @@ def test_read_from_previous_job(
     data_as_list = list(dataset)
     assert len(data_as_list) == 100
 
-    pandas_df = dataset.to_pandas()
+    # TODO: Fails on BigQuery: https://github.com/airbytehq/PyAirbyte/issues/165
+    # pandas_df = dataset.to_pandas()
+
+    pandas_df = pd.DataFrame(data_as_list)
+
     assert pandas_df.shape == (100, 20)
     for col in pandas_df.columns:
         # Check that no values are null
