@@ -32,6 +32,10 @@ class SecretString(str):
     def __repr__(self) -> str:
         return "<SecretString: ****>"
 
+    def is_empty(self) -> bool:
+        """Check if the secret is an empty string."""
+        return len(self) == 0
+
     def is_json(self) -> bool:
         """Check if the secret string is a valid JSON string."""
         try:
