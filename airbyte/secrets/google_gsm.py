@@ -64,8 +64,15 @@ if TYPE_CHECKING:
 class GoogleGSMSecretManager(CustomSecretManager):
     """Secret manager that retrieves secrets from Google Secrets Manager (GSM).
 
+    This class inherits from `CustomSecretManager` and also adds methods 
+    that are specific to this implementation: `fetch_secrets()`,
+    `fetch_secrets_by_label()` and `fetch_connector_secrets()`.
+
     This secret manager is not enabled by default. To use it, you must provide the project ID and
     the credentials for a service account with the necessary permissions to access the secrets.
+    
+    The `fetch_connector_secret()` method assumes a label name of `connector`
+    matches the name of the connector (`source-github`, `destination-snowflake`, etc.)
     """
 
     name = SecretSourceEnum.GOOGLE_GSM.value
@@ -141,6 +148,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
     def fetch_secrets(
         self,
+        *,
         filter_string: str,
     ) -> Iterable[SecretHandle]:
         """List all available secrets in the secret manager.
