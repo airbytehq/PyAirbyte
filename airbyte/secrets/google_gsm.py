@@ -95,9 +95,11 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
     def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from Google Colab user secrets."""
-        return self.secret_client.access_secret_version(
-            name=f"projects/{self.project}/secrets/{secret_name}/versions/latest"
-        ).payload.data.decode("UTF-8")
+        return SecretString(
+            self.secret_client.access_secret_version(
+                name=f"projects/{self.project}/secrets/{secret_name}/versions/latest"
+            ).payload.data.decode("UTF-8")
+        )
 
     def fetch_secrets(
         self,

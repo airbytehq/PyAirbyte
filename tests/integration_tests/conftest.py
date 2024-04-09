@@ -23,10 +23,10 @@ AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
 
 @pytest.mark.requires_creds
-@pytest.fixture
+@pytest.fixture(scope="session")
 def ci_secret_manager() -> GoogleGSMSecretManager:
     return GoogleGSMSecretManager(
-        project_name=AIRBYTE_INTERNAL_GCP_PROJECT,
+        project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
     )
 
@@ -35,7 +35,7 @@ def get_connector_config(self, connector_name: str, index: int = 0) -> dict | No
     """Retrieve the connector configuration from GSM."""
     gcp_gsm_credentials = ab.get_secret("GCP_GSM_CREDENTIALS")
     gsm_secrets_manager = GoogleGSMSecretManager(
-        project_name=AIRBYTE_INTERNAL_GCP_PROJECT,
+        project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
     )
     first_secret: SecretHandle = next(gsm_secrets_manager.fetch_secrets(
