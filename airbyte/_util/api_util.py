@@ -5,6 +5,10 @@ In order to insulate users from breaking changes and to avoid general confusion 
 and design inconsistencies, we do not expose these functions or other Airbyte API classes within
 PyAirbyte. Classes and functions from the Airbyte API external library should always be wrapped in
 PyAirbyte classes - unless there's a very compelling reason to surface these models intentionally.
+
+Similarly, modules outside of this file should try to avoid interfacing with `airbyte_api` library
+directly. This will ensure a single source of truth when mapping between the `airbyte` and
+`airbyte_api` libraries.
 """
 
 from __future__ import annotations
