@@ -40,9 +40,9 @@ class GoogleGSMSecretManager(CustomSecretManager):
     def __init__(
         self,
         project: str,
-        credentials_path: str | None,
-        credentials_json: str | SecretString | None,
         *,
+        credentials_path: str | None = None,
+        credentials_json: str | SecretString | None = None,
         auto_register: bool = False,
         as_backup: bool = False,
     ) -> None:

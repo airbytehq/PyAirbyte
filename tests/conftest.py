@@ -14,7 +14,6 @@ import time
 from requests.exceptions import HTTPError
 
 import ulid
-from airbyte._util.google_secrets import get_gcp_secret
 from airbyte._util.meta import is_windows
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
