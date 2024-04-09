@@ -122,7 +122,7 @@ class SecretHandle:
     """A handle for a secret in a secret manager.
 
     This class is used to store a reference to a secret in a secret manager.
-    The secret is not retrieved until the `get` method is called on the handle.
+    The secret is not retrieved until the `get_value()` method is called on the handle.
     """
 
     def __init__(
