@@ -113,11 +113,8 @@ jobs:
       run: poetry install --all-extras
 
     # Job-specific step(s):
-    - name: "Run Pytest ${{ matrix.python-version == '3.9' && '(No Creds)' || '' }}"
+    - name: "Run Pytest"
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      # We have to exclude `requires_creds` tests on 3.9, because the `airbyte_ci` package
-      # is not available for 3.9, and the tests that require creds will fail.
       run: >
         poetry run pytest -m "not linting and not super_slow
-        ${{ matrix.python-version == '3.9' && 'and not requires_creds' || '' }}"
