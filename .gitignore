@@ -1,6 +1,6 @@
-# Directories and subdirectories called 'secrets' or '.secrets'
+# Directories and subdirectories called '.secrets' and the top-level '/secrets' directory
 .secrets
-secrets
+/secrets
 
 # Virtual Environments
 .venv
