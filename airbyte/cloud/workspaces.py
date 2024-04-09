@@ -254,6 +254,20 @@ class CloudWorkspace:
 
         return deployed_connection.connection_id
 
+    def get_connection(
+        self,
+        connection_id: str,
+    ) -> CloudConnection:
+        """Get a connection by ID.
+
+        This method does not fetch data from the API. It returns a `CloudConnection` object,
+        which will be loaded lazily as needed.
+        """
+        return CloudConnection(
+            workspace=self,
+            connection_id=connection_id,
+        )
+
     def delete_connection(
         self,
         connection_id: str | None,
