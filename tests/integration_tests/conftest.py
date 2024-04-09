@@ -46,64 +46,6 @@ def get_connector_config(self, connector_name: str, index: int = 0) -> dict | No
     return first_secret.get_value().parse_json()
 
 
-class AirbyteIntegrationTestSecretManager(CustomSecretManager):
-    """Custom secret manager for Airbyte integration tests.
-
-    This class is used to auto-retrieve needed secrets from GSM.
-    """
-    auto_register = True
-    replace_existing = False
-    as_backup = True
-
-    def get_secret(
-        self,
-        secret_name: str,
-        *,
-        required: bool = False,
-    ) -> str | None:
-        """This method attempts to find matching properties within the integration test config.
-
-        If `required` is `True`, this method will raise an exception if the secret is not found.
-        Otherwise, it will return None.
-        """
-        system_name = secret_name.split("_")[0].lower()
-        property_name = "_".join(secret_name.split("_")[1:]).lower()
-
-        mapping = {
-            "snowflake": "destination-snowflake",
-            "bigquery": "destination-bigquery",
-            "postgres": "destination-postgres",
-            "duckdb": "destination-duckdb",
-        }
-        if system_name not in mapping:
-            return None
-
-        connector_name = mapping[system_name]
-        connector_config = self.get_connector_config(connector_name)
-        if "credentials" in connector_config:
-            if property_name in connector_config["credentials"]:
-                return connector_config["credentials"][property_name]
-
-        if property_name in connector_config:
-            return connector_config[property_name]
-
-        if not required:
-            return None
-
-        raise KeyError(
-            f"Property '{property_name}' not found in '{connector_name}' connector config. "
-            f"\nAvailable config keys: {', '.join(connector_config.keys())} "
-            f"\nAvailable 'credential' keys: {', '.join(connector_config.get('credentials', {}).keys())} "
-        )
-
-
-@pytest.fixture(autouse=True, scope="session")
-def airbyte_integration_test_secrets_manager() -> AirbyteIntegrationTestSecretManager:
-    """Create a new instance of the custom secret manager."""
-
-    return AirbyteIntegrationTestSecretManager()
-
-
 @pytest.fixture(scope="session")
 def motherduck_secrets(ci_secret_manager: GoogleGSMSecretManager) -> dict:
     return ci_secret_manager.get_secret(
