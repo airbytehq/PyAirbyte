@@ -14,15 +14,15 @@ from airbyte_api.models.shared import SourceFaker, DestinationDuckdb
 
 def test_create_and_delete_source(
     workspace_id: str,
-    api_root: str,
-    api_key: str,
+    airbyte_cloud_api_root: str,
+    airbyte_cloud_api_key: str,
 ) -> None:
     new_resource_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
     source_config = SourceFaker()
     source = api_util.create_source(
         name=new_resource_name,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
         config=source_config,
     )
@@ -32,16 +32,16 @@ def test_create_and_delete_source(
 
     api_util.delete_source(
         source_id=source.source_id,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
 
 
 def test_create_and_delete_destination(
     workspace_id: str,
-    api_root: str,
-    api_key: str,
+    airbyte_cloud_api_root: str,
+    airbyte_cloud_api_key: str,
     motherduck_api_key: str,
 ) -> None:
     new_resource_name = "deleteme-destination-faker" + str(ulid.ULID()).lower()[-6:]
@@ -52,8 +52,8 @@ def test_create_and_delete_destination(
 
     destination = api_util.create_destination(
         name=new_resource_name,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
         config=destination_config,
     )
@@ -63,16 +63,16 @@ def test_create_and_delete_destination(
 
     api_util.delete_destination(
         destination_id=destination.destination_id,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
 
 
 def test_create_and_delete_connection(
     workspace_id: str,
-    api_root: str,
-    api_key: str,
+    airbyte_cloud_api_root: str,
+    airbyte_cloud_api_key: str,
     motherduck_api_key: str,
 ) -> None:
     new_source_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
@@ -80,8 +80,8 @@ def test_create_and_delete_connection(
     new_connection_name = "deleteme-connection-dummy" + str(ulid.ULID()).lower()[-6:]
     source = api_util.create_source(
         name=new_source_name,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
         config=SourceFaker(),
     )
@@ -91,8 +91,8 @@ def test_create_and_delete_connection(
 
     destination = api_util.create_destination(
         name=new_destination_name,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
         config=DestinationDuckdb(
             destination_path="temp_db",
@@ -105,8 +105,8 @@ def test_create_and_delete_connection(
 
     connection = api_util.create_connection(
         name=new_connection_name,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
         source_id=source.source_id,
         destination_id=destination.destination_id,
@@ -119,19 +119,19 @@ def test_create_and_delete_connection(
 
     api_util.delete_connection(
         connection_id=connection.connection_id,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
     api_util.delete_source(
         source_id=source.source_id,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
     api_util.delete_destination(
         destination_id=destination.destination_id,
-        api_root=api_root,
-        api_key=api_key,
+        api_root=airbyte_cloud_api_root,
+        api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
