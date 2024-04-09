@@ -14,20 +14,29 @@ from airbyte.secrets.util import get_secret
 
 
 __all__ = [
+    # Submodules
+    "base",
+    "config",
+    "custom",
+    "env_vars",
+    "google_colab",
+    "google_gsm",
+    "prompt",
+    "util",
     # Secret Access
     "get_secret",
     # Secret Classes
-    "SecretHandle",
-    "SecretString",
     "SecretSourceEnum",
+    "SecretString",
+    "SecretHandle",
     # Secret Managers
-    "ColabSecretManager",
-    "CustomSecretManager",
-    "DotenvSecretManager",
-    "EnvVarSecretManager",
-    "GoogleGSMSecretManager",
     "SecretManager",
+    "EnvVarSecretManager",
+    "DotenvSecretManager",
+    "ColabSecretManager",
     "SecretsPrompt",
+    "CustomSecretManager",
+    "GoogleGSMSecretManager",
     # Registration Functions`
     "register_secret_manager",
     "disable_secret_source",
