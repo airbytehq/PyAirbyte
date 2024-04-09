@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from airbyte.secrets.base import SecretHandle, SecretSourceEnum, SecretString
 from airbyte.secrets.config import disable_secret_source, register_secret_manager
+from airbyte.secrets.custom import CustomSecretManager
 from airbyte.secrets.env_vars import DotenvSecretManager, EnvVarSecretManager
 from airbyte.secrets.google_colab import ColabSecretManager
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager

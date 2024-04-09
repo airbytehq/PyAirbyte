@@ -3,11 +3,18 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from airbyte._util import meta
-from airbyte.secrets.base import CustomSecretManager, SecretManager, SecretSourceEnum
+from airbyte.secrets.base import SecretManager
 from airbyte.secrets.env_vars import DotenvSecretManager, EnvVarSecretManager
 from airbyte.secrets.google_colab import ColabSecretManager
 from airbyte.secrets.prompt import SecretsPrompt
+
+
+if TYPE_CHECKING:
+    from airbyte.secrets.base import SecretSourceEnum
+    from airbyte.secrets.custom import CustomSecretManager
 
 
 _SECRETS_SOURCES: list[SecretManager] = []

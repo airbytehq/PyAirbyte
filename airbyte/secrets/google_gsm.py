@@ -11,7 +11,8 @@ from typing import TYPE_CHECKING
 from google.cloud import secretmanager_v1 as secretmanager
 
 from airbyte import exceptions as exc
-from airbyte.secrets.base import CustomSecretManager, SecretHandle, SecretSourceEnum, SecretString
+from airbyte.secrets.base import SecretHandle, SecretSourceEnum, SecretString
+from airbyte.secrets.custom import CustomSecretManager
 
 
 if TYPE_CHECKING:
