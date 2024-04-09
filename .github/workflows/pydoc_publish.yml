@@ -46,7 +46,7 @@ jobs:
       uses: actions/configure-pages@v4
 
     - name: Install dependencies
-      run: poetry install --all-extras
+      run: poetry install
 
     - name: Generate documentation
       run: |
