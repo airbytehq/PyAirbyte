@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 from contextlib import suppress
-import json
 import os
 
 import pytest
@@ -11,12 +10,11 @@ import ulid
 from sqlalchemy import create_engine
 
 from airbyte._util import meta
-from airbyte._util.google_secrets import get_gcp_secret
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.secrets import CustomSecretManager
+from airbyte.secrets import CustomSecretManager, GoogleGSMSecretManager, SecretHandle
 from airbyte._util.temp_files import as_temp_files
 
 import airbyte as ab
@@ -24,48 +22,31 @@ import airbyte as ab
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
 
-def get_ci_secret(
-    secret_name,
-    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
-) -> str:
-    return get_gcp_secret(project_name=project_name, secret_name=secret_name)
-
-
-def get_ci_secret_json(
-    secret_name,
-    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
-) -> dict:
-    return json.loads(get_ci_secret(secret_name=secret_name, project_name=project_name))
+@pytest.mark.requires_creds
+@pytest.fixture
+def ci_secret_manager() -> GoogleGSMSecretManager:
+    return GoogleGSMSecretManager(
+        project_name=AIRBYTE_INTERNAL_GCP_PROJECT,
+        credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
+    )
 
 
 def get_connector_config(self, connector_name: str, index: int = 0) -> dict | None:
-    # Import here because `airbyte_ci` may not be available in all environments:
-    from ci_credentials import RemoteSecret, get_connector_secrets
-
-    assert connector_name is not None and connector_name != "all", \
-        "We can only retrieve one connector config at a time."
-
+    """Retrieve the connector configuration from GSM."""
     gcp_gsm_credentials = ab.get_secret("GCP_GSM_CREDENTIALS")
-    secrets: list[RemoteSecret] = []
-    secrets, _ = get_connector_secrets(
-        connector_name=connector_name,
-        gcp_gsm_credentials=gcp_gsm_credentials,
-        disable_masking=True,
+    gsm_secrets_manager = GoogleGSMSecretManager(
+        project_name=AIRBYTE_INTERNAL_GCP_PROJECT,
+        credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
     )
+    first_secret: SecretHandle = next(gsm_secrets_manager.fetch_secrets(
+        # https://cloud.google.com/secret-manager/docs/filtering
+        filter_string=f"labels.connector={connector_name}"
+    ), None)
 
-    if len(secrets) > 1:
-        print(
-            f"Found {len(secrets)} secrets for connector '{connector_name}'."
-        )
-    else:
-        print(
-            f"Found '{connector_name}' credentials."
-        )
-
-    if index >= len(secrets):
-        raise IndexError(f"Index {index} is out of range for connector '{connector_name}'.")
-
-    return secrets[index].value_dict
+    print(
+        f"Found '{connector_name}' credential secret ${first_secret.secret_name}."
+    )
+    return first_secret.get_value().parse_json()
 
 
 class AirbyteIntegrationTestSecretManager(CustomSecretManager):
@@ -141,10 +122,11 @@ def new_motherduck_cache(
 
 
 @pytest.fixture
-def new_snowflake_cache():
-    secret = get_ci_secret_json(
+def new_snowflake_cache(ci_secret_manager: GoogleGSMSecretManager):
+    secret = ci_secret_manager.get_secret(
         "AIRBYTE_LIB_SNOWFLAKE_CREDS",
-    )
+    ).parse_json()
+
     config = SnowflakeCache(
         account=secret["account"],
         username=secret["username"],
@@ -165,10 +147,10 @@ def new_snowflake_cache():
 
 @pytest.fixture
 @pytest.mark.requires_creds
-def new_bigquery_cache():
-    dest_bigquery_config = get_ci_secret_json(
+def new_bigquery_cache(ci_secret_manager: GoogleGSMSecretManager):
+    dest_bigquery_config = ci_secret_manager.get_secret(
         "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
-    )
+    ).parse_json()
 
     dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
     credentials_json = dest_bigquery_config["credentials_json"]
@@ -189,12 +171,12 @@ def new_bigquery_cache():
 
 @pytest.mark.requires_creds
 @pytest.fixture(autouse=True, scope="session")
-def bigquery_credentials_file():
-    dest_bigquery_config = get_ci_secret_json(
+def bigquery_credentials_file(ci_secret_manager: GoogleGSMSecretManager):
+    dest_bigquery_config = ci_secret_manager.get_secret(
         secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
-    )
-    credentials_json = dest_bigquery_config["credentials_json"]
+    ).parse_json()
 
+    credentials_json = dest_bigquery_config["credentials_json"]
     with as_temp_files([credentials_json]) as (credentials_path,):
         os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
 
