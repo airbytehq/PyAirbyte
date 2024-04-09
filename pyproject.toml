@@ -63,12 +63,6 @@ responses = "^0.25.0"
 airbyte-source-pokeapi = "^0.2.0"
 pytest-mock = "^3.14.0"
 
-# TODO: Move to 'main' branch dependencies once merged: https://github.com/airbytehq/airbyte/pull/35938
-ci_credentials = { python = "^3.10", git = "https://github.com/airbytehq/airbyte.git", branch = "aj/ci_credentials/make-portable-as-library", subdirectory="airbyte-ci/connectors/ci_credentials" }
-
-[tool.poetry.extras]
-integ-testing = ["ci_credentials"]
-
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
