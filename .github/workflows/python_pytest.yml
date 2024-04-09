@@ -113,7 +113,7 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-    - name: "Run Pytest"
+    - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
