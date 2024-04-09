@@ -23,7 +23,6 @@ import airbyte as ab
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
 
-@pytest.mark.requires_creds
 @pytest.fixture(scope="session")
 def ci_secret_manager() -> GoogleGSMSecretManager:
     secret = ab.get_secret("GCP_GSM_CREDENTIALS")
@@ -96,7 +95,6 @@ def new_snowflake_cache(snowflake_creds: dict):
 
 
 @pytest.fixture
-@pytest.mark.requires_creds
 def new_bigquery_cache(ci_secret_manager: GoogleGSMSecretManager):
     dest_bigquery_config = ci_secret_manager.get_secret(
         "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
@@ -119,7 +117,6 @@ def new_bigquery_cache(ci_secret_manager: GoogleGSMSecretManager):
                 connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
 
 
-@pytest.mark.requires_creds
 @pytest.fixture(autouse=True, scope="session")
 def bigquery_credentials_file(ci_secret_manager: GoogleGSMSecretManager):
     dest_bigquery_config = ci_secret_manager.get_secret(
@@ -135,7 +132,6 @@ def bigquery_credentials_file(ci_secret_manager: GoogleGSMSecretManager):
     return
 
 
-@pytest.mark.requires_creds
 @pytest.fixture(autouse=True, scope="session")
 def with_snowflake_password_env_var(snowflake_creds: dict):
     os.environ["SNOWFLAKE_PASSWORD"] = snowflake_creds["password"]
