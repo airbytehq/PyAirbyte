@@ -19,6 +19,7 @@ from airbyte._util.temp_files import as_temp_files
 
 import airbyte as ab
 
+
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
 

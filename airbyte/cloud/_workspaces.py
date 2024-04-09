@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from airbyte import exceptions as exc
-from airbyte._util import api_util
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
     create_connection,
@@ -32,7 +31,6 @@ from airbyte.sources.base import Source
 if TYPE_CHECKING:
     from airbyte_api.models.shared.connectionresponse import ConnectionResponse
     from airbyte_api.models.shared.destinationresponse import DestinationResponse
-    from airbyte_api.models.shared.jobresponse import JobResponse
 
     from airbyte.caches.base import CacheBase
 
