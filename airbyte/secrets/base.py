@@ -41,6 +41,12 @@ class SecretString(str):
 
         return True
 
+    def __bool__(self) -> bool:
+        """Override the boolean value of the secret string.
+
+        Always returns `True` without inspecting contents."""
+        return True
+
     def parse_json(self) -> dict:
         """Parse the secret string as JSON."""
         try:

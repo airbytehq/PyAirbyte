@@ -13,11 +13,14 @@ from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
 from airbyte._util.temp_files import as_temp_files
+from airbyte.secrets.base import SecretString
+from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
-ENV_AIRBYTE_API_KEY = "AIRBYTE_CLOUD_API_KEY"
-ENV_AIRBYTE_API_WORKSPACE_ID = "AIRBYTE_CLOUD_API_WORKSPACE_ID"
-ENV_MOTHERDUCK_API_KEY = "MOTHERDUCK_API_KEY"
+AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
+
+ENV_MOTHERDUCK_API_KEY = "PYAIRBYTE_MOTHERDUCK_API_KEY"
+AIRBYTE_CLOUD_API_KEY_SECRET_NAME = "PYAIRBYTE_CLOUD_INTEROP_API_KEY"
 
 
 @pytest.fixture(autouse=True)
@@ -33,71 +36,37 @@ def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def workspace_id() -> str:
-    return os.environ[ENV_AIRBYTE_API_WORKSPACE_ID]
+    return AIRBYTE_CLOUD_WORKSPACE_ID
 
 
 @pytest.fixture
-def api_root() -> str:
+def airbyte_cloud_api_root() -> str:
     return CLOUD_API_ROOT
 
 
 @pytest.fixture
-def api_key() -> str:
-    dotenv_vars: dict[str, str | None] = dotenv_values()
-    if ENV_AIRBYTE_API_KEY in dotenv_vars:
-        return dotenv_vars[ENV_AIRBYTE_API_KEY]
-
-    if ENV_AIRBYTE_API_KEY not in os.environ:
-        raise ValueError(f"Please set the '{ENV_AIRBYTE_API_KEY}' environment variable.")
-
-    return os.environ[ENV_AIRBYTE_API_KEY]
+def airbyte_cloud_api_key(ci_secret_manager: GoogleGSMSecretManager) -> SecretString:
+    secret: SecretString | None = ci_secret_manager.get_secret(AIRBYTE_CLOUD_API_KEY_SECRET_NAME)
+    assert secret, f"Secret '{AIRBYTE_CLOUD_API_KEY_SECRET_NAME}' not found."
+    return secret
 
 
 @pytest.fixture
-def motherduck_api_key() -> str:
-    dotenv_vars: dict[str, str | None] = dotenv_values()
-    if ENV_MOTHERDUCK_API_KEY in dotenv_vars:
-        return dotenv_vars[ENV_MOTHERDUCK_API_KEY]
-
-    if ENV_MOTHERDUCK_API_KEY not in os.environ:
-        raise ValueError(f"Please set the '{ENV_MOTHERDUCK_API_KEY}' environment variable.")
-
-    return os.environ[ENV_MOTHERDUCK_API_KEY]
+def motherduck_api_key(motherduck_secrets: dict) -> SecretString:
+    return SecretString(motherduck_secrets["motherduck_api_key"])
 
 
 @pytest.fixture
 def cloud_workspace(
     workspace_id: str,
-    api_key: str,
-    api_root: str,
+    airbyte_cloud_api_key: SecretString,
+    airbyte_cloud_api_root: str,
 ) -> CloudWorkspace:
     return CloudWorkspace(
         workspace_id=workspace_id,
-        api_key=api_key,
-        api_root=api_root,
+        api_key=airbyte_cloud_api_key,
+        api_root=airbyte_cloud_api_root,
     )
-
-
-@pytest.fixture
-def workspace_id() -> str:
-    return os.environ[ENV_AIRBYTE_API_WORKSPACE_ID]
-
-
-@pytest.fixture
-def api_root() -> str:
-    return CLOUD_API_ROOT
-
-
-@pytest.fixture
-def api_key() -> str:
-    dotenv_vars: dict[str, str | None] = dotenv_values()
-    if ENV_AIRBYTE_API_KEY in dotenv_vars:
-        return dotenv_vars[ENV_AIRBYTE_API_KEY]
-
-    if ENV_AIRBYTE_API_KEY not in os.environ:
-        raise ValueError(f"Please set the {ENV_AIRBYTE_API_KEY} environment variable.")
-
-    return os.environ[ENV_AIRBYTE_API_KEY]
 
 
 @pytest.fixture(scope="function")

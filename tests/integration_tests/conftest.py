@@ -104,33 +104,40 @@ def airbyte_integration_test_secrets_manager() -> AirbyteIntegrationTestSecretMa
     return AirbyteIntegrationTestSecretManager()
 
 
+@pytest.fixture(scope="session")
+def motherduck_secrets(ci_secret_manager: GoogleGSMSecretManager) -> dict:
+    return ci_secret_manager.get_secret(
+        "SECRET_DESTINATION_DUCKDB__MOTHERDUCK__CREDS",
+    ).parse_json()
+
+
 @pytest.fixture
 def new_motherduck_cache(
-    airbyte_integration_test_secrets_manager: AirbyteIntegrationTestSecretManager,
+    motherduck_secrets,
 ) -> MotherDuckCache:
-    config = airbyte_integration_test_secrets_manager.get_connector_config(
-        connector_name="destination-duckdb",
-    )
     return MotherDuckCache(
         database="integration_tests_deleteany",
         schema_name=f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}",
-        api_key=config["motherduck_api_key"],
+        api_key=motherduck_secrets["motherduck_api_key"],
     )
 
 
-@pytest.fixture
-def new_snowflake_cache(ci_secret_manager: GoogleGSMSecretManager):
-    secret = ci_secret_manager.get_secret(
+@pytest.fixture(scope="session")
+def snowflake_creds(ci_secret_manager: GoogleGSMSecretManager) -> dict:
+    return ci_secret_manager.get_secret(
         "AIRBYTE_LIB_SNOWFLAKE_CREDS",
     ).parse_json()
 
+
+@pytest.fixture
+def new_snowflake_cache(snowflake_creds: dict):
     config = SnowflakeCache(
-        account=secret["account"],
-        username=secret["username"],
-        password=secret["password"],
-        database=secret["database"],
-        warehouse=secret["warehouse"],
-        role=secret["role"],
+        account=snowflake_creds["account"],
+        username=snowflake_creds["username"],
+        password=snowflake_creds["password"],
+        database=snowflake_creds["database"],
+        warehouse=snowflake_creds["warehouse"],
+        role=snowflake_creds["role"],
         schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
     )
     sqlalchemy_url = config.get_sql_alchemy_url()
@@ -174,7 +181,7 @@ def bigquery_credentials_file(ci_secret_manager: GoogleGSMSecretManager):
     ).parse_json()
 
     credentials_json = dest_bigquery_config["credentials_json"]
-    with as_temp_files([credentials_json]) as (credentials_path,):
+    with as_temp_files(files_contents=[credentials_json]) as (credentials_path,):
         os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
 
         yield
@@ -182,13 +189,14 @@ def bigquery_credentials_file(ci_secret_manager: GoogleGSMSecretManager):
     return
 
 
-@pytest.fixture(scope="function")
-def new_motherduck_cache() -> MotherDuckCache:
-    return MotherDuckCache(
-        api_key=ab.get_secret("MOTHERDUCK_API_KEY"),
-        schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
-        database="integration_tests_deleteany",
-    )
+@pytest.mark.requires_creds
+@pytest.fixture(autouse=True, scope="session")
+def with_snowflake_password_env_var(snowflake_creds: dict):
+    os.environ["SNOWFLAKE_PASSWORD"] = snowflake_creds["password"]
+
+    yield
+
+    return
 
 
 @pytest.fixture(scope="function")
