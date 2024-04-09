@@ -113,9 +113,9 @@ class GoogleGSMSecretManager(CustomSecretManager):
         if not credentials_json:
             raise exc.PyAirbyteInputError(
                 guidance=(
-                    "No Google Cloud credentials found. You can provide the path to the credentials "
-                    "file using the `credentials_path` argument, or provide the JSON contents of the "
-                    "credentials file using the `credentials_json` argument."
+                    "No Google Cloud credentials found. You can provide the path to the "
+                    "credentials file using the `credentials_path` argument, or provide the JSON "
+                    "contents of the credentials file using the `credentials_json` argument."
                 ),
             )
 
