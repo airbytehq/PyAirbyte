@@ -33,19 +33,15 @@ def ci_secret_manager() -> GoogleGSMSecretManager:
 
 def get_connector_config(self, connector_name: str, index: int = 0) -> dict | None:
     """Retrieve the connector configuration from GSM."""
-    gcp_gsm_credentials = ab.get_secret("GCP_GSM_CREDENTIALS")
     gsm_secrets_manager = GoogleGSMSecretManager(
         project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
     )
-    first_secret: SecretHandle = next(gsm_secrets_manager.fetch_secrets(
-        # https://cloud.google.com/secret-manager/docs/filtering
-        filter_string=f"labels.connector={connector_name}"
+    first_secret: SecretHandle = next(gsm_secrets_manager.fetch_connector_secrets(
+        connector_name=connector_name,
     ), None)
 
-    print(
-        f"Found '{connector_name}' credential secret ${first_secret.secret_name}."
-    )
+    print(f"Found '{connector_name}' credential secret '${first_secret.secret_name}'.")
     return first_secret.get_value().parse_json()
 
 

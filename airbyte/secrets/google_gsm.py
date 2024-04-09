@@ -1,5 +1,43 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Secret manager that retrieves secrets from Google Secrets Manager (GSM)."""
+"""Secret manager that retrieves secrets from Google Secrets Manager (GSM).
+
+Usage Example:
+
+```python
+gsm_secrets_manager = GoogleGSMSecretManager(
+    project=AIRBYTE_INTERNAL_GCP_PROJECT,
+    credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
+)
+first_secret: SecretHandle = next(
+    gsm_secrets_manager.fetch_connector_secrets(
+        connector_name=connector_name,
+    ),
+    None,
+)
+
+print(f"Found '{connector_name}' credential secret '${first_secret.secret_name}'.")
+return first_secret.get_value().parse_json()
+```
+
+More compact example:
+
+```python
+gsm_secrets_manager = GoogleGSMSecretManager(
+    project=AIRBYTE_INTERNAL_GCP_PROJECT,
+    credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
+)
+connector_config: dict = (
+    next(
+        gsm_secrets_manager.fetch_connector_secrets(
+            connector_name=connector_name,
+        ),
+        None,
+    )
+    .get_value()
+    .parse_json()
+)
+```
+"""
 
 from __future__ import annotations
 

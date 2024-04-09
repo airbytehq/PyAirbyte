@@ -37,7 +37,7 @@ def test_deploy_cache_as_destination(
         schema_name="public",
     )
     destination_id: str = cloud_workspace.deploy_cache_as_destination(cache=cache)
-    cloud_workspace.delete_destination(destination_id=destination_id)
+    cloud_workspace.delete_destination(destination=destination_id)
 
 
 def test_deploy_connection(
