@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     import sqlalchemy
 
     from airbyte.caches.base import CacheBase
-    from airbyte.cloud._connections import CloudConnection
-    from airbyte.cloud._workspaces import CloudWorkspace
+    from airbyte.cloud.connections import CloudConnection
+    from airbyte.cloud.workspaces import CloudWorkspace
 
 
 FINAL_STATUSES = {

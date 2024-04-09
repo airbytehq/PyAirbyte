@@ -9,7 +9,7 @@ from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
 from airbyte import cloud
-from airbyte.cloud._sync_results import SyncResult
+from airbyte.cloud.sync_results import SyncResult
 
 @pytest.fixture
 def deployable_source() -> ab.Source:

@@ -3,6 +3,16 @@
 
 from __future__ import annotations
 
+from airbyte.secrets import (
+    base,
+    config,
+    custom,
+    env_vars,
+    google_colab,
+    google_gsm,
+    prompt,
+    util,
+)
 from airbyte.secrets.base import SecretHandle, SecretSourceEnum, SecretString
 from airbyte.secrets.config import disable_secret_source, register_secret_manager
 from airbyte.secrets.custom import CustomSecretManager

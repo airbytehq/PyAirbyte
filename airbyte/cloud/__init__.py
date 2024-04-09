@@ -23,9 +23,19 @@ workspace.deploy_source(source)
 
 from __future__ import annotations
 
-from airbyte.cloud._workspaces import CloudWorkspace
+from airbyte.cloud import connections, sync_results, workspaces
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.sync_results import SyncResult
+from airbyte.cloud.workspaces import CloudWorkspace
 
 
 __all__ = [
+    # Submodules
+    "workspaces",
+    "connections",
+    "sync_results",
+    # Classes
     "CloudWorkspace",
+    "CloudConnection",
+    "SyncResult",
 ]

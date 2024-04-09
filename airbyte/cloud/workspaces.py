@@ -22,9 +22,9 @@ from airbyte._util.api_util import (
     get_connection,
     get_workspace,
 )
-from airbyte.cloud._connections import CloudConnection
 from airbyte.cloud._destination_util import get_destination_config_from_cache
-from airbyte.cloud._sync_results import SyncResult
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.sync_results import SyncResult
 from airbyte.sources.base import Source
 
 

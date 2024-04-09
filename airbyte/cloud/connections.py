@@ -6,14 +6,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from airbyte._util import api_util
-from airbyte.cloud._sync_results import SyncResult
+from airbyte.cloud.sync_results import SyncResult
 
 
 if TYPE_CHECKING:
     from airbyte_api.models.shared.connectionresponse import ConnectionResponse
     from airbyte_api.models.shared.jobresponse import JobResponse
 
-    from airbyte.cloud._workspaces import CloudWorkspace
+    from airbyte.cloud.workspaces import CloudWorkspace
 
 
 class CloudConnection:
