@@ -42,6 +42,9 @@ class SQLDataset(DatasetBase):
     ) -> None:
         """Initialize the dataset with a cache, stream name, and query statement.
 
+        This class is not intended to be created directly. Instead, you can retrieve
+        datasets from caches or Cloud connection objects, etc.
+
         The query statement should be a SQLAlchemy Selectable object that can be executed to
         retrieve records from the dataset.
 
