@@ -26,6 +26,10 @@ AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 @pytest.mark.requires_creds
 @pytest.fixture(scope="session")
 def ci_secret_manager() -> GoogleGSMSecretManager:
+    secret = ab.get_secret("GCP_GSM_CREDENTIALS")
+    if not secret:
+        pytest.skip("GCP_GSM_CREDENTIALS secret not found.")
+
     return GoogleGSMSecretManager(
         project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
