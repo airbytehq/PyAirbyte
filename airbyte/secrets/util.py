@@ -34,7 +34,7 @@ def get_secret(
             category=DeprecationWarning,
             stacklevel=2,
         )
-        sources = kwargs.pop("source")
+        sources = kwargs.pop("source")  # type: ignore [assignment]
 
     available_sources: dict[str, SecretManager] = {}
     for available_source in _get_secret_sources():
@@ -47,7 +47,7 @@ def get_secret(
         sources = list(available_sources.values())
 
     elif not isinstance(sources, list):
-        sources = [sources]
+        sources = [sources]  # type: ignore [unreachable]  # This is a 'just in case' catch.
 
     # Replace any SecretSourceEnum strings with the matching SecretManager object
     for source in sources:
@@ -67,7 +67,8 @@ def get_secret(
 
     if SecretSourceEnum.PROMPT in secret_managers:
         prompt_source = secret_managers.pop(
-            secret_managers.index(SecretSourceEnum.PROMPT),
+            # Mis-typed, but okay here since we have equality logic for the enum comparison:
+            secret_managers.index(SecretSourceEnum.PROMPT),  # type: ignore [arg-type]
         )
 
         if allow_prompt:
