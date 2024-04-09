@@ -102,6 +102,72 @@ class SecretManager(ABC):
         return super().__eq__(value)
 
 
+class EnvVarSecretManager(SecretManager):
+    """Secret manager that retrieves secrets from environment variables."""
+
+    name = SecretSourceEnum.ENV.value
+
+    def get_secret(self, secret_name: str) -> SecretString | None:
+        """Get a named secret from the environment."""
+        if secret_name not in os.environ:
+            return None
+
+        return SecretString(os.environ[secret_name])
+
+
+class DotenvSecretManager(SecretManager):
+    """Secret manager that retrieves secrets from a `.env` file."""
+
+    name = SecretSourceEnum.DOTENV.value
+
+    def get_secret(self, secret_name: str) -> SecretString | None:
+        """Get a named secret from the `.env` file."""
+        try:
+            dotenv_vars: dict[str, str | None] = dotenv_values()
+        except Exception:
+            # Can't locate or parse a .env file
+            return None
+
+        if secret_name not in dotenv_vars:
+            # Secret not found
+            return None
+
+        return SecretString(dotenv_vars[secret_name])
+
+
+class ColabSecretManager(SecretManager):
+    """Secret manager that retrieves secrets from Google Colab user secrets."""
+
+    name = SecretSourceEnum.GOOGLE_COLAB.value
+
+    def get_secret(self, secret_name: str) -> SecretString | None:
+        """Get a named secret from Google Colab user secrets."""
+        if colab_userdata is None:
+            # The module doesn't exist. We probably aren't in Colab.
+            return None
+
+        try:
+            return SecretString(colab_userdata.get(secret_name))
+        except Exception:
+            # Secret name not found. Continue.
+            return None
+
+
+class SecretsPrompt(SecretManager):
+    """Secret manager that prompts the user to enter a secret."""
+
+    name = SecretSourceEnum.PROMPT.value
+
+    def get_secret(
+        self,
+        secret_name: str,
+    ) -> SecretString | None:
+        with contextlib.suppress(Exception):
+            return SecretString(getpass(f"Enter the value for secret '{secret_name}': "))
+
+        return None
+
+
 class CustomSecretManager(SecretManager, ABC):
     """Custom secret manager that retrieves secrets from a custom source.
 
@@ -143,72 +209,6 @@ class CustomSecretManager(SecretManager, ABC):
         else:
             # Add to beginning of list
             _SECRETS_SOURCES.insert(0, self)
-
-
-class EnvVarSecretManager(CustomSecretManager):
-    """Secret manager that retrieves secrets from environment variables."""
-
-    name = SecretSourceEnum.ENV.value
-
-    def get_secret(self, secret_name: str) -> SecretString | None:
-        """Get a named secret from the environment."""
-        if secret_name not in os.environ:
-            return None
-
-        return SecretString(os.environ[secret_name])
-
-
-class DotenvSecretManager(CustomSecretManager):
-    """Secret manager that retrieves secrets from a `.env` file."""
-
-    name = SecretSourceEnum.DOTENV.value
-
-    def get_secret(self, secret_name: str) -> SecretString | None:
-        """Get a named secret from the `.env` file."""
-        try:
-            dotenv_vars: dict[str, str | None] = dotenv_values()
-        except Exception:
-            # Can't locate or parse a .env file
-            return None
-
-        if secret_name not in dotenv_vars:
-            # Secret not found
-            return None
-
-        return SecretString(dotenv_vars[secret_name])
-
-
-class ColabSecretManager(CustomSecretManager):
-    """Secret manager that retrieves secrets from Google Colab user secrets."""
-
-    name = SecretSourceEnum.GOOGLE_COLAB.value
-
-    def get_secret(self, secret_name: str) -> SecretString | None:
-        """Get a named secret from Google Colab user secrets."""
-        if colab_userdata is None:
-            # The module doesn't exist. We probably aren't in Colab.
-            return None
-
-        try:
-            return SecretString(colab_userdata.get(secret_name))
-        except Exception:
-            # Secret name not found. Continue.
-            return None
-
-
-class SecretsPrompt(CustomSecretManager):
-    """Secret manager that prompts the user to enter a secret."""
-
-    name = SecretSourceEnum.PROMPT.value
-
-    def get_secret(
-        self,
-        secret_name: str,
-    ) -> SecretString | None:
-        with contextlib.suppress(Exception):
-            return SecretString(getpass(f"Enter the value for secret '{secret_name}': "))
-
-        return None
 
 
 def _get_secret_sources() -> list[SecretManager]:
