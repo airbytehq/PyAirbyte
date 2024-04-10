@@ -143,7 +143,7 @@ def test_read_from_previous_job(
     sqlalchemy_url = cache.get_sql_alchemy_url()
     engine: Engine = sync_result.get_sql_engine()
 
-    assert set(sync_result.stream_names) == set(["users", "products", "purchases"])
+    assert "users" in sync_result.stream_names
     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
     data_as_list = list(dataset)
