@@ -14,10 +14,10 @@ workspace = cloud.CloudWorkspace(
     api_key=ab.get_secret("AIRBYTE_CLOUD_API_KEY"),
 )
 
-source = ab.get_source("source-faker", config={})
-source.check()
-
-workspace.deploy_source(source)
+sync_result = workspace.run_sync(
+    connection_id="456",
+)
+print(sync_result.get_job_status())
 ```
 """
 
