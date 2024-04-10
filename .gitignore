@@ -1,3 +1,6 @@
+# Packaged docs
+docs/*.zip
+
 # Directories and subdirectories called '.secrets' and the top-level '/secrets' directory
 .secrets
 /secrets
