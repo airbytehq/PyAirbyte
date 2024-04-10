@@ -23,7 +23,7 @@ def test_deploy_source(
     source.check()
     source_id: str = cloud_workspace.deploy_source(source)
 
-    cloud_workspace.delete_source(source=source_id)
+    cloud_workspace._permanently_delete_source(source=source_id)
 
 
 def test_deploy_cache_as_destination(
@@ -37,7 +37,7 @@ def test_deploy_cache_as_destination(
         schema_name="public",
     )
     destination_id: str = cloud_workspace.deploy_cache_as_destination(cache=cache)
-    cloud_workspace.delete_destination(destination=destination_id)
+    cloud_workspace._permanently_delete_destination(destination=destination_id)
 
 
 def test_deploy_connection(
@@ -63,4 +63,4 @@ def test_deploy_connection(
         source=source,
         cache=cache,
     )
-    cloud_workspace.delete_connection(connection_id=connection_id)
+    cloud_workspace._permanently_delete_connection(connection_id=connection_id)

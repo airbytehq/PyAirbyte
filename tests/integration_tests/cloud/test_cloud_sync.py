@@ -56,4 +56,4 @@ def test_deploy_and_run_connection(
     assert cache.stream_names
     assert cache.streams["users"].to_pandas()
 
-    cloud_workspace.delete_connection(connection_id=connection_id)
+    cloud_workspace._permanently_delete_connection(connection_id=connection_id)
