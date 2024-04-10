@@ -17,11 +17,7 @@ if TYPE_CHECKING:
 
 
 class CloudConnection:
-    """A connection is a link between a source and a destination.
-
-    Do not instantiate this class directly. Instead, use
-    `.CloudWorkspace.deploy_connection` or `.CloudWorkspace.get_connection` methods.
-    """
+    """A connection is an extract-load (EL) pairing of a source and destination."""
 
     def __init__(
         self,
