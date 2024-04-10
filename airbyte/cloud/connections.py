@@ -147,7 +147,7 @@ class CloudConnection:
                 workspace=self.workspace,
                 connection=self,
                 job_id=sync_log.job_id,
-                _latest_status=sync_log.status,
+                _latest_job_info=sync_log,
             )
             for sync_log in sync_logs
         ]

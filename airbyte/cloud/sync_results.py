@@ -6,9 +6,10 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, final
 
-from airbyte_api.models.shared import ConnectionResponse, JobStatusEnum
+from airbyte_api.models.shared import ConnectionResponse, JobResponse, JobStatusEnum
 
 from airbyte._util import api_util
 from airbyte.cloud._destination_util import create_cache_from_destination_config
@@ -47,7 +48,7 @@ class SyncResult:
     job_id: str
     table_name_prefix: str = ""
     table_name_suffix: str = ""
-    _latest_status: JobStatusEnum | None = None
+    _latest_job_info: JobResponse | None = None
     _connection_response: ConnectionResponse | None = None
     _cache: CacheBase | None = None
 
@@ -85,17 +86,35 @@ class SyncResult:
 
     def get_job_status(self) -> JobStatusEnum:
         """Check if the sync job is still running."""
-        if self._latest_status and self._latest_status in FINAL_STATUSES:
-            return self._latest_status
+        return self._fetch_latest_job_info().status
 
-        job_info = api_util.get_job_info(
+    def _fetch_latest_job_info(self) -> JobResponse:
+        """Return the job info for the sync job."""
+        if self._latest_job_info and self._latest_job_info.status in FINAL_STATUSES:
+            return self._latest_job_info
+
+        self._latest_job_info = api_util.get_job_info(
             job_id=self.job_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
         )
-        self._latest_status = job_info.status
+        return self._latest_job_info
 
-        return job_info.status
+    @property
+    def bytes_synced(self) -> int:
+        """Return the number of records processed."""
+        return self._fetch_latest_job_info().bytes_synced
+
+    @property
+    def records_synced(self) -> int:
+        """Return the number of records processed."""
+        return self._fetch_latest_job_info().rows_synced
+
+    @property
+    def start_time(self) -> datetime:
+        """Return the start time of the sync job in UTC."""
+        # Parse from ISO 8601 format:
+        return datetime.fromisoformat(self._fetch_latest_job_info().start_time)
 
     def raise_failure_status(
         self,
@@ -110,8 +129,9 @@ class SyncResult:
 
         Otherwise, do nothing.
         """
-        latest_status = self._latest_status
-        if refresh_status:
+        if not refresh_status and self._latest_job_info:
+            latest_status = self._latest_job_info.status
+        else:
             latest_status = self.get_job_status()
 
         if latest_status in FAILED_STATUSES:
@@ -119,7 +139,7 @@ class SyncResult:
                 workspace=self.workspace,
                 connection_id=self.connection.connection_id,
                 job_id=self.job_id,
-                job_status=self._latest_status,
+                job_status=self.get_job_status(),
             )
 
     def wait_for_completion(

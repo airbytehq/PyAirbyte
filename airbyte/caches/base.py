@@ -46,7 +46,6 @@ class CacheBase(BaseModel):
 
     _deployed_api_root: Optional[str] = PrivateAttr(default=None)
     _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
-    _deployed_connection_id: Optional[str] = PrivateAttr(default=None)
     _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()

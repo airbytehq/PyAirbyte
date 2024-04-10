@@ -249,12 +249,12 @@ class CloudWorkspace:
         )
 
         if isinstance(source, Source):
+            source._deployed_api_root = self.api_root  # noqa: SLF001
             source._deployed_workspace_id = self.workspace_id  # noqa: SLF001
-            source._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
             source._deployed_source_id = source_id  # noqa: SLF001
         if cache:
+            cache._deployed_api_root = self.api_root  # noqa: SLF001
             cache._deployed_workspace_id = self.workspace_id  # noqa: SLF001
-            cache._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
             cache._deployed_destination_id = deployed_connection.destination_id  # noqa: SLF001
 
         return CloudConnection(
