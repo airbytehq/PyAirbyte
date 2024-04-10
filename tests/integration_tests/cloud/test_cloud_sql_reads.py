@@ -37,7 +37,7 @@ def test_deploy_and_run_and_read(
     # Deploy source, destination, and connection:
     source_id = cloud_workspace._deploy_source(source=deployable_source)
     destination_id = cloud_workspace._deploy_cache_as_destination(cache=new_deployable_cache)
-    connection_id = cloud_workspace._deploy_connection(
+    connection: cloud.CloudConnection = cloud_workspace._deploy_connection(
         source=deployable_source,
         cache=new_deployable_cache,
         table_prefix=new_deployable_cache.table_prefix,
@@ -45,11 +45,11 @@ def test_deploy_and_run_and_read(
     )
 
     # Run sync and get result:
-    sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
+    sync_result: SyncResult = connection.run_sync()
 
     # TODO: Remove this second run after Destination bug is resolved:
     #       https://github.com/airbytehq/airbyte/issues/36875
-    sync_result: SyncResult = cloud_workspace.run_sync(connection_id=connection_id)
+    sync_result: SyncResult = connection.run_sync()
 
     # Check sync result:
     assert sync_result.is_job_complete()
@@ -142,8 +142,8 @@ def test_read_from_previous_job(
     cache = sync_result.get_sql_cache()
     sqlalchemy_url = cache.get_sql_alchemy_url()
     engine: Engine = sync_result.get_sql_engine()
-    # assert sync_result.stream_names == ["users", "products", "purchases"]
 
+    assert set(sync_result.stream_names) == set(["users", "products", "purchases"])
     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
     data_as_list = list(dataset)

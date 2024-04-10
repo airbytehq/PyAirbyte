@@ -19,7 +19,6 @@ from airbyte._util.api_util import (
     delete_connection,
     delete_destination,
     delete_source,
-    get_connection,
     get_workspace,
 )
 from airbyte.cloud._destination_util import get_destination_config_from_cache

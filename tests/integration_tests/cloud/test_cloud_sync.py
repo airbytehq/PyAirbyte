@@ -10,6 +10,7 @@ import pytest
 import airbyte as ab
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
+from airbyte.cloud.sync_results import SyncResult
 
 
 @pytest.fixture
@@ -21,10 +22,27 @@ def pre_created_connection_id() -> str:
 def test_run_connection(
     cloud_workspace: CloudWorkspace,
     pre_created_connection_id: str,
-):
+) -> None:
     """Test running a connection."""
-    sync_result = cloud_workspace.run_sync(connection_id=pre_created_connection_id)
-    _ = sync_result
+    sync_result: SyncResult = cloud_workspace.run_sync(connection_id=pre_created_connection_id)
+    assert sync_result.is_job_complete()
+    assert sync_result.stream_names
+
+
+
+@pytest.mark.super_slow
+def test_get_previous_sync_result(
+    cloud_workspace: CloudWorkspace,
+    pre_created_connection_id: str,
+) -> None:
+    """Test running a connection."""
+    sync_result: SyncResult = cloud_workspace.get_previous_sync_logs(
+        connection_id=pre_created_connection_id,
+    )
+    assert sync_result.is_job_complete()
+    assert sync_result.get_job_status()
+    assert sync_result.stream_names
+
 
 
 @pytest.mark.super_slow
