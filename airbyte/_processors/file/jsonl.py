@@ -6,6 +6,7 @@ from __future__ import annotations
 import gzip
 from typing import IO, TYPE_CHECKING, cast
 
+import json
 import orjson
 
 from airbyte._processors.file.base import (
@@ -37,4 +38,10 @@ class JsonlWriter(FileWriterBase):
         record_dict: StreamRecord,
         open_file_writer: gzip.GzipFile | IO[bytes],
     ) -> None:
-        open_file_writer.write(orjson.dumps(record_dict) + b"\n")
+        # If the record is too nested, orjson will fail with error `TypeError: Recursion limit reached`
+        # If such thing happens, we fall back to the slower but more robust json.dumps
+        try:
+            open_file_writer.write(orjson.dumps(record_dict) + b"\n")
+        except TypeError:
+            # Using isoformat method for datetime serialization
+            open_file_writer.write(json.dumps(record_dict, default=lambda _: _.isoformat()).encode() + b"\n")
