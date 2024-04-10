@@ -168,10 +168,13 @@ class StreamRecord(dict[str, Any]):
         """Initialize the dictionary with the given data.
 
         Args:
-        - normalize_keys: If `True`, the keys will be normalized using the given normalizer.
-        - expected_keys: If provided, the dictionary will be initialized with these given keys.
-        - expected_keys: If provided and `prune_extra_fields` is True, then unexpected fields
-          will be removed. This option is ignored if `expected_keys` is not provided.
+            from_dict: The dictionary to initialize the StreamRecord with.
+            prune_extra_fields: If `True`, unexpected fields will be removed.
+            normalize_keys: If `True`, the keys will be normalized using the given normalizer.
+            normalizer: The normalizer to use when normalizing keys. If not provided, the
+                LowerCaseNormalizer will be used.
+            expected_keys: If provided and `prune_extra_fields` is True, then unexpected fields
+                will be removed. This option is ignored if `expected_keys` is not provided.
         """
         # If no normalizer is provided, use LowerCaseNormalizer.
         self._normalize_keys = normalize_keys

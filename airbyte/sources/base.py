@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import warnings
-from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -37,6 +35,7 @@ from airbyte._util.telemetry import (
     log_source_check_result,
     send_telemetry,
 )
+from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
@@ -54,25 +53,6 @@ if TYPE_CHECKING:
     from airbyte._executor import Executor
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
-
-
-@contextmanager
-def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any, None]:
-    """Write the given contents to temporary files and yield the file paths as strings."""
-    temp_files: list[Any] = []
-    try:
-        for content in files_contents:
-            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=False)
-            temp_file.write(
-                json.dumps(content) if isinstance(content, dict) else content,
-            )
-            temp_file.flush()
-            temp_files.append(temp_file)
-        yield [file.name for file in temp_files]
-    finally:
-        for temp_file in temp_files:
-            with suppress(Exception):
-                Path(temp_file.name).unlink()
 
 
 class Source:
@@ -103,6 +83,10 @@ class Source:
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
+
+        self._deployed_api_root: str | None = None
+        self._deployed_workspace_id: str | None = None
+        self._deployed_source_id: str | None = None
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -283,7 +267,7 @@ class Source:
           it will be printed to the console.
         """
         if format not in ["yaml", "json"]:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,
             )
@@ -377,13 +361,13 @@ class Source:
         ]
 
         if len(found) == 0:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Stream name does not exist in catalog.",
                 input_value=stream_name,
             )
 
         if len(found) > 1:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Duplicate streams found with the same name.",
                 context={
                     "found_streams": found,
@@ -416,7 +400,7 @@ class Source:
             ],
         )
         if len(configured_catalog.streams) == 0:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Requested stream does not exist.",
                 context={
                     "stream": stream,
@@ -701,7 +685,7 @@ class Source:
             try:
                 write_strategy = WriteStrategy(write_strategy)
             except ValueError:
-                raise exc.AirbyteLibInputError(
+                raise exc.PyAirbyteInputError(
                     message="Invalid strategy",
                     context={
                         "write_strategy": write_strategy,
@@ -713,7 +697,7 @@ class Source:
             self.select_streams(streams)
 
         if not self._selected_stream_names:
-            raise exc.AirbyteLibNoStreamsSelectedError(
+            raise exc.PyAirbyteNoStreamsSelectedError(
                 connector_name=self.name,
                 available_streams=self.get_available_streams(),
             )

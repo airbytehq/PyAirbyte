@@ -70,9 +70,11 @@ jobs:
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
       env:
-        # Force this to an invalid value to ensure tests that no creds are required are run.
-        GCP_GSM_CREDENTIALS: "no-creds"
-      run: poetry run pytest -m "not requires_creds"
+        # Force this to a blank value.
+        GCP_GSM_CREDENTIALS: ""
+      run: >
+        poetry run pytest -m
+        "not requires_creds and not linting and not super_slow"
 
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -114,4 +116,5 @@ jobs:
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest -m "not linting"
+      run: >
+        poetry run pytest -m "not linting and not super_slow"

@@ -14,23 +14,24 @@ import time
 from requests.exceptions import HTTPError
 
 import ulid
-from airbyte._util.google_secrets import get_gcp_secret
 from airbyte._util.meta import is_windows
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
+from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
 import psycopg2 as psycopg
 import pytest
 from _pytest.nodes import Item
-from sqlalchemy import create_engine
 
 from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.util import new_local_cache
-from airbyte.sources.base import as_temp_files
+from airbyte.secrets import CustomSecretManager
+
+import airbyte as ab
 
 logger = logging.getLogger(__name__)
 
@@ -40,23 +41,6 @@ PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
 LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
-
-AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
-
-
-def get_ci_secret(
-    secret_name,
-    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
-) -> str:
-    return get_gcp_secret(project_name=project_name, secret_name=secret_name)
-
-
-def get_ci_secret_json(
-    secret_name,
-    project_name: str = AIRBYTE_INTERNAL_GCP_PROJECT,
-) -> dict:
-    return json.loads(get_ci_secret(secret_name=secret_name, project_name=project_name))
-
 
 
 def pytest_collection_modifyitems(items: list[Item]) -> None:
@@ -72,13 +56,13 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     def test_priority(item: Item) -> int:
         if item.get_closest_marker(name="slow"):
             return 9  # slow tests have the lowest priority
-        elif 'lint_tests' in str(item.fspath):
+        elif "lint_tests" in str(item.fspath):
             return 1  # lint tests have high priority
-        elif 'unit_tests' in str(item.fspath):
+        elif "unit_tests" in str(item.fspath):
             return 2  # unit tests have highest priority
-        elif 'docs_tests' in str(item.fspath):
+        elif "docs_tests" in str(item.fspath):
             return 3  # doc tests have medium priority
-        elif 'integration_tests' in str(item.fspath):
+        elif "integration_tests" in str(item.fspath):
             return 4  # integration tests have the lowest priority
         else:
             return 5  # all other tests have lower priority
@@ -91,6 +75,15 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
         if "new_postgres_cache" in item.fixturenames or "postgres_cache" in item.fixturenames:
             if True or not is_docker_available():
                 item.add_marker(pytest.mark.skip(reason="Skipping tests (Docker not available)"))
+
+        # Every test in the cloud directory is slow abd requires credentials
+        if "integration_tests/cloud" in str(item.fspath):
+            item.add_marker(pytest.mark.slow)
+            item.add_marker(pytest.mark.requires_creds)
+
+        if "super_slow" in item.keywords:
+            # Super slow tests are also slow
+            item.add_marker("slow")
 
 
 def is_port_in_use(port):
@@ -211,52 +204,6 @@ def new_postgres_cache():
     postgres.remove()
 
 
-@pytest.fixture
-def new_snowflake_cache():
-    secret = get_ci_secret_json(
-        "AIRBYTE_LIB_SNOWFLAKE_CREDS",
-    )
-    config = SnowflakeCache(
-        account=secret["account"],
-        username=secret["username"],
-        password=secret["password"],
-        database=secret["database"],
-        warehouse=secret["warehouse"],
-        role=secret["role"],
-        schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
-    )
-
-    yield config
-
-    engine = create_engine(config.get_sql_alchemy_url())
-    with engine.begin() as connection:
-        connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
-
-
-@pytest.fixture
-@pytest.mark.requires_creds
-def new_bigquery_cache():
-    dest_bigquery_config = get_ci_secret_json(
-        "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
-    )
-
-    dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
-    credentials_json = dest_bigquery_config["credentials_json"]
-    with as_temp_files([credentials_json]) as (credentials_path,):
-        cache = BigQueryCache(
-            credentials_path=credentials_path,
-            project_name=dest_bigquery_config["project_id"],
-            dataset_name=dataset_name
-        )
-        yield cache
-
-        url = cache.get_sql_alchemy_url()
-        engine = create_engine(url)
-        with suppress(Exception):
-            with engine.begin() as connection:
-                connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
-
-
 @pytest.fixture(autouse=True)
 def source_test_registry(monkeypatch):
     """
@@ -310,36 +257,3 @@ def source_test_installation():
 @pytest.fixture(scope="function")
 def new_duckdb_cache() -> DuckDBCache:
     return new_local_cache()
-
-
-@pytest.fixture(scope="function")
-def new_generic_cache(request) -> CacheBase:
-    """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
-    return request.getfixturevalue(request.param)
-
-
-def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
-    """Override default pytest behavior, parameterizing our tests based on the available cache types.
-
-    This is useful for running the same tests with different cache types, to ensure that the tests
-    can pass across all cache types.
-    """
-    all_cache_type_fixtures: dict[str, str] = {
-        # Ordered by priority (fastest first)
-        "DuckDB": "new_duckdb_cache",
-        "Postgres": "new_postgres_cache",
-        "BigQuery": "new_bigquery_cache",
-        "Snowflake": "new_snowflake_cache",
-    }
-    if is_windows():
-        # Postgres tests require Linux containers
-        all_cache_type_fixtures.pop("Postgres")
-
-    if "new_generic_cache" in metafunc.fixturenames:
-        metafunc.parametrize(
-            "new_generic_cache",
-            all_cache_type_fixtures.values(),
-            ids=all_cache_type_fixtures.keys(),
-            indirect=True,
-            scope="function",
-        )

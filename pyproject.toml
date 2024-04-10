@@ -42,6 +42,14 @@ ulid = "^1.1"
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
 
+[tool.poetry.dependencies.airbyte-api]
+git = "https://github.com/airbytehq/airbyte-api-python-sdk.git"
+# Pinned to a specific commit to avoid breaking changes.
+# TODO: Use a PyPi version of this after this resolves:
+#       https://github.com/airbytehq/airbyte-api-python-sdk/issues/67
+# rev = "aj/manual_rename_dir" This is the branch, but the commit is:
+rev = "856599a4861ee1f0ee4e994feff22e44ffb4cbd4"
+
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
 faker = "^21.0.0"
@@ -67,9 +75,12 @@ requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
+addopts = "--strict-markers"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
+    "linting: marks a test as a linting test",
 ]
 
 [tool.ruff.pylint]

@@ -175,7 +175,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
             return False
 
         except ValueError as ex:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Invalid project name or dataset name.",
                 context={
                     "table_id": table_id,
@@ -225,9 +225,9 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         ALTER TABLE my_schema.my_old_table_name RENAME TO my_new_table_name;
         """
         if final_table_name is None:
-            raise exc.AirbyteLibInternalError(message="Arg 'final_table_name' cannot be None.")
+            raise exc.PyAirbyteInternalError(message="Arg 'final_table_name' cannot be None.")
         if temp_table_name is None:
-            raise exc.AirbyteLibInternalError(message="Arg 'temp_table_name' cannot be None.")
+            raise exc.PyAirbyteInternalError(message="Arg 'temp_table_name' cannot be None.")
 
         _ = stream_name
         deletion_name = f"{final_table_name}_deleteme"

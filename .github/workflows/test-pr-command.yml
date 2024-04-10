@@ -82,7 +82,7 @@ jobs:
     - name: Run Pytest
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest
+      run: poetry run pytest -m "not super_slow"
 
   log-success-comment:
     name: Append 'Success' Comment

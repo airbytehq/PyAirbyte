@@ -128,12 +128,6 @@ def test_which_source_faker() -> None:
         f"Can't find source-faker on PATH: {os.environ['PATH']}"
 
 
-def test_duckdb_cache(duckdb_cache: DuckDBCache) -> None:
-    """Test that the duckdb cache is available."""
-    assert duckdb_cache
-    assert isinstance(duckdb_cache, DuckDBCache)
-
-
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
     duckdb_cache: DuckDBCache,

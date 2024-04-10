@@ -60,7 +60,7 @@ class RecordProcessor(abc.ABC):
         self._expected_streams: set[str] | None = None
         self.cache: CacheBase = cache
         if not isinstance(self.cache, CacheBase):
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message=(
                     f"Expected config class of type 'CacheBase'.  "
                     f"Instead received type '{type(self.cache).__name__}'."
@@ -92,7 +92,7 @@ class RecordProcessor(abc.ABC):
     ) -> None:
         """Register the source name and catalog."""
         if not self._catalog_manager:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
         self._catalog_manager.register_source(
@@ -226,7 +226,7 @@ class RecordProcessor(abc.ABC):
     ) -> None:
         """Handle state messages by passing them to the catalog manager."""
         if not self._catalog_manager:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
         if state_messages and self._source_name:
@@ -251,7 +251,7 @@ class RecordProcessor(abc.ABC):
     ) -> ConfiguredAirbyteStream:
         """Return the definition of the given stream."""
         if not self._catalog_manager:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
 

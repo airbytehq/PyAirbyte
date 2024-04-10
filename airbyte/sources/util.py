@@ -74,11 +74,11 @@ def get_source(
     """
     if local_executable:
         if pip_url:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Param 'pip_url' is not supported when 'local_executable' is set."
             )
         if version:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Param 'version' is not supported when 'local_executable' is set."
             )
 

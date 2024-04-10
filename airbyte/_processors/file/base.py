@@ -162,7 +162,7 @@ class FileWriterBase(abc.ABC):
             batch_handle = self._new_batch(stream_name=stream_name)
 
         if batch_handle.open_file_writer is None:
-            raise exc.AirbyteLibInternalError(message="Expected open file writer.")
+            raise exc.PyAirbyteInternalError(message="Expected open file writer.")
 
         self._write_record_dict(
             record_dict=StreamRecord.from_record_message(
