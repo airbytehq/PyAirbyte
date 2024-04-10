@@ -69,7 +69,8 @@ class CloudWorkspace:
 
     # Deploy and delete sources
 
-    def deploy_source(
+    # TODO: Make this a public API
+    def _deploy_source(
         self,
         source: Source,
     ) -> str:
@@ -123,7 +124,8 @@ class CloudWorkspace:
 
     # Deploy and delete destinations
 
-    def deploy_cache_as_destination(
+    # TODO: Make this a public API
+    def _deploy_cache_as_destination(
         self,
         cache: CacheBase,
     ) -> str:
@@ -182,7 +184,8 @@ class CloudWorkspace:
 
     # Deploy and delete connections
 
-    def deploy_connection(
+    # TODO: Make this a public API
+    def _deploy_connection(
         self,
         source: Source | str,
         cache: CacheBase | None = None,
@@ -210,7 +213,7 @@ class CloudWorkspace:
             if source._deployed_source_id:  # noqa: SLF001
                 source_id = source._deployed_source_id  # noqa: SLF001
             else:
-                source_id = self.deploy_source(source)
+                source_id = self._deploy_source(source)
         else:
             source_id = source
             if not selected_streams:
@@ -225,7 +228,7 @@ class CloudWorkspace:
         elif cache:
             table_prefix = table_prefix if table_prefix is not None else (cache.table_prefix or "")
             if not cache._deployed_destination_id:  # noqa: SLF001
-                destination_id = self.deploy_cache_as_destination(cache)
+                destination_id = self._deploy_cache_as_destination(cache)
             else:
                 destination_id = cache._deployed_destination_id  # noqa: SLF001
         else:

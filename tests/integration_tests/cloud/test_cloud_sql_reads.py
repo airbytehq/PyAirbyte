@@ -35,9 +35,9 @@ def test_deploy_and_run_and_read(
     """Test reading from a cache."""
 
     # Deploy source, destination, and connection:
-    source_id = cloud_workspace.deploy_source(source=deployable_source)
-    destination_id = cloud_workspace.deploy_cache_as_destination(cache=new_deployable_cache)
-    connection_id = cloud_workspace.deploy_connection(
+    source_id = cloud_workspace._deploy_source(source=deployable_source)
+    destination_id = cloud_workspace._deploy_cache_as_destination(cache=new_deployable_cache)
+    connection_id = cloud_workspace._deploy_connection(
         source=deployable_source,
         cache=new_deployable_cache,
         table_prefix=new_deployable_cache.table_prefix,
