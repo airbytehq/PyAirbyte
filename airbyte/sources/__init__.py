@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from airbyte.sources import base, util
+from airbyte.sources.base import Source
 from airbyte.sources.registry import (
     ConnectorMetadata,
     get_available_connectors,

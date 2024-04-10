@@ -18,8 +18,9 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pandas import DataFrame
-    from sqlalchemy import Selectable, Table
+    from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
+    from sqlalchemy.sql.selectable import Selectable
 
     from airbyte_protocol.models import ConfiguredAirbyteStream
 
