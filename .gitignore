@@ -1,6 +1,9 @@
 # Packaged docs
 docs/*.zip
 
+# Misc
+.DS_Store
+
 # Directories and subdirectories called '.secrets' and the top-level '/secrets' directory
 .secrets
 /secrets
