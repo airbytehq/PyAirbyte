@@ -20,7 +20,7 @@ import airbyte as ab
 
 def run() -> None:
     """Generate docs for all public modules in PyAirbyte and save them to docs/generated."""
-    public_modules = ["airbyte"]
+    public_modules = ["airbyte", "airbyte/cloud/experimental.py"]
 
     # recursively delete the docs/generated folder if it exists
     if pathlib.Path("docs/generated").exists():

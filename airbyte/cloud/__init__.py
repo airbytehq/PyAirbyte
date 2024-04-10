@@ -19,7 +19,13 @@ sync_result = workspace.run_sync(
 )
 print(sync_result.get_job_status())
 ```
-"""
+
+
+ℹ️ **Experimental Features**
+
+You can use the `airbyte.cloud.experimental` module to access experimental features.
+These additional features are subject to change and may not be available in all environments.
+"""  # noqa: RUF002  # Allow emoji
 
 from __future__ import annotations
 
