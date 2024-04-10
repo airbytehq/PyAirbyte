@@ -87,7 +87,7 @@ class CloudConnection:
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
-        return self._connection_info.configurations.prefix
+        return self._connection_info.prefix
 
     @property
     def connection_url(self) -> str | None:
@@ -194,7 +194,7 @@ class CloudConnection:
             delete_destination: Whether to also delete the destination.
         """
         self.workspace._permanently_delete_connection(  # noqa: SLF001  # Non-public API (for now)
-            connection_id=self.connection_id
+            connection=self
         )
 
         if delete_source:

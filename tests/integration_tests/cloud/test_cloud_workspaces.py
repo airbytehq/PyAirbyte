@@ -8,6 +8,7 @@ from __future__ import annotations
 import airbyte as ab
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
+from airbyte.cloud.connections import CloudConnection
 
 
 def test_deploy_source(
@@ -57,10 +58,19 @@ def test_deploy_connection(
         api_key=motherduck_api_key,
         database="temp",
         schema_name="public",
+        table_prefix="abc_deleteme_",
+        # table_suffix="",  # Suffix not supported in CloudConnection
     )
 
-    connection_id: str = cloud_workspace._deploy_connection(
+    connection: CloudConnection = cloud_workspace._deploy_connection(
         source=source,
         cache=cache,
     )
-    cloud_workspace._permanently_delete_connection(connection_id=connection_id)
+    assert set(connection.stream_names) == set(["users", "products", "purchases"])
+    assert connection.table_prefix == "abc_deleteme_"
+    # assert connection.table_suffix == ""  # Suffix not supported in CloudConnection
+    cloud_workspace._permanently_delete_connection(
+        connection=connection,
+        delete_source=True,
+        delete_destination=True,
+    )

@@ -195,9 +195,9 @@ class SyncResult:
         return cache.schema_name
 
     @property
-    def stream_names(self) -> set[str]:
+    def stream_names(self) -> list[str]:
         """Return the set of stream names."""
-        return self.get_sql_cache().processor.expected_streams
+        return self.connection.stream_names
 
     @final
     @property

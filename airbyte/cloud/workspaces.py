@@ -192,7 +192,7 @@ class CloudWorkspace:
         destination: str | None = None,
         table_prefix: str | None = None,
         selected_streams: list[str] | None = None,
-    ) -> str:
+    ) -> CloudConnection:
         """Deploy a source and cache to the workspace as a new connection.
 
         Returns the newly deployed connection ID as a `str`.
@@ -251,11 +251,20 @@ class CloudWorkspace:
         )
 
         if isinstance(source, Source):
+            source._deployed_workspace_id = self.workspace_id  # noqa: SLF001
             source._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
+            source._deployed_source_id = source_id  # noqa: SLF001
         if cache:
+            cache._deployed_workspace_id = self.workspace_id  # noqa: SLF001
             cache._deployed_connection_id = deployed_connection.connection_id  # noqa: SLF001
+            cache._deployed_destination_id = deployed_connection.destination_id  # noqa: SLF001
 
-        return deployed_connection.connection_id
+        return CloudConnection(
+            workspace=self,
+            connection_id=deployed_connection.connection_id,
+            source=deployed_connection.source_id,
+            destination=deployed_connection.destination_id,
+        )
 
     def get_connection(
         self,
@@ -273,23 +282,23 @@ class CloudWorkspace:
 
     def _permanently_delete_connection(
         self,
-        connection_id: str | None,
+        connection: str | CloudConnection,
         *,
         delete_source: bool = False,
         delete_destination: bool = False,
     ) -> None:
         """Delete a deployed connection from the workspace."""
-        if connection_id is None:
+        if connection is None:
             raise ValueError("No connection ID provided.")  # noqa: TRY003
 
-        connection: ConnectionResponse = get_connection(
-            connection_id=connection_id,
-            api_root=self.api_root,
-            api_key=self.api_key,
-            workspace_id=self.workspace_id,
-        )
+        if isinstance(connection, str):
+            connection = CloudConnection(
+                workspace=self,
+                connection_id=connection,
+            )
+
         delete_connection(
-            connection_id=connection_id,
+            connection_id=connection.connection_id,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,

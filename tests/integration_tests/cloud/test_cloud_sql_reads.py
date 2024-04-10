@@ -53,9 +53,7 @@ def test_deploy_and_run_and_read(
 
     # Check sync result:
     assert sync_result.is_job_complete()
-
-    # TODO: Rebuild streams property from connection's configured streams API endpoint
-    # assert sync_result.stream_names == ["users", "products", "purchases"]
+    assert set(sync_result.stream_names) == set(["users", "products", "purchases"])
 
     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
