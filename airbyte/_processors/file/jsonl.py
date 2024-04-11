@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import gzip
+import json
 from typing import IO, TYPE_CHECKING, cast
 
-import json
 import orjson
 
 from airbyte._processors.file.base import (
@@ -44,4 +44,6 @@ class JsonlWriter(FileWriterBase):
             open_file_writer.write(orjson.dumps(record_dict) + b"\n")
         except TypeError:
             # Using isoformat method for datetime serialization
-            open_file_writer.write(json.dumps(record_dict, default=lambda _: _.isoformat()).encode() + b"\n")
+            open_file_writer.write(
+                json.dumps(record_dict, default=lambda _: _.isoformat()).encode() + b"\n"
+            )
