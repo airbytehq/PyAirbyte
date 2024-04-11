@@ -27,6 +27,7 @@ from snowflake.sqlalchemy import URL
 from airbyte._processors.sql.base import RecordDedupeMode
 from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor
 from airbyte.caches.base import CacheBase
+from airbyte.secrets import SecretString
 
 
 class SnowflakeCache(CacheBase):
@@ -34,7 +35,7 @@ class SnowflakeCache(CacheBase):
 
     account: str
     username: str
-    password: str
+    password: SecretString
     warehouse: str
     database: str
     role: str
@@ -47,9 +48,9 @@ class SnowflakeCache(CacheBase):
     # schema_name: str
 
     @overrides
-    def get_sql_alchemy_url(self) -> str:
+    def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return str(
+        return SecretString(
             URL(
                 account=self.account,
                 user=self.username,

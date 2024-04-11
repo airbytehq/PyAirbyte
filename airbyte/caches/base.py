@@ -44,6 +44,10 @@ class CacheBase(BaseModel):
     table_suffix: str = ""
     """A suffix to add to all table names."""
 
+    _deployed_api_root: Optional[str] = PrivateAttr(default=None)
+    _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
+    _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
+
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
 
@@ -108,7 +112,7 @@ class CacheBase(BaseModel):
         self,
     ) -> CatalogManager:
         if not self._has_catalog_manager:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
 

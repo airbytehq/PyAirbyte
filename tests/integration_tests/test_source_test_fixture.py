@@ -607,7 +607,7 @@ def test_lazy_dataset_from_source(
         pop_internal_columns_from_dataset(list_from_iter_b)
 
     # Make sure that we get a key error if we try to access a stream that doesn't exist
-    with pytest.raises(exc.AirbyteLibInputError):
+    with pytest.raises(exc.PyAirbyteInputError):
         source.get_records(not_a_stream_name)
 
     # Make sure we can iterate on all available streams

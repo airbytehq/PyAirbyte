@@ -54,6 +54,20 @@ def is_colab() -> bool:
 
 
 @lru_cache
+def is_interactive() -> bool:
+    if is_colab() or is_jupyter():
+        return True
+
+    if is_ci():
+        return False
+
+    if sys.__stdin__.isatty() and sys.__stdout__.isatty():
+        return True
+
+    return False
+
+
+@lru_cache
 def is_jupyter() -> bool:
     """Return True if running in a Jupyter notebook or qtconsole.
 

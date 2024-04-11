@@ -23,6 +23,7 @@ from overrides import overrides
 
 from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte.caches.base import CacheBase
+from airbyte.secrets import SecretString
 
 
 class PostgresCache(CacheBase):
@@ -34,15 +35,17 @@ class PostgresCache(CacheBase):
     host: str
     port: int
     username: str
-    password: str
+    password: SecretString
     database: str
 
     _sql_processor_class = PostgresSqlProcessor
 
     @overrides
-    def get_sql_alchemy_url(self) -> str:
+    def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return f"postgresql+psycopg2://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+        return SecretString(
+            f"postgresql+psycopg2://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+        )
 
     @overrides
     def get_database_name(self) -> str:

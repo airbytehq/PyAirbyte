@@ -42,13 +42,13 @@ def new_local_cache(
     """
     if cache_name:
         if " " in cache_name:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Cache name cannot contain spaces.",
                 input_value=cache_name,
             )
 
         if not cache_name.replace("_", "").isalnum():
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Cache name can only contain alphanumeric characters and underscores.",
                 input_value=cache_name,
             )
