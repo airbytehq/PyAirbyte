@@ -44,7 +44,7 @@ _Note: You can also build your own secret manager by subclassing the `CustomSecr
 
 ### Retrieving Secrets
 
-```python
+\`\`\`python
 import airbyte as ab
 
 source = ab.get_source("source-github")
@@ -53,7 +53,7 @@ source.set_config(
       "personal_access_token": ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN"),
    }
 )
-```
+\`\`\`
 
 By default, PyAirbyte will search all available secrets sources. The `get_secret()` function also accepts an optional `sources` argument of specific source names (`SecretSourceEnum`) and/or secret manager objects to check.
 
@@ -77,12 +77,12 @@ To make a connector compatible with PyAirbyte, the following requirements must b
 - In the package, there must be a `run.py` file that contains a `run` method. This method should read arguments from the command line, and run the connector with them, outputting messages to stdout.
 - The `pyproject.toml` or `setup.py` file must specify a command line entry point for the `run` method called `source-<connector name>`. This is usually done by adding a `console_scripts` section to the `pyproject.toml` file, or a `entry_points` section to the `setup.py` file. For example:
 
-```toml
+\`\`\`toml
 [tool.poetry.scripts]
 source-my-connector = "my_connector.run:run"
-```
+\`\`\`
 
-```python
+\`\`\`python
 setup(
     ...
     entry_points={
@@ -92,26 +92,26 @@ setup(
     },
     ...
 )
-```
+\`\`\`
 
 To publish a connector to PyPI, specify the `pypi` section in the `metadata.yaml` file. For example:
 
-```yaml
+\`\`\`yaml
 data:
  # ...
  remoteRegistries:
    pypi:
      enabled: true
      packageName: "airbyte-source-my-connector"
-```
+\`\`\`
 
 ## Validating source connectors
 
 To validate a source connector for compliance, the `airbyte-lib-validate-source` script can be used. It can be used like this:
 
-```bash
+\`\`\`bash
 airbyte-lib-validate-source —connector-dir . -—sample-config secrets/config.json
-```
+\`\`\`
 
 The script will install the python package in the provided directory, and run the connector against the provided config. The config should be a valid JSON file, with the same structure as the one that would be provided to the connector in Airbyte. The script will exit with a non-zero exit code if the connector fails to run.
 
