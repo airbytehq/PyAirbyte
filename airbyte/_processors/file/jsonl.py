@@ -38,8 +38,8 @@ class JsonlWriter(FileWriterBase):
         record_dict: StreamRecord,
         open_file_writer: gzip.GzipFile | IO[bytes],
     ) -> None:
-        # If the record is too nested, `orjson` will fail with error `TypeError: Recursion 
-        # limit reached`. If so, we fall back to the slower but more 
+        # If the record is too nested, `orjson` will fail with error `TypeError: Recursion
+        # limit reached`. If so, we fall back to the slower but more
         # robust `json.dumps`.
         try:
             open_file_writer.write(orjson.dumps(record_dict) + b"\n")
