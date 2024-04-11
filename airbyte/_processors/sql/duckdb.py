@@ -116,10 +116,16 @@ class DuckDBSqlProcessor(SqlProcessorBase):
             FROM read_json_auto(
                 [{files_list}],
                 format = 'newline_delimited',
+                auto_detect = true,
+                ignore_errors = true,
                 union_by_name = true,
                 columns = {{ { columns_type_map } }}
             )
             """
         )
-        self._execute_sql(insert_statement)
+        try:
+            self._execute_sql(insert_statement)
+        except Exception as e:
+            self.logger.error(f"Error loading data into DuckDB: {e}")
+            self.logger.error("Data loading may continue with other columns, but this may result in data loss for columns with big numbers.")
         return temp_table_name

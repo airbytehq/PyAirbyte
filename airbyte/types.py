@@ -8,12 +8,11 @@ from typing import cast
 import sqlalchemy
 from rich import print
 
-
 # Compare to documentation here: https://docs.airbyte.com/understanding-airbyte/supported-data-types
 CONVERSION_MAP = {
     "string": sqlalchemy.types.VARCHAR,
     "integer": sqlalchemy.types.BIGINT,
-    "number": sqlalchemy.types.DECIMAL,
+    "number": sqlalchemy.types.BIGINT,
     "boolean": sqlalchemy.types.BOOLEAN,
     "date": sqlalchemy.types.DATE,
     "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP,
