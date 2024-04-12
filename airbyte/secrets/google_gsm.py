@@ -31,13 +31,11 @@ read_result = source.read()
 
 from __future__ import annotations
 
-from cProfile import label
 import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from duckdb import project
 from google.cloud import secretmanager_v1 as secretmanager
 
 from airbyte import exceptions as exc
