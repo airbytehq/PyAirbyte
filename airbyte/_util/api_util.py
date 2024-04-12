@@ -17,9 +17,7 @@ import json
 from typing import Any
 
 import airbyte_api
-from airbyte_api.models import operations as api_operations
-from airbyte_api.models import shared as api_models
-from airbyte_api.models.shared.jobcreaterequest import JobCreateRequest, JobTypeEnum
+from airbyte_api import api, models
 
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
@@ -47,8 +45,8 @@ def get_airbyte_server_instance(
     api_root: str,
 ) -> airbyte_api.Airbyte:
     """Get an Airbyte instance."""
-    return airbyte_api.Airbyte(
-        security=api_models.Security(
+    return airbyte_api.AirbyteAPI(
+        security=models.Security(
             bearer_auth=api_key,
         ),
         server_url=api_root,
@@ -63,14 +61,14 @@ def get_workspace(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.WorkspaceResponse:
+) -> models.WorkspaceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
     response = airbyte_instance.workspaces.get_workspace(
-        api_operations.GetWorkspaceRequest(
+        api.GetWorkspaceRequest(
             workspace_id=workspace_id,
         ),
     )
@@ -94,7 +92,7 @@ def list_connections(
     *,
     api_root: str,
     api_key: str,
-) -> list[api_models.ConnectionResponse]:
+) -> list[api.ConnectionResponse]:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
@@ -102,7 +100,7 @@ def list_connections(
         api_root=api_root,
     )
     response = airbyte_instance.connections.list_connections(
-        api_operations.ListConnectionsRequest()(
+        api.ListConnectionsRequest()(
             workspace_ids=[workspace_id],
         ),
     )
@@ -124,7 +122,7 @@ def get_connection(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.ConnectionResponse:
+) -> api.ConnectionResponse:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
@@ -132,7 +130,7 @@ def get_connection(
         api_root=api_root,
     )
     response = airbyte_instance.connections.get_connection(
-        api_operations.GetConnectionRequest(
+        api.GetConnectionRequest(
             connection_id=connection_id,
         ),
     )
@@ -148,7 +146,7 @@ def run_connection(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.ConnectionResponse:
+) -> api.ConnectionResponse:
     """Get a connection.
 
     If block is True, this will block until the connection is finished running.
@@ -161,9 +159,9 @@ def run_connection(
         api_root=api_root,
     )
     response = airbyte_instance.jobs.create_job(
-        JobCreateRequest(
+        models.JobCreateRequest(
             connection_id=connection_id,
-            job_type=JobTypeEnum.SYNC,
+            job_type=models.JobTypeEnum.SYNC,
         ),
     )
     if status_ok(response.status_code) and response.job_response:
@@ -188,14 +186,14 @@ def get_job_logs(
     *,
     api_root: str,
     api_key: str,
-) -> list[api_models.JobResponse]:
+) -> list[api.JobResponse]:
     """Get a job's logs."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    response: api_operations.ListJobsResponse = airbyte_instance.jobs.list_jobs(
-        api_operations.ListJobsRequest(
+    response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
+        api.ListJobsRequest(
             workspace_ids=[workspace_id],
             connection_id=connection_id,
             limit=limit,
@@ -219,14 +217,14 @@ def get_job_info(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.JobResponse:
+) -> api.JobResponse:
     """Get a job."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
     response = airbyte_instance.jobs.get_job(
-        api_operations.GetJobRequest(
+        api.GetJobRequest(
             job_id=job_id,
         ),
     )
@@ -246,14 +244,14 @@ def create_source(
     config: dict[str, Any],
     api_root: str,
     api_key: str,
-) -> api_models.SourceResponse:
+) -> api.SourceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    response: api_operations.CreateSourceResponse = airbyte_instance.sources.create_source(
-        api_models.SourceCreateRequest(
+    response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
+        models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
             configuration=config,  # TODO: wrap in a proper configuration object
@@ -275,14 +273,14 @@ def get_source(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.SourceResponse:
+) -> api.SourceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
     response = airbyte_instance.sources.get_source(
-        api_operations.GetSourceRequest(
+        api.GetSourceRequest(
             source_id=source_id,
         ),
     )
@@ -306,7 +304,7 @@ def delete_source(
         api_root=api_root,
     )
     response = airbyte_instance.sources.delete_source(
-        api_operations.DeleteSourceRequest(
+        api.DeleteSourceRequest(
             source_id=source_id,
         ),
     )
@@ -329,20 +327,18 @@ def create_destination(
     config: dict[str, Any],
     api_root: str,
     api_key: str,
-) -> api_models.DestinationResponse:
+) -> api.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    response: api_operations.CreateDestinationResponse = (
-        airbyte_instance.destinations.create_destination(
-            api_models.DestinationCreateRequest(
-                name=name,
-                workspace_id=workspace_id,
-                configuration=config,  # TODO: wrap in a proper configuration object
-            ),
-        )
+    response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
+        models.DestinationCreateRequest(
+            name=name,
+            workspace_id=workspace_id,
+            configuration=config,  # TODO: wrap in a proper configuration object
+        ),
     )
     if status_ok(response.status_code) and response.destination_response:
         return response.destination_response
@@ -358,14 +354,14 @@ def get_destination(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.DestinationResponse:
+) -> api.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.get_destination(
-        api_operations.GetDestinationRequest(
+        api.GetDestinationRequest(
             destination_id=destination_id,
         ),
     )
@@ -376,19 +372,19 @@ def get_destination(
         raw_configuration: dict[str, Any] = raw_response["configuration"]
         destination_type = raw_response.get("destinationType")
         if destination_type == "snowflake":
-            response.destination_response.configuration = api_models.DestinationSnowflake.from_dict(
+            response.destination_response.configuration = models.DestinationSnowflake.from_dict(
                 raw_configuration,
             )
         if destination_type == "bigquery":
-            response.destination_response.configuration = api_models.DestinationBigquery.from_dict(
+            response.destination_response.configuration = models.DestinationBigquery.from_dict(
                 raw_configuration,
             )
         if destination_type == "postgres":
-            response.destination_response.configuration = api_models.DestinationPostgres.from_dict(
+            response.destination_response.configuration = models.DestinationPostgres.from_dict(
                 raw_configuration,
             )
         if destination_type == "duckdb":
-            response.destination_response.configuration = api_models.DestinationDuckdb.from_dict(
+            response.destination_response.configuration = models.DestinationDuckdb.from_dict(
                 raw_configuration,
             )
 
@@ -411,7 +407,7 @@ def delete_destination(
         api_root=api_root,
     )
     response = airbyte_instance.destinations.delete_destination(
-        api_operations.DeleteDestinationRequest(
+        api.DeleteDestinationRequest(
             destination_id=destination_id,
         ),
     )
@@ -437,23 +433,23 @@ def create_connection(
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
-) -> api_models.ConnectionResponse:
+) -> models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    stream_configurations: list[api_models.StreamConfiguration] = []
+    stream_configurations: list[models.StreamConfiguration] = []
     if selected_stream_names:
         for stream_name in selected_stream_names:
-            stream_configuration = api_models.StreamConfiguration(
+            stream_configuration = models.StreamConfiguration(
                 name=stream_name,
             )
             stream_configurations.append(stream_configuration)
 
-    stream_configurations = api_models.StreamConfigurations(stream_configurations)
+    stream_configurations = models.StreamConfigurations(stream_configurations)
     response = airbyte_instance.connections.create_connection(
-        api_models.ConnectionCreateRequest(
+        models.ConnectionCreateRequest(
             name=name,
             source_id=source_id,
             destination_id=destination_id,
@@ -479,14 +475,14 @@ def get_connection_by_name(
     *,
     api_root: str,
     api_key: str,
-) -> api_models.ConnectionResponse:
+) -> models.ConnectionResponse:
     """Get a connection."""
     connections = list_connections(
         workspace_id=workspace_id,
         api_key=api_key,
         api_root=api_root,
     )
-    found: list[api_models.ConnectionResponse] = [
+    found: list[models.ConnectionResponse] = [
         connection for connection in connections if connection.name == connection_name
     ]
     if len(found) == 0:
@@ -519,7 +515,7 @@ def delete_connection(
         api_root=api_root,
     )
     response = airbyte_instance.connections.delete_connection(
-        api_operations.DeleteConnectionRequest(
+        api.DeleteConnectionRequest(
             connection_id=connection_id,
         ),
     )
@@ -535,17 +531,17 @@ def delete_connection(
 # Not yet implemented
 
 
-def check_source(
-    source_id: str,
-    *,
-    api_root: str,
-    api_key: str,
-    workspace_id: str | None = None,
-) -> api_models.SourceCheckResponse:
-    """Check a source.
+# def check_source(
+#     source_id: str,
+#     *,
+#     api_root: str,
+#     api_key: str,
+#     workspace_id: str | None = None,
+# ) -> api.SourceCheckResponse:
+#     """Check a source.
 
-    # TODO: Need to use legacy Configuration API for this:
-    # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
-    """
-    _ = source_id, workspace_id, api_root, api_key
-    raise NotImplementedError
+#     # TODO: Need to use legacy Configuration API for this:
+#     # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
+#     """
+#     _ = source_id, workspace_id, api_root, api_key
+#     raise NotImplementedError

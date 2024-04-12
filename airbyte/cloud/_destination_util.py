@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from airbyte_api.models.shared import (
+from airbyte_api.models import (
     DestinationBigquery,
     DestinationDuckdb,
     DestinationPostgres,

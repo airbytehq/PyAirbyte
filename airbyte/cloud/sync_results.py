@@ -9,9 +9,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, final
 
-from airbyte_api.models.shared import ConnectionResponse, JobResponse, JobStatusEnum
-
 from airbyte._util import api_util
+from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
 from airbyte.cloud._destination_util import create_cache_from_destination_config
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
