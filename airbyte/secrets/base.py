@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""___"""
+"""Base classes and methods for working with secrets in PyAirbyte."""
 
 from __future__ import annotations
 

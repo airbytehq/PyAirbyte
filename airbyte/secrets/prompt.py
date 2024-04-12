@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""___"""
+"""Secret manager that prompts the user to enter a secret."""
 
 from __future__ import annotations
 
