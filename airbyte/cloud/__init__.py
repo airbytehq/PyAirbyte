@@ -30,7 +30,7 @@ If your destination is supported, you can read records directly from the
 
 
 ```python
-# Assuming we've already created a `connection` object
+# Assuming we've already created a `connection` object...
 
 # Get the latest job result and print the stream names
 sync_result = connection.get_sync_result()
