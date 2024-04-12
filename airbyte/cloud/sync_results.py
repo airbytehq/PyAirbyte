@@ -326,6 +326,7 @@ class SyncResult:
         def __len__(self) -> int:
             return len(self.parent.stream_names)
 
+
 __all__ = [
     "SyncResult",
 ]
