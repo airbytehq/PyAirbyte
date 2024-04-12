@@ -69,10 +69,10 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         def path_str(path: Path) -> str:
             return str(path.absolute()).replace("\\", "\\\\")
 
-        put_files_statements = "\n".join(
-            [f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};" for file_path in files]
-        )
-        self._execute_sql(put_files_statements)
+        for file_path in files:
+            query = f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};"
+            self._execute_sql(query)
+
         columns_list = [
             self._quote_identifier(c)
             for c in list(self._get_sql_column_definitions(stream_name).keys())
