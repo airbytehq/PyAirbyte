@@ -67,14 +67,32 @@ print(
 )
 ```
 
-### Working with data from an Airbyte Cloud sync result
+### Reading data from Airbyte Cloud sync result
 
 **This feature is currently only available for specific SQL-based destinations.** This includes
 SQL-based destinations such as Snowflake and BigQuery. The list of supported destinations may be
 determined by inspecting the constant `airbyte.cloud.constants.READABLE_DESTINATION_TYPES`.
 
-See the list of stream names:
+If your destination is supported, you can read records directly from the SyncResult object.
 
+```python
+# Assuming we've already created a `connection` object...
+sync_result = connection.get_sync_result()
+
+# Print a list of available stream names
+print(sync_result.stream_names)
+
+# Get a dataset from the sync result
+dataset: CachedDataset = sync_result.get_dataset("users")
+
+# Get the SQLAlchemy table to use in SQL queries...
+users_table = dataset.to_sql_table()
+print(f"Table name: {users_table.name}")
+
+# Or iterate over the dataset directly
+for record in dataset:
+    print(record)
+```
 
 ------
 
