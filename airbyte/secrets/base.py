@@ -126,7 +126,8 @@ class SecretHandle:
     """A handle for a secret in a secret manager.
 
     This class is used to store a reference to a secret in a secret manager.
-    The secret is not retrieved until the `get_value()` method is called on the handle.
+    The secret is not retrieved until the `get_value()` or `parse_json()` methods are
+    called.
     """
 
     def __init__(
@@ -144,3 +145,12 @@ class SecretHandle:
         Subclasses can optionally override this method to provide a more optimized code path.
         """
         return cast(SecretString, self.parent.get_secret(self.secret_name))
+
+    def parse_json(self) -> dict:
+        """Parse the secret as JSON.
+
+        This method is a convenience method to parse the secret as JSON without
+        needing to call `get_value()` first. If the secret is not a valid JSON
+        string, a `PyAirbyteInputError` will be raised.
+        """
+        return self.get_value().parse_json()

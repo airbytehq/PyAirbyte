@@ -4,39 +4,29 @@
 Usage Example:
 
 ```python
-gsm_secrets_manager = GoogleGSMSecretManager(
-    project=AIRBYTE_INTERNAL_GCP_PROJECT,
+import ab
+from airbyte import secrets
+
+# Initialize the Google GSM secret manager
+gsm = secrets.GoogleGSMSecretManager(
+    project="my-project",
     credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
 )
-first_secret: SecretHandle = next(
-    gsm_secrets_manager.fetch_connector_secrets(
-        connector_name=connector_name,
-    ),
-    None,
-)
+# Get secrets with the label 'connector=source-github'
+secrets = gsm.fetch_connector_secrets("source-github")
 
-print(f"Found '{connector_name}' credential secret '${first_secret.secret_name}'.")
-return first_secret.get_value().parse_json()
+# Get the first secret and parse the JSON value
+config: dict = next(secrets, None).parse_json()
+
+# Pass the config to your source
+source = ab.get_source(
+    "source-github",
+    config=config,
+    streams="*",
+)
+read_result = source.read()
 ```
 
-More compact example:
-
-```python
-gsm_secrets_manager = GoogleGSMSecretManager(
-    project=AIRBYTE_INTERNAL_GCP_PROJECT,
-    credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
-)
-connector_config: dict = (
-    next(
-        gsm_secrets_manager.fetch_connector_secrets(
-            connector_name=connector_name,
-        ),
-        None,
-    )
-    .get_value()
-    .parse_json()
-)
-```
 """
 
 from __future__ import annotations
