@@ -23,4 +23,4 @@ READABLE_DESTINATION_TYPES: set[str] = {
     "bigquery",
     "snowflake",
 }
-"""The set of destinations that PyAirbyte is able to read from."""
+"""List of Airbyte Cloud destinations that PyAirbyte is able to read from."""
