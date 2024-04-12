@@ -372,19 +372,19 @@ def get_destination(
         raw_configuration: dict[str, Any] = raw_response["configuration"]
         destination_type = raw_response.get("destinationType")
         if destination_type == "snowflake":
-            response.destination_response.configuration = api.DestinationSnowflake.from_dict(
+            response.destination_response.configuration = models.DestinationSnowflake.from_dict(
                 raw_configuration,
             )
         if destination_type == "bigquery":
-            response.destination_response.configuration = api.DestinationBigquery.from_dict(
+            response.destination_response.configuration = models.DestinationBigquery.from_dict(
                 raw_configuration,
             )
         if destination_type == "postgres":
-            response.destination_response.configuration = api.DestinationPostgres.from_dict(
+            response.destination_response.configuration = models.DestinationPostgres.from_dict(
                 raw_configuration,
             )
         if destination_type == "duckdb":
-            response.destination_response.configuration = api.DestinationDuckdb.from_dict(
+            response.destination_response.configuration = models.DestinationDuckdb.from_dict(
                 raw_configuration,
             )
 
@@ -433,7 +433,7 @@ def create_connection(
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
-) -> api.ConnectionResponse:
+) -> models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
@@ -475,14 +475,14 @@ def get_connection_by_name(
     *,
     api_root: str,
     api_key: str,
-) -> api.ConnectionResponse:
+) -> models.ConnectionResponse:
     """Get a connection."""
     connections = list_connections(
         workspace_id=workspace_id,
         api_key=api_key,
         api_root=api_root,
     )
-    found: list[api.ConnectionResponse] = [
+    found: list[models.ConnectionResponse] = [
         connection for connection in connections if connection.name == connection_name
     ]
     if len(found) == 0:
@@ -531,17 +531,17 @@ def delete_connection(
 # Not yet implemented
 
 
-def check_source(
-    source_id: str,
-    *,
-    api_root: str,
-    api_key: str,
-    workspace_id: str | None = None,
-) -> api.SourceCheckResponse:
-    """Check a source.
+# def check_source(
+#     source_id: str,
+#     *,
+#     api_root: str,
+#     api_key: str,
+#     workspace_id: str | None = None,
+# ) -> api.SourceCheckResponse:
+#     """Check a source.
 
-    # TODO: Need to use legacy Configuration API for this:
-    # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
-    """
-    _ = source_id, workspace_id, api_root, api_key
-    raise NotImplementedError
+#     # TODO: Need to use legacy Configuration API for this:
+#     # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
+#     """
+#     _ = source_id, workspace_id, api_root, api_key
+#     raise NotImplementedError
