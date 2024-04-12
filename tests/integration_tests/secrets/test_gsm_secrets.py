@@ -2,6 +2,7 @@
 """Tests for the GSM secrets manager."""
 from __future__ import annotations
 
+from airbyte.secrets.base import SecretHandle
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
@@ -19,7 +20,7 @@ def test_get_gsm_secrets_with_filter(ci_secret_manager: GoogleGSMSecretManager) 
     assert secrets is not None
     secrets_list = list(secrets)
     assert len(secrets_list) > 0
-    assert secrets_list[0].parse_json() is not None
+    assert secrets_list[0].get_value().is_json()
 
 
 def test_get_gsm_secrets_by_label(ci_secret_manager: GoogleGSMSecretManager) -> None:
@@ -31,7 +32,7 @@ def test_get_gsm_secrets_by_label(ci_secret_manager: GoogleGSMSecretManager) -> 
     assert secrets is not None
     secrets_list = list(secrets)
     assert len(secrets_list) > 0
-    assert secrets_list[0].parse_json() is not None
+    assert secrets_list[0].get_value().is_json()
 
 
 def test_get_connector_secrets(ci_secret_manager: GoogleGSMSecretManager) -> None:
@@ -42,4 +43,14 @@ def test_get_connector_secrets(ci_secret_manager: GoogleGSMSecretManager) -> Non
     assert secrets is not None
     secrets_list = list(secrets)
     assert len(secrets_list) > 0
-    assert secrets_list[0].parse_json() is not None
+    assert secrets_list[0].get_value().is_json()
+
+
+def test_first_connector_secret(ci_secret_manager: GoogleGSMSecretManager) -> None:
+    """Test fetching connector secrets."""
+    secret = ci_secret_manager.fetch_connector_secret(
+        "source-salesforce"
+    )
+    assert secret is not None
+    assert isinstance(secret, SecretHandle)
+    assert secret.get_value().is_json()

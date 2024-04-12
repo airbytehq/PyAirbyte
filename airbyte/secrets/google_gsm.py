@@ -31,11 +31,13 @@ read_result = source.read()
 
 from __future__ import annotations
 
+from cProfile import label
 import json
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from duckdb import project
 from google.cloud import secretmanager_v1 as secretmanager
 
 from airbyte import exceptions as exc
@@ -210,3 +212,39 @@ class GoogleGSMSecretManager(CustomSecretManager):
             label_key=self.CONNECTOR_LABEL,
             label_value=connector_name,
         )
+
+    def fetch_connector_secret(
+        self,
+        connector_name: str,
+    ) -> SecretHandle:
+        """Fetch secret in the secret manager, using the connector name as a filter for the label.
+
+        This method is a convenience method that returns the first secret found for the connector.
+
+        The label key used to filter the secrets is defined by the `CONNECTOR_LABEL` attribute,
+        which defaults to 'connector'.
+
+        Args:
+            connector_name (str): The name of the connector to filter by.
+
+        Returns:
+            SecretHandle: The matching secret.
+        """
+        results: Iterable[SecretHandle] = self.fetch_connector_secrets(connector_name)
+        try:
+            result = next(iter(results))
+        except StopIteration:
+            raise exc.PyAirbyteError(
+                message="No secrets found for connector.",
+                guidance=(
+                    "Please check that the connector name is correct "
+                    "and that the secret is correctly labeled."
+                ),
+                context={
+                    "project": self.project,
+                    "connector_name": connector_name,
+                    "label_key": self.CONNECTOR_LABEL,
+                },
+            ) from None
+
+        return result
