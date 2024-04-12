@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""___"""
+"""Internal helper functions for working with temporary files."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""___"""
+"""Secret manager that retrieves secrets from environment variables and `.env` files."""
 
 from __future__ import annotations
 

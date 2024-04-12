@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""___"""
+"""Custom secret manager that retrieves secrets from a custom source."""
 
 from __future__ import annotations
 

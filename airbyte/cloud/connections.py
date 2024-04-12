@@ -16,7 +16,10 @@ if TYPE_CHECKING:
 
 
 class CloudConnection:
-    """A connection is an extract-load (EL) pairing of a source and destination."""
+    """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
+
+    You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
+    """
 
     def __init__(
         self,
@@ -25,6 +28,10 @@ class CloudConnection:
         source: str | None = None,
         destination: str | None = None,
     ) -> None:
+        """It is not recommended to create a `CloudConnection` object directly.
+
+        Instead, use `CloudWorkspace.get_connection()` to create a connection object.
+        """
         self.connection_id = connection_id
         """The ID of the connection."""
 

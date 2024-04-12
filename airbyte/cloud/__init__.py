@@ -29,8 +29,8 @@ If your destination is supported, you can read records directly from the
 `SyncResult` object. Currently this is supported in Snowflake and BigQuery only.
 
 
-```
-# Assuming we've already created a `connection` object
+```python
+# Assuming we've already created a `connection` object...
 
 # Get the latest job result and print the stream names
 sync_result = connection.get_sync_result()
@@ -56,8 +56,9 @@ These additional features are subject to change and may not be available in all 
 
 from __future__ import annotations
 
-from airbyte.cloud import connections, sync_results, workspaces
+from airbyte.cloud import connections, constants, sync_results, workspaces
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -66,9 +67,12 @@ __all__ = [
     # Submodules
     "workspaces",
     "connections",
+    "constants",
     "sync_results",
     # Classes
     "CloudWorkspace",
     "CloudConnection",
     "SyncResult",
+    # Enums
+    "JobStatusEnum",
 ]

@@ -68,54 +68,6 @@ The naming convention for secrets is as `{CONNECTOR_NAME}_{PROPERTY_NAME}`, for 
 
 PyAirbyte will also auto-discover secrets for interop with hosted Airbyte: `AIRBYTE_CLOUD_API_URL`, `AIRBYTE_CLOUD_API_KEY`, etc.
 
-## Connector compatibility
-
-To make a connector compatible with PyAirbyte, the following requirements must be met:
-
-- The connector must be a Python package, with a `pyproject.toml` or a `setup.py` file.
-- In the package, there must be a `run.py` file that contains a `run` method. This method should read arguments from the command line, and run the connector with them, outputting messages to stdout.
-- The `pyproject.toml` or `setup.py` file must specify a command line entry point for the `run` method called `source-<connector name>`. This is usually done by adding a `console_scripts` section to the `pyproject.toml` file, or a `entry_points` section to the `setup.py` file. For example:
-
-```toml
-[tool.poetry.scripts]
-source-my-connector = "my_connector.run:run"
-```
-
-```python
-setup(
-    ...
-    entry_points={
-        'console_scripts': [
-            'source-my-connector = my_connector.run:run',
-        ],
-    },
-    ...
-)
-```
-
-To publish a connector to PyPI, specify the `pypi` section in the `metadata.yaml` file. For example:
-
-```yaml
-data:
- # ...
- remoteRegistries:
-   pypi:
-     enabled: true
-     packageName: "airbyte-source-my-connector"
-```
-
-## Validating source connectors
-
-To validate a source connector for compliance, the `airbyte-lib-validate-source` script can be used. It can be used like this:
-
-```bash
-airbyte-lib-validate-source —connector-dir . -—sample-config secrets/config.json
-```
-
-The script will install the python package in the provided directory, and run the connector against the provided config. The config should be a valid JSON file, with the same structure as the one that would be provided to the connector in Airbyte. The script will exit with a non-zero exit code if the connector fails to run.
-
-For a more lightweight check, the `--validate-install-only` flag can be used. This will only check that the connector can be installed and returns a spec, no sample config required.
-
 ## Contributing
 
 To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./CONTRIBUTING.md).

@@ -1,5 +1,102 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Sync results for Airbyte Cloud workspaces."""
+"""Sync results for Airbyte Cloud workspaces.
+
+## Examples
+
+### Run a sync job and wait for completion
+
+To get started, we'll need a `.CloudConnection` object. You can obtain this object by calling
+`.CloudWorkspace.get_connection()`.
+
+```python
+from airbyte import cloud
+
+# Initialize an Airbyte Cloud workspace object
+workspace = cloud.CloudWorkspace(
+    workspace_id="123",
+    api_key=ab.get_secret("AIRBYTE_CLOUD_API_KEY"),
+)
+
+# Get a connection object
+connection = workspace.get_connection(connection_id="456")
+```
+
+Once we have a `.CloudConnection` object, we can simply call `run_sync()`
+to start a sync job and wait for it to complete.
+
+```python
+# Run a sync job
+sync_result: SyncResult = connection.run_sync()
+```
+
+### Run a sync job and return immediately
+
+By default, `run_sync()` will wait for the job to complete and raise an
+exception if the job fails. You can instead return immediately by setting
+`wait=False`.
+
+```python
+# Start the sync job and return immediately
+sync_result: SyncResult = connection.run_sync(wait=False)
+
+while not sync_result.is_job_complete():
+    print("Job is still running...")
+    time.sleep(5)
+
+print(f"Job is complete! Status: {sync_result.get_job_status()}")
+```
+
+### Examining the sync result
+
+You can examine the sync result to get more information about the job:
+
+```python
+sync_result: SyncResult = connection.run_sync()
+
+# Print the job details
+print(
+    f'''
+    Job ID: {sync_result.job_id}
+    Job URL: {sync_result.job_url}
+    Start Time: {sync_result.start_time}
+    Records Synced: {sync_result.records_synced}
+    Bytes Synced: {sync_result.bytes_synced}
+    Job Status: {sync_result.get_job_status()}
+    List of Stream Names: {', '.join(sync_result.stream_names)}
+    '''
+)
+```
+
+### Reading data from Airbyte Cloud sync result
+
+**This feature is currently only available for specific SQL-based destinations.** This includes
+SQL-based destinations such as Snowflake and BigQuery. The list of supported destinations may be
+determined by inspecting the constant `airbyte.cloud.constants.READABLE_DESTINATION_TYPES`.
+
+If your destination is supported, you can read records directly from the SyncResult object.
+
+```python
+# Assuming we've already created a `connection` object...
+sync_result = connection.get_sync_result()
+
+# Print a list of available stream names
+print(sync_result.stream_names)
+
+# Get a dataset from the sync result
+dataset: CachedDataset = sync_result.get_dataset("users")
+
+# Get the SQLAlchemy table to use in SQL queries...
+users_table = dataset.to_sql_table()
+print(f"Table name: {users_table.name}")
+
+# Or iterate over the dataset directly
+for record in dataset:
+    print(record)
+```
+
+------
+
+"""
 
 from __future__ import annotations
 
@@ -10,37 +107,31 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte._util import api_util
-from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
 from airbyte.cloud._destination_util import create_cache_from_destination_config
+from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
-
+"""The default timeout for waiting for a sync job to complete, in seconds."""
 
 if TYPE_CHECKING:
     import sqlalchemy
 
+    from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
-FINAL_STATUSES = {
-    JobStatusEnum.SUCCEEDED,
-    JobStatusEnum.FAILED,
-    JobStatusEnum.CANCELLED,
-}
-FAILED_STATUSES = {
-    JobStatusEnum.FAILED,
-    JobStatusEnum.CANCELLED,
-}
-
-
 @dataclass
 class SyncResult:
-    """The result of a sync operation."""
+    """The result of a sync operation.
+
+    **This class is not meant to be instantiated directly.** Instead, obtain a `SyncResult` by
+    interacting with the `.CloudWorkspace` and `.CloudConnection` objects.
+    """
 
     workspace: CloudWorkspace
     connection: CloudConnection
@@ -200,7 +291,10 @@ class SyncResult:
         self.get_sql_cache().processor.get_sql_table(stream_name)
 
     def get_dataset(self, stream_name: str) -> CachedDataset:
-        """Return cached dataset."""
+        """Retrieve an `airbyte.datasets.CachedDataset` object for a given stream name.
+
+        This can be used to read and analyze the data in a SQL-based destination.
+        """
         return CachedDataset(self.get_sql_cache(), stream_name=stream_name)
 
     def get_sql_database_name(self) -> str:
@@ -222,11 +316,15 @@ class SyncResult:
     @property
     def streams(
         self,
-    ) -> SyncResultStreams:
-        """Return a temporary table name."""
-        return self.SyncResultStreams(self)
+    ) -> _SyncResultStreams:
+        """Return a mapping of stream names to `airbyte.CachedDataset` objects.
 
-    class SyncResultStreams(Mapping[str, CachedDataset]):
+        This is a convenience wrapper around the `stream_names`
+        property and `get_dataset()` method.
+        """
+        return self._SyncResultStreams(self)
+
+    class _SyncResultStreams(Mapping[str, CachedDataset]):
         """A mapping of stream names to cached datasets."""
 
         def __init__(
@@ -245,3 +343,8 @@ class SyncResult:
 
         def __len__(self) -> int:
             return len(self.parent.stream_names)
+
+
+__all__ = [
+    "SyncResult",
+]
