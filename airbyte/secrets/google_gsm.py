@@ -130,10 +130,16 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
     def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from Google Colab user secrets."""
+        full_name = secret_name
+        if "projects/" not in full_name:
+            # This is not yet fully qualified
+            full_name = f"projects/{self.project}/secrets/{secret_name}/versions/latest"
+
+        if "/versions/" not in full_name:
+            full_name += "/versions/latest"
+
         return SecretString(
-            self.secret_client.access_secret_version(
-                name=f"projects/{self.project}/secrets/{secret_name}/versions/latest"
-            ).payload.data.decode("UTF-8")
+            self.secret_client.access_secret_version(name=full_name).payload.data.decode("UTF-8")
         )
 
     def fetch_secrets(
@@ -155,11 +161,10 @@ class GoogleGSMSecretManager(CustomSecretManager):
             Iterable[SecretHandle]: An iterable of `SecretHandle` objects for the matching secrets.
         """
         gsm_secrets: ListSecretsPager = self.secret_client.list_secrets(
-            secretmanager.ListSecretsRequest(
-                request={
-                    "filter": filter_string,
-                }
-            )
+            request=secretmanager.ListSecretsRequest(
+                filter=filter_string,
+                parent=f"projects/{self.project}",
+            ),
         )
 
         return [
