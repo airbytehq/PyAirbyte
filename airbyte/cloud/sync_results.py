@@ -40,7 +40,13 @@ FAILED_STATUSES = {
 
 @dataclass
 class SyncResult:
-    """The result of a sync operation."""
+    """The result of a sync operation.
+
+    **NOTE:**
+
+    This class is not meant to be instantiated directly. Instead, obtain a `SyncResult` by
+    interacting with the `.CloudWorkspace` and `.CloudConnection` objects.
+    """
 
     workspace: CloudWorkspace
     connection: CloudConnection
