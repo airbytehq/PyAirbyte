@@ -130,10 +130,16 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
     def get_secret(self, secret_name: str) -> SecretString | None:
         """Get a named secret from Google Colab user secrets."""
+        full_name = secret_name
+        if "projects/" not in full_name:
+            # This is not yet fully qualified
+            full_name = f"projects/{self.project}/secrets/{secret_name}/versions/latest"
+
+        if "/versions/" not in full_name:
+            full_name += "/versions/latest"
+
         return SecretString(
-            self.secret_client.access_secret_version(
-                name=f"projects/{self.project}/secrets/{secret_name}/versions/latest"
-            ).payload.data.decode("UTF-8")
+            self.secret_client.access_secret_version(name=full_name).payload.data.decode("UTF-8")
         )
 
     def fetch_secrets(
@@ -155,11 +161,10 @@ class GoogleGSMSecretManager(CustomSecretManager):
             Iterable[SecretHandle]: An iterable of `SecretHandle` objects for the matching secrets.
         """
         gsm_secrets: ListSecretsPager = self.secret_client.list_secrets(
-            secretmanager.ListSecretsRequest(
-                request={
-                    "filter": filter_string,
-                }
-            )
+            request=secretmanager.ListSecretsRequest(
+                filter=filter_string,
+                parent=f"projects/{self.project}",
+            ),
         )
 
         return [
@@ -205,3 +210,39 @@ class GoogleGSMSecretManager(CustomSecretManager):
             label_key=self.CONNECTOR_LABEL,
             label_value=connector_name,
         )
+
+    def fetch_connector_secret(
+        self,
+        connector_name: str,
+    ) -> SecretHandle:
+        """Fetch secret in the secret manager, using the connector name as a filter for the label.
+
+        This method is a convenience method that returns the first secret found for the connector.
+
+        The label key used to filter the secrets is defined by the `CONNECTOR_LABEL` attribute,
+        which defaults to 'connector'.
+
+        Args:
+            connector_name (str): The name of the connector to filter by.
+
+        Returns:
+            SecretHandle: The matching secret.
+        """
+        results: Iterable[SecretHandle] = self.fetch_connector_secrets(connector_name)
+        try:
+            result = next(iter(results))
+        except StopIteration:
+            raise exc.PyAirbyteError(
+                message="No secrets found for connector.",
+                guidance=(
+                    "Please check that the connector name is correct "
+                    "and that the secret is correctly labeled."
+                ),
+                context={
+                    "project": self.project,
+                    "connector_name": connector_name,
+                    "label_key": self.CONNECTOR_LABEL,
+                },
+            ) from None
+
+        return result
