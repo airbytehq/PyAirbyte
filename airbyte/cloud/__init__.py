@@ -29,7 +29,7 @@ If your destination is supported, you can read records directly from the
 `SyncResult` object. Currently this is supported in Snowflake and BigQuery only.
 
 
-```
+```python
 # Assuming we've already created a `connection` object
 
 # Get the latest job result and print the stream names
