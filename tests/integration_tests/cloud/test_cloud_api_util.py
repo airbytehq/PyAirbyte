@@ -9,7 +9,7 @@ from __future__ import annotations
 import ulid
 
 from airbyte._util import api_util
-from airbyte_api.models.shared import SourceFaker, DestinationDuckdb
+from airbyte_api.models import SourceFaker, DestinationDuckdb
 
 
 def test_create_and_delete_source(

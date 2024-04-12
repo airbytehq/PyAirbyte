@@ -10,8 +10,7 @@ from airbyte.cloud.sync_results import SyncResult
 
 
 if TYPE_CHECKING:
-    from airbyte_api.models.shared.connectionresponse import ConnectionResponse
-    from airbyte_api.models.shared.jobresponse import JobResponse
+    from airbyte_api.models import ConnectionResponse, JobResponse
 
     from airbyte.cloud.workspaces import CloudWorkspace
 

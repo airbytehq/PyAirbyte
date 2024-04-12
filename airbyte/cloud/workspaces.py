@@ -28,8 +28,7 @@ from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
-    from airbyte_api.models.shared.destinationresponse import DestinationResponse
-
+    from airbyte._util.api_imports import DestinationResponse
     from airbyte.caches.base import CacheBase
 
 
