@@ -62,15 +62,15 @@ def test_deploy_and_run_and_read(
 
     # Cleanup
     with suppress(Exception):
-        cloud_workspace._permanently_delete_connection(
+        cloud_workspace.permanently_delete_connection(
             connection_id=connection_id,
             delete_source=True,
             delete_destination=True,
         )
     with suppress(Exception):
-        cloud_workspace._permanently_delete_source(source_id=source_id)
+        cloud_workspace.permanently_delete_source(source_id=source_id)
     with suppress(Exception):
-        cloud_workspace._permanently_delete_destination(destination_id=destination_id)
+        cloud_workspace.permanently_delete_destination(destination_id=destination_id)
 
 
 @pytest.mark.parametrize(

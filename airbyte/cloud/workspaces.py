@@ -93,7 +93,7 @@ class CloudWorkspace:
 
         return deployed_source.source_id
 
-    def _permanently_delete_source(
+    def permanently_delete_source(
         self,
         source: str | Source,
     ) -> None:
@@ -147,7 +147,7 @@ class CloudWorkspace:
 
         return deployed_destination.destination_id
 
-    def _permanently_delete_destination(
+    def permanently_delete_destination(
         self,
         *,
         destination: str | None = None,
@@ -277,7 +277,7 @@ class CloudWorkspace:
             connection_id=connection_id,
         )
 
-    def _permanently_delete_connection(
+    def permanently_delete_connection(
         self,
         connection: str | CloudConnection,
         *,
@@ -301,10 +301,10 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
         )
         if delete_source:
-            self._permanently_delete_source(source=connection.source_id)
+            self.permanently_delete_source(source=connection.source_id)
 
         if delete_destination:
-            self._permanently_delete_destination(destination=connection.destination_id)
+            self.permanently_delete_destination(destination=connection.destination_id)
 
     # Run syncs
 

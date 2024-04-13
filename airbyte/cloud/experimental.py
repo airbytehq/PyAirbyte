@@ -47,13 +47,13 @@ class CloudWorkspace(Stable_CloudWorkspace):
     deploy_connection = Stable_CloudWorkspace._deploy_connection
     deploy_source = Stable_CloudWorkspace._deploy_source
     deploy_cache_as_destination = Stable_CloudWorkspace._deploy_cache_as_destination
-    permanently_delete_connection = Stable_CloudWorkspace._permanently_delete_connection
-    permanently_delete_source = Stable_CloudWorkspace._permanently_delete_source
-    permanently_delete_destination = Stable_CloudWorkspace._permanently_delete_destination
+    permanently_delete_connection = Stable_CloudWorkspace.permanently_delete_connection
+    permanently_delete_source = Stable_CloudWorkspace.permanently_delete_source
+    permanently_delete_destination = Stable_CloudWorkspace.permanently_delete_destination
 
 
 class CloudConnection(Stable_CloudConnection):
     __doc__ = (
         f"Experimental implementation of `.CloudConnection`.\n\n{Stable_CloudConnection.__doc__}"
     )
-    permanently_delete = Stable_CloudConnection._permanently_delete
+    permanently_delete = Stable_CloudConnection.permanently_delete
