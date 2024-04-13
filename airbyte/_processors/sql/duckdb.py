@@ -94,12 +94,13 @@ class DuckDBSqlProcessor(SqlProcessorBase):
             "\n, ".join(
                 [
                     self._quote_identifier(self.normalizer.normalize(prop_name))
-                    + ": "
+                    + ': "'
                     + str(
                         self._get_sql_column_definitions(stream_name)[
                             self.normalizer.normalize(prop_name)
                         ]
                     )
+                    + '"'
                     for prop_name in columns_list
                 ]
             ),
