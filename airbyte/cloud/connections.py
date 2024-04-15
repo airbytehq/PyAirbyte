@@ -199,16 +199,16 @@ class CloudConnection:
             delete_source: Whether to also delete the source.
             delete_destination: Whether to also delete the destination.
         """
-        self.workspace.permanently_delete_connection(  # noqa: SLF001  # Non-public API (for now)
+        self.workspace.permanently_delete_connection(  # Non-public API (for now)
             connection=self
         )
 
         if delete_source:
-            self.workspace.permanently_delete_source(  # noqa: SLF001  # Non-public API (for now)
+            self.workspace.permanently_delete_source(  # Non-public API (for now)
                 source=self.source_id
             )
 
         if delete_destination:
-            self.workspace.permanently_delete_destination(  # noqa: SLF001  # Non-public API
+            self.workspace.permanently_delete_destination(  # Non-public API
                 destination=self.destination_id,
             )
