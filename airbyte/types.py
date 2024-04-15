@@ -13,7 +13,7 @@ from rich import print
 CONVERSION_MAP = {
     "string": sqlalchemy.types.VARCHAR,
     "integer": sqlalchemy.types.BIGINT,
-    "number": sqlalchemy.types.DECIMAL(38, 10),
+    "number": sqlalchemy.types.DECIMAL(38, 9),
     "boolean": sqlalchemy.types.BOOLEAN,
     "date": sqlalchemy.types.DATE,
     "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP,
