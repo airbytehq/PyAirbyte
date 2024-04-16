@@ -13,7 +13,7 @@ from rich import print
 CONVERSION_MAP = {
     "string": sqlalchemy.types.VARCHAR,
     "integer": sqlalchemy.types.BIGINT,
-    "number": sqlalchemy.types.DECIMAL,
+    "number": sqlalchemy.types.DECIMAL(38, 9),
     "boolean": sqlalchemy.types.BOOLEAN,
     "date": sqlalchemy.types.DATE,
     "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP,
@@ -116,11 +116,18 @@ class SQLTypeConverter:
         """Convert a value to a SQL type."""
         try:
             airbyte_type, _ = _get_airbyte_type(json_schema_property_def)
-            return self.conversion_map[airbyte_type]()
+            sql_type = self.conversion_map[airbyte_type]
         except SQLTypeConversionError:
             print(f"Could not determine airbyte type from JSON schema: {json_schema_property_def}")
         except KeyError:
             print(f"Could not find SQL type for airbyte type: {airbyte_type}")
+        else:
+            # No exceptions were raised, so we can return the SQL type.
+            if isinstance(sql_type, type):
+                # This is a class. Call its constructor.
+                sql_type = sql_type()
+
+            return sql_type
 
         json_schema_type = json_schema_property_def.get("type", None)
         json_schema_format = json_schema_property_def.get("format", None)

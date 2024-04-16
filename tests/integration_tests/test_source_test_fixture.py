@@ -113,7 +113,12 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             {"column1": "value2", "column2": 2},
         ],
         "stream2": [
-            {"column1": "value1", "column2": 1, "empty_column": None},
+            {
+                "column1": "value1",
+                "column2": 1,
+                "empty_column": None,
+                "big_number": 1234567890123456
+            },
         ],
         "always-empty-stream": [],
     }

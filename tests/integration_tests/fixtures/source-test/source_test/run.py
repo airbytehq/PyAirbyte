@@ -33,6 +33,7 @@ sample_catalog = {
                         "Column1": {"type": "string"},
                         "Column2": {"type": "number"},
                         "empty_column": {"type": "string"},
+                        "big_number": {"type": "number"},
                     },
                 },
             },
@@ -102,7 +103,12 @@ sample_record2_stream1 = {
 sample_record_stream2 = {
     "type": "RECORD",
     "record": {
-        "data": {"Column1": "value1", "Column2": 1},
+        "data": {
+            "Column1": "value1",
+            "Column2": 1,
+            "empty_column": None,
+            "big_number": 1234567890123456,
+        },
         "stream": "stream2",
         "emitted_at": 1704067200,
     },
