@@ -62,9 +62,11 @@ jobs:
       run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
     - name: Append comment with job run link
+      id: first-comment-action
       uses: peter-evans/create-or-update-comment@v4
       with:
         comment-id: ${{ github.event.inputs.comment-id }}
+        issue-number: ${{ github.event.inputs.pr }}
         body: |
 
           > PR auto-fix job started... [Check job output.][1]
@@ -141,7 +143,7 @@ jobs:
       uses: peter-evans/create-or-update-comment@v4
       if: steps.git-diff.outputs.changes == 'true' || steps.git-diff-2.outputs.changes == 'true'
       with:
-        comment-id: ${{ github.event.inputs.comment-id }}
+        comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
         reactions: hooray
         body: |
           > ✅ Changes applied successfully.
@@ -150,7 +152,7 @@ jobs:
       uses: peter-evans/create-or-update-comment@v4
       if: steps.git-diff.outputs.changes != 'true' && steps.git-diff-2.outputs.changes != 'true'
       with:
-        comment-id: ${{ github.event.inputs.comment-id }}
+        comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
         reactions: "+1"
         body: |
           > 🟦 Job completed successfully (no changes).
@@ -159,7 +161,7 @@ jobs:
       uses: peter-evans/create-or-update-comment@v4
       if: failure()
       with:
-        comment-id: ${{ github.event.inputs.comment-id }}
+        comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
         reactions: confused
         body: |
           > ❌ Job failed.
