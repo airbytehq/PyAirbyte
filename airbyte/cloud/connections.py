@@ -210,4 +210,5 @@ class CloudConnection:
 
         if delete_destination:
             self.workspace.permanently_delete_destination(  # Non-public API
-                destination=self.destination_id,)
+                destination=self.destination_id
+            )
