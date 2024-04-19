@@ -66,12 +66,30 @@ class CloudWorkspace:
 
     # Deploy and delete sources
 
-    # TODO: Make this a public API
-    def _deploy_source(
+    def deploy_source(
         self,
+        name_key: str | None = None,
         source: Source,
+        *,
+        source_id: str | None = None,
+        update_existing: bool = True,
     ) -> str:
         """Deploy a source to the workspace.
+
+        This method will deploy a source to the workspace and return the source ID. It can also
+        be used to update existing sources, replacing their definitions with the provided source
+        configuration.
+
+        Args:
+            name_key (str): The key to use for the source name. This is used to provide
+                idempotency when deploying the same source multiple times. If `None`, then
+                `source_id` is required. If a matching source source is found and `update_existing`
+                is `False`, then a `AirbyteResourceAlreadyExists` exception will be raised.
+            source (Source): The source to deploy.
+            source_id (str, optional): The ID of an existing source to replace/update. If provided,
+                then `name_key` and `replace` will be ignored.
+            update_existing (bool, optional): If `True`, the source will be updated if it already
+                exists. Ignored if `source_id` is provided.
 
         Returns the newly deployed source ID.
         """
