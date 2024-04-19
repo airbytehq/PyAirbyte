@@ -9,6 +9,7 @@ from pytest import raises
 
 import airbyte as ab
 from airbyte import cloud
+from airbyte import exceptions as exc
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
@@ -34,8 +35,9 @@ def test_deploy_source(
     )
     assert source_connector.source_name == "My Faker Source"
     assert source_connector.configuration["count"] == 100
+    assert source_connector.configuration["seed"] == 123
 
-    with raises(PyAirbyteResourceConflictError):
+    with raises(exc.PyAirbyteResourceConflictError):
         # Deploy source again (should fail):
         cloud_workspace.deploy_source(
             source=local_source,
@@ -51,7 +53,7 @@ def test_deploy_source(
         update_existing=True,        # Update existing source
     )
 
-    # Partially update the configuration:
+    # Partially update the configuration (merging with config from previous deployment):
     source_connector.update_configuration(
         {"count": 300},
         merge=True,
