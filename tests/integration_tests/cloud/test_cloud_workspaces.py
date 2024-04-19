@@ -35,7 +35,7 @@ def test_deploy_source(
     assert source_connector.source_name == "My Faker Source"
     assert source_connector.configuration["count"] == 100
 
-    with raises(RuntimeError):
+    with raises(PyAirbyteResourceConflictError):
         # Deploy source again (should fail):
         cloud_workspace.deploy_source(
             source=local_source,
