@@ -144,6 +144,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         if self.cache.cleanup:
             self.cleanup_all()
 
+    @overrides
     def _get_stream_config(
         self,
         stream_name: str,
