@@ -4,36 +4,35 @@
 from __future__ import annotations
 
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import sqlalchemy
 from overrides import overrides
 
-from airbyte_cdk.models import AirbyteMessage, ConfiguredAirbyteCatalog
-from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
-from airbyte._processors.base import RecordProcessor
-
-from typing import TYPE_CHECKING, Any, cast
 from airbyte_cdk.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStateMessage,
     AirbyteStateType,
-    AirbyteStreamState,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     Type,
 )
-from sqlalchemy.engine import Connection, Engine
-from airbyte._processors.file.base import FileWriterBase
-from airbyte.strategies import WriteStrategy
+
 from airbyte import exceptions as exc
+from airbyte._processors.base import RecordProcessor
+from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
+from airbyte.strategies import WriteStrategy
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from pathlib import Path
+
+    from sqlalchemy.engine import Connection, Engine
+
+    from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
-    from sqlalchemy.engine import Connection
 
 
 class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
@@ -64,8 +63,6 @@ class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
 class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     """A Snowflake implementation for use with Cortex functions."""
 
-    type_converter_class: SnowflakeCortexTypeConverter
-
     def __init__(
         self,
         cache: CacheBase,
@@ -78,7 +75,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         self._vector_length = vector_length
         self._engine: Engine | None = None
         self._connection_to_reuse: Connection | None = None
-        # call base call to do necessary initialization
+        # call base class to do necessary initialization
         RecordProcessor.__init__(self, cache=cache, catalog_manager=None)
         self._ensure_schema_exists()
         self.file_writer = file_writer or self.file_writer_class(cache)
@@ -93,13 +90,13 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     ) -> None:
         """Process a stream of Airbyte messages."""
         if not isinstance(write_strategy, WriteStrategy):
-            raise exc.AirbyteInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )
 
         if not self._catalog:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog should exist but does not.",
             )
 
@@ -126,7 +123,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                 if state_msg.type in [AirbyteStateType.GLOBAL, AirbyteStateType.LEGACY]:
                     self._pending_state_messages[f"_{state_msg.type}"].append(state_msg)
                 else:
-                    stream_state = cast(AirbyteStreamState, state_msg.stream)
+                    # stream_state = cast(AirbyteStreamState, state_msg.stream)
                     # to-do: remove hardcoding below
                     stream_name = "myteststream"  # stream_state.stream_descriptor.name
                     self._pending_state_messages[stream_name].append(state_msg)
@@ -149,9 +146,9 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
-        """Overriding so we can use local catalog instead of catalog manager (which original implementation relies on)."""
+        """Overriding so we can use local catalog instead of catalog manager"""
         if not self._catalog:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog should exist but does not.",
             )
 
@@ -167,7 +164,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             )
 
         if len(matching_streams) > 1:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Multiple streams found with same name.",
                 context={
                     "stream_name": stream_name,
@@ -179,11 +176,12 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     @overrides
     def _ensure_compatible_table_schema(
         self,
-        stream_name: str,
+        stream_name: str,  # noqa: ARG002
         *,
-        raise_on_error: bool = True,
+        raise_on_error: bool = True,  # noqa: ARG002
     ) -> bool:
-        # to-do: SQLAlchemy is not compatible with vector type. Implemenbt using Snowflake python connector
+        # to-do: SQLAlchemy is not compatible with vector type.
+        # Implement using Snowflake python connector
         return True
 
     def _finalize_state_messages(
@@ -191,7 +189,8 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         stream_name: str,
         state_messages: list[AirbyteStateMessage],
     ) -> None:
-        # to-do: need to override since we are not using catalog manager. Do we want to write state messages in this scenario ?
+        # to-do: need to override since we are not using catalog manager.
+        # Do we want to write state messages in this scenario ?
         pass
 
     def _get_json_schema_from_catalog(
@@ -230,11 +229,12 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
 
-        # to-do: move following into a separate method, then don't need to override the whole method.
-        vector_type_suffix = f"::Vector(Float, {self._vector_length})"
+        # to-do: move following into a separate method,
+        # then don't need to override the whole method.
+        vector_suffix = f"::Vector(Float, {self._vector_length})"
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
             [
-                f"$1:{self.normalizer.normalize(col)}{vector_type_suffix if col.find('embedding') != -1 else ''}"
+                f"$1:{self.normalizer.normalize(col)}{vector_suffix if 'embedding' in col else ''}"
                 for col in columns_list
             ]
         )

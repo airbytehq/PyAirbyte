@@ -7,28 +7,29 @@ Usage:
 
 from __future__ import annotations
 
-import airbyte as ab
-#from airbyte._util.google_secrets import get_gcp_secret_json
-from airbyte.caches import SnowflakeCache
-from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor
-from airbyte.strategies import WriteStrategy
-from airbyte_protocol.models import AirbyteMessage
-from typing import Any, Dict
-from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+from typing import Any
 
 from airbyte_cdk.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStateMessage,
     AirbyteStream,
+    AirbyteStreamState,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     DestinationSyncMode,
+    StreamDescriptor,
     SyncMode,
     Type,
-    AirbyteStreamState,
-    StreamDescriptor
 )
+
+import airbyte as ab
+from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor
+
+# from airbyte._util.google_secrets import get_gcp_secret_json
+from airbyte.caches import SnowflakeCache
+from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+from airbyte.strategies import WriteStrategy
 
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
@@ -52,19 +53,22 @@ cache = SnowflakeCache(
     role=secret_config["role"],
 )
 
-# create sample catalog 
-stream_schema = {"type": "object", 
-                 "properties": 
-                    {
-                        "str_col": {"type": "string"}, 
-                        "int_col": {"type": "integer"},
-                        "page_content": {"type": "string"},
-                        "metadata": {"type": "object"},
-                        "embedding": {"type": "vector_array"},
-                        }}
+# create sample catalog
+stream_schema = {
+    "type": "object",
+    "properties": {
+        "str_col": {"type": "string"},
+        "int_col": {"type": "integer"},
+        "page_content": {"type": "string"},
+        "metadata": {"type": "object"},
+        "embedding": {"type": "vector_array"},
+    },
+}
 overwrite_stream = ConfiguredAirbyteStream(
     stream=AirbyteStream(
-        name="myteststream", json_schema=stream_schema, supported_sync_modes=[SyncMode.incremental, SyncMode.full_refresh]
+        name="myteststream",
+        json_schema=stream_schema,
+        supported_sync_modes=[SyncMode.incremental, SyncMode.full_refresh],
     ),
     primary_key=[["int_col"]],
     sync_mode=SyncMode.incremental,
@@ -73,35 +77,74 @@ overwrite_stream = ConfiguredAirbyteStream(
 catalog = ConfiguredAirbyteCatalog(streams=[overwrite_stream])
 
 
-# create test messages 
-message1 = AirbyteMessage(type=Type.RECORD, 
-                        record=AirbyteRecordMessage(stream="myteststream", 
-                        data={"str_col": 'Dogs are number 1', 
-                              "int_col": 4, 
-                              "page_content": 'str_col: Dogs are number 1',
-                              "metadata": {'int_col': 4, '_ab_stream': 'mystream'},
-                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647, -0.00438284986621647]}, 
-                        emitted_at=0))
-message2 = AirbyteMessage(type=Type.RECORD, 
-                        record=AirbyteRecordMessage(stream="myteststream", 
-                        data={"str_col": 'Dogs are number 2', 
-                              "int_col": 5, 
-                              "page_content": 'str_col: Dogs are number 2',
-                              "metadata": {'int_col': 5, '_ab_stream': 'mystream'},
-                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647, -0.00438284986621647]}, 
-                        emitted_at=0))
-message3 = AirbyteMessage(type=Type.RECORD, 
-                        record=AirbyteRecordMessage(stream="myteststream", 
-                        data={"str_col": 'Dogs are number 3', 
-                              "int_col": 10, 
-                              "page_content": 'str_col: Dogs are number 3',
-                              "metadata": {'int_col': 10, '_ab_stream': 'mystream'},
-                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647, -0.00438284986621647]}, 
-                        emitted_at=0))
+# create test messages
+message1 = AirbyteMessage(
+    type=Type.RECORD,
+    record=AirbyteRecordMessage(
+        stream="myteststream",
+        data={
+            "str_col": "Dogs are number 1",
+            "int_col": 4,
+            "page_content": "str_col: Dogs are number 1",
+            "metadata": {"int_col": 4, "_ab_stream": "mystream"},
+            "embedding": [
+                -0.00438284986621647,
+                -0.0037110261657951915,
+                -0.02161210642043671,
+                -0.00438284986621647,
+                -0.00438284986621647,
+            ],
+        },
+        emitted_at=0,
+    ),
+)
+message2 = AirbyteMessage(
+    type=Type.RECORD,
+    record=AirbyteRecordMessage(
+        stream="myteststream",
+        data={
+            "str_col": "Dogs are number 2",
+            "int_col": 5,
+            "page_content": "str_col: Dogs are number 2",
+            "metadata": {"int_col": 5, "_ab_stream": "mystream"},
+            "embedding": [
+                -0.00438284986621647,
+                -0.0037110261657951915,
+                -0.02161210642043671,
+                -0.00438284986621647,
+                -0.00438284986621647,
+            ],
+        },
+        emitted_at=0,
+    ),
+)
+message3 = AirbyteMessage(
+    type=Type.RECORD,
+    record=AirbyteRecordMessage(
+        stream="myteststream",
+        data={
+            "str_col": "Dogs are number 3",
+            "int_col": 10,
+            "page_content": "str_col: Dogs are number 3",
+            "metadata": {"int_col": 10, "_ab_stream": "mystream"},
+            "embedding": [
+                -0.00438284986621647,
+                -0.0037110261657951915,
+                -0.02161210642043671,
+                -0.00438284986621647,
+                -0.00438284986621647,
+            ],
+        },
+        emitted_at=0,
+    ),
+)
 
-# helper methods to create state message 
-def _state(data: Dict[str, Any]) -> AirbyteMessage:
-    stream = AirbyteStreamState(stream_descriptor=StreamDescriptor(name='myteststream', namespace=None))
+
+# helper methods to create state message
+def _state(data: dict[str, Any]) -> AirbyteMessage:
+    stream = AirbyteStreamState(
+        stream_descriptor=StreamDescriptor(name="myteststream", namespace=None)
+    )
 
     return AirbyteMessage(type=Type.STATE, state=AirbyteStateMessage(stream=stream, data=data))
 
@@ -109,6 +152,6 @@ def _state(data: Dict[str, Any]) -> AirbyteMessage:
 state_message = _state({"state": "1"})
 messages = [message1, message2, message3, state_message]
 
-# create a SQL processor using Snowflake cache 
+# create a SQL processor using Snowflake cache
 processor = SnowflakeCortexSqlProcessor(cache=cache, catalog=catalog, vector_length=5)
 processor.process_airbyte_messages(messages, WriteStrategy.REPLACE)

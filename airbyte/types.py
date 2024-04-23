@@ -113,7 +113,7 @@ class SQLTypeConverter:
         """Get the type to use for nested JSON data."""
         return sqlalchemy.types.JSON()
 
-    def to_sql_type(
+    def to_sql_type(  # noqa: PLR0911  # Too many return statements
         self,
         json_schema_property_def: dict[str, str | dict | list],
     ) -> sqlalchemy.types.TypeEngine:

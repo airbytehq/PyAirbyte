@@ -243,7 +243,6 @@ class RecordProcessor(abc.ABC):
         """
         pass
 
-    
     def _get_stream_config(
         self,
         stream_name: str,
