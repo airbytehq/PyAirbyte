@@ -29,17 +29,17 @@ from airbyte import exceptions as exc
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from pathlib import Path
     from airbyte.caches.base import CacheBase
+    from sqlalchemy.engine import Connection
     
 
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-    from sqlalchemy.engine import Connection
-
 class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
-    """A class to convert vector types for Snowflake Cortex."""
+    """A class to convert array type into vector."""
+
+    # to-do: remove hardcoding below
+    _vector_length: int = 4
 
     @overrides
     def to_sql_type(
@@ -50,8 +50,7 @@ class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
         """
         sql_type = super().to_sql_type(json_schema_property_def)
         if isinstance(sql_type, sqlalchemy.types.ARRAY):
-            # to-do: remove hardcoding for vector size below 
-            return "VECTOR(FLOAT, 3)"
+            return f"Vector(Float, {self._vector_length})"
 
         return sql_type
 
@@ -59,12 +58,17 @@ class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
 class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     """A Snowflake implementation for use with Cortex functions."""
 
-    _catalog: ConfiguredAirbyteCatalog
     type_converter_class = SnowflakeCortexTypeConverter
 
-    def __init__(self, cache: CacheBase, catalog: ConfiguredAirbyteCatalog | None) -> None:
+    def __init__(
+            self, cache: CacheBase, 
+            catalog: ConfiguredAirbyteCatalog | None,
+            vector_length: int  
+    ) -> None:
         self._catalog = catalog
+        # to-do: do we need the following line? 
         self.source_catalog = catalog
+        self._vector_length = vector_length
         super().__init__(cache)
 
     @overrides
@@ -210,10 +214,11 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
 
         # to-do: move following into a separate method, then don't need to override the whole method. 
+        vector_type_suffix = f"::Vector(Float, {self._vector_length})"
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
             [
                 # to-do: remove hardcoding for vector below
-                f"$1:{self.normalizer.normalize(col)}{'::vector(float, 3)' if col.find('embedding') != -1 else ''}"
+                f"$1:{self.normalizer.normalize(col)}{vector_type_suffix if col.find('embedding') != -1 else ''}"
                 for col in columns_list
             ]   
         )
