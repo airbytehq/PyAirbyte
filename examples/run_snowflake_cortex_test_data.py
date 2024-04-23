@@ -52,7 +52,6 @@ cache = SnowflakeCache(
     role=secret_config["role"],
 )
 
-
 # create sample catalog 
 stream_schema = {"type": "object", 
                  "properties": 
@@ -73,8 +72,6 @@ overwrite_stream = ConfiguredAirbyteStream(
 )
 catalog = ConfiguredAirbyteCatalog(streams=[overwrite_stream])
 
-# create a SQL processor 
-processor = SnowflakeCortexSqlProcessor(cache=cache, catalog=catalog, vector_length=4)
 
 # create test messages 
 message1 = AirbyteMessage(type=Type.RECORD, 
@@ -83,7 +80,7 @@ message1 = AirbyteMessage(type=Type.RECORD,
                               "int_coln": 4, 
                               "page_content": 'str_col: Dogs are number 1',
                               "metadata": {'int_col': 4, '_ab_stream': 'mystream'},
-                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647]}, 
+                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647, -0.00438284986621647]}, 
                         emitted_at=0))
 message2 = AirbyteMessage(type=Type.RECORD, 
                         record=AirbyteRecordMessage(stream="myteststream", 
@@ -91,7 +88,7 @@ message2 = AirbyteMessage(type=Type.RECORD,
                               "int_coln": 5, 
                               "page_content": 'this is test: \n\n sample page content 4',
                               "metadata": {'int_col': 5, '_ab_stream': 'mystream'},
-                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647]}, 
+                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647, -0.00438284986621647]}, 
                         emitted_at=0))
 message3 = AirbyteMessage(type=Type.RECORD, 
                         record=AirbyteRecordMessage(stream="myteststream", 
@@ -99,7 +96,7 @@ message3 = AirbyteMessage(type=Type.RECORD,
                               "int_coln": 10, 
                               "page_content": 'this is test: \n\n sample page content which is super long not really 4',
                               "metadata": {'int_col': 10, '_ab_stream': 'mystream'},
-                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647]}, 
+                              "embedding": [-0.00438284986621647, -0.0037110261657951915, -0.02161210642043671, -0.00438284986621647, -0.00438284986621647]}, 
                         emitted_at=0))
 
 # helper methods to create state message 
@@ -111,4 +108,7 @@ def _state(data: Dict[str, Any]) -> AirbyteMessage:
 
 state_message = _state({"state": "1"})
 messages = [message1, message2, message3, state_message]
+
+# create a SQL processor using Snowflake cache 
+processor = SnowflakeCortexSqlProcessor(cache=cache, catalog=catalog, vector_length=5)
 processor.process_airbyte_messages(messages, WriteStrategy.REPLACE)

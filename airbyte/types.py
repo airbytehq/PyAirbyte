@@ -81,7 +81,7 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
             return "array", subtype
 
         return "array", None
-    
+
     if json_schema_type == "vector_array":
         return "vector_array", "Float"
 
@@ -120,8 +120,8 @@ class SQLTypeConverter:
         """Convert a value to a SQL type."""
         try:
             airbyte_type, _ = _get_airbyte_type(json_schema_property_def)
-            # to-do - remove hardcoding below 
-            if (airbyte_type == "vector_array"):
+            # to-do - is there a better way to check the following
+            if airbyte_type == "vector_array":
                 return sqlalchemy.types.ARRAY(sqlalchemy.types.Float())
             sql_type = self.conversion_map[airbyte_type]
         except SQLTypeConversionError:

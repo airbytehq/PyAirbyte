@@ -11,6 +11,7 @@ from overrides import overrides
 
 from airbyte_cdk.models import AirbyteMessage, ConfiguredAirbyteCatalog
 from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
+from airbyte._processors.base import RecordProcessor
 
 from typing import TYPE_CHECKING, Any, cast
 from airbyte_cdk.models import (
@@ -21,9 +22,10 @@ from airbyte_cdk.models import (
     AirbyteStreamState,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
-    Type
+    Type,
 )
-
+from sqlalchemy.engine import Connection, Engine
+from airbyte._processors.file.base import FileWriterBase
 from airbyte.strategies import WriteStrategy
 from airbyte import exceptions as exc
 
@@ -32,25 +34,29 @@ if TYPE_CHECKING:
     from pathlib import Path
     from airbyte.caches.base import CacheBase
     from sqlalchemy.engine import Connection
-    
 
 
 class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
     """A class to convert array type into vector."""
 
-    # to-do: remove hardcoding below
-    _vector_length: int = 4
+    def __init__(
+        self,
+        conversion_map: dict | None = None,
+        *,
+        vector_length: int,
+    ) -> None:
+        self.vector_length = vector_length
+        super().__init__(conversion_map)
 
     @overrides
     def to_sql_type(
         self,
         json_schema_property_def: dict[str, str | dict | list],
     ) -> sqlalchemy.types.TypeEngine:
-        """Convert a value to a SQL type.
-        """
+        """Convert a value to a SQL type."""
         sql_type = super().to_sql_type(json_schema_property_def)
         if isinstance(sql_type, sqlalchemy.types.ARRAY):
-            return f"Vector(Float, {self._vector_length})"
+            return f"Vector(Float, {self.vector_length})"
 
         return sql_type
 
@@ -58,18 +64,26 @@ class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
 class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     """A Snowflake implementation for use with Cortex functions."""
 
-    type_converter_class = SnowflakeCortexTypeConverter
+    type_converter_class: SnowflakeCortexTypeConverter
 
     def __init__(
-            self, cache: CacheBase, 
-            catalog: ConfiguredAirbyteCatalog | None,
-            vector_length: int  
+        self,
+        cache: CacheBase,
+        catalog: ConfiguredAirbyteCatalog | None,
+        vector_length: int,
+        file_writer: FileWriterBase | None = None,
     ) -> None:
+        """Custom initialization: Initialize type_converter with vector_length."""
         self._catalog = catalog
-        # to-do: do we need the following line? 
-        self.source_catalog = catalog
         self._vector_length = vector_length
-        super().__init__(cache)
+        self._engine: Engine | None = None
+        self._connection_to_reuse: Connection | None = None
+        # call base call to do necessary initialization
+        RecordProcessor.__init__(self, cache=cache, catalog_manager=None)
+        self._ensure_schema_exists()
+        self.file_writer = file_writer or self.file_writer_class(cache)
+        self.type_converter = SnowflakeCortexTypeConverter(vector_length=vector_length)
+        self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
 
     @overrides
     def process_airbyte_messages(
@@ -83,7 +97,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )
-        
+
         if not self._catalog:
             raise exc.AirbyteLibInternalError(
                 message="Catalog should exist but does not.",
@@ -113,8 +127,8 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                     self._pending_state_messages[f"_{state_msg.type}"].append(state_msg)
                 else:
                     stream_state = cast(AirbyteStreamState, state_msg.stream)
-                    # to-do: remove hardcoding below 
-                    stream_name = "myteststream" #stream_state.stream_descriptor.name
+                    # to-do: remove hardcoding below
+                    stream_name = "myteststream"  # stream_state.stream_descriptor.name
                     self._pending_state_messages[stream_name].append(state_msg)
 
             else:
@@ -122,15 +136,13 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
-        # in base class, following reads from expected streams, hence overriding         
+        # in base class, following reads from expected streams, hence overriding
         for stream_name in stream_schemas:
             self.write_stream_data(stream_name, write_strategy=write_strategy)
-
 
         # Clean up files, if requested.
         if self.cache.cleanup:
             self.cleanup_all()
-
 
     def _get_stream_config(
         self,
@@ -141,7 +153,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             raise exc.AirbyteLibInternalError(
                 message="Catalog should exist but does not.",
             )
-        
+
         matching_streams: list[ConfiguredAirbyteStream] = [
             stream for stream in self._catalog.streams if stream.stream.name == stream_name
         ]
@@ -149,9 +161,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             raise exc.AirbyteStreamNotFoundError(
                 stream_name=stream_name,
                 context={
-                    "available_streams": [
-                        stream.stream.name for stream in self._catalog.streams
-                    ],
+                    "available_streams": [stream.stream.name for stream in self._catalog.streams],
                 },
             )
 
@@ -164,7 +174,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             )
 
         return matching_streams[0]
-    
 
     @overrides
     def _ensure_compatible_table_schema(
@@ -173,16 +182,23 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         *,
         raise_on_error: bool = True,
     ) -> bool:
-        # to-do: need to override since SQLAlchemy is not compatible with vector type
-        # implement using Snowflake python connector to check if table exists and has correct schema
+        # to-do: SQLAlchemy is not compatible with vector type. Implemenbt using Snowflake python connector
         return True
+
+    def _finalize_state_messages(
+        self,
+        stream_name: str,
+        state_messages: list[AirbyteStateMessage],
+    ) -> None:
+        # to-do: need to override since we are not using catalog manager. Do we want to write state messages in this scenario ?
+        pass
 
     def _get_json_schema_from_catalog(
         self,
         stream_name: str,
     ) -> dict[str, Any]:
         return self._get_stream_config(stream_name).stream.json_schema
-    
+
     @overrides
     def _write_files_to_new_table(
         self,
@@ -213,14 +229,13 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
 
-        # to-do: move following into a separate method, then don't need to override the whole method. 
+        # to-do: move following into a separate method, then don't need to override the whole method.
         vector_type_suffix = f"::Vector(Float, {self._vector_length})"
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
             [
-                # to-do: remove hardcoding for vector below
                 f"$1:{self.normalizer.normalize(col)}{vector_type_suffix if col.find('embedding') != -1 else ''}"
                 for col in columns_list
-            ]   
+            ]
         )
 
         copy_statement = dedent(
@@ -237,9 +252,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             FILE_FORMAT = ( TYPE = JSON )
             ;
             """
-        )        
-
-        print(copy_statement)
+        )
         self._execute_sql(copy_statement)
         return temp_table_name
-
