@@ -152,7 +152,6 @@ class RecordProcessor(abc.ABC):
         the file processor.
         """
 
-    @final
     def process_airbyte_messages(
         self,
         messages: Iterable[AirbyteMessage],

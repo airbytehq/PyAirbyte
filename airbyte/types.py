@@ -24,6 +24,7 @@ CONVERSION_MAP = {
     # We include them here for completeness.
     "object": sqlalchemy.types.JSON,
     "array": sqlalchemy.types.JSON,
+    "vector_array": sqlalchemy.types.ARRAY,
 }
 
 
@@ -80,6 +81,9 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
             return "array", subtype
 
         return "array", None
+    
+    if json_schema_type == "vector_array":
+        return "vector_array", "Float"
 
     err_msg = f"Could not determine airbyte type from JSON schema type: {json_schema_property_def}"
     raise SQLTypeConversionError(err_msg)
@@ -116,6 +120,9 @@ class SQLTypeConverter:
         """Convert a value to a SQL type."""
         try:
             airbyte_type, _ = _get_airbyte_type(json_schema_property_def)
+            # to-do - remove hardcoding below 
+            if (airbyte_type == "vector_array"):
+                return sqlalchemy.types.ARRAY(sqlalchemy.types.Float())
             sql_type = self.conversion_map[airbyte_type]
         except SQLTypeConversionError:
             print(f"Could not determine airbyte type from JSON schema: {json_schema_property_def}")
