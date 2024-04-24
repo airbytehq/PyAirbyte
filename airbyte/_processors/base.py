@@ -244,6 +244,7 @@ class RecordProcessor(abc.ABC):
         """
         pass
 
+    @final
     def _get_stream_config(
         self,
         stream_name: str,
