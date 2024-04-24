@@ -4,29 +4,22 @@
 from __future__ import annotations
 
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import sqlalchemy
 from overrides import overrides
 
 from airbyte_cdk.models import (
-    AirbyteMessage,
-    AirbyteRecordMessage,
-    AirbyteStateMessage,
-    AirbyteStateType,
     ConfiguredAirbyteCatalog,
-    Type,
 )
 
 from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
 from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
 from airbyte.caches._catalog_manager import CatalogManager
-from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
     from pathlib import Path
 
     from sqlalchemy.engine import Connection, Engine
@@ -101,59 +94,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         self.type_converter = SnowflakeCortexTypeConverter(vector_length=vector_length)
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
 
-    @overrides
-    def process_airbyte_messages(
-        self,
-        messages: Iterable[AirbyteMessage],
-        write_strategy: WriteStrategy,
-    ) -> None:
-        """Process a stream of Airbyte messages."""
-        if not isinstance(write_strategy, WriteStrategy):
-            raise exc.PyAirbyteInternalError(
-                message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
-                context={"write_strategy": write_strategy},
-            )
-
-        stream_schemas: dict[str, dict] = {}
-
-        # Process messages, writing to batches as we go
-        for message in messages:
-            if message.type is Type.RECORD:
-                record_msg = cast(AirbyteRecordMessage, message.record)
-                stream_name = record_msg.stream
-
-                if stream_name not in stream_schemas:
-                    stream_schemas[stream_name] = self.cache.processor.get_stream_json_schema(
-                        stream_name=stream_name
-                    )
-
-                self.process_record_message(
-                    record_msg,
-                    stream_schema=stream_schemas[stream_name],
-                )
-
-            elif message.type is Type.STATE:
-                state_msg = cast(AirbyteStateMessage, message.state)
-                if state_msg.type in [AirbyteStateType.GLOBAL, AirbyteStateType.LEGACY]:
-                    self._pending_state_messages[f"_{state_msg.type}"].append(state_msg)
-                else:
-                    # stream_state = cast(AirbyteStreamState, state_msg.stream)
-                    # to-do: remove hardcoding below
-                    stream_name = "myteststream"  # stream_state.stream_descriptor.name
-                    self._pending_state_messages[stream_name].append(state_msg)
-
-            else:
-                # Ignore unexpected or unhandled message types:
-                # Type.LOG, Type.TRACE, Type.CONTROL, etc.
-                pass
-
-        self.write_all_stream_data(
-            write_strategy=write_strategy,
-        )
-
-        # Clean up files, if requested.
-        if self.cache.cleanup:
-            self.cleanup_all()
 
     def _get_column_list_from_table(
         self,

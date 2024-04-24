@@ -15,6 +15,7 @@ from airbyte_cdk.models import (
     AirbyteStateMessage,
     AirbyteStream,
     AirbyteStreamState,
+    AirbyteStateType,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     DestinationSyncMode,
@@ -145,8 +146,7 @@ def _state(data: dict[str, Any]) -> AirbyteMessage:
     stream = AirbyteStreamState(
         stream_descriptor=StreamDescriptor(name="myteststream", namespace=None)
     )
-
-    return AirbyteMessage(type=Type.STATE, state=AirbyteStateMessage(stream=stream, data=data))
+    return AirbyteMessage(type=Type.STATE, state=AirbyteStateMessage(type=AirbyteStateType.STREAM, stream=stream, data=data))
 
 
 state_message = _state({"state": "1"})
