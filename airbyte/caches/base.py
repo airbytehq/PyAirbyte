@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, Optional, cast, final
+from typing import TYPE_CHECKING, Any, Optional, cast, final
 
 from pydantic import BaseModel, PrivateAttr
 
