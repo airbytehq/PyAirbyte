@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import inspect
 import pytest
-import inspect
 import airbyte.exceptions as exceptions_module
 
 def test_exceptions():

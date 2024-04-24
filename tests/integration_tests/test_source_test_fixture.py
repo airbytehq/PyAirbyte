@@ -27,9 +27,7 @@ from airbyte.version import get_version
 from airbyte.results import ReadResult
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
 from airbyte._executor import _get_bin_dir
-import airbyte as ab
 
-from airbyte.results import ReadResult
 from airbyte import exceptions as exc
 import ulid
 

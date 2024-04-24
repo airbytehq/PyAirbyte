@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Generate docs for all public modules in PyAirbyte and save them to docs/generated.
 
@@ -9,13 +11,10 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import pathlib
 import shutil
 
 import pdoc
-
-import airbyte as ab
 
 
 def run() -> None:

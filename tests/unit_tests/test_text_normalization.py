@@ -1,4 +1,3 @@
-from math import exp
 import pytest
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.records import StreamRecord

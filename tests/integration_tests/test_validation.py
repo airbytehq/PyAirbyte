@@ -1,8 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import os
-import shutil
 
 import pytest
 from airbyte.validate import validate

@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import datetime
-from textwrap import dedent
 import time
-import pytest
 from freezegun import freeze_time
 from airbyte.progress import ReadProgress, _get_elapsed_time_str, _to_time_str
 from dateutil.tz import tzlocal

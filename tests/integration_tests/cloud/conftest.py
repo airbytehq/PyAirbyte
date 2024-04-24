@@ -2,17 +2,14 @@
 """Fixtures for Cloud Workspace integration tests."""
 from __future__ import annotations
 
-from enum import auto
 import os
 from pathlib import Path
 import sys
 import pytest
 from airbyte._util.api_util import CLOUD_API_ROOT
-from dotenv import dotenv_values
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
-from airbyte._util.temp_files import as_temp_files
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 

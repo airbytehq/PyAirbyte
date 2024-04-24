@@ -14,7 +14,7 @@ from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.secrets import CustomSecretManager, GoogleGSMSecretManager, SecretHandle
+from airbyte.secrets import GoogleGSMSecretManager, SecretHandle
 from airbyte._util.temp_files import as_temp_files
 
 import airbyte as ab

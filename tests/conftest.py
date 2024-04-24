@@ -2,8 +2,6 @@
 """Global pytest fixtures."""
 from __future__ import annotations
 
-from contextlib import suppress
-import json
 import logging
 import os
 from pathlib import Path
@@ -15,11 +13,7 @@ from requests.exceptions import HTTPError
 
 import ulid
 from airbyte._util.meta import is_windows
-from airbyte.caches.base import CacheBase
-from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.motherduck import MotherDuckCache
-from airbyte.caches.snowflake import SnowflakeCache
 
 import docker
 import psycopg2 as psycopg
@@ -29,9 +23,7 @@ from _pytest.nodes import Item
 from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.util import new_local_cache
-from airbyte.secrets import CustomSecretManager
 
-import airbyte as ab
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-from gettext import install
 import pytest
 
 from airbyte.sources.util import get_source

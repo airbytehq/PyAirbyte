@@ -1,15 +1,17 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Integration tests for reading from cache."""
 from __future__ import annotations
+
 from contextlib import suppress
 
-import pytest
 import pandas as pd
+import pytest
 from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
 from airbyte import cloud
 from airbyte.cloud.sync_results import SyncResult
+
 
 @pytest.fixture
 def deployable_source() -> ab.Source:
@@ -63,7 +65,7 @@ def test_deploy_and_run_and_read(
     # Cleanup
     with suppress(Exception):
         cloud_workspace._permanently_delete_connection(
-            connection_id=connection_id,
+            connection_id=connection,
             delete_source=True,
             delete_destination=True,
         )
