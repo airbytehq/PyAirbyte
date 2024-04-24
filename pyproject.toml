@@ -76,12 +76,13 @@ markers = [
     "linting: marks a test as a linting test",
 ]
 
-[tool.ruff.pylint]
-max-args = 8      # Relaxed from default of 5
-max-branches = 15 # Relaxed from default of 12
-
 [tool.ruff]
 target-version = "py39"
+preview = true
+line-length = 100
+extend-exclude = ["docs", "test", "tests"]
+
+[tool.ruff.lint]
 select = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
     "A",     # flake8-builtins
@@ -155,6 +156,8 @@ ignore = [
     "NPY",     # NumPy-specific rules
     "PIE790",  # Allow unnecssary 'pass' (sometimes useful for readability)
     "PERF203", # exception handling in loop
+    "PLR6301", # Allow class methods that don't use 'self' (otherwise noisy)
+    "RUF022",  # Allow unsorted __all__ (sometimes useful for grouping by type with pdoc)
     "S",       # flake8-bandit (noisy, security related)
     "SIM910",  # Allow "None" as second argument to Dict.get(). "Explicit is better than implicit."
     "TD002",   # Require author for TODOs
@@ -176,11 +179,17 @@ unfixable = [
     "ERA001", # Commented-out code (avoid silent loss of code)
     "T201",   # print() calls (avoid silent loss of code / log messages)
 ]
-line-length = 100
-extend-exclude = ["docs", "test", "tests"]
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
-[tool.ruff.isort]
+[tool.ruff.lint.pylint]
+max-args = 8      # Relaxed from default of 5
+max-branches = 15 # Relaxed from default of 12
+
+[tool.ruff.lint.flake8-import-conventions.aliases]
+airbyte = "ab"
+"airbyte.exceptions" = "exc"
+
+[tool.ruff.lint.isort]
 force-sort-within-sections = false
 lines-after-imports = 2
 known-first-party = ["airbyte_cdk", "airbyte_protocol"]
@@ -195,16 +204,16 @@ section-order = [
     "local-folder",
 ]
 
-[tool.ruff.mccabe]
+[tool.ruff.lint.mccabe]
 max-complexity = 24
 
-[tool.ruff.pycodestyle]
+[tool.ruff.lint.pycodestyle]
 ignore-overlong-task-comments = true
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.ruff.flake8-annotations]
+[tool.ruff.lint.flake8-annotations]
 allow-star-arg-any = false
 ignore-fully-untyped = false
 
