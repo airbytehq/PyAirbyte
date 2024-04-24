@@ -153,5 +153,11 @@ state_message = _state({"state": "1"})
 messages = [message1, message2, message3, state_message]
 
 # create a SQL processor using Snowflake cache
-processor = SnowflakeCortexSqlProcessor(cache=cache, catalog=catalog, vector_length=5)
+processor = SnowflakeCortexSqlProcessor(
+    cache=cache,
+    catalog=catalog,
+    vector_length=5,
+    source_name="github",
+    stream_names=["myteststream"],
+)
 processor.process_airbyte_messages(messages, WriteStrategy.REPLACE)

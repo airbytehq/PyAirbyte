@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import sqlalchemy
 from overrides import overrides
@@ -15,13 +15,13 @@ from airbyte_cdk.models import (
     AirbyteStateMessage,
     AirbyteStateType,
     ConfiguredAirbyteCatalog,
-    ConfiguredAirbyteStream,
     Type,
 )
 
 from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
 from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
+from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.strategies import WriteStrategy
 
 
@@ -66,18 +66,37 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     def __init__(
         self,
         cache: CacheBase,
-        catalog: ConfiguredAirbyteCatalog | None,
+        catalog: ConfiguredAirbyteCatalog,
         vector_length: int,
+        source_name: str,
+        stream_names: set[str],
+        *,
         file_writer: FileWriterBase | None = None,
     ) -> None:
         """Custom initialization: Initialize type_converter with vector_length."""
         self._catalog = catalog
+        # to-do: see if we can get rid of the following assignment
+        self.source_catalog = catalog
         self._vector_length = vector_length
         self._engine: Engine | None = None
         self._connection_to_reuse: Connection | None = None
+
         # call base class to do necessary initialization
         RecordProcessor.__init__(self, cache=cache, catalog_manager=None)
         self._ensure_schema_exists()
+        self._catalog_manager = CatalogManager(
+            engine=self.get_sql_engine(),
+            table_name_resolver=lambda stream_name: self.get_sql_table_name(stream_name),
+        )
+
+        # TODO: read streams and source from catalog if not provided
+
+        # initialize catalog manager by registering source
+        self.register_source(
+            source_name=source_name,
+            incoming_source_catalog=self._catalog,
+            stream_names=stream_names,
+        )
         self.file_writer = file_writer or self.file_writer_class(cache)
         self.type_converter = SnowflakeCortexTypeConverter(vector_length=vector_length)
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
@@ -95,11 +114,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                 context={"write_strategy": write_strategy},
             )
 
-        if not self._catalog:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog should exist but does not.",
-            )
-
         stream_schemas: dict[str, dict] = {}
 
         # Process messages, writing to batches as we go
@@ -109,7 +123,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                 stream_name = record_msg.stream
 
                 if stream_name not in stream_schemas:
-                    stream_schemas[stream_name] = self._get_json_schema_from_catalog(
+                    stream_schemas[stream_name] = self.cache.processor.get_stream_json_schema(
                         stream_name=stream_name
                     )
 
@@ -133,45 +147,13 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
-        # in base class, following reads from expected streams, hence overriding
-        for stream_name in stream_schemas:
-            self.write_stream_data(stream_name, write_strategy=write_strategy)
+        self.write_all_stream_data(
+            write_strategy=write_strategy,
+        )
 
         # Clean up files, if requested.
         if self.cache.cleanup:
             self.cleanup_all()
-
-    @overrides
-    def _get_stream_config(
-        self,
-        stream_name: str,
-    ) -> ConfiguredAirbyteStream:
-        """Overriding so we can use local catalog instead of catalog manager"""
-        if not self._catalog:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog should exist but does not.",
-            )
-
-        matching_streams: list[ConfiguredAirbyteStream] = [
-            stream for stream in self._catalog.streams if stream.stream.name == stream_name
-        ]
-        if not matching_streams:
-            raise exc.AirbyteStreamNotFoundError(
-                stream_name=stream_name,
-                context={
-                    "available_streams": [stream.stream.name for stream in self._catalog.streams],
-                },
-            )
-
-        if len(matching_streams) > 1:
-            raise exc.PyAirbyteInternalError(
-                message="Multiple streams found with same name.",
-                context={
-                    "stream_name": stream_name,
-                },
-            )
-
-        return matching_streams[0]
 
     def _get_column_list_from_table(
         self,
@@ -218,21 +200,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             return False  # Some columns are missing.
 
         return True  # All columns exist.
-
-    def _finalize_state_messages(
-        self,
-        stream_name: str,
-        state_messages: list[AirbyteStateMessage],
-    ) -> None:
-        # to-do: need to override since we are not using catalog manager.
-        # Do we want to write state messages in this scenario ?
-        pass
-
-    def _get_json_schema_from_catalog(
-        self,
-        stream_name: str,
-    ) -> dict[str, Any]:
-        return self._get_stream_config(stream_name).stream.json_schema
 
     @overrides
     def _write_files_to_new_table(
