@@ -3,6 +3,7 @@
 
 This module contains functions for detecting environment and runtime information.
 """
+
 from __future__ import annotations
 
 import os

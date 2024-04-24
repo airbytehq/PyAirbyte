@@ -10,6 +10,7 @@ Usage:
     poetry run python examples/run_integ_test_source.py source-shopify
 
 """
+
 from __future__ import annotations
 
 import sys

@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Base module for all caches."""
+
 from __future__ import annotations
 
 from airbyte.caches import bigquery, duckdb, motherduck, postgres, snowflake, util

@@ -2,6 +2,7 @@ import pytest
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.records import StreamRecord
 
+
 def test_case_insensitive_dict() -> None:
     # Initialize a StreamRecord
     cid = StreamRecord(
@@ -62,8 +63,6 @@ def test_case_insensitive_dict() -> None:
     assert len(cid) == 0
 
 
-
-
 def test_case_insensitive_dict_w() -> None:
     # Initialize a StreamRecord
     cid = StreamRecord(
@@ -89,7 +88,6 @@ def test_case_insensitive_dict_w() -> None:
     # Assert case insensitivity when comparing natively to a dict
     assert cid == {"UPPER": 1, "lower": 2, "other": None}
     assert cid == {"upper": 1, "lower": 2, "other": None}
-
 
 
 def test_case_insensitive_w_pretty_keys() -> None:

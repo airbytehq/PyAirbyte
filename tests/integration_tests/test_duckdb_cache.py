@@ -5,6 +5,7 @@
 Since source-faker is included in dev dependencies, we can assume `source-faker` is installed
 and available on PATH for the poetry-managed venv.
 """
+
 from __future__ import annotations
 
 from collections.abc import Generator
@@ -40,7 +41,7 @@ def add_venv_bin_to_path(monkeypatch):
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-    monkeypatch.setenv('PATH', new_path)
+    monkeypatch.setenv("PATH", new_path)
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
@@ -63,7 +64,6 @@ def source_faker() -> ab.Source:
         "purchases",
     ])
     return source
-
 
 
 @pytest.fixture(scope="function")

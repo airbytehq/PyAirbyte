@@ -35,6 +35,7 @@ In addition, the following principles are applied for exception class design:
   E.g. `raise AirbyteConnectorNotFoundError(...) from FileNotFoundError(connector_path)`
 - Any exception that adds a new property should also be decorated as `@dataclass`.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

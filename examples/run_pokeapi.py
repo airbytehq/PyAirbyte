@@ -7,6 +7,7 @@ Usage (from PyAirbyte root directory):
 No setup is needed, but you may need to delete the .venv-source-pokeapi folder
 if your installation gets interrupted or corrupted.
 """
+
 from __future__ import annotations
 
 import airbyte as ab

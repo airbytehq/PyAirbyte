@@ -3,6 +3,7 @@
 
 This tool checks if connectors are compatible with PyAirbyte.
 """
+
 from __future__ import annotations
 
 import argparse

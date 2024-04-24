@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Global pytest fixtures."""
+
 from __future__ import annotations
 
 import logging
@@ -45,6 +46,7 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     Otherwise tests are run based on an alpha-based natural sort, where 'unit' tests run after
     'integration' tests because 'u' comes after 'i' alphabetically.
     """
+
     def test_priority(item: Item) -> int:
         if item.get_closest_marker(name="slow"):
             return 9  # slow tests have the lowest priority
@@ -64,9 +66,14 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
 
     for item in items:
         # Skip tests that require Docker if Docker is not available (including on Windows).
-        if "new_postgres_cache" in item.fixturenames or "postgres_cache" in item.fixturenames:
+        if (
+            "new_postgres_cache" in item.fixturenames
+            or "postgres_cache" in item.fixturenames
+        ):
             if True or not is_docker_available():
-                item.add_marker(pytest.mark.skip(reason="Skipping tests (Docker not available)"))
+                item.add_marker(
+                    pytest.mark.skip(reason="Skipping tests (Docker not available)")
+                )
 
         # Every test in the cloud directory is slow abd requires credentials
         if "integration_tests/cloud" in str(item.fspath):
@@ -107,7 +114,9 @@ def test_pg_connection(host) -> bool:
             conn.close()
             return True
         except psycopg.OperationalError:
-            logger.info(f"Waiting for postgres to start (attempt {attempt + 1}/{max_attempts})")
+            logger.info(
+                f"Waiting for postgres to start (attempt {attempt + 1}/{max_attempts})"
+            )
             time.sleep(1.0)
 
     else:
@@ -149,7 +158,11 @@ def new_postgres_cache():
     postgres = client.containers.run(
         image=PYTEST_POSTGRES_IMAGE,
         name=PYTEST_POSTGRES_CONTAINER,
-        environment={"POSTGRES_USER": "postgres", "POSTGRES_PASSWORD": "postgres", "POSTGRES_DB": "postgres"},
+        environment={
+            "POSTGRES_USER": "postgres",
+            "POSTGRES_PASSWORD": "postgres",
+            "POSTGRES_DB": "postgres",
+        },
         ports={"5432/tcp": PYTEST_POSTGRES_PORT},
         detach=True,
     )
@@ -163,13 +176,15 @@ def new_postgres_cache():
             attempts -= 1
             time.sleep(3)
     if not postgres_is_running:
-        raise Exception(f"Failed to start the PostgreSQL container. Status: {postgres.status}.")
+        raise Exception(
+            f"Failed to start the PostgreSQL container. Status: {postgres.status}."
+        )
 
     final_host = None
     if host := os.environ.get("DOCKER_HOST_NAME"):
         final_host = host if test_pg_connection(host) else None
     else:
-    # Try to connect to the database using localhost and the docker host IP
+        # Try to connect to the database using localhost and the docker host IP
         for host in ["127.0.0.1", "localhost", "host.docker.internal", "172.17.0.1"]:
             if test_pg_connection(host):
                 final_host = host
@@ -185,7 +200,6 @@ def new_postgres_cache():
         password="postgres",
         database="postgres",
         schema_name="public",
-
         # TODO: Move this to schema name when we support it (breaks as of 2024-01-31):
         table_prefix=f"test{str(ulid.ULID())[-6:]}_",
     )
@@ -220,9 +234,7 @@ def do_not_track(monkeypatch):
 
     These are applied to this test file only.
     """
-    env_vars = {
-        "DO_NOT_TRACK": "true"
-    }
+    env_vars = {"DO_NOT_TRACK": "true"}
     for key, value in env_vars.items():
         monkeypatch.setenv(key, value)
 
@@ -239,7 +251,10 @@ def source_test_installation():
 
     subprocess.run(["python", "-m", "venv", venv_dir], check=True)
     pip_path = str(_get_bin_dir(Path(venv_dir)) / "pip")
-    subprocess.run([pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"], check=True)
+    subprocess.run(
+        [pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"],
+        check=True,
+    )
 
     yield
 
