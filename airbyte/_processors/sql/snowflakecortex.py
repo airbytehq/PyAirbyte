@@ -173,16 +173,51 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
 
         return matching_streams[0]
 
+    def _get_column_list_from_table(
+        self,
+        table_name: str,
+    ) -> list[str]:
+        """Get column names for passed stream."""
+        conn: Connection = self.cache.get_database_connection_via_alternate_method()
+        cursor = conn.cursor()
+        cursor.execute(f"DESCRIBE TABLE {table_name};")
+        results = cursor.fetchall()
+        column_names = [row[0].lower() for row in results]
+        cursor.close()
+        conn.close()
+        return column_names
+
     @overrides
     def _ensure_compatible_table_schema(
         self,
-        stream_name: str,  # noqa: ARG002
+        stream_name: str,
         *,
-        raise_on_error: bool = True,  # noqa: ARG002
+        raise_on_error: bool = True,
     ) -> bool:
-        # to-do: SQLAlchemy is not compatible with vector type.
-        # Implement using Snowflake python connector
-        return True
+        """Read the exsting table schema using Snowflake python connector"""
+        json_schema = self.get_stream_json_schema(stream_name)
+        stream_column_names: list[str] = json_schema["properties"].keys()
+        table_column_names: list[str] = self._get_column_list_from_table(stream_name)
+
+        lower_case_table_column_names = self.normalizer.normalize_set(table_column_names)
+        missing_columns = [
+            stream_col
+            for stream_col in stream_column_names
+            if self.normalizer.normalize(stream_col) not in lower_case_table_column_names
+        ]
+        if missing_columns:
+            if raise_on_error:
+                raise exc.PyAirbyteCacheTableValidationError(
+                    violation="Cache table is missing expected columns.",
+                    context={
+                        "stream_column_names": stream_column_names,
+                        "table_column_names": table_column_names,
+                        "missing_columns": missing_columns,
+                    },
+                )
+            return False  # Some columns are missing.
+
+        return True  # All columns exist.
 
     def _finalize_state_messages(
         self,
@@ -219,8 +254,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         put_files_statements = "\n".join(
             [f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};" for file_path in files]
         )
-        print("put file statements")
-        print(put_files_statements)
         self._execute_sql(put_files_statements)
         columns_list = [
             self._quote_identifier(c)
