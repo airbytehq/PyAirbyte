@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, cast, final
+from typing import TYPE_CHECKING, Any, Generator, Optional, cast, final
 
 from pydantic import BaseModel, PrivateAttr
 
@@ -125,5 +125,7 @@ class CacheBase(BaseModel):
     def __contains__(self, stream: str) -> bool:
         return stream in (self.processor.expected_streams)
 
-    def __iter__(self) -> Iterator[tuple[str, Any]]:
+    def __iter__(  # type: ignore [override]  # Overrides Pydantic BaseModel return type
+        self,
+    ) -> Iterator[tuple[str, Any]]:
         return ((name, dataset) for name, dataset in self.streams.items())

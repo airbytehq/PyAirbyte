@@ -80,7 +80,6 @@ markers = [
 target-version = "py39"
 preview = true
 line-length = 100
-# extend-exclude = ["docs", "test", "tests"]
 
 [tool.ruff.lint]
 select = [
@@ -264,7 +263,12 @@ strict_equality = true
 show_error_context = false
 show_column_numbers = false
 show_error_codes = true
-# exclude = ["docs", "test", "tests"]
+exclude = [
+    "tests/integration_tests/fixtures/source-broken",
+    "tests/integration_tests/fixtures/source-test",
+    "docs",
+    "tests",
+]
 
 [[tool.mypy.overrides]]
 module = ["airbyte_protocol", "airbyte_protocol.models"]

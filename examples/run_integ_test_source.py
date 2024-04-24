@@ -44,7 +44,7 @@ def get_secret_name(connector_name: str) -> str:
 
 def main(
     connector_name: str,
-    secret_name: str | None,
+    secret_name: str,
     streams: list[str] | None,
 ) -> None:
     secret = secret_mgr.get_secret(
