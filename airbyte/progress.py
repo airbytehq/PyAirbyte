@@ -84,12 +84,12 @@ def _get_elapsed_time_str(seconds: int) -> str:
 
     if seconds < 60 * 10:
         minutes = seconds // 60
-        seconds = seconds % 60
+        seconds %= 60
         return f"{minutes}min {seconds}s"
 
     if seconds < 60 * 60:
         minutes = seconds // 60
-        seconds = seconds % 60
+        seconds %= 60
         return f"{minutes}min"
 
     hours = seconds // (60 * 60)

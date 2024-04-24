@@ -1,3 +1,4 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """This script will run any source that is registered in the Airbyte integration tests.
 
 

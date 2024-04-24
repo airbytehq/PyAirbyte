@@ -104,7 +104,7 @@ class SqlProcessorBase(RecordProcessor):
         self._ensure_schema_exists()
         self._catalog_manager = CatalogManager(
             engine=self.get_sql_engine(),
-            table_name_resolver=lambda stream_name: self.get_sql_table_name(stream_name),
+            table_name_resolver=self.get_sql_table_name,
         )
         self.file_writer = file_writer or self.file_writer_class(cache)
         self.type_converter = self.type_converter_class()
@@ -550,7 +550,7 @@ class SqlProcessorBase(RecordProcessor):
             for batch_handle in batches_to_finalize:
                 files += batch_handle.files
             # Use the max batch ID as the batch ID for table names.
-            max_batch_id = max([batch.batch_id for batch in batches_to_finalize])
+            max_batch_id = max(batch.batch_id for batch in batches_to_finalize)
 
             temp_table_name = self._write_files_to_new_table(
                 files=files,
@@ -820,7 +820,7 @@ class SqlProcessorBase(RecordProcessor):
         joined_pks = [".".join(pk) for pk in pks]
         for pk in joined_pks:
             if "." in pk:
-                msg = "Nested primary keys are not yet supported. Found: {pk}"
+                msg = f"Nested primary keys are not yet supported. Found: {pk}"
                 raise NotImplementedError(msg)
 
         return joined_pks

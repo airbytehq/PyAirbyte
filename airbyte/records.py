@@ -202,7 +202,7 @@ class StreamRecord(dict[str, Any]):
         else:
             index_keys = expected_keys
 
-        self.update({k: None for k in index_keys})  # Start by initializing all values to None
+        self.update(dict.fromkeys(index_keys))  # Start by initializing all values to None
         for k, v in from_dict.items():
             index_cased_key = self._index_case(k)
             if prune_extra_fields and index_cased_key not in index_keys:
@@ -265,3 +265,8 @@ class StreamRecord(dict[str, Any]):
                 k.lower(): v for k, v in other.items()
             }
         return False
+
+    def __hash__(self) -> int:  # type: ignore [override]  # Doesn't match superclass (dict)
+        """Return the hash of the dictionary with keys sorted."""
+        items = [(k, v) for k, v in self.items() if not isinstance(v, dict)]
+        return hash(tuple(sorted(items)))

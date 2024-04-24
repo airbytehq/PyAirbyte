@@ -8,7 +8,16 @@
 """
 from __future__ import annotations
 
-from airbyte import caches, cloud, datasets, documents, exceptions, results, secrets, sources
+from airbyte import (
+    caches,
+    cloud,
+    datasets,
+    documents,
+    exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
+    results,
+    secrets,
+    sources,
+)
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import get_default_cache, new_local_cache

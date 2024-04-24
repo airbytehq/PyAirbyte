@@ -20,7 +20,11 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
     temp_files: list[Any] = []
     try:
         for content in files_contents:
-            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=False)
+            temp_file = tempfile.NamedTemporaryFile(
+                mode="w+t",
+                delete=False,
+                encoding="utf-8",
+            )
             temp_file.write(
                 json.dumps(content) if isinstance(content, dict) else content,
             )
