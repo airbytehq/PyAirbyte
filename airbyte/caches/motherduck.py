@@ -1,3 +1,4 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """A MotherDuck implementation of the PyAirbyte cache, built on DuckDB.
 
 ## Usage Example

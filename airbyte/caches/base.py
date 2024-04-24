@@ -15,7 +15,7 @@ from airbyte.datasets._sql import CachedDataset
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Iterator
 
     from sqlalchemy.engine import Engine
 
@@ -125,5 +125,7 @@ class CacheBase(BaseModel):
     def __contains__(self, stream: str) -> bool:
         return stream in (self.processor.expected_streams)
 
-    def __iter__(self) -> Generator[tuple[str, Any], None, None]:
+    def __iter__(  # type: ignore [override]  # Overrides Pydantic BaseModel return type
+        self,
+    ) -> Iterator[tuple[str, Any]]:
         return ((name, dataset) for name, dataset in self.streams.items())

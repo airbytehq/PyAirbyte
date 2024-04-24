@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """This examples script demonstrates how to render documents from a source."""
+
 from __future__ import annotations
 
 import rich
