@@ -13,9 +13,9 @@ from airbyte_cdk.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStateMessage,
+    AirbyteStateType,
     AirbyteStream,
     AirbyteStreamState,
-    AirbyteStateType,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     DestinationSyncMode,
@@ -107,7 +107,7 @@ message2 = AirbyteMessage(
             "str_col": "Dogs are number 2",
             "int_col": 5,
             "page_content": "str_col: Dogs are number 2",
-            "metadata": {"int_col": 5, "_ab_stream": "mystream"},
+            "metadata": {"int_col": 5, "_ab_stream": "teststream"},
             "embedding": [
                 -0.00438284986621647,
                 -0.0037110261657951915,
@@ -127,7 +127,7 @@ message3 = AirbyteMessage(
             "str_col": "Dogs are number 3",
             "int_col": 10,
             "page_content": "str_col: Dogs are number 3",
-            "metadata": {"int_col": 10, "_ab_stream": "mystream"},
+            "metadata": {"int_col": 10, "_ab_stream": "teststream"},
             "embedding": [
                 -0.00438284986621647,
                 -0.0037110261657951915,
@@ -146,7 +146,10 @@ def _state(data: dict[str, Any]) -> AirbyteMessage:
     stream = AirbyteStreamState(
         stream_descriptor=StreamDescriptor(name="myteststream", namespace=None)
     )
-    return AirbyteMessage(type=Type.STATE, state=AirbyteStateMessage(type=AirbyteStateType.STREAM, stream=stream, data=data))
+    return AirbyteMessage(
+        type=Type.STATE,
+        state=AirbyteStateMessage(type=AirbyteStateType.STREAM, stream=stream, data=data),
+    )
 
 
 state_message = _state({"state": "1"})
@@ -160,4 +163,4 @@ processor = SnowflakeCortexSqlProcessor(
     source_name="github",
     stream_names=["myteststream"],
 )
-processor.process_airbyte_messages(messages, WriteStrategy.REPLACE)
+processor.process_airbyte_messages(messages, WriteStrategy.APPEND)

@@ -8,10 +8,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy
 from overrides import overrides
-
-from airbyte_cdk.models import (
-    ConfiguredAirbyteCatalog,
-)
+from sqlalchemy import text
 
 from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
@@ -23,6 +20,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sqlalchemy.engine import Connection, Engine
+
+    from airbyte_cdk.models import ConfiguredAirbyteCatalog
 
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
@@ -94,7 +93,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         self.type_converter = SnowflakeCortexTypeConverter(vector_length=vector_length)
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
 
-
     def _get_column_list_from_table(
         self,
         table_name: str,
@@ -127,6 +125,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             for stream_col in stream_column_names
             if self.normalizer.normalize(stream_col) not in lower_case_table_column_names
         ]
+        # TODO: shouldn't we just return false here, so missing tables can be created ?
         if missing_columns:
             if raise_on_error:
                 raise exc.PyAirbyteCacheTableValidationError(
@@ -169,8 +168,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
 
-        # to-do: move following into a separate method,
-        # then don't need to override the whole method.
+        # following two lines are different from SnowflakeSqlProcessor
         vector_suffix = f"::Vector(Float, {self._vector_length})"
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
             [
@@ -196,3 +194,35 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         )
         self._execute_sql(copy_statement)
         return temp_table_name
+
+    @overrides
+    def _add_missing_columns_to_table(
+        self,
+        stream_name: str,
+        table_name: str,
+    ) -> None:
+        """Use Snowflake Python connector to add new columns to the table"""
+        columns = self._get_sql_column_definitions(stream_name)
+        existing_columns = self._get_column_list_from_table(table_name)
+        for column_name, column_type in columns.items():
+            if column_name not in existing_columns:
+                self._add_new_column_to_table(table_name, column_name, column_type)
+            self._invalidate_table_cache(table_name)
+        pass
+
+    def _add_new_column_to_table(
+        self,
+        table_name: str,
+        column_name: str,
+        column_type: sqlalchemy.types.TypeEngine,
+    ) -> None:
+        conn: Connection = self.cache.get_database_connection_via_alternate_method()
+        cursor = conn.cursor()
+        cursor.execute(
+            text(
+                f"ALTER TABLE {self._fully_qualified(table_name)} "
+                f"ADD COLUMN {column_name} {column_type}"
+            ),
+        )
+        cursor.close()
+        conn.close()
