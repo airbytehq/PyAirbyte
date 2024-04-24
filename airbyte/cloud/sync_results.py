@@ -102,12 +102,13 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte._util import api_util
 from airbyte.cloud._destination_util import create_cache_from_destination_config
+from airbyte.cloud._resources import CloudResource
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
@@ -119,56 +120,34 @@ DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 if TYPE_CHECKING:
     import sqlalchemy
 
-    from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
+    from airbyte._util.api_imports import JobResponse, JobStatusEnum
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
+    from airbyte.cloud.connectors import CloudConnector
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
 @dataclass
-class SyncResult:
+class SyncResult(CloudResource):
     """The result of a sync operation.
 
     **This class is not meant to be instantiated directly.** Instead, obtain a `SyncResult` by
     interacting with the `.CloudWorkspace` and `.CloudConnection` objects.
     """
 
-    workspace: CloudWorkspace
-    connection: CloudConnection
-    job_id: str
+    workspace: CloudWorkspace  # type: ignore [misc]
+    connection: CloudConnection  # type: ignore [misc]
+    job_id: str  # type: ignore [misc]
     table_name_prefix: str = ""
     table_name_suffix: str = ""
-    _latest_job_info: JobResponse | None = None
-    _connection_response: ConnectionResponse | None = None
+    _resource_info: JobResponse | None = field(default=None)
     _cache: CacheBase | None = None
+    _destination: CloudConnector | None = None
 
     @property
     def job_url(self) -> str:
         """Return the URL of the sync job."""
         return f"{self.connection.job_history_url}/{self.job_id}"
-
-    def _get_connection_info(self, *, force_refresh: bool = False) -> ConnectionResponse:
-        """Return connection info for the sync job."""
-        if self._connection_response and not force_refresh:
-            return self._connection_response
-
-        self._connection_response = api_util.get_connection(
-            workspace_id=self.workspace.workspace_id,
-            api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
-            connection_id=self.connection.connection_id,
-        )
-        return self._connection_response
-
-    def _get_destination_configuration(self, *, force_refresh: bool = False) -> dict[str, Any]:
-        """Return the destination configuration for the sync job."""
-        connection_info: ConnectionResponse = self._get_connection_info(force_refresh=force_refresh)
-        destination_response = api_util.get_destination(
-            destination_id=connection_info.destination_id,
-            api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
-        )
-        return destination_response.configuration
 
     def is_job_complete(self) -> bool:
         """Check if the sync job is complete."""
@@ -176,35 +155,35 @@ class SyncResult:
 
     def get_job_status(self) -> JobStatusEnum:
         """Check if the sync job is still running."""
-        return self._fetch_latest_job_info().status
+        return self._fetch_resource_info().status
 
-    def _fetch_latest_job_info(self) -> JobResponse:
+    def _fetch_resource_info(self) -> JobResponse:
         """Return the job info for the sync job."""
-        if self._latest_job_info and self._latest_job_info.status in FINAL_STATUSES:
-            return self._latest_job_info
+        if self._resource_info and self._resource_info.status in FINAL_STATUSES:
+            return self._resource_info
 
-        self._latest_job_info = api_util.get_job_info(
+        self._resource_info = api_util.get_job_info(
             job_id=self.job_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
         )
-        return self._latest_job_info
+        return self._resource_info
 
     @property
     def bytes_synced(self) -> int:
         """Return the number of records processed."""
-        return self._fetch_latest_job_info().bytes_synced
+        return self._fetch_resource_info().bytes_synced
 
     @property
     def records_synced(self) -> int:
         """Return the number of records processed."""
-        return self._fetch_latest_job_info().rows_synced
+        return self._fetch_resource_info().rows_synced
 
     @property
     def start_time(self) -> datetime:
         """Return the start time of the sync job in UTC."""
         # Parse from ISO 8601 format:
-        return datetime.fromisoformat(self._fetch_latest_job_info().start_time)
+        return datetime.fromisoformat(self._fetch_resource_info().start_time)
 
     def raise_failure_status(
         self,
@@ -219,8 +198,8 @@ class SyncResult:
 
         Otherwise, do nothing.
         """
-        if not refresh_status and self._latest_job_info:
-            latest_status = self._latest_job_info.status
+        if not refresh_status and self._resource_info:
+            latest_status = self._resource_info.status
         else:
             latest_status = self.get_job_status()
 
@@ -269,7 +248,7 @@ class SyncResult:
         if self._cache:
             return self._cache
 
-        destination_configuration: dict[str, Any] = self._get_destination_configuration()
+        destination_configuration: dict[str, Any] = self.connection.destination.configuration
         self._cache = create_cache_from_destination_config(
             destination_configuration=destination_configuration
         )

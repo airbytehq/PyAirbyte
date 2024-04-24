@@ -58,11 +58,11 @@ DOCS_URL = "https://docs.airbyte.io/"
 class PyAirbyteError(Exception):
     """Base class for exceptions in Airbyte."""
 
+    message: str | None = None
     guidance: str | None = None
     help_url: str | None = None
     log_text: str | list[str] | None = None
     context: dict[str, Any] | None = None
-    message: str | None = None
 
     def get_message(self) -> str:
         """Return the best description for the exception.
@@ -380,6 +380,17 @@ class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
 
 
 # Airbyte Resource Errors (General)
+
+
+class PyAirbyteResourceConflictError(PyAirbyteError):
+    """Resource conflict occurred.
+
+    This error occurs when a requested action cannot be completed because it would conflict with
+    another resource. For example, creating a resource with a name key that already exists.
+    """
+
+    resource_name_or_id: str | None = None
+    resource_type: str | None = None
 
 
 @dataclass

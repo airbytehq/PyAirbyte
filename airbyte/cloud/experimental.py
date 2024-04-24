@@ -34,8 +34,8 @@ from airbyte.cloud.workspaces import CloudWorkspace as Stable_CloudWorkspace
 # This module is not imported anywhere by default, so this warning should only print if the user
 # explicitly imports it.
 warnings.warn(
-    message="The `airbyte.cloud.experimental` module is experimental and may change in the future.",
-    category=FutureWarning,
+    message="The `airbyte.cloud.experimental` module is deprecated. All features are finalized.",
+    category=DeprecationWarning,
     stacklevel=2,
 )
 
