@@ -83,7 +83,7 @@ def test_deploy_cache_as_destination(
         database="temp",
         schema_name="public",
     )
-    destination_id: str = cloud_workspace._deploy_cache_as_destination(cache=cache)
+    destination_id: str = cloud_workspace.deploy_cache_as_destination(cache=cache)
     cloud_workspace.permanently_delete_destination(destination=destination_id)
 
 
@@ -108,7 +108,7 @@ def test_deploy_connection(
         # table_suffix="",  # Suffix not supported in CloudConnection
     )
 
-    connection: CloudConnection = cloud_workspace._deploy_connection(
+    connection: CloudConnection = cloud_workspace.deploy_connection(
         source=source,
         cache=cache,
     )

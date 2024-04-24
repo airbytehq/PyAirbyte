@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from airbyte._util.api_imports import JobStatusEnum
+from airbyte._util.api_imports import ConnectorTypeEnum, JobStatusEnum
 
 
 FINAL_STATUSES: set[JobStatusEnum] = {
@@ -24,3 +24,12 @@ READABLE_DESTINATION_TYPES: set[str] = {
     "snowflake",
 }
 """List of Airbyte Cloud destinations that PyAirbyte is able to read from."""
+
+
+__all__: list[str] = [
+    "FINAL_STATUSES",
+    "FAILED_STATUSES",
+    "READABLE_DESTINATION_TYPES",
+    "JobStatusEnum",
+    "ConnectorTypeEnum",
+]

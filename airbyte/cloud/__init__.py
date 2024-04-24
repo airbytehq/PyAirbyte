@@ -56,8 +56,9 @@ These additional features are subject to change and may not be available in all 
 
 from __future__ import annotations
 
-from airbyte.cloud import connections, constants, sync_results, workspaces
+from airbyte.cloud import connections, connectors, constants, sync_results, workspaces
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connectors import CloudConnector
 from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -65,13 +66,15 @@ from airbyte.cloud.workspaces import CloudWorkspace
 
 __all__ = [
     # Submodules
-    "workspaces",
     "connections",
+    "connectors",
     "constants",
     "sync_results",
+    "workspaces",
     # Classes
-    "CloudWorkspace",
     "CloudConnection",
+    "CloudConnector",
+    "CloudWorkspace",
     "SyncResult",
     # Enums
     "JobStatusEnum",

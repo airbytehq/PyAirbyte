@@ -23,6 +23,7 @@ from __future__ import annotations
 # These classes are used internally to cache API responses.
 from airbyte_api.models import (
     ConnectionResponse,
+    SourceResponse,
     DestinationResponse,
     JobResponse,
 )
@@ -32,11 +33,16 @@ from airbyte_api.models import (
 # This class is used to represent the status of a job. It may be used in
 # type hints for public functions that return a job status.
 from airbyte_api.models import JobStatusEnum  # Alias not needed
+from airbyte_api.models import ActorTypeEnum as ConnectorTypeEnum
 
 
 __all__: list[str] = [
+    # Internal-Use Classes
     "ConnectionResponse",
     "DestinationResponse",
     "JobResponse",
+    "SourceResponse",
+    # Public-Use Classes
+    "ConnectorTypeEnum",
     "JobStatusEnum",
 ]

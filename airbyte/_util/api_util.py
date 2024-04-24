@@ -14,11 +14,13 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any, Callable
 
 import airbyte_api
+import requests
 from airbyte_api import api, models
 
+from airbyte import exceptions as exc
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
@@ -27,9 +29,16 @@ from airbyte.exceptions import (
 )
 
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from airbyte.cloud.constants import ConnectorTypeEnum
+
+
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
+LEGACY_API_ROOT = "https://cloud.airbyte.com/api/v1"
 
 # Helper functions
 
@@ -90,30 +99,57 @@ def get_workspace(
 def list_connections(
     workspace_id: str,
     *,
+    name_filter: str | Callable[[str], bool] | None = None,
     api_root: str,
     api_key: str,
-) -> list[api.ConnectionResponse]:
-    """Get a connection."""
-    _ = workspace_id  # Not used (yet)
+) -> Iterable[api.ConnectionResponse]:
+    """Get a connection.
+
+    If name_filter is a string, only connections containing that name will be returned. If
+    name_filter is a function, it will be called with the connection name and should return a
+    boolean.
+    """
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.list_connections(
-        api.ListConnectionsRequest()(
-            workspace_ids=[workspace_id],
-        ),
-    )
+    offset = 0
+    limit = 50
 
-    if status_ok(response.status_code) and response.connections_response:
-        return response.connections_response.data
+    if isinstance(name_filter, str):
+        # Redefine name_filter as a function
 
-    raise AirbyteError(
-        context={
-            "workspace_id": workspace_id,
-            "response": response,
-        }
-    )
+        def name_filter(name: str) -> bool:
+            return name_filter in name
+
+    while True:
+        response = airbyte_instance.connections.list_connections(
+            api.ListConnectionsRequest(
+                workspace_ids=[workspace_id],
+                include_deleted=False,
+                limit=limit,
+                offset=offset,
+            ),
+        )
+
+        if status_ok(response.status_code) and response.connections_response:
+            connections = response.connections_response.data
+            if not connections:
+                # No more connections to list
+                break
+
+            for connection in connections:
+                if name_filter is None or name_filter(connection.name):
+                    yield connection
+
+            offset += limit
+        else:
+            raise AirbyteError(
+                context={
+                    "workspace_id": workspace_id,
+                    "response": response,
+                }
+            )
 
 
 def get_connection(
@@ -422,7 +458,6 @@ def delete_destination(
 
 # Create and delete connections
 
-
 def create_connection(
     name: str,
     *,
@@ -432,22 +467,24 @@ def create_connection(
     api_key: str,
     workspace_id: str | None = None,
     prefix: str,
-    selected_stream_names: list[str],
+    selected_stream_names: list[str] | None = None,
 ) -> models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         api_key=api_key,
         api_root=api_root,
     )
-    stream_configurations: list[models.StreamConfiguration] = []
+    stream_configurations: models.StreamConfigurations | None = None
     if selected_stream_names:
+        stream_configuration_list = []
         for stream_name in selected_stream_names:
             stream_configuration = models.StreamConfiguration(
                 name=stream_name,
             )
-            stream_configurations.append(stream_configuration)
+            stream_configuration_list.append(stream_configuration)
 
-    stream_configurations = models.StreamConfigurations(stream_configurations)
+        stream_configurations = models.StreamConfigurations(stream_configuration_list)
+
     response = airbyte_instance.connections.create_connection(
         models.ConnectionCreateRequest(
             name=name,
@@ -528,20 +565,66 @@ def delete_connection(
         )
 
 
-# Not yet implemented
+# Legacy API Functions
 
 
-# def check_source(
-#     source_id: str,
-#     *,
-#     api_root: str,
-#     api_key: str,
-#     workspace_id: str | None = None,
-# ) -> api.SourceCheckResponse:
-#     """Check a source.
+def _transform_legacy_api_root(api_root: str) -> str:
+    """Transform the API root to the legacy API root if needed."""
+    if api_root == CLOUD_API_ROOT:
+        # We know the user is using Airbyte Cloud, so we can safely return the legacy API root.
+        return LEGACY_API_ROOT
 
-#     # TODO: Need to use legacy Configuration API for this:
-#     # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
-#     """
-#     _ = source_id, workspace_id, api_root, api_key
-#     raise NotImplementedError
+    # TODO: Figure out how to translate an OSS/Enterprise API root to the legacy Config API root.
+    raise NotImplementedError(
+        "Airbyte OSS and Enterprise are not currently supported for this operation."
+    )
+
+
+def check_connector_config(
+    connector_id: str,
+    connector_type: ConnectorTypeEnum,
+    workspace_id: str,
+    *,
+    api_key: str,
+    api_root: str,
+) -> None:
+    """Check source or destination with its current config.
+
+    Raises `AirbyteConnectorCheckFailedError` if the check fails.
+
+    This calls the Config API because the Airbyte API does not support this operation.
+
+    Equivalent to:
+
+    ```bash
+    curl -X POST "https://cloud.airbyte.com/api/v1/sources/check_connection" \
+        -H "accept: application/json"\
+        -H "content-type: application/json" \
+        -d '{"sourceId":"18efe99a-7400-4000-8d95-ca2cb0e7b401"}'
+    ```
+
+    API Docs:
+        https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
+    """
+    legacy_api_root = _transform_legacy_api_root(api_root)
+
+    _ = workspace_id  # Not used
+    response: requests.Response = requests.post(
+        f"{legacy_api_root}/{connector_type.value}s/check_connection",
+        headers={
+            "accept": "application/json",
+            "content-type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        json={
+            f"{connector_type.value}Id": connector_id,
+        },
+    )
+    response.raise_for_status()
+
+    response_json = response.json()
+    if not response_json.get("status", None) == "succeeded":
+        raise exc.AirbyteConnectorCheckFailedError(
+            message=response_json.get("message", None),
+            context=response_json,
+        )

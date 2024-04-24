@@ -66,7 +66,7 @@ def test_deploy_and_run_connection(
         schema_name="public",
     )
 
-    connection_id: str = cloud_workspace._deploy_connection(source=source, cache=cache)
+    connection_id: str = cloud_workspace.deploy_connection(source=source, cache=cache)
     sync_result = cloud_workspace.run_sync(connection_id=connection_id)
     _ = sync_result
 
