@@ -52,8 +52,8 @@ jobs:
     - name: Check code format
       run: poetry run ruff format --check .
 
-  mypy-check:
-    name: MyPy Check
+  pyright-check:
+    name: Type Checking using Pyright
     runs-on: ubuntu-latest
     steps:
     # Common steps:
@@ -70,5 +70,5 @@ jobs:
         cache: 'poetry'
 
     # Job-specifc step(s):
-    - name: Check MyPy typing
-      run: poetry run mypy .
+    - name: Type check using Pyright
+      run: poetry run pyright .
