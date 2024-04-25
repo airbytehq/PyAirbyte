@@ -15,6 +15,7 @@ from airbyte import (
     datasets,
     documents,
     exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
+    records,
     results,
     secrets,
     sources,
