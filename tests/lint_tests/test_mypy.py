@@ -7,17 +7,17 @@ import pytest
 
 
 @pytest.mark.linting
-def test_mypy_typing():
+def test_pyright_typing():
     # Run the check command
     check_result = subprocess.run(
-        ["poetry", "run", "mypy", "."],
+        ["poetry", "run", "pyright", "."],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
 
     # Assert that the Ruff command exited without errors (exit code 0)
     assert check_result.returncode == 0, (
-        "MyPy checks failed:\n"
+        "Pyright typing checks failed:\n"
         + f"{check_result.stdout.decode()}\n{check_result.stderr.decode()}\n\n"
-        + "Run `poetry run mypy .` to see all failures."
+        + "Run `poetry run pyright .` to see all failures."
     )
