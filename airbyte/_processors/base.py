@@ -160,7 +160,7 @@ class RecordProcessor(abc.ABC):
     ) -> None:
         """Process a stream of Airbyte messages."""
         if not isinstance(write_strategy, WriteStrategy):
-            raise exc.AirbyteInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )
