@@ -1,0 +1,32 @@
+package:
+  name: pyairbyte
+  version: "{{ environ['PKG_VERSION'] }}"  # TODO: Dynamic versioning
+
+source:
+  path: ".."
+
+build:
+  script: "{{ PYTHON }} -m pip install . -vv"
+
+requirements:
+  host:
+    - python >=3.10,<4.0
+    - pip
+  run:
+    - python >=3.10,<4.0
+    - pip
+about:
+  home: "airbyte.com/pyairbyte"
+  license: EPL-2.0
+  license_file: LICENSE.md
+  # summary: "A short summary of the project"
+  # description: "A longer description of the project"
+
+test:
+  imports:
+    - airbyte  # Test the import of the package
+
+extra:
+  recipe-maintainers:
+    - airbyte
+    - aaronsteers
