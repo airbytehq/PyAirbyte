@@ -181,16 +181,10 @@ class CloudConnection(CloudResource):
             delete_source: Whether to also delete the source.
             delete_destination: Whether to also delete the destination.
         """
-        self.workspace.permanently_delete_connection(  # Non-public API (for now)
-            connection=self
-        )
+        self.workspace.permanently_delete_connection(connection=self)
 
         if delete_source:
-            self.workspace.permanently_delete_source(  # Non-public API (for now)
-                source=self.source_id
-            )
+            self.workspace.permanently_delete_source(source=self.source_id)
 
         if delete_destination:
-            self.workspace.permanently_delete_destination(  # Non-public API
-                destination=self.destination_id
-            )
+            self.workspace.permanently_delete_destination(destination=self.destination_id)
