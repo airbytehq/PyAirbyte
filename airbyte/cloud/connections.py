@@ -12,6 +12,8 @@ from airbyte.cloud.sync_results import SyncResult
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from airbyte_api.models import ConnectionResponse, JobResponse
 
     from airbyte.cloud.connectors import CloudConnector
@@ -42,8 +44,7 @@ class CloudConnection(CloudResource):
 
     def _fetch_resource_info(self) -> ConnectionResponse:
         """Populate the connection with data from the API."""
-        self._resource_info = api_util.get_connection(
-            workspace_id=self.workspace.workspace_id,
+        self._resource_info = api_util.fetch_connection_info(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -123,7 +124,7 @@ class CloudConnection(CloudResource):
         limit: int = 10,
     ) -> list[SyncResult]:
         """Get the previous sync logs for a connection."""
-        sync_logs: list[JobResponse] = api_util.get_job_logs(
+        sync_logs: Iterator[JobResponse] = api_util.list_jobs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,

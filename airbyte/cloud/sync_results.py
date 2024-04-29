@@ -162,7 +162,7 @@ class SyncResult(CloudResource):
         if self._resource_info and self._resource_info.status in FINAL_STATUSES:
             return self._resource_info
 
-        self._resource_info = api_util.get_job_info(
+        self._resource_info = api_util.fetch_job_info(
             job_id=self.job_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,

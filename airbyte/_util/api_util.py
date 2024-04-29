@@ -14,6 +14,7 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable
 
 import airbyte_api
@@ -21,16 +22,17 @@ import requests
 from airbyte_api import api, models
 
 from airbyte import exceptions as exc
+from airbyte._util.iter import exactly_one_resource
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
     AirbyteMissingResourceError,
-    AirbyteMultipleResourcesError,
+    PyAirbyteInternalError,
 )
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterator
 
     from airbyte.cloud.constants import ConnectorTypeEnum
 
@@ -39,8 +41,19 @@ JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 LEGACY_API_ROOT = "https://cloud.airbyte.com/api/v1"
+DEFAULT_PAGE_SIZE = 30
 
 # Helper functions
+
+
+class ResourceTypeEnum(str, Enum):
+    """Resource types."""
+
+    CONNECTION = "connection"
+    SOURCE = "source"
+    DESTINATION = "destination"
+    JOB = "job"
+    WORKSPACE = "workspace"
 
 
 def status_ok(status_code: int) -> bool:
@@ -62,47 +75,217 @@ def get_airbyte_server_instance(
     )
 
 
-# Get workspace
+# Fetch Resource (Generic)
 
 
-def get_workspace(
+def fetch_resource_info(
+    resource_id: str,
+    resource_type: ResourceTypeEnum,
+    *,
+    api_root: str,
+    api_key: str,
+) -> (
+    None
+    | models.WorkspaceResponse
+    | models.ConnectionResponse
+    | models.SourceResponse
+    | models.DestinationResponse
+    | models.JobResponse
+):
+    """Get a resource."""
+    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
+        api_key=api_key,
+        api_root=api_root,
+    )
+    if resource_type == ResourceTypeEnum.CONNECTION:
+        raw_response = airbyte_instance.connections.get_connection(
+            api.GetConnectionRequest(
+                connection_id=resource_id,
+            ),
+        )
+        if status_ok(raw_response.status_code) and raw_response.connection_response:
+            return raw_response.connection_response
+
+    elif resource_type == ResourceTypeEnum.SOURCE:
+        raw_response = airbyte_instance.sources.get_source(
+            api.GetSourceRequest(
+                source_id=resource_id,
+            ),
+        )
+        if status_ok(raw_response.status_code) and raw_response.source_response:
+            return raw_response.source_response
+
+    elif resource_type == ResourceTypeEnum.DESTINATION:
+        raw_response = airbyte_instance.destinations.get_destination(
+            api.GetDestinationRequest(
+                destination_id=resource_id,
+            ),
+        )
+        if status_ok(raw_response.status_code) and raw_response.destination_response:
+            # TODO: Remove this "fix" once the Airbyte API library is fixed.
+            raw_response = _fix_destination_info(raw_response)
+            return raw_response.destination_response
+
+    elif resource_type == ResourceTypeEnum.JOB:
+        raw_response = airbyte_instance.jobs.get_job(
+            api.GetJobRequest(
+                job_id=resource_id,
+            ),
+        )
+        if status_ok(raw_response.status_code) and raw_response.job_response:
+            return raw_response.job_response
+
+    elif resource_type == ResourceTypeEnum.WORKSPACE:
+        raw_response = airbyte_instance.workspaces.get_workspace(
+            api.GetWorkspaceRequest(
+                workspace_id=resource_id,
+            ),
+        )
+        if status_ok(raw_response.status_code) and raw_response.workspace_response:
+            return raw_response.workspace_response
+
+    else:
+        raise PyAirbyteInternalError(
+            message="Invalid resource type.",
+            context={
+                "resource_type": resource_type,
+            },
+        )
+
+    # If we reach this point, the resource was not found.
+    raise AirbyteMissingResourceError(
+        response=raw_response,
+        resource_name_or_id=resource_id,
+        resource_type=resource_type.value,
+        log_text=raw_response.text,
+    )
+
+
+def fetch_workspace_info(
     workspace_id: str,
     *,
     api_root: str,
     api_key: str,
 ) -> models.WorkspaceResponse:
     """Get a connection."""
-    airbyte_instance = get_airbyte_server_instance(
+    return fetch_resource_info(
+        resource_id=workspace_id,
+        resource_type=ResourceTypeEnum.WORKSPACE,
         api_key=api_key,
         api_root=api_root,
     )
-    response = airbyte_instance.workspaces.get_workspace(
-        api.GetWorkspaceRequest(
-            workspace_id=workspace_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.workspace_response:
-        return response.workspace_response
-
-    raise AirbyteMissingResourceError(
-        resource_type="workspace",
-        context={
-            "workspace_id": workspace_id,
-            "response": response,
-        },
-    )
 
 
-# List, get, and run connections
-
-
-def list_connections(
-    workspace_id: str,
+def fetch_connection_info(
+    connection_id: str,
     *,
+    api_root: str,
+    api_key: str,
+) -> models.ConnectionResponse:
+    """Get a connection."""
+    return fetch_resource_info(
+        resource_id=connection_id,
+        resource_type=ResourceTypeEnum.CONNECTION,
+        api_key=api_key,
+        api_root=api_root,
+    )
+
+
+def fetch_source_info(
+    source_id: str,
+    *,
+    api_root: str,
+    api_key: str,
+) -> models.SourceResponse:
+    """Get a source."""
+    return fetch_resource_info(
+        resource_id=source_id,
+        resource_type=ResourceTypeEnum.SOURCE,
+        api_key=api_key,
+        api_root=api_root,
+    )
+
+
+def fetch_destination_info(
+    destination_id: str,
+    *,
+    api_root: str,
+    api_key: str,
+) -> models.DestinationResponse:
+    """Get a destination."""
+    return fetch_resource_info(
+        resource_id=destination_id,
+        resource_type=ResourceTypeEnum.DESTINATION,
+        api_key=api_key,
+        api_root=api_root,
+    )
+
+
+def _fix_destination_info(
+    response: models.DestinationResponse,
+) -> models.DestinationResponse:
+    if status_ok(response.status_code):
+        # TODO: This is a temporary workaround to resolve an issue where
+        # the destination API response is of the wrong type.
+        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
+        raw_configuration: dict[str, Any] = raw_response["configuration"]
+        destination_type = raw_response.get("destinationType")
+        if destination_type == "snowflake":
+            response.destination_response.configuration = models.DestinationSnowflake.from_dict(
+                raw_configuration,
+            )
+        if destination_type == "bigquery":
+            response.destination_response.configuration = models.DestinationBigquery.from_dict(
+                raw_configuration,
+            )
+        if destination_type == "postgres":
+            response.destination_response.configuration = models.DestinationPostgres.from_dict(
+                raw_configuration,
+            )
+        if destination_type == "duckdb":
+            response.destination_response.configuration = models.DestinationDuckdb.from_dict(
+                raw_configuration,
+            )
+
+        return response.destination_response
+
+    raise NotImplementedError  # TODO: Replace with a custom exception for this case.
+
+
+def fetch_job_info(
+    job_id: str,
+    *,
+    api_root: str,
+    api_key: str,
+) -> models.JobResponse:
+    """Get a job."""
+    return fetch_resource_info(
+        resource_id=job_id,
+        resource_type=ResourceTypeEnum.JOB,
+        api_key=api_key,
+        api_root=api_root,
+    )
+
+
+# List connections, sources, and destinations
+
+
+def list_resources(
+    resource_type: ResourceTypeEnum,
+    *,
+    workspace_id: str,
+    parent_resource_id: str | None = None,
     name_filter: str | Callable[[str], bool] | None = None,
     api_root: str,
     api_key: str,
-) -> Iterable[api.ConnectionResponse]:
+    page_size: int,
+    limit: int | None,
+) -> Iterator[
+    api.ListConnectionsResponse
+    | api.ListSourcesResponse
+    | api.ListDestinationsResponse
+    | api.ListJobsResponse
+]:
     """Get a connection.
 
     If name_filter is a string, only connections containing that name will be returned. If
@@ -114,36 +297,86 @@ def list_connections(
         api_root=api_root,
     )
     offset = 0
-    limit = 50
+    returned_count = 0
 
     if isinstance(name_filter, str):
         # Redefine name_filter as a function
 
         def name_filter(name: str) -> bool:
             return name_filter in name
+    elif name_filter is None:
+        # "Always True" filter
 
-    while True:
-        response = airbyte_instance.connections.list_connections(
-            api.ListConnectionsRequest(
-                workspace_ids=[workspace_id],
-                include_deleted=False,
-                limit=limit,
-                offset=offset,
-            ),
+        def name_filter(name: str) -> bool:
+            _ = name
+            return True
+
+    if resource_type == ResourceTypeEnum.CONNECTION:
+        list_function = airbyte_instance.connections.list_connections
+        request = api.ListConnectionsRequest(
+            workspace_ids=[workspace_id],
+            include_deleted=False,
+            limit=page_size,
+            offset=offset,
         )
 
-        if status_ok(response.status_code) and response.connections_response:
-            connections = response.connections_response.data
-            if not connections:
-                # No more connections to list
-                break
+        def get_resources_from_response(
+            response: api.ListConnectionsResponse,
+        ) -> list[api.ConnectionResponse]:
+            return response.connections_response.data
 
-            for connection in connections:
-                if name_filter is None or name_filter(connection.name):
-                    yield connection
+    elif resource_type == ResourceTypeEnum.SOURCE:
+        list_function = airbyte_instance.sources.list_sources
+        request = api.ListSourcesRequest(
+            workspace_ids=[workspace_id],
+            limit=page_size,
+            offset=offset,
+        )
 
-            offset += limit
-        else:
+        def get_resources_from_response(
+            response: api.ListSourcesResponse,
+        ) -> list[api.SourceResponse]:
+            return response.sources_response.data
+
+    elif resource_type == ResourceTypeEnum.DESTINATION:
+        list_function = airbyte_instance.destinations.list_destinations
+        request = api.ListDestinationsRequest(
+            workspace_id=[workspace_id],
+            limit=page_size,
+            offset=offset,
+        )
+
+        def get_resources_from_response(
+            response: api.ListConnectionsResponse,
+        ) -> list[api.ConnectionResponse]:
+            return response.connections_response.data
+
+    elif resource_type == ResourceTypeEnum.JOB:
+        list_function = airbyte_instance.jobs.list_jobs
+        request = api.ListJobsRequest(
+            workspace_ids=[workspace_id],
+            connection_id=parent_resource_id,
+            limit=page_size,
+            offset=offset,
+        )
+
+        def get_resources_from_response(
+            response: api.ListJobsResponse,
+        ) -> list[api.JobResponse]:
+            return response.jobs_response.data
+
+    else:
+        raise PyAirbyteInternalError(
+            message="Invalid resource type.",
+            context={
+                "resource_type": resource_type,
+            },
+        )
+
+    while limit is None or returned_count < limit:
+        response = list_function(request)
+
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
@@ -151,29 +384,178 @@ def list_connections(
                 }
             )
 
+        resources = get_resources_from_response(response)
+        if not resources:
+            # No more resources to list
+            break
 
-def get_connection(
+        for resource in resources:
+            if name_filter(resource.name):
+                yield resource
+
+            returned_count += 1
+            if limit is not None and returned_count >= limit:
+                break
+
+        offset += page_size
+
+    # Finished paging
+    return
+
+
+def list_sources(
+    workspace_id: str,
+    *,
+    name_filter: str | Callable[[str], bool] | None = None,
+    api_root: str,
+    api_key: str,
+    limit: int | None = None,
+) -> Iterator[api.SourceResponse]:
+    """List sources."""
+    return list_resources(
+        ResourceTypeEnum.SOURCE,
+        workspace_id=workspace_id,
+        name_filter=name_filter,
+        limit=limit,
+        api_key=api_key,
+        api_root=api_root,
+        page_size=DEFAULT_PAGE_SIZE,
+    )
+
+
+def list_destinations(
+    workspace_id: str,
+    *,
+    name_filter: str | Callable[[str], bool] | None = None,
+    api_root: str,
+    api_key: str,
+    limit: int | None = None,
+) -> Iterator[api.DestinationResponse]:
+    """List destinations."""
+    return list_resources(
+        ResourceTypeEnum.DESTINATION,
+        workspace_id=workspace_id,
+        name_filter=name_filter,
+        limit=limit,
+        api_key=api_key,
+        api_root=api_root,
+        page_size=DEFAULT_PAGE_SIZE,
+    )
+
+
+def list_connections(
+    workspace_id: str,
+    *,
+    name_filter: str | Callable[[str], bool] | None = None,
+    api_root: str,
+    api_key: str,
+    limit: int | None = None,
+) -> Iterator[api.ConnectionResponse]:
+    """List connections."""
+    return list_resources(
+        ResourceTypeEnum.CONNECTION,
+        workspace_id=workspace_id,
+        name_filter=name_filter,
+        limit=limit,
+        page_size=DEFAULT_PAGE_SIZE,
+        api_key=api_key,
+        api_root=api_root,
+    )
+
+
+def list_jobs(
     workspace_id: str,
     connection_id: str,
     *,
     api_root: str,
     api_key: str,
-) -> api.ConnectionResponse:
-    """Get a connection."""
-    _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
+    limit: int | None = 30,
+) -> Iterator[api.JobResponse]:
+    """List jobs."""
+    return list_resources(
+        ResourceTypeEnum.JOB,
+        workspace_id=workspace_id,
+        parent_resource_id=connection_id,
+        limit=limit,
+        page_size=DEFAULT_PAGE_SIZE,
         api_key=api_key,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.get_connection(
-        api.GetConnectionRequest(
-            connection_id=connection_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
 
-    raise AirbyteMissingResourceError(connection_id, "connection", response.text)
+
+# Get resources by name
+
+
+def fetch_connection_by_name(
+    workspace_id: str,
+    connection_name: str,
+    *,
+    api_root: str,
+    api_key: str,
+) -> models.ConnectionResponse:
+    """Get a connection by name.
+
+    Raises `AirbyteMissingResourceError` if the connection is not found or
+    `AirbyteMultipleResourcesError` if multiple connections are found.
+    """
+    return exactly_one_resource(
+        list_connections(
+            workspace_id=workspace_id,
+            name_filter=connection_name,
+            api_key=api_key,
+            api_root=api_root,
+            limit=2,
+        )
+    )
+
+
+def fetch_source_by_name(
+    workspace_id: str,
+    source_name: str,
+    *,
+    api_root: str,
+    api_key: str,
+) -> models.SourceResponse:
+    """Get a source by name.
+
+    Raises `AirbyteMissingResourceError` if the source is not found or
+    `AirbyteMultipleResourcesError` if multiple sources are found.
+    """
+    return exactly_one_resource(
+        list_sources(
+            workspace_id=workspace_id,
+            name_filter=source_name,
+            api_key=api_key,
+            api_root=api_root,
+            limit=2,
+        )
+    )
+
+
+def fetch_destination_by_name(
+    workspace_id: str,
+    destination_name: str,
+    *,
+    api_root: str,
+    api_key: str,
+) -> models.DestinationResponse:
+    """Get a destination by name.
+
+    Raises `AirbyteMissingResourceError` if the destination is not found or
+    `AirbyteMultipleResourcesError` if multiple destinations are found.
+    """
+    return exactly_one_resource(
+        list_sources(
+            workspace_id=workspace_id,
+            name_filter=destination_name,
+            api_key=api_key,
+            api_root=api_root,
+            limit=2,
+        )
+    )
+
+
+# Run connections
 
 
 def run_connection(
@@ -212,65 +594,7 @@ def run_connection(
     )
 
 
-# Get job info (logs)
-
-
-def get_job_logs(
-    workspace_id: str,
-    connection_id: str,
-    limit: int = 20,
-    *,
-    api_root: str,
-    api_key: str,
-) -> list[api.JobResponse]:
-    """Get a job's logs."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
-        api.ListJobsRequest(
-            workspace_ids=[workspace_id],
-            connection_id=connection_id,
-            limit=limit,
-        ),
-    )
-    if status_ok(response.status_code) and response.jobs_response:
-        return response.jobs_response.data
-
-    raise AirbyteMissingResourceError(
-        response=response,
-        resource_type="job",
-        context={
-            "workspace_id": workspace_id,
-            "connection_id": connection_id,
-        },
-    )
-
-
-def get_job_info(
-    job_id: str,
-    *,
-    api_root: str,
-    api_key: str,
-) -> api.JobResponse:
-    """Get a job."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    response = airbyte_instance.jobs.get_job(
-        api.GetJobRequest(
-            job_id=job_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.job_response:
-        return response.job_response
-
-    raise AirbyteMissingResourceError(job_id, "job", response.text)
-
-
-# Create, get, and delete sources
+# Create and delete sources
 
 
 def create_source(
@@ -304,28 +628,6 @@ def create_source(
     )
 
 
-def get_source(
-    source_id: str,
-    *,
-    api_root: str,
-    api_key: str,
-) -> api.SourceResponse:
-    """Get a connection."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    response = airbyte_instance.sources.get_source(
-        api.GetSourceRequest(
-            source_id=source_id,
-        ),
-    )
-    if status_ok(response.status_code) and response.connection_response:
-        return response.connection_response
-
-    raise AirbyteMissingResourceError(source_id, "source", response.text)
-
-
 def delete_source(
     source_id: str,
     *,
@@ -353,7 +655,7 @@ def delete_source(
         )
 
 
-# Create, get, and delete destinations
+# Create and delete destinations
 
 
 def create_destination(
@@ -385,50 +687,6 @@ def create_destination(
     )
 
 
-def get_destination(
-    destination_id: str,
-    *,
-    api_root: str,
-    api_key: str,
-) -> api.DestinationResponse:
-    """Get a connection."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
-        api_root=api_root,
-    )
-    response = airbyte_instance.destinations.get_destination(
-        api.GetDestinationRequest(
-            destination_id=destination_id,
-        ),
-    )
-    if status_ok(response.status_code):
-        # TODO: This is a temporary workaround to resolve an issue where
-        # the destination API response is of the wrong type.
-        raw_response: dict[str, Any] = json.loads(response.raw_response.text)
-        raw_configuration: dict[str, Any] = raw_response["configuration"]
-        destination_type = raw_response.get("destinationType")
-        if destination_type == "snowflake":
-            response.destination_response.configuration = models.DestinationSnowflake.from_dict(
-                raw_configuration,
-            )
-        if destination_type == "bigquery":
-            response.destination_response.configuration = models.DestinationBigquery.from_dict(
-                raw_configuration,
-            )
-        if destination_type == "postgres":
-            response.destination_response.configuration = models.DestinationPostgres.from_dict(
-                raw_configuration,
-            )
-        if destination_type == "duckdb":
-            response.destination_response.configuration = models.DestinationDuckdb.from_dict(
-                raw_configuration,
-            )
-
-        return response.destination_response
-
-    raise AirbyteMissingResourceError(destination_id, "destination", response.text)
-
-
 def delete_destination(
     destination_id: str,
     *,
@@ -457,6 +715,7 @@ def delete_destination(
 
 
 # Create and delete connections
+
 
 def create_connection(
     name: str,
@@ -504,40 +763,6 @@ def create_connection(
         )
 
     return response.connection_response
-
-
-def get_connection_by_name(
-    workspace_id: str,
-    connection_name: str,
-    *,
-    api_root: str,
-    api_key: str,
-) -> models.ConnectionResponse:
-    """Get a connection."""
-    connections = list_connections(
-        workspace_id=workspace_id,
-        api_key=api_key,
-        api_root=api_root,
-    )
-    found: list[models.ConnectionResponse] = [
-        connection for connection in connections if connection.name == connection_name
-    ]
-    if len(found) == 0:
-        raise AirbyteMissingResourceError(
-            connection_name, "connection", f"Workspace: {workspace_id}"
-        )
-
-    if len(found) > 1:
-        raise AirbyteMultipleResourcesError(
-            resource_type="connection",
-            resource_name_or_id=connection_name,
-            context={
-                "workspace_id": workspace_id,
-                "multiples": found,
-            },
-        )
-
-    return found[0]
 
 
 def delete_connection(

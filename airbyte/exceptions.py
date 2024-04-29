@@ -382,11 +382,12 @@ class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
 # Airbyte Resource Errors (General)
 
 
-class PyAirbyteResourceConflictError(PyAirbyteError):
+class AirbyteResourceAlreadyExistsError(PyAirbyteError):
     """Resource conflict occurred.
 
     This error occurs when a requested action cannot be completed because it would conflict with
-    another resource. For example, creating a resource with a name key that already exists.
+    another resource. For example, creating a resource with a name key that already exists or when
+    multiple resources are found when only one was expected.
     """
 
     resource_name_or_id: str | None = None

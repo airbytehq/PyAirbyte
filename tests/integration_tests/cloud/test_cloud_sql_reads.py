@@ -63,7 +63,7 @@ def test_deploy_and_run_and_read(
     # Cleanup
     with suppress(Exception):
         cloud_workspace.permanently_delete_connection(
-            connection_id=connection_id,
+            connection_id=connection.connection_id,
             delete_source=True,
             delete_destination=True,
         )
