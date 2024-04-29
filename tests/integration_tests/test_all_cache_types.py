@@ -5,6 +5,7 @@
 Since source-faker is included in dev dependencies, we can assume `source-faker` is installed
 and available on PATH for the poetry-managed venv.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,6 +33,7 @@ FAKER_SCALE_B = 300
 
 # Patch PATH to include the source-faker executable.
 
+
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
@@ -39,7 +41,7 @@ def add_venv_bin_to_path(monkeypatch):
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-    monkeypatch.setenv('PATH', new_path)
+    monkeypatch.setenv("PATH", new_path)
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
@@ -82,7 +84,6 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
-
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_pokeapi() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
@@ -102,7 +103,7 @@ def source_pokeapi() -> ab.Source:
 @pytest.mark.slow
 @pytest.mark.skipif(
     "CI" in os.environ,
-    reason="Fails inexplicably when run in CI. https://github.com/airbytehq/PyAirbyte/issues/146"
+    reason="Fails inexplicably when run in CI. https://github.com/airbytehq/PyAirbyte/issues/146",
 )
 def test_pokeapi_read(
     source_pokeapi: ab.Source,
@@ -124,19 +125,19 @@ def progress_mock(
 ) -> ReadProgress:
     """Fixture to return a mocked version of progress.progress."""
     # Mock the progress object.
-    mocker.spy(progress, 'reset')
-    mocker.spy(progress, 'log_records_read')
-    mocker.spy(progress, 'log_batch_written')
-    mocker.spy(progress, 'log_batches_finalizing')
-    mocker.spy(progress, 'log_batches_finalized')
-    mocker.spy(progress, 'log_stream_finalized')
-    mocker.spy(progress, 'log_success')
+    mocker.spy(progress, "reset")
+    mocker.spy(progress, "log_records_read")
+    mocker.spy(progress, "log_batch_written")
+    mocker.spy(progress, "log_batches_finalizing")
+    mocker.spy(progress, "log_batches_finalized")
+    mocker.spy(progress, "log_stream_finalized")
+    mocker.spy(progress, "log_success")
     return progress
 
 
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
-#@viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
+# @viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
 @pytest.mark.requires_creds
 @pytest.mark.slow
 def test_faker_read(
@@ -206,8 +207,9 @@ def test_merge_strategy(
 
     # First run, seed A (counts should match the scale or the product count)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
-    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A, \
-        f"Incorrect number of records in the cache. {new_generic_cache}"
+    assert (
+        len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+    ), f"Incorrect number of records in the cache. {new_generic_cache}"
 
     # Second run, also seed A (should have same exact data, no change in counts)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
@@ -236,7 +238,7 @@ def test_auto_add_columns(
         new_generic_cache,
         write_strategy="auto",
     )
-    table_name: str = result['users'].to_sql_table().name
+    table_name: str = result["users"].to_sql_table().name
 
     # Ensure that the raw ID column is present. Then delete it and confirm it's gone.
     assert "_airbyte_raw_id" in result["users"].to_sql_table().columns

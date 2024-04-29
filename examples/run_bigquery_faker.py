@@ -41,7 +41,7 @@ def main() -> None:
     source.check()
     source.select_all_streams()
 
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp:
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, encoding="utf-8") as temp:
         # Write credentials to the temp file
         temp.write(bigquery_destination_secret["credentials_json"])
         temp.flush()

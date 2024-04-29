@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from airbyte.documents import Document
 
 
-class Source:
+class Source:  # noqa: PLR0904  # Ignore max publish methods
     """A class representing a source that can be called."""
 
     def __init__(
@@ -266,7 +266,7 @@ class Source:
         - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
           it will be printed to the console.
         """
-        if format not in ["yaml", "json"]:
+        if format not in {"yaml", "json"}:
             raise exc.PyAirbyteInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,

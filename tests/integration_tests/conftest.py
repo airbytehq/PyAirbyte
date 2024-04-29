@@ -14,7 +14,7 @@ from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.secrets import CustomSecretManager, GoogleGSMSecretManager, SecretHandle
+from airbyte.secrets import GoogleGSMSecretManager, SecretHandle
 from airbyte._util.temp_files import as_temp_files
 
 import airbyte as ab
@@ -41,9 +41,12 @@ def get_connector_config(self, connector_name: str, index: int = 0) -> dict | No
         project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
     )
-    first_secret: SecretHandle = next(gsm_secrets_manager.fetch_connector_secrets(
-        connector_name=connector_name,
-    ), None)
+    first_secret: SecretHandle = next(
+        gsm_secrets_manager.fetch_connector_secrets(
+            connector_name=connector_name,
+        ),
+        None,
+    )
 
     print(f"Found '{connector_name}' credential secret '${first_secret.secret_name}'.")
     return first_secret.get_value().parse_json()

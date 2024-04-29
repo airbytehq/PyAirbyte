@@ -1,18 +1,16 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Fixtures for Cloud Workspace integration tests."""
+
 from __future__ import annotations
 
-from enum import auto
 import os
 from pathlib import Path
 import sys
 import pytest
 from airbyte.cloud._api_util import CLOUD_API_ROOT
-from dotenv import dotenv_values
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
-from airbyte._util.temp_files import as_temp_files
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
@@ -31,7 +29,7 @@ def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-    monkeypatch.setenv('PATH', new_path)
+    monkeypatch.setenv("PATH", new_path)
 
 
 @pytest.fixture
@@ -46,7 +44,9 @@ def airbyte_cloud_api_root() -> str:
 
 @pytest.fixture
 def airbyte_cloud_api_key(ci_secret_manager: GoogleGSMSecretManager) -> SecretString:
-    secret: SecretString | None = ci_secret_manager.get_secret(AIRBYTE_CLOUD_API_KEY_SECRET_NAME)
+    secret: SecretString | None = ci_secret_manager.get_secret(
+        AIRBYTE_CLOUD_API_KEY_SECRET_NAME
+    )
     assert secret, f"Secret '{AIRBYTE_CLOUD_API_KEY_SECRET_NAME}' not found."
     return secret
 

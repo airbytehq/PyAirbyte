@@ -13,7 +13,7 @@ class ColabSecretManager(SecretManager):
 
     def __init__(self) -> None:
         try:
-            from google.colab import (  # pyright: ignore[reportMissingImports]
+            from google.colab import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
                 userdata as colab_userdata,
             )
 

@@ -1,0 +1,11 @@
+# This file defines lint exceptions for pytest tests.
+
+[tool.ruff]
+preview = true
+
+[tool.ruff.lint]
+extend-ignore = [
+    "ANN201",  # Type annotations not required for test functions
+    "F841",    # Allow assignments that are not referenced
+    "SLF001",  # Accessing private members ok for tests
+]

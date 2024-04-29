@@ -1,15 +1,18 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Integration tests for reading from cache."""
+
 from __future__ import annotations
+
 from contextlib import suppress
 
-import pytest
 import pandas as pd
+import pytest
 from sqlalchemy.engine.base import Engine
 
 import airbyte as ab
 from airbyte import cloud
 from airbyte.cloud.sync_results import SyncResult
+
 
 @pytest.fixture
 def deployable_source() -> ab.Source:
@@ -78,8 +81,14 @@ def test_deploy_and_run_and_read(
     [
         pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
         pytest.param("0e1d6b32-b8e3-4b68-91a3-3a314599c782", id="Faker->BigQuery"),
-        pytest.param("", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")),
-        pytest.param("", id="Faker->MotherDuck", marks=pytest.mark.skip(reason="Not yet supported")),
+        pytest.param(
+            "", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")
+        ),
+        pytest.param(
+            "",
+            id="Faker->MotherDuck",
+            marks=pytest.mark.skip(reason="Not yet supported"),
+        ),
     ],
 )
 def test_read_from_deployed_connection(
@@ -88,7 +97,9 @@ def test_read_from_deployed_connection(
 ) -> None:
     """Test reading from a cache."""
     # Run sync and get result:
-    sync_result: SyncResult = cloud_workspace.get_sync_result(connection_id=deployed_connection_id)
+    sync_result: SyncResult = cloud_workspace.get_sync_result(
+        connection_id=deployed_connection_id
+    )
 
     # Test sync result:
     assert sync_result.is_job_complete()
@@ -120,8 +131,14 @@ def test_read_from_deployed_connection(
     [
         pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
         pytest.param("0e1d6b32-b8e3-4b68-91a3-3a314599c782", id="Faker->BigQuery"),
-        pytest.param("", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")),
-        pytest.param("", id="Faker->MotherDuck", marks=pytest.mark.skip(reason="Not yet supported")),
+        pytest.param(
+            "", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")
+        ),
+        pytest.param(
+            "",
+            id="Faker->MotherDuck",
+            marks=pytest.mark.skip(reason="Not yet supported"),
+        ),
     ],
 )
 def test_read_from_previous_job(

@@ -19,4 +19,6 @@ def test_docs_checked_in():
     diff = os.system("git diff --exit-code docs/generated")
 
     # if there is a diff, fail the test
-    assert diff == 0, "Docs are out of date. Please run `poetry run generate-docs` and commit the changes."
+    assert (
+        diff == 0
+    ), "Docs are out of date. Please run `poetry run generate-docs` and commit the changes."

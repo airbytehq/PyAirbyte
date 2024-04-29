@@ -185,7 +185,7 @@ class RecordProcessor(abc.ABC):
 
             elif message.type is Type.STATE:
                 state_msg = cast(AirbyteStateMessage, message.state)
-                if state_msg.type in [AirbyteStateType.GLOBAL, AirbyteStateType.LEGACY]:
+                if state_msg.type in {AirbyteStateType.GLOBAL, AirbyteStateType.LEGACY}:
                     self._pending_state_messages[f"_{state_msg.type}"].append(state_msg)
                 else:
                     stream_state = cast(AirbyteStreamState, state_msg.stream)

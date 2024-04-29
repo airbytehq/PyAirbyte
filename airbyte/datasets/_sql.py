@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 from overrides import overrides
@@ -65,7 +66,10 @@ class SQLDataset(DatasetBase):
                     stream_name=stream_name
                 )
             except Exception as ex:
-                Warning(f"Failed to get stream configuration for {stream_name}: {ex}")
+                warnings.warn(
+                    f"Failed to get stream configuration for {stream_name}: {ex}",
+                    stacklevel=2,
+                )
 
             # Coalesce False to None
             stream_configuration = stream_configuration or None
@@ -175,7 +179,7 @@ class CachedDataset(SQLDataset):
         if self._cache is not value._cache:
             return False
 
-        if self._stream_name != value._stream_name:
-            return False
+        return not self._stream_name != value._stream_name
 
-        return True
+    def __hash__(self) -> int:
+        return hash(self._stream_name)
