@@ -50,7 +50,7 @@ def get_secret(
         sources = [sources]  # type: ignore [unreachable]  # This is a 'just in case' catch.
 
     # Replace any SecretSourceEnum strings with the matching SecretManager object
-    for source in list(sources):
+    for source in sources:
         if isinstance(source, SecretSourceEnum):
             if source not in available_sources:
                 raise exc.PyAirbyteInputError(

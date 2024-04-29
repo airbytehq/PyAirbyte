@@ -39,7 +39,9 @@ def test_deploy_and_run_and_read(
 
     # Deploy source, destination, and connection:
     source_id = cloud_workspace.deploy_source(source=deployable_source)
-    destination_id = cloud_workspace.deploy_cache_as_destination(cache=new_deployable_cache)
+    destination_id = cloud_workspace.deploy_cache_as_destination(
+        cache=new_deployable_cache
+    )
     connection: cloud.CloudConnection = cloud_workspace.deploy_connection(
         source=deployable_source,
         cache=new_deployable_cache,

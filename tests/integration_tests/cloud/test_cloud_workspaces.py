@@ -32,7 +32,7 @@ def test_deploy_source(
     source_connector: cloud.CloudConnector = cloud_workspace.deploy_source(
         local_source,
         name_key="My Faker Source",  # Used in deduplication and idempotency
-        update_existing=False,       # Fail if source already exists
+        update_existing=False,  # Fail if source already exists
     )
     assert source_connector.source_name == "My Faker Source"
     assert source_connector.configuration["count"] == 100
@@ -43,7 +43,7 @@ def test_deploy_source(
         cloud_workspace.deploy_source(
             source=local_source,
             name_key="My Faker Source",  # Used in deduplication and idempotency
-            update_existing=False,       # Fail since source already exists
+            update_existing=False,  # Fail since source already exists
         )
 
     # Change config and deploy source again (should succeed):
@@ -51,7 +51,7 @@ def test_deploy_source(
     source_connector: cloud.CloudConnector = cloud_workspace.deploy_source(
         source=local_source,
         name_key="My Faker Source",  # Used in deduplication and idempotency
-        update_existing=True,        # Update existing source
+        update_existing=True,  # Update existing source
     )
 
     # Partially update the configuration (merging with config from previous deployment):
