@@ -108,7 +108,7 @@ from typing import TYPE_CHECKING, Any, final
 
 from airbyte.cloud import _api_util
 from airbyte.cloud._destination_util import create_cache_from_destination_config
-from airbyte.cloud._resources import CloudResource
+from airbyte.cloud._resources import ICloudResource
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
@@ -128,18 +128,17 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class SyncResult(CloudResource):
+class SyncResult(ICloudResource):
     """The result of a sync operation.
 
     **This class is not meant to be instantiated directly.** Instead, obtain a `SyncResult` by
     interacting with the `.CloudWorkspace` and `.CloudConnection` objects.
     """
 
-    workspace: CloudWorkspace = field()  # type: ignore [misc]
-    connection: CloudConnection = field()  # type: ignore [misc]
-    job_id: str = field()  # type: ignore [misc]
+    workspace: CloudWorkspace = field()
+    connection: CloudConnection = field()
+    job_id: str = field()
     table_name_prefix: str = field()
-    table_name_suffix: str = field()
     _resource_info: JobResponse | None = field(default=None)
     _cache: CacheBase | None = None
     _destination: CloudConnector | None = None

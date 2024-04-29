@@ -6,8 +6,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from airbyte_api.models.connectionresponse import ConnectionResponse
+
 from airbyte.cloud import _api_util
-from airbyte.cloud._resources import CloudResource
+from airbyte.cloud._resources import ICloudResource
 from airbyte.cloud.sync_results import SyncResult
 
 
@@ -21,7 +23,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class CloudConnection(CloudResource):
+class CloudConnection(ICloudResource):
     """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
 
     You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
@@ -95,7 +97,7 @@ class CloudConnection(CloudResource):
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response = _api_util.run_connection(
+        connection_response: ConnectionResponse = _api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -105,6 +107,7 @@ class CloudConnection(CloudResource):
             workspace=self.workspace,
             connection=self,
             job_id=connection_response.job_id,
+            table_name_prefix=connection_response.prefix,
         )
 
         if wait:
@@ -137,6 +140,7 @@ class CloudConnection(CloudResource):
                 connection=self,
                 job_id=sync_log.job_id,
                 _resource_info=sync_log,
+                table_name_prefix=self.table_prefix,
             )
             for sync_log in sync_logs
         ]
@@ -166,6 +170,7 @@ class CloudConnection(CloudResource):
             workspace=self.workspace,
             connection=self,
             job_id=job_id,
+            table_name_prefix=self.table_prefix,
         )
 
     # Deletions

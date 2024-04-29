@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
 
 from airbyte import exceptions as exc
-from airbyte.cloud._resources import CloudResource, requires_fetch
+from airbyte.cloud._resources import ICloudResource, requires_fetch
 from airbyte.cloud.constants import ConnectorTypeEnum
 from airbyte.exceptions import PyAirbyteInputError
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 @dataclass
-class CloudConnector(CloudResource):
+class CloudConnector(ICloudResource):
     """A connector is a source or destination in Airbyte Cloud.
 
     You can use a connector object to retrieve information about the connector and manage the

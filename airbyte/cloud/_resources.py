@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import abc
-from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Protocol
 
@@ -31,7 +29,7 @@ def requires_fetch(func: Callable[..., Any]) -> Callable[..., Any]:
 
     @wraps(func)
     def wrapper(
-        self: CloudResource,
+        self: ICloudResource,
         *args: AllowedAny,
         **kwargs: AllowedAny,
     ) -> AllowedAny:
@@ -43,15 +41,15 @@ def requires_fetch(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
-@dataclass
-class CloudResource(abc.ABC):
+class ICloudResource(Protocol):
     """A resource in Airbyte Cloud.
 
     You can use a resource object to retrieve information about the resource and manage the
     resource.
     """
 
-    @abc.abstractmethod
+    _resource_info: ResourceInfoResponse | None
+
     def _fetch_resource_info(self) -> ResourceInfoResponse:
         """Populate the resource with data from the API."""
         ...

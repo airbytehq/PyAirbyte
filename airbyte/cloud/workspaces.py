@@ -16,7 +16,7 @@ from airbyte import exceptions as exc
 from airbyte._util import iter as iter_util
 from airbyte.cloud import _api_util
 from airbyte.cloud._destination_util import get_destination_config_from_cache
-from airbyte.cloud._resources import CloudResource
+from airbyte.cloud._resources import ICloudResource
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudConnector
 from airbyte.cloud.constants import ConnectorTypeEnum
@@ -179,7 +179,7 @@ def resolve_destination_id(func: Callable[..., Any]) -> Callable[..., Any]:
 
 
 @dataclass
-class CloudWorkspace(CloudResource):
+class CloudWorkspace(ICloudResource):
     """A remote workspace on the Airbyte Cloud.
 
     By overriding `api_root`, you can use this class to interact with self-managed Airbyte
@@ -537,6 +537,7 @@ class CloudWorkspace(CloudResource):
             workspace=self,
             connection=connection,
             job_id=job_id,
+            table_name_prefix=connection.table_prefix,
         )
 
     def get_previous_sync_logs(

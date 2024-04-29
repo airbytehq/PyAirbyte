@@ -322,7 +322,7 @@ def list_resources(
 
         def get_resources_from_response(
             response: api.ListConnectionsResponse,
-        ) -> list[api.ConnectionResponse]:
+        ) -> list[models.ConnectionResponse]:
             return response.connections_response.data
 
     elif resource_type == ResourceTypeEnum.SOURCE:
@@ -348,7 +348,7 @@ def list_resources(
 
         def get_resources_from_response(
             response: api.ListConnectionsResponse,
-        ) -> list[api.ConnectionResponse]:
+        ) -> list[models.ConnectionResponse]:
             return response.connections_response.data
 
     elif resource_type == ResourceTypeEnum.JOB:
@@ -450,7 +450,7 @@ def list_connections(
     api_root: str,
     api_key: str,
     limit: int | None = None,
-) -> Iterator[api.ConnectionResponse]:
+) -> Iterator[models.ConnectionResponse]:
     """List connections."""
     return list_resources(
         ResourceTypeEnum.CONNECTION,
@@ -564,7 +564,7 @@ def run_connection(
     *,
     api_root: str,
     api_key: str,
-) -> api.ConnectionResponse:
+) -> models.ConnectionResponse:
     """Get a connection.
 
     If block is True, this will block until the connection is finished running.
