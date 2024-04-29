@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import abc
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Protocol
 
@@ -50,8 +50,6 @@ class CloudResource(abc.ABC):
     You can use a resource object to retrieve information about the resource and manage the
     resource.
     """
-
-    _resource_info: ResourceInfoResponse | None = field(default=None, init=False)
 
     @abc.abstractmethod
     def _fetch_resource_info(self) -> ResourceInfoResponse:

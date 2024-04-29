@@ -6,7 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from airbyte._util import api_util
+from airbyte.cloud import _api_util
 from airbyte.cloud._resources import CloudResource
 from airbyte.cloud.sync_results import SyncResult
 
@@ -44,7 +44,7 @@ class CloudConnection(CloudResource):
 
     def _fetch_resource_info(self) -> ConnectionResponse:
         """Populate the connection with data from the API."""
-        self._resource_info = api_util.fetch_connection_info(
+        self._resource_info = _api_util.fetch_connection_info(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -95,7 +95,7 @@ class CloudConnection(CloudResource):
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response = api_util.run_connection(
+        connection_response = _api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -124,7 +124,7 @@ class CloudConnection(CloudResource):
         limit: int = 10,
     ) -> list[SyncResult]:
         """Get the previous sync logs for a connection."""
-        sync_logs: Iterator[JobResponse] = api_util.list_jobs(
+        sync_logs: Iterator[JobResponse] = _api_util.list_jobs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,

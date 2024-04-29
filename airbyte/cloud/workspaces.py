@@ -13,8 +13,8 @@ from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable
 
 from airbyte import exceptions as exc
-from airbyte._util import api_util
 from airbyte._util import iter as iter_util
+from airbyte.cloud import _api_util
 from airbyte.cloud._destination_util import get_destination_config_from_cache
 from airbyte.cloud._resources import CloudResource
 from airbyte.cloud.connections import CloudConnection
@@ -188,7 +188,7 @@ class CloudWorkspace(CloudResource):
 
     workspace_id: str
     api_key: str
-    api_root: str = api_util.CLOUD_API_ROOT
+    api_root: str = _api_util.CLOUD_API_ROOT
 
     @property
     def workspace_url(self) -> str | None:
@@ -203,7 +203,7 @@ class CloudWorkspace(CloudResource):
               serves primarily as a simple check to ensure that the workspace is reachable
               and credentials are correct.
         """
-        _ = api_util.fetch_workspace_info(
+        _ = _api_util.fetch_workspace_info(
             workspace_id=self.workspace_id,
             api_root=self.api_root,
             api_key=self.api_key,
@@ -234,7 +234,7 @@ class CloudWorkspace(CloudResource):
         source_configuration["sourceType"] = source.name.replace("source-", "")
 
         iter_util.no_existing_resources(
-            api_util.list_sources(
+            _api_util.list_sources(
                 workspace_id=self.workspace_id,
                 name_filter=name,
                 api_root=self.api_root,
@@ -243,7 +243,7 @@ class CloudWorkspace(CloudResource):
             ),
         )
 
-        deployed_source = api_util.create_source(
+        deployed_source = _api_util.create_source(
             name=f"{name} (Deployed by PyAirbyte)",
             api_root=self.api_root,
             api_key=self.api_key,
@@ -288,7 +288,7 @@ class CloudWorkspace(CloudResource):
         """
         assert isinstance(source, str), "Decorator should resolve source ID."
 
-        api_util.delete_source(
+        _api_util.delete_source(
             source_id=source,
             api_root=self.api_root,
             api_key=self.api_key,
@@ -313,7 +313,7 @@ class CloudWorkspace(CloudResource):
             )
         cache_type_name = cache.__class__.__name__.replace("Cache", "")
 
-        deployed_destination: DestinationResponse = api_util.create_destination(
+        deployed_destination: DestinationResponse = _api_util.create_destination(
             name=f"Destination {cache_type_name} (Deployed by PyAirbyte)",
             api_root=self.api_root,
             api_key=self.api_key,
@@ -354,7 +354,7 @@ class CloudWorkspace(CloudResource):
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
         """
         assert isinstance(destination, str), "Decorator should resolve destination ID."
-        api_util.delete_destination(
+        _api_util.delete_destination(
             destination_id=destination,
             api_root=self.api_root,
             api_key=self.api_key,
@@ -396,7 +396,7 @@ class CloudWorkspace(CloudResource):
                 },
             )
 
-        deployed_connection = api_util.create_connection(
+        deployed_connection = _api_util.create_connection(
             name=f"{name_key} (Deployed by PyAirbyte)",
             source_id=source,
             destination_id=destination,
@@ -441,7 +441,7 @@ class CloudWorkspace(CloudResource):
         assert isinstance(name, str), "Name should be a string, per above validation."
 
         # Else derive connection ID from name key
-        connection = api_util.fetch_connection_by_name(
+        connection = _api_util.fetch_connection_by_name(
             connection_name=name,
             workspace_id=self.workspace_id,
             api_root=self.api_root,
@@ -472,7 +472,7 @@ class CloudWorkspace(CloudResource):
                 connection_id=connection,
             )
 
-        api_util.delete_connection(
+        _api_util.delete_connection(
             connection_id=connection.connection_id,
             api_root=self.api_root,
             api_key=self.api_key,

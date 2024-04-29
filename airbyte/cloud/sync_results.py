@@ -106,7 +106,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, final
 
-from airbyte._util import api_util
+from airbyte.cloud import _api_util
 from airbyte.cloud._destination_util import create_cache_from_destination_config
 from airbyte.cloud._resources import CloudResource
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
@@ -135,11 +135,11 @@ class SyncResult(CloudResource):
     interacting with the `.CloudWorkspace` and `.CloudConnection` objects.
     """
 
-    workspace: CloudWorkspace  # type: ignore [misc]
-    connection: CloudConnection  # type: ignore [misc]
-    job_id: str  # type: ignore [misc]
-    table_name_prefix: str = ""
-    table_name_suffix: str = ""
+    workspace: CloudWorkspace = field()  # type: ignore [misc]
+    connection: CloudConnection = field()  # type: ignore [misc]
+    job_id: str = field()  # type: ignore [misc]
+    table_name_prefix: str = field()
+    table_name_suffix: str = field()
     _resource_info: JobResponse | None = field(default=None)
     _cache: CacheBase | None = None
     _destination: CloudConnector | None = None
@@ -162,7 +162,7 @@ class SyncResult(CloudResource):
         if self._resource_info and self._resource_info.status in FINAL_STATUSES:
             return self._resource_info
 
-        self._resource_info = api_util.fetch_job_info(
+        self._resource_info = _api_util.fetch_job_info(
             job_id=self.job_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -241,7 +241,7 @@ class SyncResult(CloudResource):
 
                 return latest_status  # This will be a non-final status
 
-            time.sleep(api_util.JOB_WAIT_INTERVAL_SECS)
+            time.sleep(_api_util.JOB_WAIT_INTERVAL_SECS)
 
     def get_sql_cache(self) -> CacheBase:
         """Return a SQL Cache object for working with the data in a SQL-based destination's."""
