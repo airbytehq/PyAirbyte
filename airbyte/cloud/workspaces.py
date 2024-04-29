@@ -37,8 +37,8 @@ def resolve_connection(func: Callable[..., Any]) -> Callable[..., Any]:
         connection: str | CloudConnection | None,
         connection_id: str | None,
         *args: Any,  # noqa: ANN401
-        **kwargs: Any,
-    ) -> Any:
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
         if connection_id is not None:
             warnings.warn(
                 message="The `connection_id` parameter is deprecated. Use `connection` instead.",
@@ -66,7 +66,7 @@ def resolve_source(func: Callable[..., Any]) -> Callable[..., Any]:
         source: str | CloudConnector | None,
         source_id: str | None,
         *args: Any,  # noqa: ANN401
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if source_id is not None:
             warnings.warn(
@@ -96,7 +96,7 @@ def resolve_source_id(func: Callable[..., Any]) -> Callable[..., Any]:
         source: str | CloudConnector | None,
         source_id: str | None,
         *args: Any,  # noqa: ANN401
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if not isinstance(source, (str, Source)):
             raise ValueError(f"Invalid source type: {type(source)}")  # noqa: TRY004, TRY003
@@ -125,7 +125,7 @@ def resolve_destination(func: Callable[..., Any]) -> Callable[..., Any]:
         destination: str | CloudConnector | None,
         destination_id: str | None,
         *args: Any,  # noqa: ANN401
-        **kwargs: Any,
+        **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if destination_id is not None:
             warnings.warn(
