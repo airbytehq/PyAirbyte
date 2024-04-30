@@ -74,7 +74,7 @@ class CacheBase(BaseModel):
         """Return the name of the database."""
         ...
 
-    def get_database_connection_via_alternate_method(self) -> object:
+    def get_vendor_client(self) -> object:
         """Alternate (non-SQLAlchemy) way of getting database connection"""
         msg = "This method needs to be implemented for specific databases"
         raise NotImplementedError(msg)

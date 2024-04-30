@@ -63,7 +63,7 @@ class SnowflakeCache(CacheBase):
             )
         )
 
-    def get_database_connection_via_alternate_method(self) -> object:
+    def get_vendor_client(self) -> object:
         """Return the Snowflake connection object."""
         return connector.connect(
             user=self.username,

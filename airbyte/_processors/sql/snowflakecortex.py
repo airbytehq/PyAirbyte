@@ -98,7 +98,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         table_name: str,
     ) -> list[str]:
         """Get column names for passed stream."""
-        conn: Connection = self.cache.get_database_connection_via_alternate_method()
+        conn: Connection = self.cache.get_vendor_client()
         cursor = conn.cursor()
         cursor.execute(f"DESCRIBE TABLE {table_name};")
         results = cursor.fetchall()
@@ -216,7 +216,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         column_name: str,
         column_type: sqlalchemy.types.TypeEngine,
     ) -> None:
-        conn: Connection = self.cache.get_database_connection_via_alternate_method()
+        conn: Connection = self.cache.get_vendor_client()
         cursor = conn.cursor()
         cursor.execute(
             text(
