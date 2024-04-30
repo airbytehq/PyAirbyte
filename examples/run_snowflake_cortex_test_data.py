@@ -58,8 +58,8 @@ cache = SnowflakeCache(
 stream_schema = {
     "type": "object",
     "properties": {
-        "str_col": {"type": "string"},
-        "int_col": {"type": "integer"},
+        "document_id": {"type": "string"},
+        "chunk_id": {"type": "string"},
         "page_content": {"type": "string"},
         "metadata": {"type": "object"},
         "embedding": {"type": "vector_array"},
@@ -71,7 +71,7 @@ overwrite_stream = ConfiguredAirbyteStream(
         json_schema=stream_schema,
         supported_sync_modes=[SyncMode.incremental, SyncMode.full_refresh],
     ),
-    primary_key=[["int_col"]],
+    primary_key=[["document_id"]],
     sync_mode=SyncMode.incremental,
     destination_sync_mode=DestinationSyncMode.overwrite,
 )
@@ -84,8 +84,8 @@ message1 = AirbyteMessage(
     record=AirbyteRecordMessage(
         stream="myteststream",
         data={
-            "str_col": "Dogs are number 1",
-            "int_col": 4,
+            "document_id": "stream_myteststream_key_4",
+            "chunk_id": "1000",
             "page_content": "str_col: Dogs are number 1",
             "metadata": {"int_col": 4, "_ab_stream": "mystream"},
             "embedding": [
@@ -104,8 +104,8 @@ message2 = AirbyteMessage(
     record=AirbyteRecordMessage(
         stream="myteststream",
         data={
-            "str_col": "Dogs are number 2",
-            "int_col": 5,
+            "document_id": "stream_myteststream_key_4",
+            "chunk_id": "1001",
             "page_content": "str_col: Dogs are number 2",
             "metadata": {"int_col": 5, "_ab_stream": "teststream"},
             "embedding": [
@@ -124,8 +124,8 @@ message3 = AirbyteMessage(
     record=AirbyteRecordMessage(
         stream="myteststream",
         data={
-            "str_col": "Dogs are number 3",
-            "int_col": 10,
+            "document_id": "stream_myteststream_key_10",
+            "chunk_id": "1003",
             "page_content": "str_col: Dogs are number 3",
             "metadata": {"int_col": 10, "_ab_stream": "teststream"},
             "embedding": [
@@ -163,4 +163,4 @@ processor = SnowflakeCortexSqlProcessor(
     source_name="github",
     stream_names=["myteststream"],
 )
-processor.process_airbyte_messages(messages, WriteStrategy.APPEND)
+processor.process_airbyte_messages(messages, WriteStrategy.REPLACE)
