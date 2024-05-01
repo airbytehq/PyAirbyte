@@ -247,7 +247,7 @@ def _fix_destination_info(
                 raw_configuration,
             )
 
-        return response.destination_response
+        return response
 
     raise NotImplementedError  # TODO: Replace with a custom exception for this case.
 
@@ -302,14 +302,18 @@ def list_resources(
     if isinstance(name_filter, str):
         # Redefine name_filter as a function
 
-        def name_filter(name: str) -> bool:
-            return name_filter in name
+        def resource_filter_fn(resource: Any) -> bool:
+            return name_filter in resource.name
     elif name_filter is None:
         # "Always True" filter
 
-        def name_filter(name: str) -> bool:
-            _ = name
+        def resource_filter_fn(resource: Any) -> bool:
+            _ = resource
             return True
+    else:
+
+        def resource_filter_fn(resource: Any) -> bool:
+            return name_filter(resource.name)
 
     if resource_type == ResourceTypeEnum.CONNECTION:
         list_function = airbyte_instance.connections.list_connections
@@ -390,7 +394,7 @@ def list_resources(
             break
 
         for resource in resources:
-            if name_filter(resource.name):
+            if resource_filter_fn(resource):
                 yield resource
 
             returned_count += 1
@@ -564,7 +568,7 @@ def run_connection(
     *,
     api_root: str,
     api_key: str,
-) -> models.ConnectionResponse:
+) -> models.JobResponse:
     """Get a connection.
 
     If block is True, this will block until the connection is finished running.

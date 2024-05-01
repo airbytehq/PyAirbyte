@@ -6,7 +6,7 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
-from pytest import raises
+from dataclasses import asdict
 
 import airbyte as ab
 from airbyte import cloud
@@ -14,6 +14,7 @@ from airbyte import exceptions as exc
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
+from pytest import raises
 
 
 def test_deploy_source(
@@ -30,13 +31,13 @@ def test_deploy_source(
 
     # Deploy source:
     source_connector: cloud.CloudConnector = cloud_workspace.deploy_source(
-        local_source,
-        name_key="My Faker Source",  # Used in deduplication and idempotency
-        update_existing=False,  # Fail if source already exists
+        source=local_source,
+        name="My Faker Source (DELETEME)",  # Used in deduplication and idempotency
     )
-    assert source_connector.source_name == "My Faker Source"
-    assert source_connector.configuration["count"] == 100
-    assert source_connector.configuration["seed"] == 123
+    assert source_connector.name == "My Faker Source (DELETEME)"
+    assert "count" in list(asdict(source_connector.configuration).keys())
+    assert asdict(source_connector.configuration)["count"] == 100
+    assert asdict(source_connector.configuration)["seed"] == 123
 
     with raises(exc.PyAirbyteResourceConflictError):
         # Deploy source again (should fail):
@@ -67,7 +68,8 @@ def test_deploy_source(
         {"count": 300},
         merge=False,
     )
-    assert source_connector.configuration["count"] == 300
+    assert "count" in list(asdict(source_connector.configuration).keys())
+    assert asdict(source_connector.configuration)["count"] == 300
     assert "seed" not in source_connector.configuration
 
     # Delete the deployed source connector:
@@ -84,7 +86,10 @@ def test_deploy_cache_as_destination(
         database="temp",
         schema_name="public",
     )
-    destination_id: str = cloud_workspace.deploy_cache_as_destination(cache=cache)
+    destination_id: str = cloud_workspace.deploy_cache_as_destination(
+        cache=cache,
+        name="My MotherDuck Destination (DELETEME)",  # Used in deduplication and idempotency
+    )
     cloud_workspace.permanently_delete_destination(destination=destination_id)
 
 
@@ -108,10 +113,18 @@ def test_deploy_connection(
         table_prefix="abc_deleteme_",
         # table_suffix="",  # Suffix not supported in CloudConnection
     )
+    source_connector: cloud.CloudConnector = cloud_workspace.deploy_source(
+        source=source,
+        name="My Faker Source (DELETEME)",  # Used in deduplication and idempotency
+    )
+    destination_connector: cloud.CloudConnector = cloud_workspace.deploy_cache_as_destination(
+        cache=cache,
+        name="My MotherDuck Destination (DELETEME)",  # Used in deduplication and idempotency
+    )
 
     connection: CloudConnection = cloud_workspace.deploy_connection(
-        source=source,
-        cache=cache,
+        source=source_connector,
+        destination=destination_connector,
     )
     assert set(connection.stream_names) == set(["users", "products", "purchases"])
     assert connection.table_prefix == "abc_deleteme_"

@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from airbyte import exceptions as exc
+from airbyte.cloud import _api_util
 from airbyte.cloud._resources import ICloudResource, requires_fetch
 from airbyte.cloud.constants import ConnectorTypeEnum
 from airbyte.exceptions import PyAirbyteInputError
@@ -50,14 +51,20 @@ class CloudConnector(ICloudResource):
             return self._resource_info
 
         if self.is_source:
-            self._connector_info = self.workspace.get_source(source_id=self.source_id)
-            return self._connector_info
+            self._resource_info = _api_util.fetch_source_info(
+                source_id=self.source_id,
+                api_root=self.workspace.api_root,
+                api_key=self.workspace.api_key,
+            )
+            return self._resource_info
 
         if self.is_destination:
-            self._connector_info = self.workspace.get_destination(
-                destination_id=self.destination_id
+            self._resource_info = _api_util.fetch_destination_info(
+                destination_id=self.destination_id,
+                api_root=self.workspace.api_root,
+                api_key=self.workspace.api_key,
             )
-            return self._connector_info
+            return self._resource_info
 
         raise exc.PyAirbyteInternalError(
             message=f"Connector {self.name} is not a source or destination."
@@ -122,4 +129,4 @@ class CloudConnector(ICloudResource):
     @property
     def configuration(self) -> dict:
         """Return the configuration of the connector."""
-        return asdict(self._fetch_resource_info().configuration)
+        return self._fetch_resource_info().configuration

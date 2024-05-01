@@ -5,13 +5,12 @@ from __future__ import annotations
 
 from contextlib import suppress
 
+import airbyte as ab
 import pandas as pd
 import pytest
-from sqlalchemy.engine.base import Engine
-
-import airbyte as ab
 from airbyte import cloud
 from airbyte.cloud.sync_results import SyncResult
+from sqlalchemy.engine.base import Engine
 
 
 @pytest.fixture
@@ -38,13 +37,18 @@ def test_deploy_and_run_and_read(
     """Test reading from a cache."""
 
     # Deploy source, destination, and connection:
-    source_id = cloud_workspace.deploy_source(source=deployable_source)
+    source_id = cloud_workspace.deploy_source(
+        source=deployable_source,
+        name="IntegTest Source (DELETEME)",
+    )
     destination_id = cloud_workspace.deploy_cache_as_destination(
-        cache=new_deployable_cache
+        cache=new_deployable_cache,
+        name="IntegTest Cache-as-Destination (DELETEME)",
     )
     connection: cloud.CloudConnection = cloud_workspace.deploy_connection(
-        source=deployable_source,
-        cache=new_deployable_cache,
+        name="IntegTest Connection (DELETEME)",
+        source=source_id,
+        destination_id=destination_id,
         table_prefix=new_deployable_cache.table_prefix,
         selected_streams=deployable_source.get_selected_streams(),
     )

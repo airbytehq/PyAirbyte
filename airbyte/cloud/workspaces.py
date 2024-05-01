@@ -8,6 +8,7 @@ both OSS and Enterprise.
 from __future__ import annotations
 
 import warnings
+from contextlib import suppress
 from dataclasses import dataclass
 from functools import wraps
 from typing import TYPE_CHECKING, Any, Callable
@@ -34,9 +35,9 @@ def resolve_connection(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(
         self: CloudWorkspace,
-        connection: str | CloudConnection | None,
-        connection_id: str | None,
         *args: Any,  # noqa: ANN401
+        connection: str | CloudConnection | None = None,
+        connection_id: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if connection_id is not None:
@@ -63,9 +64,9 @@ def resolve_source(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(
         self: CloudWorkspace,
-        source: str | CloudConnector | None,
-        source_id: str | None,
         *args: Any,  # noqa: ANN401
+        source: str | CloudConnector | None = None,
+        source_id: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if source_id is not None:
@@ -93,12 +94,12 @@ def resolve_source_id(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(
         self: CloudWorkspace,
-        source: str | CloudConnector | None,
-        source_id: str | None,
         *args: Any,  # noqa: ANN401
+        source: str | CloudConnector | None = None,
+        source_id: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
-        if not isinstance(source, (str, Source)):
+        if not isinstance(source, (str, CloudConnector)):
             raise ValueError(f"Invalid source type: {type(source)}")  # noqa: TRY004, TRY003
 
         if source_id is not None:
@@ -122,9 +123,9 @@ def resolve_destination(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(
         self: CloudWorkspace,
-        destination: str | CloudConnector | None,
-        destination_id: str | None,
         *args: Any,  # noqa: ANN401
+        destination: str | CloudConnector | None = None,
+        destination_id: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if destination_id is not None:
@@ -152,9 +153,9 @@ def resolve_destination_id(func: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(func)
     def wrapper(
         self: CloudWorkspace,
-        destination: str | CloudConnector | None,
-        destination_id: str | None,
         *args: Any,  # noqa: ANN401
+        destination: str | CloudConnector | None = None,
+        destination_id: str | None = None,
         **kwargs: Any,  # noqa: ANN401
     ) -> Any:  # noqa: ANN401
         if destination is None and destination_id is None:
@@ -244,7 +245,7 @@ class CloudWorkspace(ICloudResource):
         )
 
         deployed_source = _api_util.create_source(
-            name=f"{name} (Deployed by PyAirbyte)",
+            name=name,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
@@ -256,7 +257,11 @@ class CloudWorkspace(ICloudResource):
         source._deployed_workspace_id = self.workspace_id  # noqa: SLF001  # Accessing nn-public API
         source._deployed_source_id = deployed_source.source_id  # noqa: SLF001  # Accessing nn-public API
 
-        return deployed_source.source_id
+        return CloudConnector(
+            workspace=self,
+            connector_id=deployed_source.source_id,
+            connector_type=ConnectorTypeEnum.SOURCE,
+        )
 
     def get_source(
         self,
@@ -300,21 +305,14 @@ class CloudWorkspace(ICloudResource):
         self,
         cache: CacheBase,
         *,
-        name_key: str | None = None,
-        destination_id: str | None = None,
+        name: str,
     ) -> str:
         """Deploy a cache to the workspace as a new destination.
 
         Returns the newly deployed destination ID.
         """
-        if name_key and destination_id:
-            raise exc.PyAirbyteInputError(
-                guidance="You can provide either a `name_key` or a `destination_id`, but not both."
-            )
-        cache_type_name = cache.__class__.__name__.replace("Cache", "")
-
         deployed_destination: DestinationResponse = _api_util.create_destination(
-            name=f"Destination {cache_type_name} (Deployed by PyAirbyte)",
+            name=name,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
@@ -366,11 +364,10 @@ class CloudWorkspace(ICloudResource):
     @resolve_destination_id
     def deploy_connection(
         self,
+        name: str,
+        *,
         source: CloudConnector | str,
         destination: CloudConnector | str,
-        /,
-        *,
-        name_key: str,
         table_prefix: str | None = None,
         selected_streams: list[str] | None = None,
     ) -> CloudConnection:
@@ -386,18 +383,25 @@ class CloudWorkspace(ICloudResource):
         """
         assert isinstance(source, str), "Decorator should resolve source ID."
         assert isinstance(destination, str), "Decorator should resolve destination ID."
-        existing_connection = self.get_connection(name=name_key)
+        existing_connection: CloudConnection | None = None
+        with suppress(exc.AirbyteMissingResourceError):
+            existing_connection = _api_util.fetch_connection_by_name(
+                connection_name=name,
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                api_key=self.api_key,
+            )
         if existing_connection:
             raise exc.AirbyteResourceAlreadyExistsError(
                 message="Connection with matching name key already exists.",
                 context={
-                    "name_key": name_key,
+                    "name_key": name,
                     "connection_id": existing_connection.connection_id,
                 },
             )
 
         deployed_connection = _api_util.create_connection(
-            name=f"{name_key} (Deployed by PyAirbyte)",
+            name=name,
             source_id=source,
             destination_id=destination,
             api_root=self.api_root,

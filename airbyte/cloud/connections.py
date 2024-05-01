@@ -97,7 +97,7 @@ class CloudConnection(ICloudResource):
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response: ConnectionResponse = _api_util.run_connection(
+        job_response: ConnectionResponse = _api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -106,8 +106,8 @@ class CloudConnection(ICloudResource):
         sync_result = SyncResult(
             workspace=self.workspace,
             connection=self,
-            job_id=connection_response.job_id,
-            table_name_prefix=connection_response.prefix,
+            job_id=job_response.job_id,
+            table_name_prefix=self.table_prefix,
         )
 
         if wait:
