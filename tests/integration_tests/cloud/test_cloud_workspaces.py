@@ -123,8 +123,10 @@ def test_deploy_connection(
     )
 
     connection: CloudConnection = cloud_workspace.deploy_connection(
+        name="My Connection (DELETEME)",  # Used in deduplication and idempotency
         source=source_connector,
         destination=destination_connector,
+        table_prefix=cache.table_prefix,
     )
     assert set(connection.stream_names) == set(["users", "products", "purchases"])
     assert connection.table_prefix == "abc_deleteme_"
