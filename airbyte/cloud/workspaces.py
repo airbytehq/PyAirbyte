@@ -22,12 +22,12 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudConnector
 from airbyte.cloud.constants import ConnectorTypeEnum
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
     from airbyte._util.api_imports import DestinationResponse
     from airbyte.caches.base import CacheBase
+    from airbyte.sources.base import Source
 
 
 # Decorator for resolving connection objects

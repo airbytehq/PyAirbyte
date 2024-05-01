@@ -302,17 +302,17 @@ def list_resources(
     if isinstance(name_filter, str):
         # Redefine name_filter as a function
 
-        def resource_filter_fn(resource: Any) -> bool:
+        def resource_filter_fn(resource: Any) -> bool:  # noqa: ANN401  # Intentional use of Any
             return name_filter in resource.name
     elif name_filter is None:
         # "Always True" filter
 
-        def resource_filter_fn(resource: Any) -> bool:
+        def resource_filter_fn(resource: Any) -> bool:  # noqa: ANN401  # Intentional use of Any
             _ = resource
             return True
     else:
 
-        def resource_filter_fn(resource: Any) -> bool:
+        def resource_filter_fn(resource: Any) -> bool:  # noqa: ANN401  # Intentional use of Any
             return name_filter(resource.name)
 
     if resource_type == ResourceTypeEnum.CONNECTION:
