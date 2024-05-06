@@ -124,7 +124,7 @@ def _stream_from_subprocess(args: list[str]) -> Generator[Iterable[str], None, N
         exit_code = process.wait()
 
         # If the exit code is not 0 or -15 (SIGTERM), raise an exception
-        if exit_code not in (0, -15):
+        if exit_code not in {0, -15}:
             raise exc.AirbyteSubprocessFailedError(
                 run_args=args,
                 exit_code=exit_code,

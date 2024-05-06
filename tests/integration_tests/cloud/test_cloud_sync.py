@@ -3,6 +3,7 @@
 
 These tests are designed to be run against a running instance of the Airbyte API.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -24,10 +25,11 @@ def test_run_connection(
     pre_created_connection_id: str,
 ) -> None:
     """Test running a connection."""
-    sync_result: SyncResult = cloud_workspace.run_sync(connection_id=pre_created_connection_id)
+    sync_result: SyncResult = cloud_workspace.run_sync(
+        connection_id=pre_created_connection_id
+    )
     assert sync_result.is_job_complete()
     assert sync_result.stream_names
-
 
 
 @pytest.mark.super_slow
@@ -42,7 +44,6 @@ def test_get_previous_sync_result(
     assert sync_result.is_job_complete()
     assert sync_result.get_job_status()
     assert sync_result.stream_names
-
 
 
 @pytest.mark.super_slow

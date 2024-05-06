@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import datetime
-from textwrap import dedent
 import time
-import pytest
 from freezegun import freeze_time
 from airbyte.progress import ReadProgress, _get_elapsed_time_str, _to_time_str
 from dateutil.tz import tzlocal
@@ -46,11 +44,13 @@ def test_read_progress_reset():
     assert progress.total_batches_finalized == 0
     assert progress.finalized_stream_names == set()
 
+
 @freeze_time("2022-01-01")
 def test_read_progress_log_records_read():
     progress = ReadProgress()
     progress.log_records_read(100)
     assert progress.total_records_read == 100
+
 
 @freeze_time("2022-01-01")
 def test_read_progress_log_batch_written():
@@ -60,17 +60,20 @@ def test_read_progress_log_batch_written():
     assert progress.total_batches_written == 1
     assert progress.written_stream_names == {"stream1"}
 
+
 @freeze_time("2022-01-01")
 def test_read_progress_log_batches_finalizing():
     progress = ReadProgress()
     progress.log_batches_finalizing("stream1", 1)
     assert progress.finalize_start_time == 1640995200.0
 
+
 @freeze_time("2022-01-01")
 def test_read_progress_log_batches_finalized():
     progress = ReadProgress()
     progress.log_batches_finalized("stream1", 1)
     assert progress.total_batches_finalized == 1
+
 
 @freeze_time("2022-01-01")
 def test_read_progress_log_stream_finalized():
@@ -97,8 +100,8 @@ def _assert_lines(expected_lines, actual_lines: list[str] | str):
     for line in expected_lines:
         assert line in actual_lines, f"Missing line: {line}"
 
-def test_get_status_message_after_finalizing_records():
 
+def test_get_status_message_after_finalizing_records():
     # Test that we can render the initial status message before starting to read
     with freeze_time("2022-01-01 00:00:00"):
         progress = ReadProgress()

@@ -28,6 +28,7 @@ Here is what is tracked:
 - Flags to help us understand if PyAirbyte is running on CI, Google Colab, or another environment.
 
 """
+
 from __future__ import annotations
 
 import datetime

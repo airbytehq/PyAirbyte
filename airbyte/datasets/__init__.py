@@ -1,3 +1,6 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+"""PyAirbyte dataset classes."""
+
 from __future__ import annotations
 
 from airbyte.datasets._base import DatasetBase

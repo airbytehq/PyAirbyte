@@ -5,6 +5,7 @@
 TODO: This is a work in progress. It is not yet used by any other code.
 TODO: Implement before release, or delete.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping

@@ -5,6 +5,7 @@
 Since source-faker is included in dev dependencies, we can assume `source-faker` is installed
 and available on PATH for the poetry-managed venv.
 """
+
 from __future__ import annotations
 
 from collections.abc import Generator
@@ -39,6 +40,7 @@ FAKER_SCALE_B = 300
 
 # Patch PATH to include the source-faker executable.
 
+
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
@@ -46,7 +48,7 @@ def add_venv_bin_to_path(monkeypatch):
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-    monkeypatch.setenv('PATH', new_path)
+    monkeypatch.setenv("PATH", new_path)
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
@@ -124,8 +126,9 @@ def all_cache_types(
 
 def test_which_source_faker() -> None:
     """Test that source-faker is available on PATH."""
-    assert shutil.which("source-faker"), \
-        f"Can't find source-faker on PATH: {os.environ['PATH']}"
+    assert shutil.which(
+        "source-faker"
+    ), f"Can't find source-faker on PATH: {os.environ['PATH']}"
 
 
 def test_faker_pks(
@@ -150,7 +153,9 @@ def test_replace_strategy(
     all_cache_types: CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
-    for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
+    for (
+        cache
+    ) in all_cache_types:  # Function-scoped fixtures can't be used in parametrized().
         for _ in range(2):
             result = source_faker_seed_a.read(
                 cache, write_strategy="replace", force_full_refresh=True
@@ -165,11 +170,18 @@ def test_append_strategy(
     all_cache_types: CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
-    for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
+    for (
+        cache
+    ) in all_cache_types:  # Function-scoped fixtures can't be used in parametrized().
         for iteration in range(1, 3):
             result = source_faker_seed_a.read(cache, write_strategy="append")
-            assert len(list(result.cache.streams["products"])) == NUM_PRODUCTS * iteration
-            assert len(list(result.cache.streams["purchases"])) == FAKER_SCALE_A * iteration
+            assert (
+                len(list(result.cache.streams["products"])) == NUM_PRODUCTS * iteration
+            )
+            assert (
+                len(list(result.cache.streams["purchases"]))
+                == FAKER_SCALE_A * iteration
+            )
 
 
 @pytest.mark.slow
@@ -185,7 +197,9 @@ def test_merge_strategy(
     Since all streams have primary keys, we should expect the auto strategy to be identical to the
     merge strategy.
     """
-    for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
+    for (
+        cache
+    ) in all_cache_types:  # Function-scoped fixtures can't be used in parametrized().
         # First run, seed A (counts should match the scale or the product count)
         result = source_faker_seed_a.read(cache, write_strategy=strategy)
         assert len(list(result.cache.streams["products"])) == NUM_PRODUCTS
@@ -255,8 +269,10 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert second_cache.processor._catalog_manager and \
-        second_cache.processor._catalog_manager.get_state("source-faker")
+    assert (
+        second_cache.processor._catalog_manager
+        and second_cache.processor._catalog_manager.get_state("source-faker")
+    )
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
@@ -274,7 +290,9 @@ def test_incremental_state_prefix_isolation(
     cache_name = str(ulid.ULID())
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     cache = DuckDBCache(db_path=db_path, table_prefix="prefix_")
-    different_prefix_cache = DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    different_prefix_cache = DuckDBCache(
+        db_path=db_path, table_prefix="different_prefix_"
+    )
 
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
@@ -288,6 +306,7 @@ def test_incremental_state_prefix_isolation(
 
 def test_config_spec(source_faker_seed_a: ab.Source) -> None:
     assert source_faker_seed_a.config_spec
+
 
 def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
     with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp:

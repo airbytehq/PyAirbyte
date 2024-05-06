@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
 """A simple progress bar for the command line and IPython notebooks."""
+
 from __future__ import annotations
 
 import datetime
@@ -84,12 +85,12 @@ def _get_elapsed_time_str(seconds: int) -> str:
 
     if seconds < 60 * 10:
         minutes = seconds // 60
-        seconds = seconds % 60
+        seconds %= 60
         return f"{minutes}min {seconds}s"
 
     if seconds < 60 * 60:
         minutes = seconds // 60
-        seconds = seconds % 60
+        seconds %= 60
         return f"{minutes}min"
 
     hours = seconds // (60 * 60)

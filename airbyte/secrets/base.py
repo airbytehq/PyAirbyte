@@ -121,6 +121,9 @@ class SecretManager(ABC):
 
         return super().__eq__(value)
 
+    def __hash__(self) -> int:
+        return hash(self.name)
+
 
 class SecretHandle:
     """A handle for a secret in a secret manager.
