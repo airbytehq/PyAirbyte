@@ -10,6 +10,7 @@ from pathlib import Path
 from shutil import rmtree
 from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 
+from overrides import overrides
 from rich import print
 from typing_extensions import Literal
 
@@ -77,6 +78,18 @@ class Executor(ABC):
     @abstractmethod
     def uninstall(self) -> None:
         pass
+
+    def get_installed_version(
+        self,
+        *,
+        raise_on_error: bool = False,
+        recheck: bool = False,
+    ) -> str | None:
+        """Detect the version of the connector installed."""
+        _ = raise_on_error, recheck  # Unused
+        raise NotImplementedError(
+            f"'{type(self).__name__}' class cannot yet detect connector versions."
+        )
 
 
 @contextmanager
@@ -238,7 +251,7 @@ class VenvExecutor(Executor):
             raise exc.AirbyteConnectorInstallationError from ex
 
         # Assuming the installation succeeded, store the installed version
-        self.reported_version = self._get_installed_version(raise_on_error=False, recheck=True)
+        self.reported_version = self.get_installed_version(raise_on_error=False, recheck=True)
         log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
             f"Connector '{self.name}' installed successfully!\n"
@@ -246,7 +259,8 @@ class VenvExecutor(Executor):
             f"{self.docs_url}#reference\n"
         )
 
-    def _get_installed_version(
+    @overrides
+    def get_installed_version(
         self,
         *,
         raise_on_error: bool = False,
@@ -315,7 +329,7 @@ class VenvExecutor(Executor):
         """
         # Store the installed version (or None if not installed)
         if not self.reported_version:
-            self.reported_version = self._get_installed_version()
+            self.reported_version = self.get_installed_version()
 
         original_installed_version = self.reported_version
 
