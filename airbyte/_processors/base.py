@@ -245,7 +245,7 @@ class RecordProcessor(abc.ABC):
         pass
 
     @final
-    def _get_stream_config(
+    def _get_configured_catalog_info(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
@@ -255,7 +255,7 @@ class RecordProcessor(abc.ABC):
                 message="Catalog manager should exist but does not.",
             )
 
-        return self._catalog_manager.get_stream_config(stream_name)
+        return self._catalog_manager.get_configured_catalog_info(stream_name)
 
     @final
     def get_stream_json_schema(
@@ -263,7 +263,7 @@ class RecordProcessor(abc.ABC):
         stream_name: str,
     ) -> dict[str, Any]:
         """Return the column definitions for the given stream."""
-        return self._get_stream_config(stream_name).stream.json_schema
+        return self._get_configured_catalog_info(stream_name).stream.json_schema
 
     def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Clean up all resources.

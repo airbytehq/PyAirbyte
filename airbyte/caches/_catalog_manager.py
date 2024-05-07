@@ -5,16 +5,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import TYPE_CHECKING, Callable
 
-from pytz import utc
-from sqlalchemy import Column, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
 from airbyte_protocol.models import (
-    AirbyteStateMessage,
     AirbyteStream,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
@@ -23,6 +19,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._future_cdk.catalog_manager import CachedStream, CatalogManagerBase
 
 
 if TYPE_CHECKING:
@@ -36,28 +33,7 @@ GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
 Base = declarative_base()
 
 
-class CachedStream(Base):  # type: ignore[valid-type,misc]
-    __tablename__ = STREAMS_TABLE_NAME
-
-    stream_name = Column(String)
-    source_name = Column(String)
-    table_name = Column(String, primary_key=True)
-    catalog_metadata = Column(String)
-
-
-class StreamState(Base):  # type: ignore[valid-type,misc]
-    __tablename__ = STATE_TABLE_NAME
-
-    source_name = Column(String)
-    stream_name = Column(String)
-    table_name = Column(String, primary_key=True)
-    state_json = Column(String)
-    last_updated = Column(
-        DateTime(timezone=True), onupdate=datetime.now(utc), default=datetime.now(utc)
-    )
-
-
-class CatalogManager:
+class OLTPCatalogManager(CatalogManagerBase):
     """
     A class to manage the stream catalog of data synced to a cache:
     * What streams exist and to what tables they map
@@ -73,7 +49,7 @@ class CatalogManager:
         self._engine: Engine = engine
         self._table_name_resolver = table_name_resolver
         self._source_catalog: ConfiguredAirbyteCatalog | None = None
-        self._load_catalog_from_internal_table()
+        self._load_catalog_info()
         assert self._source_catalog is not None
 
     @property
@@ -99,54 +75,6 @@ class CatalogManager:
         engine = self._engine
         Base.metadata.create_all(engine)
 
-    def save_state(
-        self,
-        source_name: str,
-        state: AirbyteStateMessage,
-        stream_name: str,
-    ) -> None:
-        self._ensure_internal_tables()
-        engine = self._engine
-        with Session(engine) as session:
-            session.query(StreamState).filter(
-                StreamState.table_name == self._table_name_resolver(stream_name)
-            ).delete()
-            session.commit()
-            session.add(
-                StreamState(
-                    source_name=source_name,
-                    stream_name=stream_name,
-                    table_name=self._table_name_resolver(stream_name),
-                    state_json=state.json(),
-                )
-            )
-            session.commit()
-
-    def get_state(
-        self,
-        source_name: str,
-        streams: list[str] | None = None,
-    ) -> list[dict] | None:
-        self._ensure_internal_tables()
-        engine = self._engine
-        with Session(engine) as session:
-            query = session.query(StreamState).filter(StreamState.source_name == source_name)
-            if streams:
-                query = query.filter(
-                    StreamState.stream_name.in_([*streams, *GLOBAL_STATE_STREAM_NAMES])
-                )
-            states = query.all()
-            if not states:
-                return None
-            # Only return the states if the table name matches what the current cache
-            # would generate. Otherwise consider it part of a different cache.
-            states = [
-                state
-                for state in states
-                if state.table_name == self._table_name_resolver(state.stream_name)
-            ]
-            return [json.loads(state.state_json) for state in states]
-
     def register_source(
         self,
         source_name: str,
@@ -158,7 +86,7 @@ class CatalogManager:
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=incoming_stream_names,
         )
-        self._save_catalog_to_internal_table(
+        self._save_catalog_info(
             source_name=source_name,
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=incoming_stream_names,
@@ -193,7 +121,7 @@ class CatalogManager:
         ]
         self._source_catalog = ConfiguredAirbyteCatalog(streams=unchanged_streams + new_streams)
 
-    def _save_catalog_to_internal_table(
+    def _save_catalog_info(
         self,
         source_name: str,
         incoming_source_catalog: ConfiguredAirbyteCatalog,
@@ -226,7 +154,7 @@ class CatalogManager:
             session.add_all(insert_streams)
             session.commit()
 
-    def get_stream_config(
+    def get_configured_catalog_info(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
@@ -259,7 +187,7 @@ class CatalogManager:
 
         return matching_streams[0]
 
-    def _load_catalog_from_internal_table(self) -> None:
+    def _load_catalog_info(self) -> None:
         self._ensure_internal_tables()
         engine = self._engine
         with Session(engine) as session:
