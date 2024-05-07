@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
+from airbyte._future_cdk import SqlProcessorBase
 from airbyte._processors.file import JsonlWriter
-from airbyte._processors.sql.base import SqlProcessorBase
 
 
 class PostgresSqlProcessor(SqlProcessorBase):

@@ -10,8 +10,8 @@ import sqlalchemy
 from overrides import overrides
 from snowflake.sqlalchemy import VARIANT
 
+from airbyte._future_cdk import SqlProcessorBase
 from airbyte._processors.file.jsonl import JsonlWriter
-from airbyte._processors.sql.base import SqlProcessorBase
 from airbyte.types import SQLTypeConverter
 
 

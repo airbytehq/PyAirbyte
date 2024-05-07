@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 
 from overrides import overrides
 
+from airbyte._future_cdk import SqlProcessorBase
 from airbyte._processors.file import JsonlWriter
-from airbyte._processors.sql.base import SqlProcessorBase
 
 
 if TYPE_CHECKING:
