@@ -436,8 +436,11 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         )
 
     @property
-    def connector_version(self) -> str:
-        """Return the version of the connector as reported by the executor."""
+    def connector_version(self) -> str | None:
+        """Return the version of the connector as reported by the executor.
+
+        Returns None if the version cannot be determined.
+        """
         return self.executor.get_installed_version()
 
     def get_documents(

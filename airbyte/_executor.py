@@ -8,8 +8,9 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from shutil import rmtree
-from typing import IO, TYPE_CHECKING, Any, NoReturn, cast, override
+from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 
+from overrides import overrides
 from rich import print
 from typing_extensions import Literal
 
@@ -78,10 +79,18 @@ class Executor(ABC):
     def uninstall(self) -> None:
         pass
 
-    def get_installed_version(self) -> None:
+    def get_installed_version(
+        self,
+        *,
+        raise_on_error: bool = False,
+        recheck: bool = False,
+    ) -> str | None:
+        """Detect the version of the connector installed."""
+        _ = raise_on_error, recheck  # Unused
         raise NotImplementedError(
             f"'{type(self).__name__}' class cannot yet detect connector versions."
         )
+
 
 @contextmanager
 def _stream_from_subprocess(args: list[str]) -> Generator[Iterable[str], None, None]:
@@ -250,7 +259,7 @@ class VenvExecutor(Executor):
             f"{self.docs_url}#reference\n"
         )
 
-    @override
+    @overrides
     def get_installed_version(
         self,
         *,
