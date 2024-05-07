@@ -5,24 +5,17 @@
 from __future__ import annotations
 
 import abc
-import json
 from datetime import datetime
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from pytz import utc
 from sqlalchemy import Column, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
-
-from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
-
     from airbyte_protocol.models import (
         AirbyteStateMessage,
-        ConfiguredAirbyteCatalog,
     )
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
@@ -53,70 +46,27 @@ class StateManagerBase(abc.ABC):
     * The state of each stream if available
     """
 
-    def __init__(
-        self,
-        engine: Engine,
-        table_name_resolver: Callable[[str], str],
-    ) -> None:
-        self._engine: Engine = engine
-        self._table_name_resolver = table_name_resolver
-        self._source_catalog: ConfiguredAirbyteCatalog | None = None
-        self._load_catalog_info()
-        assert self._source_catalog is not None
-
     @property
+    @abc.abstractmethod
     def stream_names(self) -> list[str]:
         """Return the names of all streams in the cache."""
         return [stream.stream.name for stream in self.source_catalog.streams]
 
-    def _ensure_internal_tables(self) -> None:
-        engine = self._engine
-        Base.metadata.create_all(engine)
-
+    @abc.abstractmethod
     def save_state(
         self,
         source_name: str,
         state: AirbyteStateMessage,
         stream_name: str,
     ) -> None:
-        self._ensure_internal_tables()
-        engine = self._engine
-        with Session(engine) as session:
-            session.query(StreamState).filter(
-                StreamState.table_name == self._table_name_resolver(stream_name)
-            ).delete()
-            session.commit()
-            session.add(
-                StreamState(
-                    source_name=source_name,
-                    stream_name=stream_name,
-                    table_name=self._table_name_resolver(stream_name),
-                    state_json=state.json(),
-                )
-            )
-            session.commit()
+        """Save the state of a stream to the cache."""
+        ...
 
+    @abc.abstractmethod
     def get_state(
         self,
         source_name: str,
         streams: list[str] | None = None,
     ) -> list[dict] | None:
-        self._ensure_internal_tables()
-        engine = self._engine
-        with Session(engine) as session:
-            query = session.query(StreamState).filter(StreamState.source_name == source_name)
-            if streams:
-                query = query.filter(
-                    StreamState.stream_name.in_([*streams, *GLOBAL_STATE_STREAM_NAMES])
-                )
-            states = query.all()
-            if not states:
-                return None
-            # Only return the states if the table name matches what the current cache
-            # would generate. Otherwise consider it part of a different cache.
-            states = [
-                state
-                for state in states
-                if state.table_name == self._table_name_resolver(state.stream_name)
-            ]
-            return [json.loads(state.state_json) for state in states]
+        """Get the state of a stream from the cache."""
+        ...
