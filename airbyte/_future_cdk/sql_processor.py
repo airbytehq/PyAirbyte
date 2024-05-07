@@ -31,7 +31,6 @@ from sqlalchemy.sql.elements import TextClause
 from airbyte import exceptions as exc
 from airbyte._processors.base import RecordProcessor
 from airbyte._util.name_normalizers import LowerCaseNormalizer
-from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
     AB_META_COLUMN,
@@ -102,10 +101,6 @@ class SqlProcessorBase(RecordProcessor):
         self._connection_to_reuse: Connection | None = None
         super().__init__(cache, catalog_manager=None)
         self._ensure_schema_exists()
-        self._catalog_manager = CatalogManager(
-            engine=self.get_sql_engine(),
-            table_name_resolver=self.get_sql_table_name,
-        )
         self.file_writer = file_writer or self.file_writer_class(cache)
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}

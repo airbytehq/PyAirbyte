@@ -5,12 +5,10 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, cast, final
+from typing import TYPE_CHECKING, Any, Optional, final
 
 from pydantic import BaseModel, PrivateAttr
 
-from airbyte import exceptions as exc
-from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -19,7 +17,9 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Engine
 
-    from airbyte._processors.sql.base import SqlProcessorBase
+    from airbyte._future_cdk.catalog_manager import CatalogManagerBase
+    from airbyte._future_cdk.sql_processor import SqlProcessorBase
+    from airbyte._future_cdk.state_manager import StateManagerBase
     from airbyte.datasets._base import DatasetBase
 
 
@@ -50,6 +50,9 @@ class CacheBase(BaseModel):
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
+
+    _catalog_manager: Optional[CatalogManagerBase] = PrivateAttr(default=None)
+    _state_manager: Optional[StateManagerBase] = PrivateAttr(default=None)
 
     @final
     @property
@@ -82,8 +85,8 @@ class CacheBase(BaseModel):
         """Return a temporary table name."""
         result = {}
         stream_names = self.processor.expected_streams
-        if self._has_catalog_manager:
-            stream_names |= set(self._catalog_manager.stream_names)
+        stream_names |= set(self.catalog_manager.stream_names)
+
         for stream_name in stream_names:
             result[stream_name] = CachedDataset(self, stream_name)
 
@@ -94,30 +97,34 @@ class CacheBase(BaseModel):
         source_name: str,
         streams: list[str] | None,
     ) -> list[dict[str, Any]] | None:
-        return self._catalog_manager.get_state(
+        return self.state_manager.get_state(
             source_name=source_name,
             streams=streams,
         )
 
     @property
-    def _has_catalog_manager(
+    def catalog_manager(
         self,
-    ) -> bool:
-        """Return whether the cache has a catalog manager."""
-        # Member is private until we have a public API for it.
-        return self.processor._catalog_manager is not None  # noqa: SLF001
-
-    @property
-    def _catalog_manager(
-        self,
-    ) -> CatalogManager:
-        if not self._has_catalog_manager:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog manager should exist but does not.",
+    ) -> CatalogManagerBase:
+        if not self._catalog_manager:
+            self._catalog_manager = OLTPCatalogManager(
+                engine=self.get_sql_engine(),
+                table_name_resolver=self.processor.get_sql_table_name,
             )
 
-        # Member is private until we have a public API for it.
-        return cast(CatalogManager, self.processor._catalog_manager)  # noqa: SLF001
+        return self._catalog_manager
+
+    @property
+    def state_manager(
+        self,
+    ) -> StateManagerBase:
+        if not self._state_manager:
+            self._state_manager = OLTPStateManager(
+                engine=self.get_sql_engine(),
+                table_name_resolver=self.processor.get_sql_table_name,
+            )
+
+        return self._state_manager
 
     def __getitem__(self, stream: str) -> DatasetBase:
         return self.streams[stream]

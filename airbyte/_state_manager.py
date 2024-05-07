@@ -42,7 +42,7 @@ class OLTPStateManager(StateManagerBase):
         self._engine: Engine = engine
         self._table_name_resolver = table_name_resolver
         self._source_catalog: ConfiguredAirbyteCatalog | None = None
-        self._load_catalog_info()
+        self._load_state_info()
         assert self._source_catalog is not None
 
     @property
