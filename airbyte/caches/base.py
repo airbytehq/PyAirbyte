@@ -97,6 +97,7 @@ class CacheBase(BaseModel):
         source_name: str,
         streams: list[str] | None,
     ) -> list[dict[str, Any]] | None:
+        """Return the state artifact for all requested streams."""
         return self.state_manager.get_state(
             source_name=source_name,
             streams=streams,
@@ -106,33 +107,26 @@ class CacheBase(BaseModel):
     def catalog_manager(
         self,
     ) -> CatalogManagerBase:
-        if not self._catalog_manager:
-            self._catalog_manager = OLTPCatalogManager(
-                engine=self.get_sql_engine(),
-                table_name_resolver=self.processor.get_sql_table_name,
-            )
-
-        return self._catalog_manager
+        """Return the catalog manager from the record processor."""
+        return self.processor.catalog_manager
 
     @property
     def state_manager(
         self,
     ) -> StateManagerBase:
-        if not self._state_manager:
-            self._state_manager = OLTPStateManager(
-                engine=self.get_sql_engine(),
-                table_name_resolver=self.processor.get_sql_table_name,
-            )
-
-        return self._state_manager
+        """Return the state manager from the record processor."""
+        return self.processor.state_manager
 
     def __getitem__(self, stream: str) -> DatasetBase:
+        """Return a dataset by stream name."""
         return self.streams[stream]
 
     def __contains__(self, stream: str) -> bool:
+        """Return whether a stream is in the cache."""
         return stream in (self.processor.expected_streams)
 
     def __iter__(  # type: ignore [override]  # Overrides Pydantic BaseModel return type
         self,
     ) -> Iterator[tuple[str, Any]]:
+        """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())

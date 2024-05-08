@@ -87,6 +87,44 @@ class RecordProcessorBase(abc.ABC):
         """Return the expected stream names."""
         return self._expected_streams or set()
 
+    @property
+    def catalog_manager(
+        self,
+    ) -> CatalogManagerBase:
+        """Return the catalog manager.
+
+        Subclasses should set this property to a valid catalog manager instance if one
+        is not explicitly passed to the constructor.
+
+        Raises:
+            PyAirbyteInternalError: If the catalog manager is not set.
+        """
+        if not self._catalog_manager:
+            raise exc.PyAirbyteInternalError(
+                message="Catalog manager should exist but does not.",
+            )
+
+        return self._catalog_manager
+
+    @property
+    def state_manager(
+        self,
+    ) -> StateManagerBase:
+        """Return the state manager.
+
+        Subclasses should set this property to a valid state manager instance if one
+        is not explicitly passed to the constructor.
+
+        Raises:
+            PyAirbyteInternalError: If the state manager is not set.
+        """
+        if not self._state_manager:
+            raise exc.PyAirbyteInternalError(
+                message="State manager should exist but does not.",
+            )
+
+        return self._state_manager
+
     def register_source(
         self,
         source_name: str,
@@ -177,7 +215,7 @@ class RecordProcessorBase(abc.ABC):
                 stream_name = record_msg.stream
 
                 if stream_name not in stream_schemas:
-                    stream_schemas[stream_name] = self._catalog_manager.get_stream_json_schema(
+                    stream_schemas[stream_name] = self.catalog_manager.get_stream_json_schema(
                         stream_name=stream_name
                     )
 
