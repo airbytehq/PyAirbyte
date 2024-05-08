@@ -239,7 +239,7 @@ def test_version_enforcement(
                 install_if_missing=False,
             )
             if requested_version:  # Don't raise if a version is not requested
-                assert source.executor._get_installed_version(raise_on_error=True) == (
+                assert source.executor.get_installed_version(raise_on_error=True) == (
                     requested_version or latest_available_version
                 ).replace("latest", latest_available_version)
             source.executor.ensure_installation(auto_fix=False)
