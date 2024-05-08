@@ -50,7 +50,7 @@ class StateManagerBase(abc.ABC):
     @abc.abstractmethod
     def stream_names(self) -> list[str]:
         """Return the names of all streams in the cache."""
-        return [stream.stream.name for stream in self.source_catalog.streams]
+        ...
 
     @abc.abstractmethod
     def save_state(
