@@ -60,6 +60,7 @@ class CacheBase(BaseModel):
         """Return the SQL processor instance."""
         if self._sql_processor is None:
             self._sql_processor = self._sql_processor_class(cache=self)
+
         return self._sql_processor
 
     @final

@@ -270,8 +270,9 @@ class RecordProcessorBase(abc.ABC):
             raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
+
         if state_messages and self._source_name:
-            self._state_manager.save_state(
+            self.state_manager.save_state(
                 source_name=self._source_name,
                 stream_name=stream_name,
                 state=state_messages[-1],
