@@ -42,7 +42,6 @@ class CatalogManagerBase(abc.ABC):
     A class to manage the stream catalog of data synced to a cache:
     * What streams exist and to what tables they map
     * The JSON schema for each stream
-    * The state of each stream if available
     """
 
     # Abstract implementations

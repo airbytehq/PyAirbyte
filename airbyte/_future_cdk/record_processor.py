@@ -1,10 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""Abstract base class for Processors, including SQL and File writers.
+"""Abstract base class for Processors, including SQL processors.
 
-Processors can take input from STDIN or a stream of Airbyte messages.
-
-Caches will pass their input to the File Writer. They share a common base class so certain
-abstractions like "write" and "finalize" can be handled in either layer, or both.
+Processors accept Airbyte messages as input from STDIN or from another input stream.
 """
 
 from __future__ import annotations
@@ -295,12 +292,7 @@ class RecordProcessorBase(abc.ABC):
 
         This method is a convenience wrapper around the catalog manager implementation.
         """
-        if not self._catalog_manager:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog manager should exist but does not.",
-            )
-
-        return self._catalog_manager.get_configured_stream_info(stream_name)
+        return self.catalog_manager.get_configured_stream_info(stream_name)
 
     @final
     def get_stream_json_schema(
@@ -311,12 +303,7 @@ class RecordProcessorBase(abc.ABC):
 
         This method is a convenience wrapper around the catalog manager implementation.
         """
-        if not self._catalog_manager:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog manager should exist but does not.",
-            )
-
-        return self._catalog_manager.get_stream_json_schema(stream_name)
+        return self.catalog_manager.get_stream_json_schema(stream_name)
 
     def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Clean up all resources.

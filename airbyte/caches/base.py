@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from airbyte._future_cdk.catalog_manager import CatalogManagerBase
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
-    from airbyte._future_cdk.state_manager import StateManagerBase
+    from airbyte._future_cdk.state.state_manager import StateManagerBase
     from airbyte.datasets._base import DatasetBase
 
 
