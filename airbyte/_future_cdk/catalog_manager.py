@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, final
 
 from sqlalchemy import Column, String
 from sqlalchemy.ext.declarative import declarative_base
@@ -102,6 +102,14 @@ class CatalogManagerBase(abc.ABC):
     ) -> ConfiguredAirbyteStream:
         """Return the column definitions for the given stream."""
         ...
+
+    @final
+    def get_stream_json_schema(
+        self,
+        stream_name: str,
+    ) -> dict[str, Any]:
+        """Return the column definitions for the given stream."""
+        return self.get_configured_catalog_info(stream_name).stream.json_schema
 
     @abc.abstractmethod
     def _load_catalog_info(self) -> None:

@@ -29,7 +29,7 @@ from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import TextClause
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import RecordProcessor
+from airbyte._future_cdk.record_processor import RecordProcessorBase
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
@@ -73,7 +73,7 @@ class SQLRuntimeError(Exception):
     """Raised when an SQL operation fails."""
 
 
-class SqlProcessorBase(RecordProcessor):
+class SqlProcessorBase(RecordProcessorBase):
     """A base class to be used for SQL Caches."""
 
     type_converter_class: type[SQLTypeConverter] = SQLTypeConverter

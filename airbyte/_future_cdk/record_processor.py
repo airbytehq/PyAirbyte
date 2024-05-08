@@ -35,27 +35,29 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from airbyte._batch_handles import BatchHandle
-    from airbyte.caches._catalog_manager import CatalogManager
+    from airbyte._catalog_manager import CatalogManagerBase
+    from airbyte._state_manager import StateManagerBase
 
 
 class AirbyteMessageParsingError(Exception):
     """Raised when an Airbyte message is invalid or cannot be parsed."""
 
 
-class RecordProcessor(abc.ABC):
+class RecordProcessorBase(abc.ABC):
     """Abstract base class for classes which can process Airbyte messages from a source.
 
     This class is responsible for all aspects of handling Airbyte protocol.
 
-    The class leverages the cache's catalog manager class to store and retrieve metadata.
-
+    The class should be passed a catalog manager and stream manager class to handle the
+    catalog and state aspects of the protocol.
     """
 
     def __init__(
         self,
         cache: CacheBase,
         *,
-        catalog_manager: CatalogManager | None = None,
+        catalog_manager: CatalogManagerBase | None = None,
+        state_manager: StateManagerBase | None = None,
     ) -> None:
         self._expected_streams: set[str] | None = None
         self.cache: CacheBase = cache
@@ -76,7 +78,8 @@ class RecordProcessor(abc.ABC):
             list[AirbyteStateMessage],
         ] = defaultdict(list, {})
 
-        self._catalog_manager: CatalogManager | None = catalog_manager
+        self._catalog_manager: CatalogManagerBase | None = catalog_manager
+        self._state_manager: StateManagerBase | None = state_manager
         self._setup()
 
     @property
@@ -174,7 +177,7 @@ class RecordProcessor(abc.ABC):
                 stream_name = record_msg.stream
 
                 if stream_name not in stream_schemas:
-                    stream_schemas[stream_name] = self.cache.processor.get_stream_json_schema(
+                    stream_schemas[stream_name] = self._catalog_manager.get_stream_json_schema(
                         stream_name=stream_name
                     )
 
@@ -225,12 +228,12 @@ class RecordProcessor(abc.ABC):
         state_messages: list[AirbyteStateMessage],
     ) -> None:
         """Handle state messages by passing them to the catalog manager."""
-        if not self._catalog_manager:
+        if not self._state_manager:
             raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
         if state_messages and self._source_name:
-            self._catalog_manager.save_state(
+            self._state_manager.save_state(
                 source_name=self._source_name,
                 stream_name=stream_name,
                 state=state_messages[-1],
@@ -249,7 +252,10 @@ class RecordProcessor(abc.ABC):
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
-        """Return the definition of the given stream."""
+        """Return the definition of the given stream.
+
+        This method is a convenience wrapper around the catalog manager implementation.
+        """
         if not self._catalog_manager:
             raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
@@ -262,8 +268,16 @@ class RecordProcessor(abc.ABC):
         self,
         stream_name: str,
     ) -> dict[str, Any]:
-        """Return the column definitions for the given stream."""
-        return self._get_configured_catalog_info(stream_name).stream.json_schema
+        """Return the column definitions for the given stream.
+
+        This method is a convenience wrapper around the catalog manager implementation.
+        """
+        if not self._catalog_manager:
+            raise exc.PyAirbyteInternalError(
+                message="Catalog manager should exist but does not.",
+            )
+
+        return self._catalog_manager.get_stream_json_schema(stream_name)
 
     def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Clean up all resources.
