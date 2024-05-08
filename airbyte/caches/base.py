@@ -97,7 +97,7 @@ class CacheBase(BaseModel):
         source_name: str,
         streams: list[str] | None,
     ) -> list[dict[str, Any]] | None:
-        """Return the state artifact for all requested streams."""
+        """Return the state artifacts for all requested streams."""
         return self.state_manager.get_state(
             source_name=source_name,
             streams=streams,

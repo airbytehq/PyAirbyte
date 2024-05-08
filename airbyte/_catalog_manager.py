@@ -154,41 +154,6 @@ class OLTPCatalogManager(CatalogManagerBase):
             session.add_all(insert_streams)
             session.commit()
 
-    def get_configured_stream_info(
-        self,
-        stream_name: str,
-    ) -> ConfiguredAirbyteStream:
-        """Return the column definitions for the given stream."""
-        if not self.configured_catalog:
-            raise exc.PyAirbyteInternalError(
-                message="Cannot get stream JSON schema without a catalog.",
-            )
-
-        matching_streams: list[ConfiguredAirbyteStream] = [
-            stream
-            for stream in self.configured_catalog.streams
-            if stream.stream.name == stream_name
-        ]
-        if not matching_streams:
-            raise exc.AirbyteStreamNotFoundError(
-                stream_name=stream_name,
-                context={
-                    "available_streams": [
-                        stream.stream.name for stream in self.configured_catalog.streams
-                    ],
-                },
-            )
-
-        if len(matching_streams) > 1:
-            raise exc.PyAirbyteInternalError(
-                message="Multiple streams found with same name.",
-                context={
-                    "stream_name": stream_name,
-                },
-            )
-
-        return matching_streams[0]
-
     def _load_catalog_info(self) -> None:
         self._ensure_internal_tables()
         engine = self._engine

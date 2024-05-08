@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, final
 from sqlalchemy import Column, String
 from sqlalchemy.ext.declarative import declarative_base
 
+from airbyte import exceptions as exc
+
 
 if TYPE_CHECKING:
     from airbyte_protocol.models import (
@@ -43,11 +45,7 @@ class CatalogManagerBase(abc.ABC):
     * The state of each stream if available
     """
 
-    @property
-    @abc.abstractmethod
-    def stream_names(self) -> list[str]:
-        """Return the names of all streams in the cache."""
-        ...
+    # Abstract implementations
 
     @property
     @abc.abstractmethod
@@ -58,6 +56,40 @@ class CatalogManagerBase(abc.ABC):
             PyAirbyteInternalError: If the source catalog is not set.
         """
         ...
+
+    @abc.abstractmethod
+    def _load_catalog_info(self) -> None:
+        """Load the catalog information from the cache."""
+        ...
+
+    @abc.abstractmethod
+    def _update_catalog(
+        self,
+        incoming_source_catalog: ConfiguredAirbyteCatalog,
+        incoming_stream_names: set[str],
+    ) -> None:
+        """Update the catalog data with incoming catalog."""
+        ...
+
+    @abc.abstractmethod
+    def _save_catalog_info(
+        self,
+        source_name: str,
+        incoming_source_catalog: ConfiguredAirbyteCatalog,
+        incoming_stream_names: set[str],
+    ) -> None:
+        """Serialize the incoming catalog information to storage.
+
+        Raises:
+            NotImplementedError: If the catalog is static or the catalog manager is read only.
+        """
+        ...
+
+    # Generic implementations
+
+    @property
+    def stream_names(self) -> list[str]:
+        return [stream.name for stream in self.configured_catalog.streams]
 
     def register_source(
         self,
@@ -76,32 +108,40 @@ class CatalogManagerBase(abc.ABC):
             incoming_stream_names=incoming_stream_names,
         )
 
-    @abc.abstractmethod
-    def _update_catalog(
-        self,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        incoming_stream_names: set[str],
-    ) -> None:
-        """Update the catalog with the incoming stream names."""
-        ...
-
-    @abc.abstractmethod
-    def _save_catalog_info(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        incoming_stream_names: set[str],
-    ) -> None:
-        """Save the catalog information to the cache."""
-        ...
-
-    @abc.abstractmethod
     def get_configured_stream_info(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
         """Return the column definitions for the given stream."""
-        ...
+        if not self.configured_catalog:
+            raise exc.PyAirbyteInternalError(
+                message="Cannot get stream JSON schema without a catalog.",
+            )
+
+        matching_streams: list[ConfiguredAirbyteStream] = [
+            stream
+            for stream in self.configured_catalog.streams
+            if stream.stream.name == stream_name
+        ]
+        if not matching_streams:
+            raise exc.AirbyteStreamNotFoundError(
+                stream_name=stream_name,
+                context={
+                    "available_streams": [
+                        stream.stream.name for stream in self.configured_catalog.streams
+                    ],
+                },
+            )
+
+        if len(matching_streams) > 1:
+            raise exc.PyAirbyteInternalError(
+                message="Multiple streams found with same name.",
+                context={
+                    "stream_name": stream_name,
+                },
+            )
+
+        return matching_streams[0]
 
     @final
     def get_stream_json_schema(
@@ -110,8 +150,3 @@ class CatalogManagerBase(abc.ABC):
     ) -> dict[str, Any]:
         """Return the column definitions for the given stream."""
         return self.get_configured_stream_info(stream_name).stream.json_schema
-
-    @abc.abstractmethod
-    def _load_catalog_info(self) -> None:
-        """Load the catalog information from the cache."""
-        ...

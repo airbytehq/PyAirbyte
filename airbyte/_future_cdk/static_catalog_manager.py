@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from overrides import overrides
 
+from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteCatalog
+
 from airbyte._future_cdk.catalog_manager import CatalogManagerBase
 
 
@@ -17,13 +19,9 @@ if TYPE_CHECKING:
 class StaticCatalogManager(CatalogManagerBase):
     """A catalog manager that uses a static catalog input."""
 
-    def __init__(self, catalog: ConfiguredAirbyteCatalog) -> None:
-        self._catalog = catalog
-
-    @property
-    @overrides
-    def stream_names(self) -> list[str]:
-        return [stream.name for stream in self.configured_catalog.streams]
+    def __init__(self, configured_catalog: ConfiguredAirbyteCatalog) -> None:
+        """Initialize the catalog manager with a static catalog."""
+        self._catalog: ConfiguredAirbyteCatalog = configured_catalog
 
     @property
     @overrides
