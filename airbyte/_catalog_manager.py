@@ -154,7 +154,7 @@ class OLTPCatalogManager(CatalogManagerBase):
             session.add_all(insert_streams)
             session.commit()
 
-    def get_configured_catalog_info(
+    def get_configured_stream_info(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:

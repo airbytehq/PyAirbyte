@@ -286,7 +286,7 @@ class RecordProcessorBase(abc.ABC):
         pass
 
     @final
-    def _get_configured_catalog_info(
+    def _get_configured_stream_info(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
@@ -299,7 +299,7 @@ class RecordProcessorBase(abc.ABC):
                 message="Catalog manager should exist but does not.",
             )
 
-        return self._catalog_manager.get_configured_catalog_info(stream_name)
+        return self._catalog_manager.get_configured_stream_info(stream_name)
 
     @final
     def get_stream_json_schema(

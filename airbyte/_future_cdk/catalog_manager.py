@@ -96,7 +96,7 @@ class CatalogManagerBase(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def get_configured_catalog_info(
+    def get_configured_stream_info(
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
@@ -109,7 +109,7 @@ class CatalogManagerBase(abc.ABC):
         stream_name: str,
     ) -> dict[str, Any]:
         """Return the column definitions for the given stream."""
-        return self.get_configured_catalog_info(stream_name).stream.json_schema
+        return self.get_configured_stream_info(stream_name).stream.json_schema
 
     @abc.abstractmethod
     def _load_catalog_info(self) -> None:

@@ -808,7 +808,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         stream_name: str,
     ) -> list[str]:
-        pks = self._get_configured_catalog_info(stream_name).primary_key
+        pks = self._get_configured_stream_info(stream_name).primary_key
         if not pks:
             return []
 
@@ -824,7 +824,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         stream_name: str,
     ) -> str | None:
-        return self._get_configured_catalog_info(stream_name).cursor_field
+        return self._get_configured_stream_info(stream_name).cursor_field
 
     def _swap_temp_table_with_final_table(
         self,
