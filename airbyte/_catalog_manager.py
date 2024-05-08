@@ -55,10 +55,10 @@ class OLTPCatalogManager(CatalogManagerBase):
     @property
     def stream_names(self) -> list[str]:
         """Return the names of all streams in the cache."""
-        return [stream.stream.name for stream in self.source_catalog.streams]
+        return [stream.stream.name for stream in self.configured_catalog.streams]
 
     @property
-    def source_catalog(self) -> ConfiguredAirbyteCatalog:
+    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
         """Return the source catalog.
 
         Raises:
@@ -159,20 +159,22 @@ class OLTPCatalogManager(CatalogManagerBase):
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
         """Return the column definitions for the given stream."""
-        if not self.source_catalog:
+        if not self.configured_catalog:
             raise exc.PyAirbyteInternalError(
                 message="Cannot get stream JSON schema without a catalog.",
             )
 
         matching_streams: list[ConfiguredAirbyteStream] = [
-            stream for stream in self.source_catalog.streams if stream.stream.name == stream_name
+            stream
+            for stream in self.configured_catalog.streams
+            if stream.stream.name == stream_name
         ]
         if not matching_streams:
             raise exc.AirbyteStreamNotFoundError(
                 stream_name=stream_name,
                 context={
                     "available_streams": [
-                        stream.stream.name for stream in self.source_catalog.streams
+                        stream.stream.name for stream in self.configured_catalog.streams
                     ],
                 },
             )

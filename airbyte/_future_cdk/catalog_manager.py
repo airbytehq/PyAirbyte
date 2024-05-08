@@ -51,7 +51,7 @@ class CatalogManagerBase(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def source_catalog(self) -> ConfiguredAirbyteCatalog:
+    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
         """Return the source catalog with all known streams.
 
         Raises:

@@ -69,7 +69,7 @@ class RecordProcessorBase(abc.ABC):
                 ),
             )
 
-        self.source_catalog: ConfiguredAirbyteCatalog | None = None
+        self.configured_catalog: ConfiguredAirbyteCatalog | None = None
         self._source_name: str | None = None
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})

@@ -7,7 +7,10 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Callable
 
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
+
+from airbyte_protocol.models.airbyte_protocol import AirbyteStateMessage
 
 from airbyte._future_cdk.state_manager import StateManagerBase, StreamState
 
@@ -17,8 +20,10 @@ if TYPE_CHECKING:
 
     from airbyte_protocol.models import (
         AirbyteStateMessage,
-        ConfiguredAirbyteCatalog,
+        AirbyteStreamState,
     )
+
+Base = declarative_base()
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
 STATE_TABLE_NAME = "_airbyte_state"
@@ -37,18 +42,20 @@ class OLTPStateManager(StateManagerBase):
     def __init__(
         self,
         engine: Engine,
+        source_name: str,
         table_name_resolver: Callable[[str], str],
     ) -> None:
         self._engine: Engine = engine
         self._table_name_resolver = table_name_resolver
-        self._source_catalog: ConfiguredAirbyteCatalog | None = None
-        self._load_state_info()
-        assert self._source_catalog is not None
+        self._state_artifacts: list[AirbyteStreamState] = self.get_state_artifacts(
+            source_name=source_name,
+            ignore_cache=False,
+        )
 
     @property
     def stream_names(self) -> list[str]:
         """Return the names of all streams in the cache."""
-        return [stream.stream.name for stream in self.source_catalog.streams]
+        return list({state.stream_descriptor.name for state in self._state_artifacts})
 
     def _ensure_internal_tables(self) -> None:
         engine = self._engine

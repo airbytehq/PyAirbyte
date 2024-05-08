@@ -15,7 +15,7 @@ from sqlalchemy.ext.declarative import declarative_base
 
 if TYPE_CHECKING:
     from airbyte_protocol.models import (
-        AirbyteStateMessage,
+        AirbyteStreamState,
     )
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
@@ -53,10 +53,20 @@ class StateManagerBase(abc.ABC):
         ...
 
     @abc.abstractmethod
+    def get_state_artifacts(
+        self,
+        source_name: str,
+        *,
+        ignore_cache: bool = False,
+    ) -> list[AirbyteStreamState]:
+        """Load all state artifacts."""
+        ...
+
+    @abc.abstractmethod
     def save_state(
         self,
         source_name: str,
-        state: AirbyteStateMessage,
+        state: AirbyteStreamState,
         stream_name: str,
     ) -> None:
         """Save the state of a stream to the cache."""
