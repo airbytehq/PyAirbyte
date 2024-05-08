@@ -24,7 +24,7 @@ from __future__ import annotations
 from overrides import overrides
 from snowflake.sqlalchemy import URL
 
-from airbyte._processors.sql.base import RecordDedupeMode
+from airbyte._future_cdk.sql_processor import RecordDedupeMode
 from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor
 from airbyte.caches.base import CacheBase
 from airbyte.secrets import SecretString
