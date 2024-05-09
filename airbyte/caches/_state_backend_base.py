@@ -5,11 +5,8 @@
 from __future__ import annotations
 
 import abc
-from datetime import datetime
 from typing import TYPE_CHECKING
 
-from pytz import utc
-from sqlalchemy import Column, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
 
 from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
@@ -29,7 +26,6 @@ STATE_TABLE_NAME = "_airbyte_state"
 GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
 
 Base = declarative_base()
-
 
 
 class StateBackendBase(abc.ABC):

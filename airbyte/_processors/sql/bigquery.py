@@ -67,7 +67,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
     def __init__(self, cache: CacheBase, file_writer: FileWriterBase | None = None) -> None:
         self._credentials: google.auth.credentials.Credentials | None = None
         self._schema_exists: bool | None = None
-        super().__init__(cache, file_writer)
+        super().__init__(cache=cache, file_writer=file_writer)
 
     @final
     @overrides

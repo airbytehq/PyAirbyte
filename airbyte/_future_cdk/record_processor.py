@@ -51,11 +51,20 @@ class RecordProcessorBase(abc.ABC):
 
     def __init__(
         self,
-        cache: CacheBase,
         *,
+        cache: CacheBase,
         catalog_manager: CatalogManagerBase | None = None,
         state_writer: StateWriterBase | None = None,
     ) -> None:
+        """Initialize the processor.
+
+        The processor requires a cache, although in the future it may be possible to
+        initialize a processor without a cache.
+
+        If a catalog manager is not provided, the processor will attempt to use the cache's
+        catalog manager. If a state writer is not provided, the processor likewise will
+        attempt to use the cache's state writer.
+        """
         self.cache: CacheBase = cache
         if not isinstance(self.cache, CacheBase):
             raise exc.PyAirbyteInputError(
@@ -65,6 +74,9 @@ class RecordProcessorBase(abc.ABC):
                 ),
             )
 
+        self._catalog_manager: CatalogManagerBase | None = catalog_manager
+        self._state_writer: StateWriterBase | None = state_writer
+
         self.configured_catalog: ConfiguredAirbyteCatalog | None = None
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
@@ -73,8 +85,6 @@ class RecordProcessorBase(abc.ABC):
             list[AirbyteStateMessage],
         ] = defaultdict(list, {})
 
-        self._catalog_manager: CatalogManagerBase | None = catalog_manager
-        self._state_writer: StateWriterBase | None = state_writer
         self._setup()
 
     @property
@@ -95,11 +105,18 @@ class RecordProcessorBase(abc.ABC):
             PyAirbyteInternalError: If the catalog manager is not set.
         """
         if not self._catalog_manager:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog manager should exist but does not.",
-            )
+            self._catalog_manager = self.cache.catalog_manager
+
+            if not self._catalog_manager:
+                raise exc.PyAirbyteInternalError(
+                    message="Catalog manager should exist but does not.",
+                )
 
         return self._catalog_manager
+
+    def _initialize_state_writer_from_cache(self, source_name: str) -> None:
+        """Initialize the state writer from the cache."""
+        self._state_writer = self.cache.get_state_writer(source_name)
 
     @property
     def state_writer(

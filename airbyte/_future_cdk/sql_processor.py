@@ -95,14 +95,16 @@ class SqlProcessorBase(RecordProcessorBase):
 
     def __init__(
         self,
+        *,
         cache: CacheBase,
-        file_writer: FileWriterBase | None = None,
         catalog_manager: CatalogManagerBase | None = None,
         state_writer: StateWriterBase | None = None,
+        file_writer: FileWriterBase | None = None,
     ) -> None:
         self._engine: Engine | None = None
         self._connection_to_reuse: Connection | None = None
-        super().__init__(cache, catalog_manager=None)
+
+        super().__init__(cache=cache, catalog_manager=catalog_manager, state_writer=state_writer)
         self._ensure_schema_exists()
         self.file_writer = file_writer or self.file_writer_class(cache)
         self.type_converter = self.type_converter_class()

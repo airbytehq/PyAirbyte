@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from airbyte_protocol.models import AirbyteGlobalState, AirbyteStreamState
 
-from airbyte._future_cdk.state.state_provider_base import StateProviderBase
+from airbyte._future_cdk.state.state_provider_base import StateProviderBase  # noqa: PLC2701
 from airbyte.exceptions import PyAirbyteInternalError
 
 

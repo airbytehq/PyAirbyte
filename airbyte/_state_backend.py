@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pytz import utc
 from sqlalchemy import Column, DateTime, String
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from airbyte_protocol.models import (
     AirbyteStateMessage,
+    AirbyteStateType,
     AirbyteStreamState,
 )
 
@@ -23,6 +24,7 @@ from airbyte._future_cdk.state.static_input_state import StaticInputState
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )
+from airbyte.exceptions import PyAirbyteInternalError
 
 
 if TYPE_CHECKING:
@@ -63,8 +65,15 @@ class SqlStateWriter(StateWriterBase):
         self,
         state_message: AirbyteStateMessage,
     ) -> None:
-        if state_message.type == "GLOBAL":
+        if state_message.type == AirbyteStateType.GLOBAL:
             stream_name = "_GLOBAL"
+        elif state_message.type == AirbyteStateType.STREAM:
+            stream_name = state_message.stream.stream_descriptor.name
+        else:
+            raise PyAirbyteInternalError(
+                message="Invalid state message type.",
+                context={"state_message": state_message},
+            )
 
         self._state_backend._ensure_internal_tables()  # noqa: SLF001  # Non-public member access
         table_prefix = self._state_backend._table_prefix  # noqa: SLF001
@@ -137,11 +146,13 @@ class SqlStateBackend(StateBackendBase):
         if self._state_artifacts is not None and not force_refresh:
             return
 
+        states: list[StreamState]
+
         self._ensure_internal_tables()
         engine = self._engine
         with Session(engine) as session:
             query = session.query(StreamState).filter(StreamState.source_name == source_name)
-            states = query.all()
+            states = cast(list[StreamState], query.all())
 
         if not states:
             # No state artifacts found
@@ -152,7 +163,7 @@ class SqlStateBackend(StateBackendBase):
         # would generate. Otherwise consider it part of a different cache.
 
         state_dicts: list[dict] = [
-            json.loads(state)
+            json.loads(state.state_json)
             for state in states
             if state.table_name == self._table_prefix + state.stream_name
         ]

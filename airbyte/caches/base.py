@@ -9,10 +9,8 @@ from typing import TYPE_CHECKING, Any, Optional, cast, final
 
 from pydantic import BaseModel, PrivateAttr
 
-from airbyte import exceptions as exc
 from airbyte._catalog_manager import SqlCatalogManager
 from airbyte._future_cdk.catalog_manager import CatalogManagerBase
-from airbyte._future_cdk.state.static_input_state import StaticInputState
 from airbyte._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
 

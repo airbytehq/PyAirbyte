@@ -8,18 +8,16 @@ and available on PATH for the poetry-managed venv.
 
 from __future__ import annotations
 
-from collections.abc import Generator
 import os
-import sys
 import shutil
-from pathlib import Path
+import sys
 import tempfile
-
-import pytest
-import ulid
-
+from collections.abc import Generator
+from pathlib import Path
 
 import airbyte as ab
+import pytest
+import ulid
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
@@ -240,7 +238,7 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache.processor._catalog_manager.get_state("source-faker") == []
+    assert not duckdb_cache.get_state_provider("source-faker") == []
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
