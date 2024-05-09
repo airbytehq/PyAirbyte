@@ -30,12 +30,25 @@ Releases are published automatically to PyPi in response to a "published" event 
 To publish to PyPi, simply [create a GitHub Release](https://github.com/airbytehq/PyAirbyte/releases/new) with the correct version. Once you publish the release on GitHub it will automatically trigger a PyPi publish workflow in GitHub actions.
 
 > **Warning**
-> 
+>
 > Be careful - "Cmd+Enter" will not 'save' but will instead 'publish'. (If you want to save a draft, use the mouse. 😅)
 
 > **Note**
-> 
+>
 > There is no version to bump. Version is calculated during build and publish, using the [poetry-dynamic-versioning](https://github.com/mtkennerly/poetry-dynamic-versioning) plugin.
+
+## Coverage
+
+To run a coverage report, run:
+
+```console
+poetry run poe coverage
+```
+
+This will generate a coverage report in the `htmlcov` folder.
+
+Note: If you have pre-installed [Poe](https://poethepoet.natn.io/index.html)
+(`pipx install poethepoet`), then you can omit the `poetry run` prefix.
 
 ## Versioning
 
