@@ -14,9 +14,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
 from airbyte_protocol.models import (
+    AirbyteStateMessage,
     AirbyteStreamState,
 )
 
+from airbyte._future_cdk.state.state_writer_base import StateWriterBase
+from airbyte._future_cdk.state.static_input_state import StaticInputState
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )
@@ -49,6 +52,42 @@ class StreamState(Base):  # type: ignore[valid-type,misc]
     )
 
 
+class SqlStateWriter(StateWriterBase):
+    """State writer for SQL backends."""
+
+    def __init__(self, source_name: str, backend: SqlStateBackend) -> None:
+        self._state_backend: SqlStateBackend = backend
+        self.source_name = source_name
+
+    def write_state(
+        self,
+        state_message: AirbyteStateMessage,
+    ) -> None:
+        if state_message.type == "GLOBAL":
+            stream_name = "_GLOBAL"
+
+        self._state_backend._ensure_internal_tables()  # noqa: SLF001  # Non-public member access
+        table_prefix = self._state_backend._table_prefix  # noqa: SLF001
+        engine = self._state_backend._engine  # noqa: SLF001
+
+        with Session(engine) as session:
+            session.query(StreamState).filter(
+                StreamState.table_name == table_prefix + stream_name
+            ).delete()
+
+            # This prevents "duplicate key" errors but (in theory) should not be necessary.
+            session.commit()
+            session.add(
+                StreamState(
+                    source_name=self.source_name,
+                    stream_name=stream_name,
+                    table_name=table_prefix + stream_name,
+                    state_json=state_message.json(),
+                )
+            )
+            session.commit()
+
+
 class SqlStateBackend(StateBackendBase):
     """
     A class to manage the stream catalog of data synced to a cache:
@@ -65,6 +104,7 @@ class SqlStateBackend(StateBackendBase):
         """Initialize the state manager with a static catalog state."""
         self._engine: Engine = engine
         self._table_prefix = table_prefix
+        super().__init__()
 
     def _ensure_internal_tables(self) -> None:
         """Ensure the internal tables exist in the SQL database."""
@@ -80,8 +120,11 @@ class SqlStateBackend(StateBackendBase):
 
         Subclasses may add additional keyword arguments to this method as needed.
         """
-        # TODO!
-        raise NotImplementedError
+        if self._state_artifacts is None:
+            self._initialize_backend(source_name=source_name, table_prefix=table_prefix)
+
+        assert self._state_artifacts is not None, "State artifacts is initialized."
+        return StaticInputState(input_state_artifacts=self._state_artifacts)
 
     def _initialize_backend(
         self,
@@ -117,25 +160,9 @@ class SqlStateBackend(StateBackendBase):
             AirbyteStreamState.parse_obj(state_dict) for state_dict in state_dicts
         ]
 
-    # TODO!: Move to StateWriterBase
-    # def save_state(
-    #     self,
-    #     state: AirbyteStreamState,
-    #     stream_name: str,
-    # ) -> None:
-    #     self._ensure_internal_tables()
-    #     engine = self._engine
-    #     with Session(engine) as session:
-    #         session.query(StreamState).filter(
-    #             StreamState.table_name == self._table_prefix + stream_name
-    #         ).delete()
-    #         session.commit()
-    #         session.add(
-    #             StreamState(
-    #                 source_name=self.source_name,
-    #                 stream_name=stream_name,
-    #                 table_name=self._table_prefix + stream_name,
-    #                 state_json=state.json(),
-    #             )
-    #         )
-    #         session.commit()
+    def get_state_writer(
+        self,
+        source_name: str,
+        table_prefix: str,
+    ) -> StateWriterBase:
+        return SqlStateWriter(source_name=source_name, backend=self)

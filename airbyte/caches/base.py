@@ -12,6 +12,8 @@ from pydantic import BaseModel, PrivateAttr
 from airbyte import exceptions as exc
 from airbyte._catalog_manager import SqlCatalogManager
 from airbyte._future_cdk.catalog_manager import CatalogManagerBase
+from airbyte._future_cdk.state.static_input_state import StaticInputState
+from airbyte._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -112,28 +114,34 @@ class CacheBase(BaseModel):
 
         return result
 
-    def get_state_writer(
-        self,
-        source_name: str,
-    ) -> StateWriterBase:
-        """Return a state writer for the specified source name."""
-        if self._state_backend is None:
-            raise exc.PyAirbyteInternalError(message="State backend is not set.")
-
-        return self._state_backend.get_state_writer(
-            source_name=source_name,
-            table_prefix=self.table_prefix or "",
-        )
-
     def get_state_provider(
         self,
         source_name: str,
     ) -> StateProviderBase:
         """Return a state provider for the specified source name."""
         if self._state_backend is None:
-            raise exc.PyAirbyteInternalError(message="State backend is not set.")
+            self._state_backend = SqlStateBackend(
+                engine=self.get_sql_engine(),
+                table_prefix=self.table_prefix or "",
+            )
 
         return self._state_backend.get_state_provider(
+            source_name=source_name,
+            table_prefix=self.table_prefix or "",
+        )
+
+    def get_state_writer(
+        self,
+        source_name: str,
+    ) -> StateWriterBase:
+        """Return a state writer for the specified source name."""
+        if self._state_backend is None:
+            self._state_backend = SqlStateBackend(
+                engine=self.get_sql_engine(),
+                table_prefix=self.table_prefix or "",
+            )
+
+        return self._state_backend.get_state_writer(
             source_name=source_name,
             table_prefix=self.table_prefix or "",
         )
