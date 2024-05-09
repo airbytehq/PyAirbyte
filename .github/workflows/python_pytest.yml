@@ -48,14 +48,17 @@ jobs:
         --durations=5 --exitfirst
 
     - name: Print Coverage Report
+      if: always()
       run: poetry run coverage report
 
     - name: Create Coverage Artifacts
+      if: always()
       run: |
         poetry run coverage html -d htmlcov
         poetry run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
+      if: always()
       uses: actions/upload-artifact@v2
       with:
         name: fasttest-coverage
