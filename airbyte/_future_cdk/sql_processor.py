@@ -60,6 +60,8 @@ if TYPE_CHECKING:
     )
 
     from airbyte._batch_handles import BatchHandle
+    from airbyte._future_cdk.catalog_manager import CatalogManagerBase
+    from airbyte._future_cdk.state.state_writer_base import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
 
@@ -88,7 +90,8 @@ class SqlProcessorBase(RecordProcessorBase):
     supports_merge_insert = False
     """True if the database supports the MERGE INTO syntax."""
 
-    use_singleton_connection = False  # If true, the same connection is used for all operations.
+    use_singleton_connection = False
+    """If true, the same connection is used for all operations. Required for in-mem DBs."""
 
     # Constructor:
 
@@ -96,6 +99,8 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         cache: CacheBase,
         file_writer: FileWriterBase | None = None,
+        catalog_manager: CatalogManagerBase | None = None,
+        state_writer: StateWriterBase | None = None,
     ) -> None:
         self._engine: Engine | None = None
         self._connection_to_reuse: Connection | None = None
@@ -168,7 +173,6 @@ class SqlProcessorBase(RecordProcessorBase):
 
         This method is called by the source when it is initialized.
         """
-        self._source_name = source_name
         self._ensure_schema_exists()
         super().register_source(
             source_name,
@@ -592,7 +596,7 @@ class SqlProcessorBase(RecordProcessorBase):
 
         progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
         yield batches_to_finalize
-        self._finalize_state_messages(stream_name, state_messages_to_finalize)
+        self._finalize_state_messages(state_messages_to_finalize)
         progress.log_batches_finalized(stream_name, len(batches_to_finalize))
 
         for batch_handle in batches_to_finalize:

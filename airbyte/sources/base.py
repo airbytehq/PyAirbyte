@@ -716,14 +716,16 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             stream_names=set(self._selected_stream_names),
         )
 
-        state = (
-            cache._get_state(  # noqa: SLF001  # Private method until we have a public API for it.
+        if force_full_refresh:
+            state = None
+        else:
+            state = cache.get_state_provider(
                 source_name=self.name,
-                streams=self._selected_stream_names,
+            ).get_state_artifacts(
+                self._selected_stream_names,
+                include_global_state=True,
             )
-            if not force_full_refresh
-            else None
-        )
+
         if not skip_validation:
             self.validate_config()
 
@@ -734,6 +736,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     catalog=self.configured_catalog,
                     state=state,
                 ),
+                source_name=self.name,
                 write_strategy=write_strategy,
             )
         except Exception as ex:

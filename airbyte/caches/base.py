@@ -1,5 +1,5 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""A SQL Cache implementation."""
+"""SQL Cache implementation."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional, final
 from pydantic import BaseModel, PrivateAttr
 
 from airbyte.datasets._sql import CachedDataset
+from airbyte.exceptions import PyAirbyteInternalError
 
 
 if TYPE_CHECKING:
@@ -19,7 +20,9 @@ if TYPE_CHECKING:
 
     from airbyte._future_cdk.catalog_manager import CatalogManagerBase
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
-    from airbyte._future_cdk.state.state_manager import StateManagerBase
+    from airbyte._future_cdk.state.state_provider_base import StateProviderBase
+    from airbyte._future_cdk.state.state_writer_base import StateWriterBase
+    from airbyte.caches._state_backend_base import StateBackendBase
     from airbyte.datasets._base import DatasetBase
 
 
@@ -52,7 +55,7 @@ class CacheBase(BaseModel):
     _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
 
     _catalog_manager: Optional[CatalogManagerBase] = PrivateAttr(default=None)
-    _state_manager: Optional[StateManagerBase] = PrivateAttr(default=None)
+    _state_backend: Optional[StateBackendBase] = PrivateAttr(default=None)
 
     @final
     @property
@@ -80,9 +83,7 @@ class CacheBase(BaseModel):
 
     @final
     @property
-    def streams(
-        self,
-    ) -> dict[str, CachedDataset]:
+    def streams(self) -> dict[str, CachedDataset]:
         """Return a temporary table name."""
         result = {}
         stream_names = self.processor.expected_streams
@@ -93,30 +94,39 @@ class CacheBase(BaseModel):
 
         return result
 
-    def _get_state(
+    def get_state_writer(
         self,
         source_name: str,
-        streams: list[str] | None,
-    ) -> list[dict[str, Any]] | None:
-        """Return the state artifacts for all requested streams."""
-        return self.state_manager.get_state(
+    ) -> StateWriterBase:
+        """Return a state writer for the specified source name."""
+        if self._state_backend is None:
+            raise PyAirbyteInternalError(message="State backend is not set.")
+
+        return self._state_backend.get_state_writer(
             source_name=source_name,
-            streams=streams,
+            table_prefix=self.table_prefix or "",
+        )
+
+    def get_state_provider(
+        self,
+        source_name: str,
+    ) -> StateProviderBase:
+        """Return a state provider for the specified source name."""
+        if self._state_backend is None:
+            raise PyAirbyteInternalError(message="State backend is not set.")
+
+        return self._state_backend.get_state_provider(
+            source_name=source_name,
+            table_prefix=self.table_prefix or "",
         )
 
     @property
-    def catalog_manager(
-        self,
-    ) -> CatalogManagerBase:
+    def catalog_manager(self) -> CatalogManagerBase:
         """Return the catalog manager from the record processor."""
-        return self.processor.catalog_manager
+        if self._catalog_manager is None:
+            raise PyAirbyteInternalError(message="Catalog manager is not set.")
 
-    @property
-    def state_manager(
-        self,
-    ) -> StateManagerBase:
-        """Return the state manager from the record processor."""
-        return self.processor.state_manager
+        return self._catalog_manager
 
     def __getitem__(self, stream: str) -> DatasetBase:
         """Return a dataset by stream name."""

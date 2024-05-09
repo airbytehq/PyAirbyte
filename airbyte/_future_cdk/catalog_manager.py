@@ -1,6 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
-"""A SQL Cache implementation."""
+"""Catalog manager implementation."""
 
 from __future__ import annotations
 

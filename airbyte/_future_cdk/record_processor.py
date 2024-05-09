@@ -33,7 +33,8 @@ if TYPE_CHECKING:
 
     from airbyte._batch_handles import BatchHandle
     from airbyte._catalog_manager import CatalogManagerBase
-    from airbyte._state_manager import StateManagerBase
+    from airbyte._future_cdk.state.state_writer_base import StateWriterBase
+    from airbyte._state_backend import StateManagerBase
 
 
 class AirbyteMessageParsingError(Exception):
@@ -54,7 +55,7 @@ class RecordProcessorBase(abc.ABC):
         cache: CacheBase,
         *,
         catalog_manager: CatalogManagerBase | None = None,
-        state_manager: StateManagerBase | None = None,
+        state_writer: StateWriterBase | None = None,
     ) -> None:
         self._expected_streams: set[str] | None = None
         self.cache: CacheBase = cache
@@ -67,7 +68,6 @@ class RecordProcessorBase(abc.ABC):
             )
 
         self.configured_catalog: ConfiguredAirbyteCatalog | None = None
-        self._source_name: str | None = None
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
         self._finalized_state_messages: dict[
@@ -76,7 +76,7 @@ class RecordProcessorBase(abc.ABC):
         ] = defaultdict(list, {})
 
         self._catalog_manager: CatalogManagerBase | None = catalog_manager
-        self._state_manager: StateManagerBase | None = state_manager
+        self._state_writer: StateWriterBase | None = state_writer
         self._setup()
 
     @property
@@ -104,10 +104,10 @@ class RecordProcessorBase(abc.ABC):
         return self._catalog_manager
 
     @property
-    def state_manager(
+    def state_writer(
         self,
     ) -> StateManagerBase:
-        """Return the state manager.
+        """Return the state writer instance.
 
         Subclasses should set this property to a valid state manager instance if one
         is not explicitly passed to the constructor.
@@ -115,12 +115,12 @@ class RecordProcessorBase(abc.ABC):
         Raises:
             PyAirbyteInternalError: If the state manager is not set.
         """
-        if not self._state_manager:
+        if not self._state_writer:
             raise exc.PyAirbyteInternalError(
                 message="State manager should exist but does not.",
             )
 
-        return self._state_manager
+        return self._state_writer
 
     def register_source(
         self,
@@ -143,6 +143,8 @@ class RecordProcessorBase(abc.ABC):
     @final
     def process_stdin(
         self,
+        *,
+        source_name: str,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
     ) -> None:
         """Process the input stream from stdin.
@@ -150,7 +152,11 @@ class RecordProcessorBase(abc.ABC):
         Return a list of summaries for testing.
         """
         input_stream = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8")
-        self.process_input_stream(input_stream, write_strategy=write_strategy)
+        self.process_input_stream(
+            input_stream,
+            write_strategy=write_strategy,
+            source_name=source_name,
+        )
 
     @final
     def _airbyte_messages_from_buffer(
@@ -164,6 +170,8 @@ class RecordProcessorBase(abc.ABC):
     def process_input_stream(
         self,
         input_stream: io.TextIOBase,
+        *,
+        source_name: str,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
     ) -> None:
         """Parse the input stream and process data in batches.
@@ -173,6 +181,7 @@ class RecordProcessorBase(abc.ABC):
         messages = self._airbyte_messages_from_buffer(input_stream)
         self.process_airbyte_messages(
             messages,
+            source_name=source_name,
             write_strategy=write_strategy,
         )
 
@@ -194,6 +203,7 @@ class RecordProcessorBase(abc.ABC):
     def process_airbyte_messages(
         self,
         messages: Iterable[AirbyteMessage],
+        source_name: str,
         write_strategy: WriteStrategy,
     ) -> None:
         """Process a stream of Airbyte messages."""
@@ -202,6 +212,8 @@ class RecordProcessorBase(abc.ABC):
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )
+
+        self._state_writer = self.cache.get_state_writer(source_name)
 
         stream_schemas: dict[str, dict] = {}
 
@@ -235,6 +247,8 @@ class RecordProcessorBase(abc.ABC):
                 # Type.LOG, Type.TRACE, Type.CONTROL, etc.
                 pass
 
+        # We've finished processing input data.
+        # Finalize all received records and state messages:
         self.write_all_stream_data(
             write_strategy=write_strategy,
         )
@@ -259,19 +273,11 @@ class RecordProcessorBase(abc.ABC):
 
     def _finalize_state_messages(
         self,
-        stream_name: str,
         state_messages: list[AirbyteStateMessage],
     ) -> None:
         """Handle state messages by passing them to the catalog manager."""
-        if not self._state_manager:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog manager should exist but does not.",
-            )
-
-        if state_messages and self._source_name:
-            self.state_manager.save_state(
-                source_name=self._source_name,
-                stream_name=stream_name,
+        if state_messages:
+            self.state_writer.save_state(
                 state=state_messages[-1],
             )
 
