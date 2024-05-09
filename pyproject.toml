@@ -62,6 +62,8 @@ tomli = "^2.0"
 responses = "^0.25.0"
 airbyte-source-pokeapi = "^0.2.0"
 pytest-mock = "^3.14.0"
+poethepoet = "^0.26.1"
+coverage = "^7.5.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
@@ -284,7 +286,8 @@ generate-docs = "docs.generate:run"
 airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
-test = "pytest tests"
+test = { shell = "pytest" }
+coverage = { shell = "coverage run -m pytest && coverage report" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
