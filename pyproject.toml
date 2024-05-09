@@ -289,6 +289,8 @@ airbyte-lib-validate-source = "airbyte.validate:run"
 [tool.poe.tasks]
 test = { shell = "pytest" }
 coverage = { shell = "coverage run -m pytest && coverage report" }
+coverage-report = { shell = "coverage report" }
+coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
