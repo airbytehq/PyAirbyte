@@ -68,7 +68,7 @@ class SqlStateBackend(StateBackendBase):
         # TODO!
         raise NotImplementedError
 
-    def _initialize_backend(  # type: ignore [override]
+    def _initialize_backend(
         self,
         *,
         force_refresh: bool = False,
@@ -82,7 +82,7 @@ class SqlStateBackend(StateBackendBase):
         self._ensure_internal_tables()
         engine = self._engine
         with Session(engine) as session:
-            query = session.query(StreamState).filter(StreamState.source_name == self.source_name)
+            query = session.query(StreamState).filter(StreamState.source_name == source_name)
             states = query.all()
 
         if not states:

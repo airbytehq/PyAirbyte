@@ -34,7 +34,6 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._catalog_manager import CatalogManagerBase
     from airbyte._future_cdk.state.state_writer_base import StateWriterBase
-    from airbyte._state_backend import StateManagerBase
 
 
 class AirbyteMessageParsingError(Exception):
@@ -106,7 +105,7 @@ class RecordProcessorBase(abc.ABC):
     @property
     def state_writer(
         self,
-    ) -> StateManagerBase:
+    ) -> StateWriterBase:
         """Return the state writer instance.
 
         Subclasses should set this property to a valid state manager instance if one
@@ -259,8 +258,8 @@ class RecordProcessorBase(abc.ABC):
     ) -> None:
         """Handle state messages by passing them to the catalog manager."""
         if state_messages:
-            self.state_writer.save_state(
-                state=state_messages[-1],
+            self.state_writer.write_state(
+                state_message=state_messages[-1],
             )
 
     def _setup(self) -> None:  # noqa: B027  # Intentionally empty, not abstract

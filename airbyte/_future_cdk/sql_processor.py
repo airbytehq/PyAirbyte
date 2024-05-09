@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, final
 import pandas as pd
 import sqlalchemy
 import ulid
-from overrides import overrides
 from pandas import Index
 from sqlalchemy import (
     Column,
@@ -56,7 +55,6 @@ if TYPE_CHECKING:
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
         AirbyteStateMessage,
-        ConfiguredAirbyteCatalog,
     )
 
     from airbyte._batch_handles import BatchHandle

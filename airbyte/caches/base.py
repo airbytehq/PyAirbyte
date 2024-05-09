@@ -11,6 +11,7 @@ from pydantic import BaseModel, PrivateAttr
 
 from airbyte import exceptions as exc
 from airbyte._catalog_manager import SqlCatalogManager
+from airbyte._future_cdk.catalog_manager import CatalogManagerBase
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -21,7 +22,6 @@ if TYPE_CHECKING:
 
     from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
-    from airbyte._future_cdk.catalog_manager import CatalogManagerBase
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
     from airbyte._future_cdk.state.state_provider_base import StateProviderBase
     from airbyte._future_cdk.state.state_writer_base import StateWriterBase
