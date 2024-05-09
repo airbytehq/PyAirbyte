@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from sqlalchemy import Column, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
@@ -19,7 +20,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._future_cdk.catalog_manager import CachedStream, CatalogManagerBase
+from airbyte._future_cdk.catalog_manager import CatalogManagerBase
 
 
 if TYPE_CHECKING:
@@ -32,6 +33,15 @@ STATE_TABLE_NAME = "_airbyte_state"
 GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
 
 Base = declarative_base()
+
+
+class CachedStream(Base):  # type: ignore[valid-type,misc]
+    __tablename__ = STREAMS_TABLE_NAME
+
+    stream_name = Column(String)
+    source_name = Column(String)
+    table_name = Column(String, primary_key=True)
+    catalog_metadata = Column(String)
 
 
 class SqlCatalogManager(CatalogManagerBase):

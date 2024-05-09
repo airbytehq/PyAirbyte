@@ -31,17 +31,6 @@ GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
 Base = declarative_base()
 
 
-class StreamState(Base):  # type: ignore[valid-type,misc]
-    __tablename__ = STATE_TABLE_NAME
-
-    source_name = Column(String)
-    stream_name = Column(String)
-    table_name = Column(String, primary_key=True)
-    state_json = Column(String)
-    last_updated = Column(
-        DateTime(timezone=True), onupdate=datetime.now(utc), default=datetime.now(utc)
-    )
-
 
 class StateBackendBase(abc.ABC):
     """A class which manages the stream state for data synced.

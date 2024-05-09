@@ -158,7 +158,6 @@ class CacheBase(BaseModel):
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=stream_names,
         )
-        self._expected_streams = stream_names
 
     def __getitem__(self, stream: str) -> DatasetBase:
         """Return a dataset by stream name."""

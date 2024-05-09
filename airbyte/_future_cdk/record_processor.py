@@ -56,7 +56,6 @@ class RecordProcessorBase(abc.ABC):
         catalog_manager: CatalogManagerBase | None = None,
         state_writer: StateWriterBase | None = None,
     ) -> None:
-        self._expected_streams: set[str] | None = None
         self.cache: CacheBase = cache
         if not isinstance(self.cache, CacheBase):
             raise exc.PyAirbyteInputError(
@@ -81,7 +80,7 @@ class RecordProcessorBase(abc.ABC):
     @property
     def expected_streams(self) -> set[str]:
         """Return the expected stream names."""
-        return self._expected_streams or set()
+        return set(self.catalog_manager.stream_names)
 
     @property
     def catalog_manager(

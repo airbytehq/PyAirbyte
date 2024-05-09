@@ -5,8 +5,11 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import TYPE_CHECKING
 
+from pytz import utc
+from sqlalchemy import Column, DateTime, String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
@@ -16,7 +19,6 @@ from airbyte_protocol.models import (
 
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
-    StreamState,
 )
 
 
@@ -26,12 +28,25 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.state.state_provider_base import StateProviderBase
 
 
-Base = declarative_base()
-
 STREAMS_TABLE_NAME = "_airbyte_streams"
 STATE_TABLE_NAME = "_airbyte_state"
 
 GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
+
+
+Base = declarative_base()
+
+
+class StreamState(Base):  # type: ignore[valid-type,misc]
+    __tablename__ = STATE_TABLE_NAME
+
+    source_name = Column(String)
+    stream_name = Column(String)
+    table_name = Column(String, primary_key=True)
+    state_json = Column(String)
+    last_updated = Column(
+        DateTime(timezone=True), onupdate=datetime.now(utc), default=datetime.now(utc)
+    )
 
 
 class SqlStateBackend(StateBackendBase):
