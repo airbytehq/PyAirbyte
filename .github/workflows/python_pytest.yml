@@ -39,14 +39,27 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    # Job-specific step(s):
-    - name: Run Pytest (Fast Tests Only)
+    - name: Run Pytest with Coverage (Fast Tests Only)
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run pytest -m
+        poetry run coverage run -m pytest -m
         "not slow and not requires_creds and not linting"
         --durations=5 --exitfirst
+
+    - name: Print Coverage Report
+      run: poetry run coverage report
+
+    - name: Create Coverage Artifacts
+      run: |
+        poetry run coverage html -d htmlcov
+        poetry run coverage xml -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: fasttest-coverage
+        path: htmlcov/
 
   pytest-no-creds:
     name: Pytest (No Creds)
@@ -73,8 +86,22 @@ jobs:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
       run: >
-        poetry run pytest -m
+        poetry run coverage run -m pytest -m
         "not requires_creds and not linting and not super_slow"
+
+    - name: Print Coverage Report
+      run: poetry run coverage report
+
+    - name: Create Coverage Artifacts
+      run: |
+        poetry run coverage html -d htmlcov
+        poetry run coverage xml -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: nocreds-test-coverage
+        path: htmlcov/
 
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -117,4 +144,19 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run pytest -m "not linting and not super_slow"
+        poetry run coverage run -m pytest -m
+        "not linting and not super_slow"
+
+    - name: Print Coverage Report
+      run: poetry run coverage report
+
+    - name: Create Coverage Artifacts
+      run: |
+        poetry run coverage html -d htmlcov
+        poetry run coverage xml -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
+        path: htmlcov/
