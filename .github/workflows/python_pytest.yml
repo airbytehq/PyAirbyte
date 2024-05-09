@@ -90,14 +90,17 @@ jobs:
         "not requires_creds and not linting and not super_slow"
 
     - name: Print Coverage Report
+      if: always()
       run: poetry run coverage report
 
     - name: Create Coverage Artifacts
+      if: always()
       run: |
         poetry run coverage html -d htmlcov
         poetry run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
+      if: always()
       uses: actions/upload-artifact@v2
       with:
         name: nocreds-test-coverage
@@ -148,14 +151,17 @@ jobs:
         "not linting and not super_slow"
 
     - name: Print Coverage Report
+      if: always()
       run: poetry run coverage report
 
     - name: Create Coverage Artifacts
+      if: always()
       run: |
         poetry run coverage html -d htmlcov
         poetry run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
+      if: always()
       uses: actions/upload-artifact@v2
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
