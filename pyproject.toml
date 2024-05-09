@@ -288,9 +288,17 @@ airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }
+
 coverage = { shell = "coverage run -m pytest && coverage report" }
 coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
+coverage-reset = { shell = "coverage erase" }
+
+check = { shell = "ruff check ." }
+
+fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
+fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe . && ruff format ." }
+fix-and-check = { shell = "poe fix && poe check" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
