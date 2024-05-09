@@ -159,27 +159,6 @@ class SqlProcessorBase(RecordProcessorBase):
 
         return self._engine
 
-    @overrides
-    def register_source(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        stream_names: set[str],
-    ) -> None:
-        """Register the source with the cache.
-
-        We use stream_names to determine which streams will receive data, and
-        we only register the stream if is expected to receive data.
-
-        This method is called by the source when it is initialized.
-        """
-        self._ensure_schema_exists()
-        super().register_source(
-            source_name,
-            incoming_source_catalog,
-            stream_names=stream_names,
-        )
-
     @contextmanager
     def get_sql_connection(self) -> Generator[sqlalchemy.engine.Connection, None, None]:
         """A context manager which returns a new SQL connection for running queries.

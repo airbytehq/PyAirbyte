@@ -5,18 +5,21 @@ from __future__ import annotations
 
 import abc
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, final
+from typing import TYPE_CHECKING, Any, Optional, cast, final
 
 from pydantic import BaseModel, PrivateAttr
 
+from airbyte import exceptions as exc
+from airbyte._catalog_manager import SqlCatalogManager
 from airbyte.datasets._sql import CachedDataset
-from airbyte.exceptions import PyAirbyteInternalError
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from sqlalchemy.engine import Engine
+
+    from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
     from airbyte._future_cdk.catalog_manager import CatalogManagerBase
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
@@ -56,6 +59,21 @@ class CacheBase(BaseModel):
 
     _catalog_manager: Optional[CatalogManagerBase] = PrivateAttr(default=None)
     _state_backend: Optional[StateBackendBase] = PrivateAttr(default=None)
+
+    def _initialize_cache(self) -> None:
+        """Initialize the SQL cache.
+
+        This method creates the SQL processor and catalog manager.
+        """
+        if self._sql_processor is None:
+            self._sql_processor = self._sql_processor_class(cache=self)
+
+        if self._catalog_manager is None:
+            self.processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
+            self._catalog_manager = SqlCatalogManager(
+                engine=self._sql_processor.get_sql_engine(),
+                table_prefix=self.table_prefix or "",
+            )
 
     @final
     @property
@@ -100,7 +118,7 @@ class CacheBase(BaseModel):
     ) -> StateWriterBase:
         """Return a state writer for the specified source name."""
         if self._state_backend is None:
-            raise PyAirbyteInternalError(message="State backend is not set.")
+            raise exc.PyAirbyteInternalError(message="State backend is not set.")
 
         return self._state_backend.get_state_writer(
             source_name=source_name,
@@ -113,7 +131,7 @@ class CacheBase(BaseModel):
     ) -> StateProviderBase:
         """Return a state provider for the specified source name."""
         if self._state_backend is None:
-            raise PyAirbyteInternalError(message="State backend is not set.")
+            raise exc.PyAirbyteInternalError(message="State backend is not set.")
 
         return self._state_backend.get_state_provider(
             source_name=source_name,
@@ -124,9 +142,23 @@ class CacheBase(BaseModel):
     def catalog_manager(self) -> CatalogManagerBase:
         """Return the catalog manager from the record processor."""
         if self._catalog_manager is None:
-            raise PyAirbyteInternalError(message="Catalog manager is not set.")
+            self._initialize_cache()
 
-        return self._catalog_manager
+        return cast(CatalogManagerBase, self._catalog_manager)  # Not `None` at this point
+
+    def register_source(
+        self,
+        source_name: str,
+        incoming_source_catalog: ConfiguredAirbyteCatalog,
+        stream_names: set[str],
+    ) -> None:
+        """Register the source name and catalog."""
+        self.catalog_manager.register_source(
+            source_name=source_name,
+            incoming_source_catalog=incoming_source_catalog,
+            incoming_stream_names=stream_names,
+        )
+        self._expected_streams = stream_names
 
     def __getitem__(self, stream: str) -> DatasetBase:
         """Return a dataset by stream name."""

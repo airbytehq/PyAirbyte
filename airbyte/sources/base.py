@@ -710,7 +710,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 available_streams=self.get_available_streams(),
             )
 
-        cache.processor.register_source(
+        cache.register_source(
             source_name=self.name,
             incoming_source_catalog=self.configured_catalog,
             stream_names=set(self._selected_stream_names),

@@ -122,24 +122,6 @@ class RecordProcessorBase(abc.ABC):
 
         return self._state_writer
 
-    def register_source(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        stream_names: set[str],
-    ) -> None:
-        """Register the source name and catalog."""
-        if not self._catalog_manager:
-            raise exc.PyAirbyteInternalError(
-                message="Catalog manager should exist but does not.",
-            )
-        self._catalog_manager.register_source(
-            source_name,
-            incoming_source_catalog=incoming_source_catalog,
-            incoming_stream_names=stream_names,
-        )
-        self._expected_streams = stream_names
-
     @final
     def process_stdin(
         self,
