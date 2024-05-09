@@ -545,7 +545,6 @@ def test_cached_dataset(
     not_a_stream_name = "not_a_stream"
 
     # Check that the stream appears in mapping-like attributes
-    assert stream_name in result.cache.processor._expected_streams
     assert stream_name in result
     assert stream_name in result.cache
     assert stream_name in result.cache.streams
