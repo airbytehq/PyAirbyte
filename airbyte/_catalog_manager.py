@@ -28,7 +28,6 @@ if TYPE_CHECKING:
 
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
-STATE_TABLE_NAME = "_airbyte_state"
 
 Base = declarative_base()
 
