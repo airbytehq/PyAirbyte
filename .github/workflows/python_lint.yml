@@ -26,6 +26,8 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
     # Job-specifc step(s):
     - name: Format code
@@ -47,6 +49,8 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
     # Job-specifc step(s):
     - name: Check code format
@@ -68,6 +72,8 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
     # Job-specifc step(s):
     - name: Check MyPy typing
