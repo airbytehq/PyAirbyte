@@ -11,9 +11,8 @@ from overrides import overrides
 from sqlalchemy import text
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import RecordProcessor
+from airbyte._catalog_manager import SqlCatalogManager
 from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
-from airbyte.caches._catalog_manager import CatalogManager
 
 
 if TYPE_CHECKING:
@@ -79,17 +78,17 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         self._connection_to_reuse: Connection | None = None
 
         # call base class to do necessary initialization
-        RecordProcessor.__init__(self, cache=cache, catalog_manager=None)
+        super().__init__(cache=cache, catalog_manager=None)
         self._ensure_schema_exists()
-        self._catalog_manager = CatalogManager(
+        self._catalog_manager = SqlCatalogManager(
             engine=self.get_sql_engine(),
-            table_name_resolver=lambda stream_name: self.get_sql_table_name(stream_name),
+            table_prefix=cache.table_prefix or "",
         )
 
         # TODO: read streams and source from catalog if not provided
 
         # initialize catalog manager by registering source
-        self.register_source(
+        self.register_source(  # TODO: Receive this from the catalog in the constructor
             source_name=source_name,
             incoming_source_catalog=self._catalog,
             stream_names=stream_names,

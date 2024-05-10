@@ -165,4 +165,8 @@ processor = SnowflakeCortexSqlProcessor(
     source_name="github",
     stream_names=stream_names,
 )
-processor.process_airbyte_messages(messages, WriteStrategy.MERGE)
+processor.process_airbyte_messages(
+    messages=messages,
+    source_name="dummy",  # TODO: Try to remove this. Currently it is needed when saving state.
+    write_strategy=WriteStrategy.MERGE,
+)
