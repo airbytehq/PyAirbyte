@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.state.state_provider_base import StateProviderBase
 
 
-STREAMS_TABLE_NAME = "_airbyte_streams"
 STATE_TABLE_NAME = "_airbyte_state"
 
 GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
@@ -124,13 +123,19 @@ class SqlStateBackend(StateBackendBase):
         self,
         source_name: str,
         table_prefix: str = "",
+        *,
+        refresh: bool = True,
     ) -> StateProviderBase:
         """Return the state provider.
 
         Subclasses may add additional keyword arguments to this method as needed.
         """
-        if self._state_artifacts is None:
-            self._initialize_backend(source_name=source_name, table_prefix=table_prefix)
+        if self._state_artifacts is None or refresh:
+            self._initialize_backend(
+                source_name=source_name,
+                table_prefix=table_prefix,
+                force_refresh=refresh,
+            )
 
         assert self._state_artifacts is not None, "State artifacts is initialized."
         return StaticInputState(input_state_artifacts=self._state_artifacts)
@@ -151,16 +156,11 @@ class SqlStateBackend(StateBackendBase):
         self._ensure_internal_tables()
         engine = self._engine
         with Session(engine) as session:
-            query = session.query(StreamState).filter(StreamState.source_name == source_name)
+            query = session.query(StreamState).filter(
+                StreamState.source_name == source_name
+                and StreamState.table_name.startswith(table_prefix)
+            )
             states = cast(list[StreamState], query.all())
-
-        if not states:
-            # No state artifacts found
-            self._state_artifacts = []
-            return
-
-        # Only return the states if the table name matches what the current cache
-        # would generate. Otherwise consider it part of a different cache.
 
         state_dicts: list[dict] = [
             json.loads(state.state_json)
@@ -168,8 +168,15 @@ class SqlStateBackend(StateBackendBase):
             if state.table_name == self._table_prefix + state.stream_name
         ]
         self._state_artifacts = [
-            AirbyteStreamState.parse_obj(state_dict) for state_dict in state_dicts
+            AirbyteStateMessage.parse_obj(state_dict) for state_dict in state_dicts
         ]
+        # if not states:
+        #     # No state artifacts found
+        #     self._state_artifacts = []
+        #     return
+
+        # Only return the states if the table name matches what the current cache
+        # would generate. Otherwise consider it part of a different cache.
 
     def get_state_writer(
         self,

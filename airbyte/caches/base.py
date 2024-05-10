@@ -115,6 +115,8 @@ class CacheBase(BaseModel):
     def get_state_provider(
         self,
         source_name: str,
+        *,
+        refresh: bool = True,
     ) -> StateProviderBase:
         """Return a state provider for the specified source name."""
         if self._state_backend is None:
@@ -126,6 +128,7 @@ class CacheBase(BaseModel):
         return self._state_backend.get_state_provider(
             source_name=source_name,
             table_prefix=self.table_prefix or "",
+            refresh=refresh,
         )
 
     def get_state_writer(

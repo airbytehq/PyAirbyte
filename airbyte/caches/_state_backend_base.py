@@ -20,13 +20,6 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.state.state_provider_base import StateProviderBase
     from airbyte._future_cdk.state.state_writer_base import StateWriterBase
 
-STREAMS_TABLE_NAME = "_airbyte_streams"
-STATE_TABLE_NAME = "_airbyte_state"
-
-GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
-
-Base = declarative_base()
-
 
 class StateBackendBase(abc.ABC):
     """A class which manages the stream state for data synced.
@@ -44,6 +37,8 @@ class StateBackendBase(abc.ABC):
         self,
         source_name: str,
         table_prefix: str,
+        *,
+        refresh: bool = True,
     ) -> StateProviderBase:
         """Return the state provider."""
         ...
@@ -69,45 +64,3 @@ class StateBackendBase(abc.ABC):
         """
         _ = force_refresh  # Unused
         pass
-
-    # @final
-    # def get_state_artifacts(
-    #     self,
-    #     *,
-    #     source_name: str | None = None,
-    #     table_prefix: str | None = None,
-    # ) -> list[AirbyteStreamState]:
-    #     """Returns all state artifacts.
-
-    #     This is a "final" implementation, which base classes should not override. Instead, they
-    #     should implement the `_load_state_artifacts()` method.
-    #     """
-    #     if self._state_artifacts is None:
-    #         self._initialize_backend(force_refresh=False)
-    #         if self._state_artifacts is None:
-    #             raise exc.PyAirbyteInternalError(message="No state artifacts were declared.")
-
-    #     return self._state_artifacts
-
-    # @abc.abstractmethod
-    # def write_processed_state(
-    #     self,
-    #     state: AirbyteStreamState,
-    #     stream_name: str,
-    #     *,
-    #     source_name: str | None = None,
-    #     table_prefix: str | None = None,
-    # ) -> None:
-    #     """Save the state of a stream to the cache."""
-    #     ...
-
-    # @abc.abstractmethod
-    # def get_state(
-    #     self,
-    #     streams: list[str] | None = None,
-    #     *,
-    #     source_name: str | None = None,
-    #     table_prefix: str | None = None,
-    # ) -> list[AirbyteStreamState] | None:
-    #     """Get the state of a stream from the cache."""
-    #     ...
