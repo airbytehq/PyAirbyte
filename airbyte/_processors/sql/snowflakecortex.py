@@ -55,6 +55,8 @@ class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
 class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     """A Snowflake implementation for use with Cortex functions."""
 
+    supports_merge_insert = True
+
     def __init__(
         self,
         cache: CacheBase,

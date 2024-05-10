@@ -169,6 +169,7 @@ ignore = [
     "ERA001",  # Remove commented-out code
     "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
     "PLW0603", # Using the global statement to update _cache is discouraged
+    "PLW0108", # Lambda may be unnecessary; consider inlining inner function
     "TD003",   # Require links for TODOs # TODO: Re-enable when we disable FIX002
 
     "UP007", # Allow legacy `Union[a, b]` and `Optional[a]` for Pydantic, until we drop Python 3.9 (Pydantic doesn't like it)

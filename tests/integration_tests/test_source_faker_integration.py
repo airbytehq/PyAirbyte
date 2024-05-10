@@ -315,3 +315,36 @@ def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
             output_file=temp.name,
         )
         assert Path(temp.name).exists()
+
+
+def test_merge_insert_not_supported_for_duckdb(
+    source_faker_seed_a: ab.Source,
+    duckdb_cache: DuckDBCache,
+) -> None:
+    """Confirm that duckdb does not support merge insert natively"""
+    duckdb_cache.processor.supports_merge_insert = True
+    try:
+        result = source_faker_seed_a.read(duckdb_cache, write_strategy="merge")
+        if result:
+            raise AssertionError("Cache supports merge-insert, but it's set to False.")
+    except Exception as e:
+        print(f"An exception occurred: {e}")
+        if isinstance(e, AssertionError):
+            raise e
+
+
+@pytest.mark.requires_creds
+def test_merge_insert_not_supported_for_postgres(
+    source_faker_seed_a: ab.Source, new_postgres_cache: PostgresCache
+):
+    """Confirm that postgres does not support merge insert natively"""
+    # TODO - This test keeps getting skipped, investigate why.
+    new_postgres_cache.processor.supports_merge_insert = True
+    try:
+        result = source_faker_seed_a.read(new_postgres_cache, write_strategy="merge")
+        if result:
+            raise AssertionError("Cache supports merge-insert, but it's set to False.")
+    except Exception as e:
+        print(f"An exception occurred: {e}")
+        if isinstance(e, AssertionError):
+            raise e

@@ -25,7 +25,7 @@ from airbyte_cdk.models import (
 )
 
 import airbyte as ab
-from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor
+from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor  # noqa: PLC2701
 
 # from airbyte._util.google_secrets import get_gcp_secret_json
 from airbyte.caches import SnowflakeCache
@@ -86,7 +86,7 @@ message1 = AirbyteMessage(
         data={
             "document_id": "stream_myteststream_key_4",
             "chunk_id": "1000",
-            "page_content": "str_col: Dogs are number 1",
+            "page_content": "str_col: Dogs are number 4",
             "metadata": {"int_col": 4, "_ab_stream": "mystream"},
             "embedding": [
                 -0.00438284986621647,
@@ -104,7 +104,7 @@ message2 = AirbyteMessage(
     record=AirbyteRecordMessage(
         stream="myteststream",
         data={
-            "document_id": "stream_myteststream_key_4",
+            "document_id": "stream_myteststream_key_5",
             "chunk_id": "1001",
             "page_content": "str_col: Dogs are number 2",
             "metadata": {"int_col": 5, "_ab_stream": "teststream"},
@@ -156,11 +156,13 @@ state_message = _state({"state": "1"})
 messages = [message1, message2, message3, state_message]
 
 # create a SQL processor using Snowflake cache
+stream_names = set()
+stream_names.add("myteststream")
 processor = SnowflakeCortexSqlProcessor(
     cache=cache,
     catalog=catalog,
     vector_length=5,
     source_name="github",
-    stream_names=["myteststream"],
+    stream_names=stream_names,
 )
-processor.process_airbyte_messages(messages, WriteStrategy.REPLACE)
+processor.process_airbyte_messages(messages, WriteStrategy.MERGE)
