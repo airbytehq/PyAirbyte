@@ -267,10 +267,9 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert (
-        second_cache.processor._catalog_manager
-        and second_cache.processor._catalog_manager.get_state("source-faker")
-    )
+    state_provider = second_cache.get_state_provider("source-faker")
+    assert len(state_provider.state_message_artifacts) > 0
+
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 

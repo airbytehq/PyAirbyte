@@ -13,13 +13,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
 from airbyte_protocol.models import (
-    AirbyteGlobalState,
     AirbyteStateMessage,
     AirbyteStateType,
 )
 
+from airbyte._future_cdk.state.state_providers import StaticInputState
 from airbyte._future_cdk.state.state_writer_base import StateWriterBase
-from airbyte._future_cdk.state.static_input_state import StaticInputState
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )

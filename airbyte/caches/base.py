@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
-    from airbyte._future_cdk.state.state_provider_base import StateProviderBase
+    from airbyte._future_cdk.state.state_providers import StateProviderBase
     from airbyte._future_cdk.state.state_writer_base import StateWriterBase
     from airbyte.caches._state_backend_base import StateBackendBase
     from airbyte.datasets._base import DatasetBase
