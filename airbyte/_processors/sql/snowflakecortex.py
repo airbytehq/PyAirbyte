@@ -103,9 +103,9 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         table_name: str,
     ) -> list[str]:
         """Get column names for passed stream.
-        
+
         This is overridden due to lack of SQLAlchemy compatibility for the
-        `VECTOR` data type. 
+        `VECTOR` data type.
         """
         conn: Connection = self.cache.get_vendor_client()
         cursor = conn.cursor()
