@@ -47,7 +47,10 @@ class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
         """Convert a value to a SQL type."""
         sql_type = super().to_sql_type(json_schema_property_def)
         if isinstance(sql_type, sqlalchemy.types.ARRAY):
-            return f"Vector(Float, {self.vector_length})"
+            # SQLAlchemy doesn't yet support the `VECTOR` data type.
+            # We may want to remove this or update once this resolves:
+            # https://github.com/snowflakedb/snowflake-sqlalchemy/issues/499
+            return f"VECTOR(FLOAT, {self.vector_length})"
 
         return sql_type
 
