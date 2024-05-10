@@ -22,6 +22,7 @@ cache = SnowflakeCache(
 from __future__ import annotations
 
 from overrides import overrides
+from snowflake import connector
 from snowflake.sqlalchemy import URL
 
 from airbyte._future_cdk.sql_processor import RecordDedupeMode
@@ -60,6 +61,18 @@ class SnowflakeCache(CacheBase):
                 schema=self.schema_name,
                 role=self.role,
             )
+        )
+
+    def get_vendor_client(self) -> object:
+        """Return the Snowflake connection object."""
+        return connector.connect(
+            user=self.username,
+            password=self.password,
+            account=self.account,
+            warehouse=self.warehouse,
+            database=self.database,
+            schema=self.schema_name,
+            role=self.role,
         )
 
     @overrides

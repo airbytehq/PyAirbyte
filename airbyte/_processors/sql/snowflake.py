@@ -51,6 +51,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
 
     file_writer_class = JsonlWriter
     type_converter_class = SnowflakeTypeConverter
+    supports_merge_insert = True
 
     @overrides
     def _write_files_to_new_table(
