@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Optional, cast, final
 from pydantic import BaseModel, PrivateAttr
 
 from airbyte._catalog_manager import SqlCatalogManager
-from airbyte._future_cdk.catalog_manager import CatalogManagerBase
+from airbyte._future_cdk.catalog_managers import CatalogManagerBase
 from airbyte._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
 
@@ -23,8 +23,8 @@ if TYPE_CHECKING:
     from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
-    from airbyte._future_cdk.state.state_providers import StateProviderBase
-    from airbyte._future_cdk.state.state_writer_base import StateWriterBase
+    from airbyte._future_cdk.state_providers import StateProviderBase
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches._state_backend_base import StateBackendBase
     from airbyte.datasets._base import DatasetBase
 

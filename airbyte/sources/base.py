@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executor import Executor
-    from airbyte._future_cdk.state.state_providers import StateProviderBase
+    from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
 

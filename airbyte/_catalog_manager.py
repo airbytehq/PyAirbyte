@@ -20,7 +20,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._future_cdk.catalog_manager import CatalogManagerBase
+from airbyte._future_cdk.catalog_managers import CatalogManagerBase
 
 
 if TYPE_CHECKING:

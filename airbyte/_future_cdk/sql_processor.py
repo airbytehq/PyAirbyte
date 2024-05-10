@@ -58,8 +58,8 @@ if TYPE_CHECKING:
     )
 
     from airbyte._batch_handles import BatchHandle
-    from airbyte._future_cdk.catalog_manager import CatalogManagerBase
-    from airbyte._future_cdk.state.state_writer_base import StateWriterBase
+    from airbyte._future_cdk.catalog_managers import CatalogManagerBase
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches.base import CacheBase
 

@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from airbyte._batch_handles import BatchHandle
     from airbyte._catalog_manager import CatalogManagerBase
-    from airbyte._future_cdk.state.state_writer_base import StateWriterBase
+    from airbyte._future_cdk.state_writers import StateWriterBase
 
 
 class AirbyteMessageParsingError(Exception):

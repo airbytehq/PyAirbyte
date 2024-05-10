@@ -7,6 +7,8 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, final
 
+from overrides import overrides
+
 from airbyte import exceptions as exc
 
 
@@ -129,3 +131,16 @@ class CatalogManagerBase(abc.ABC):
     ) -> dict[str, Any]:
         """Return the column definitions for the given stream."""
         return self.get_configured_stream_info(stream_name).stream.json_schema
+
+
+class StaticCatalogManager(CatalogManagerBase):
+    """A catalog manager that uses a static catalog input."""
+
+    def __init__(self, configured_catalog: ConfiguredAirbyteCatalog) -> None:
+        """Initialize the catalog manager with a static catalog."""
+        self._catalog: ConfiguredAirbyteCatalog = configured_catalog
+
+    @property
+    @overrides
+    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
+        return self._catalog
