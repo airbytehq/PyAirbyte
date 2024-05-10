@@ -129,7 +129,7 @@ class SqlStateBackend(StateBackendBase):
     def _ensure_internal_tables(self) -> None:
         """Ensure the internal tables exist in the SQL database."""
         engine = self._engine
-        Base.metadata.create_all(engine)
+        SqlAlchemyModel.metadata.create_all(engine)
 
     def get_state_provider(
         self,

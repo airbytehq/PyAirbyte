@@ -81,7 +81,7 @@ class SqlCatalogManager(CatalogManagerBase):
 
     def _ensure_internal_tables(self) -> None:
         engine = self._engine
-        Base.metadata.create_all(engine)
+        SqlAlchemyModel.metadata.create_all(engine)
 
     def register_source(
         self,
