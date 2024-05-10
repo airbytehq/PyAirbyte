@@ -19,14 +19,6 @@ if TYPE_CHECKING:
     )
 
 
-STREAMS_TABLE_NAME = "_airbyte_streams"
-STATE_TABLE_NAME = "_airbyte_state"
-
-GLOBAL_STATE_STREAM_NAMES = ["_GLOBAL", "_LEGACY"]
-
-Base = declarative_base()
-
-
 class CatalogManagerBase(abc.ABC):
     """
     A class to manage the stream catalog of data synced to a cache:
