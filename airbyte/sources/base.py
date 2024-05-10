@@ -16,7 +16,6 @@ from typing_extensions import Literal
 from airbyte_protocol.models import (
     AirbyteCatalog,
     AirbyteMessage,
-    AirbyteStateMessage,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     ConnectorSpecification,
@@ -51,6 +50,7 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executor import Executor
+    from airbyte._future_cdk.state.state_providers import StateProviderBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
 
@@ -521,7 +521,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
-        state: list[AirbyteStateMessage] | None = None,
+        state: StateProviderBase | None = None,
     ) -> Iterator[AirbyteMessage]:
         """Call read on the connector.
 
@@ -537,7 +537,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             [
                 self._config,
                 catalog.json(),
-                json.dumps(state) if state else "[]",
+                state.to_state_input_file_text() if state else "[]",
             ]
         ) as [
             config_file,
@@ -717,13 +717,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         )
 
         if force_full_refresh:
-            state = None
+            state_provider: StateProviderBase | None = None
         else:
-            state = cache.get_state_provider(
+            state_provider = cache.get_state_provider(
                 source_name=self.name,
-            ).get_state_artifacts(
-                self._selected_stream_names,
-                include_global_state=True,
             )
 
         if not skip_validation:
@@ -734,7 +731,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             cache.processor.process_airbyte_messages(
                 self._read_with_catalog(
                     catalog=self.configured_catalog,
-                    state=state,
+                    state=state_provider,
                 ),
                 source_name=self.name,
                 write_strategy=write_strategy,

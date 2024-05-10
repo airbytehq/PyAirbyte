@@ -7,8 +7,6 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING
 
-from sqlalchemy.ext.declarative import declarative_base
-
 from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
 
 
@@ -17,7 +15,7 @@ if TYPE_CHECKING:
         AirbyteStreamState,
     )
 
-    from airbyte._future_cdk.state.state_provider_base import StateProviderBase
+    from airbyte._future_cdk.state.state_providers import StateProviderBase
     from airbyte._future_cdk.state.state_writer_base import StateWriterBase
 
 

@@ -7,8 +7,6 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, final
 
-from sqlalchemy.ext.declarative import declarative_base
-
 from airbyte import exceptions as exc
 
 

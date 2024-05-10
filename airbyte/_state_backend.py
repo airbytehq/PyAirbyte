@@ -14,10 +14,8 @@ from sqlalchemy.orm import Session
 
 from airbyte_protocol.models import (
     AirbyteGlobalState,
-    AirbyteLegacyState,
     AirbyteStateMessage,
     AirbyteStateType,
-    AirbyteStreamState,
 )
 
 from airbyte._future_cdk.state.state_writer_base import StateWriterBase
@@ -31,7 +29,7 @@ from airbyte.exceptions import PyAirbyteInternalError
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
-    from airbyte._future_cdk.state.state_provider_base import StateProviderBase
+    from airbyte._future_cdk.state.state_providers import StateProviderBase
 
 
 STATE_TABLE_NAME = "_airbyte_state"
@@ -48,20 +46,21 @@ class StreamState(Base):  # type: ignore[valid-type,misc]
     __tablename__ = STATE_TABLE_NAME
 
     source_name = Column(String)
+    """The source name."""
+
     stream_name = Column(String)
+    """The stream name."""
+
     table_name = Column(String, primary_key=True)
+    """The table name holding records for the stream."""
+
     state_json = Column(String)
+    """The JSON string representation of the state message."""
+
     last_updated = Column(
         DateTime(timezone=True), onupdate=datetime.now(utc), default=datetime.now(utc)
     )
-
-    def to_state_obj(self) -> AirbyteStreamState | AirbyteGlobalState | AirbyteLegacyState:
-        if self.stream_name == GLOBAL_STATE_STREAM_NAME:
-            return AirbyteGlobalState.parse_raw(self.state_json)
-        if self.stream_name == LEGACY_STATE_STREAM_NAME:
-            return AirbyteLegacyState.parse_raw(self.state_json)
-
-        return AirbyteStreamState.parse_raw(self.state_json)
+    """The last time the state was updated."""
 
 
 class SqlStateWriter(StateWriterBase):
@@ -167,7 +166,11 @@ class SqlStateBackend(StateBackendBase):
                 state for state in states if state.table_name == table_prefix + state.stream_name
             ]
 
-        return StaticInputState(input_state_artifacts=[state.to_state_obj() for state in states])
+        return StaticInputState(
+            from_state_messages=[
+                AirbyteStateMessage.parse_raw(state.state_json) for state in states
+            ]
+        )
 
     def get_state_writer(
         self,
