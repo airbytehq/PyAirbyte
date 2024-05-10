@@ -38,10 +38,11 @@ LEGACY_STATE_STREAM_NAME = "_LEGACY"
 GLOBAL_STATE_STREAM_NAMES = [GLOBAL_STATE_STREAM_NAME, LEGACY_STATE_STREAM_NAME]
 
 
-Base = declarative_base()
+SqlAlchemyModel = declarative_base()
+"""A base class to use for SQLAlchemy ORM models."""
 
 
-class StreamState(Base):  # type: ignore[valid-type,misc]
+class StreamState(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     __tablename__ = STATE_TABLE_NAME
 
     source_name = Column(String)

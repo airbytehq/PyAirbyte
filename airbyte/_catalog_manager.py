@@ -29,10 +29,11 @@ if TYPE_CHECKING:
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
 
-Base = declarative_base()
+SqlAlchemyModel = declarative_base()
+"""A base class to use for SQLAlchemy ORM models."""
 
 
-class CachedStream(Base):  # type: ignore[valid-type,misc]
+class CachedStream(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     __tablename__ = STREAMS_TABLE_NAME
 
     stream_name = Column(String)
