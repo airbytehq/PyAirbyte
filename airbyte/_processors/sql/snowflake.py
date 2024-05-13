@@ -8,10 +8,13 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy
 from overrides import overrides
-from snowflake.sqlalchemy import VARIANT
+from snowflake import connector
+from snowflake.sqlalchemy import URL, VARIANT
 
 from airbyte._future_cdk import SqlProcessorBase
+from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
+from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter
 
 
@@ -19,6 +22,49 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sqlalchemy.engine import Connection
+
+
+class SnowflakeConfig(SqlConfig):
+    """Configuration for the Snowflake cache."""
+
+    account: str  # type: ignore [misc]
+    username: str  # type: ignore [misc]
+    password: SecretString  # type: ignore [misc]
+    warehouse: str  # type: ignore [misc]
+    database: str  # type: ignore [misc]
+    role: str  # type: ignore [misc]
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        return self.database
+
+    @overrides
+    def get_sql_alchemy_url(self) -> SecretString:
+        """Return the SQLAlchemy URL to use."""
+        return SecretString(
+            URL(
+                account=self.account,
+                user=self.username,
+                password=self.password,
+                database=self.database,
+                warehouse=self.warehouse,
+                schema=self.schema_name,
+                role=self.role,
+            )
+        )
+
+    def get_vendor_client(self) -> object:
+        """Return the Snowflake connection object."""
+        return connector.connect(
+            user=self.username,
+            password=self.password,
+            account=self.account,
+            warehouse=self.warehouse,
+            database=self.database,
+            schema=self.schema_name,
+            role=self.role,
+        )
 
 
 class SnowflakeTypeConverter(SQLTypeConverter):
@@ -50,8 +96,9 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
     """A Snowflake implementation of the cache."""
 
     file_writer_class = JsonlWriter
-    type_converter_class = SnowflakeTypeConverter
+    type_converter_class: type[SnowflakeTypeConverter] = SnowflakeTypeConverter
     supports_merge_insert = True
+    sql_config: SnowflakeConfig
 
     @overrides
     def _write_files_to_new_table(

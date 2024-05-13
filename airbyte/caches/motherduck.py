@@ -17,7 +17,7 @@ cache = MotherDuckCache(
 from __future__ import annotations
 
 from overrides import overrides
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from airbyte._processors.sql.motherduck import MotherDuckSqlProcessor
 from airbyte.caches.duckdb import DuckDBCache
@@ -27,11 +27,11 @@ from airbyte.secrets import SecretString
 class MotherDuckCache(DuckDBCache):
     """Cache that uses MotherDuck for external persistent storage."""
 
+    database: str = Field()
+    api_key: SecretString = Field()
     db_path: str = Field(default="md:")
-    database: str
-    api_key: SecretString
 
-    _sql_processor_class = MotherDuckSqlProcessor
+    _sql_processor_class: type[MotherDuckSqlProcessor] = PrivateAttr(default=MotherDuckSqlProcessor)
 
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:

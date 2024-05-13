@@ -175,6 +175,5 @@ class SqlStateBackend(StateBackendBase):
     def get_state_writer(
         self,
         source_name: str,
-        table_prefix: str,
     ) -> StateWriterBase:
         return SqlStateWriter(source_name=source_name, backend=self)

@@ -45,9 +45,11 @@ class StateBackendBase(abc.ABC):
     def get_state_writer(
         self,
         source_name: str,
-        table_prefix: str,
     ) -> StateWriterBase:
-        """Return a state writer."""
+        """Return a state writer for a named source.
+
+        The same table prefix of the backend will be used for the state writer.
+        """
         ...
 
     def _initialize_backend(

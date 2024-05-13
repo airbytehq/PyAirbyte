@@ -6,15 +6,21 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Union
 
 from overrides import overrides
+from pydantic import Field
+from typing_extensions import Literal
 
 from airbyte._future_cdk import SqlProcessorBase
+from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file import JsonlWriter
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+
     from airbyte.caches.duckdb import DuckDBCache
 
 
@@ -24,6 +30,63 @@ warnings.filterwarnings(
     "ignore",
     message="duckdb-engine doesn't yet support reflection on indices",
 )
+
+
+# @dataclass
+class DuckDBConfig(SqlConfig):
+    """Configuration for DuckDB."""
+
+    db_path: Union[Path, str] = Field()
+    """Normally db_path is a Path object.
+
+    The database name will be inferred from the file name. For example, given a `db_path` of
+    `/path/to/my/duckdb-file`, the database name is `my_db`.
+    """
+
+    schema_name: str = Field(default="main")
+    """The name of the schema to write to. Defaults to "main"."""
+
+    @overrides
+    def get_sql_alchemy_url(self) -> SecretString:
+        """Return the SQLAlchemy URL to use."""
+        # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
+        return SecretString(f"duckdb:///{self.db_path!s}")
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        if self.db_path == ":memory:":
+            return "memory"
+
+        # Split the path on the appropriate separator ("/" or "\")
+        split_on: Literal["/", "\\"] = "\\" if "\\" in str(self.db_path) else "/"
+
+        # Return the file name without the extension
+        return str(self.db_path).split(sep=split_on)[-1].split(".")[0]
+
+    def _is_file_based_db(self) -> bool:
+        """Return whether the database is file-based."""
+        if isinstance(self.db_path, Path):
+            return True
+
+        db_path_str = str(self.db_path)
+        return (
+            db_path_str != ":memory:"
+            and "md:" not in db_path_str
+            and "motherduck:" not in db_path_str
+        )
+
+    @overrides
+    def get_sql_engine(self) -> Engine:
+        """Return the SQL Alchemy engine.
+
+        This method is overridden to ensure that the database parent directory is created if it
+        doesn't exist.
+        """
+        if self._is_file_based_db():
+            Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+
+        return super().get_sql_engine()
 
 
 class DuckDBSqlProcessor(SqlProcessorBase):
@@ -36,15 +99,15 @@ class DuckDBSqlProcessor(SqlProcessorBase):
 
     supports_merge_insert = False
     file_writer_class = JsonlWriter
-    cache: DuckDBCache
+    sql_config: DuckDBConfig
 
     @overrides
     def _setup(self) -> None:
         """Create the database parent folder if it doesn't yet exist."""
-        if self.cache.db_path == ":memory:":
+        if self.sql_config.db_path == ":memory:":
             return
 
-        Path(self.cache.db_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.sql_config.db_path).parent.mkdir(parents=True, exist_ok=True)
 
     def _write_files_to_new_table(
         self,
@@ -85,7 +148,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         )
         insert_statement = dedent(
             f"""
-            INSERT INTO {self.cache.schema_name}.{temp_table_name}
+            INSERT INTO {self.sql_config.schema_name}.{temp_table_name}
             (
                 {columns_list_str}
             )

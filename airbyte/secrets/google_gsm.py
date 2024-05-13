@@ -32,6 +32,7 @@ read_result = source.read()
 from __future__ import annotations
 
 import json
+import locale
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -105,7 +106,11 @@ class GoogleGSMSecretManager(CustomSecretManager):
                 credentials_json = SecretString(os.environ["GCP_GSM_CREDENTIALS"])
 
         if credentials_path:
-            credentials_json = SecretString(Path(credentials_path).read_text())
+            credentials_json = SecretString(
+                Path(credentials_path).read_text(
+                    encoding=locale.getpreferredencoding(do_setlocale=False)
+                )
+            )
 
         if not credentials_json:
             raise exc.PyAirbyteInputError(

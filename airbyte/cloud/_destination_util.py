@@ -113,7 +113,7 @@ def get_bigquery_destination_config(
 ) -> dict[str, str]:
     """Get the destination configuration from the BigQuery cache."""
     credentials_json: str | None = (
-        Path(cache.credentials_path).read_text() if cache.credentials_path else None
+        Path(cache.credentials_path).read_text(encoding="utf-8") if cache.credentials_path else None
     )
     destination = DestinationBigquery(
         project_id=cache.project_name,
@@ -130,7 +130,7 @@ def create_bigquery_cache(
 ) -> BigQueryCache:
     """Create a new BigQuery cache from the destination configuration."""
     credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
-    return BigQueryCache(
+    return BigQueryCache(  # type: ignore
         project_name=destination_configuration.project_id,
         dataset_name=destination_configuration.dataset_id,
         schema_name=destination_configuration.schema,

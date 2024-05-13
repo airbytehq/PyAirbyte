@@ -25,6 +25,7 @@ from airbyte_cdk.models import (
 )
 
 import airbyte as ab
+from airbyte._future_cdk.catalog_managers import CatalogProvider  # noqa: PLC2701  # Allow private
 from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor  # noqa: PLC2701
 
 # from airbyte._util.google_secrets import get_gcp_secret_json
@@ -76,7 +77,7 @@ overwrite_stream = ConfiguredAirbyteStream(
     destination_sync_mode=DestinationSyncMode.overwrite,
 )
 catalog = ConfiguredAirbyteCatalog(streams=[overwrite_stream])
-
+catalog_provider = CatalogProvider(configured_catalog=catalog)
 
 # create test messages
 message1 = AirbyteMessage(
@@ -155,18 +156,17 @@ def _state(data: dict[str, Any]) -> AirbyteMessage:
 state_message = _state({"state": "1"})
 messages = [message1, message2, message3, state_message]
 
+
 # create a SQL processor using Snowflake cache
 stream_names = set()
 stream_names.add("myteststream")
 processor = SnowflakeCortexSqlProcessor(
-    cache=cache,
-    catalog=catalog,
+    sql_config=cache,
     vector_length=5,
-    source_name="github",
-    stream_names=stream_names,
+    catalog_provider=catalog,
+    temp_dir=cache.cache_dir,  # Default to /tmp
 )
 processor.process_airbyte_messages(
     messages=messages,
-    source_name="dummy",  # TODO: Try to remove this. Currently it is needed when saving state.
     write_strategy=WriteStrategy.MERGE,
 )

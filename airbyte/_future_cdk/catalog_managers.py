@@ -7,8 +7,6 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any, final
 
-from overrides import overrides
-
 from airbyte import exceptions as exc
 
 
@@ -19,7 +17,7 @@ if TYPE_CHECKING:
     )
 
 
-class CatalogManagerBase(abc.ABC):
+class CatalogBackendBase(abc.ABC):
     """
     A class to manage the stream catalog of data synced to a cache:
     * What streams exist and to what tables they map
@@ -27,30 +25,6 @@ class CatalogManagerBase(abc.ABC):
     """
 
     # Abstract implementations
-
-    @property
-    @abc.abstractmethod
-    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
-        """Return the source catalog with all known streams.
-
-        Raises:
-            PyAirbyteInternalError: If the source catalog is not set.
-        """
-        ...
-
-    @abc.abstractmethod
-    def _load_catalog_info(self) -> None:
-        """Load the catalog information from the cache."""
-        ...
-
-    @abc.abstractmethod
-    def _update_catalog(
-        self,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        incoming_stream_names: set[str],
-    ) -> None:
-        """Update the catalog data with incoming catalog."""
-        ...
 
     @abc.abstractmethod
     def _save_catalog_info(
@@ -69,9 +43,12 @@ class CatalogManagerBase(abc.ABC):
     # Generic implementations
 
     @property
+    @abc.abstractmethod
     def stream_names(self) -> list[str]:
-        return [stream.name for stream in self.configured_catalog.streams]
+        """Return the names of all known streams in the catalog backend."""
+        ...
 
+    @abc.abstractmethod
     def register_source(
         self,
         source_name: str,
@@ -79,15 +56,47 @@ class CatalogManagerBase(abc.ABC):
         incoming_stream_names: set[str],
     ) -> None:
         """Register a source and its streams in the cache."""
-        self._update_catalog(
-            incoming_source_catalog=incoming_source_catalog,
-            incoming_stream_names=incoming_stream_names,
-        )
-        self._save_catalog_info(
-            source_name=source_name,
-            incoming_source_catalog=incoming_source_catalog,
-            incoming_stream_names=incoming_stream_names,
-        )
+        ...
+
+    @abc.abstractmethod
+    def get_full_catalog_provider(self) -> CatalogProvider:
+        """Return a catalog provider with the full catalog."""
+        ...
+
+    @abc.abstractmethod
+    def get_source_catalog_provider(self, source_name: str) -> CatalogProvider:
+        """Return a catalog provider filtered for a single source."""
+        ...
+
+
+class CatalogProvider:
+    """A catalog provider wraps a configured catalog and configured streams.
+
+    This class is responsible for providing information about the catalog and streams.
+
+    Note:
+    - The catalog provider is not responsible for managing the catalog or streams but it may
+      be updated with new streams as they are discovered.
+    """
+
+    def __init__(
+        self,
+        configured_catalog: ConfiguredAirbyteCatalog,
+    ) -> None:
+        """Initialize the catalog manager with a catalog object reference.
+
+        Since the catalog is passed by reference, the catalog manager may be updated with new
+        streams as they are discovered.
+        """
+        self._catalog: ConfiguredAirbyteCatalog = configured_catalog
+
+    @property
+    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
+        return self._catalog
+
+    @property
+    def stream_names(self) -> list[str]:
+        return list({stream.stream.name for stream in self.configured_catalog.streams})
 
     def get_configured_stream_info(
         self,
@@ -132,15 +141,9 @@ class CatalogManagerBase(abc.ABC):
         """Return the column definitions for the given stream."""
         return self.get_configured_stream_info(stream_name).stream.json_schema
 
-
-class StaticCatalogManager(CatalogManagerBase):
-    """A catalog manager that uses a static catalog input."""
-
-    def __init__(self, configured_catalog: ConfiguredAirbyteCatalog) -> None:
-        """Initialize the catalog manager with a static catalog."""
-        self._catalog: ConfiguredAirbyteCatalog = configured_catalog
-
-    @property
-    @overrides
-    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
-        return self._catalog
+    def get_stream_properties(
+        self,
+        stream_name: str,
+    ) -> dict[str, dict]:
+        """Return the names of the top-level properties for the given stream."""
+        return self.get_stream_json_schema(stream_name)["properties"]

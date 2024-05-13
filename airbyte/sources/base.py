@@ -27,6 +27,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._future_cdk.catalog_managers import CatalogProvider
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -686,9 +687,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 category=PyAirbyteDataLossWarning,
                 stacklevel=1,
             )
-        if cache is None:
-            cache = get_default_cache()
-
         if isinstance(write_strategy, str):
             try:
                 write_strategy = WriteStrategy(write_strategy)
@@ -710,12 +708,15 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 available_streams=self.get_available_streams(),
             )
 
-        cache.register_source(
-            source_name=self.name,
-            incoming_source_catalog=self.configured_catalog,
-            stream_names=set(self._selected_stream_names),
-        )
+        # Run optional validation step
+        if not skip_validation:
+            self.validate_config()
 
+        # Set up cache and related resources
+        if cache is None:
+            cache = get_default_cache()
+
+        # Set up state provider if not in full refresh mode
         if force_full_refresh:
             state_provider: StateProviderBase | None = None
         else:
@@ -723,19 +724,22 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 source_name=self.name,
             )
 
-        if not skip_validation:
-            self.validate_config()
-
         self._log_sync_start(cache=cache)
+
+        cache_processor = cache.get_record_processor(
+            source_name=self.name,
+            catalog_provider=CatalogProvider(self.configured_catalog),
+        )
         try:
-            cache.processor.process_airbyte_messages(
+            cache_processor.process_airbyte_messages(
                 self._read_with_catalog(
                     catalog=self.configured_catalog,
                     state=state_provider,
                 ),
-                source_name=self.name,
                 write_strategy=write_strategy,
             )
+
+        # TODO: We should catch more specific exceptions here
         except Exception as ex:
             self._log_sync_failure(cache=cache, exception=ex)
             raise exc.AirbyteConnectorFailedError(

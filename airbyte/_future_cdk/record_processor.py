@@ -18,13 +18,12 @@ from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
     AirbyteStreamState,
-    ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     Type,
 )
 
 from airbyte import exceptions as exc
-from airbyte.caches.base import CacheBase
+from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte.strategies import WriteStrategy
 
 
@@ -32,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from airbyte._batch_handles import BatchHandle
-    from airbyte._catalog_manager import CatalogManagerBase
+    from airbyte._future_cdk.catalog_managers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
 
 
@@ -52,32 +51,15 @@ class RecordProcessorBase(abc.ABC):
     def __init__(
         self,
         *,
-        cache: CacheBase,
-        catalog_manager: CatalogManagerBase | None = None,
+        catalog_provider: CatalogProvider,
         state_writer: StateWriterBase | None = None,
     ) -> None:
         """Initialize the processor.
 
-        The processor requires a cache, although in the future it may be possible to
-        initialize a processor without a cache.
-
-        If a catalog manager is not provided, the processor will attempt to use the cache's
-        catalog manager. If a state writer is not provided, the processor likewise will
-        attempt to use the cache's state writer.
+        If a state writer is not provided, the processor will use the default (STDOUT) state writer.
         """
-        self.cache: CacheBase = cache
-        if not isinstance(self.cache, CacheBase):
-            raise exc.PyAirbyteInputError(
-                message=(
-                    f"Expected config class of type 'CacheBase'.  "
-                    f"Instead received type '{type(self.cache).__name__}'."
-                ),
-            )
-
-        self._catalog_manager: CatalogManagerBase | None = catalog_manager
-        self._state_writer: StateWriterBase | None = state_writer
-
-        self.configured_catalog: ConfiguredAirbyteCatalog | None = None
+        self._catalog_provider: CatalogProvider | None = catalog_provider
+        self._state_writer: StateWriterBase | None = state_writer or StdOutStateWriter()
 
         self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
         self._finalized_state_messages: dict[
@@ -90,12 +72,12 @@ class RecordProcessorBase(abc.ABC):
     @property
     def expected_streams(self) -> set[str]:
         """Return the expected stream names."""
-        return set(self.catalog_manager.stream_names)
+        return set(self.catalog_provider.stream_names)
 
     @property
-    def catalog_manager(
+    def catalog_provider(
         self,
-    ) -> CatalogManagerBase:
+    ) -> CatalogProvider:
         """Return the catalog manager.
 
         Subclasses should set this property to a valid catalog manager instance if one
@@ -104,19 +86,12 @@ class RecordProcessorBase(abc.ABC):
         Raises:
             PyAirbyteInternalError: If the catalog manager is not set.
         """
-        if not self._catalog_manager:
-            self._catalog_manager = self.cache.catalog_manager
+        if not self._catalog_provider:
+            raise exc.PyAirbyteInternalError(
+                message="Catalog manager should exist but does not.",
+            )
 
-            if not self._catalog_manager:
-                raise exc.PyAirbyteInternalError(
-                    message="Catalog manager should exist but does not.",
-                )
-
-        return self._catalog_manager
-
-    def _initialize_state_writer_from_cache(self, source_name: str) -> None:
-        """Initialize the state writer from the cache."""
-        self._state_writer = self.cache.get_state_writer(source_name)
+        return self._catalog_provider
 
     @property
     def state_writer(
@@ -141,7 +116,6 @@ class RecordProcessorBase(abc.ABC):
     def process_stdin(
         self,
         *,
-        source_name: str,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
     ) -> None:
         """Process the input stream from stdin.
@@ -152,7 +126,6 @@ class RecordProcessorBase(abc.ABC):
         self.process_input_stream(
             input_stream,
             write_strategy=write_strategy,
-            source_name=source_name,
         )
 
     @final
@@ -168,7 +141,6 @@ class RecordProcessorBase(abc.ABC):
         self,
         input_stream: io.TextIOBase,
         *,
-        source_name: str,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
     ) -> None:
         """Parse the input stream and process data in batches.
@@ -178,7 +150,6 @@ class RecordProcessorBase(abc.ABC):
         messages = self._airbyte_messages_from_buffer(input_stream)
         self.process_airbyte_messages(
             messages,
-            source_name=source_name,
             write_strategy=write_strategy,
         )
 
@@ -188,7 +159,7 @@ class RecordProcessorBase(abc.ABC):
         record_msg: AirbyteRecordMessage,
         stream_schema: dict,
     ) -> None:
-        """Write a record to the cache.
+        """Write a record.
 
         This method is called for each record message.
 
@@ -200,7 +171,7 @@ class RecordProcessorBase(abc.ABC):
     def process_airbyte_messages(
         self,
         messages: Iterable[AirbyteMessage],
-        source_name: str,
+        *,
         write_strategy: WriteStrategy,
     ) -> None:
         """Process a stream of Airbyte messages."""
@@ -209,8 +180,6 @@ class RecordProcessorBase(abc.ABC):
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )
-
-        self._state_writer = self.cache.get_state_writer(source_name)
 
         stream_schemas: dict[str, dict] = {}
 
@@ -221,7 +190,7 @@ class RecordProcessorBase(abc.ABC):
                 stream_name = record_msg.stream
 
                 if stream_name not in stream_schemas:
-                    stream_schemas[stream_name] = self.catalog_manager.get_stream_json_schema(
+                    stream_schemas[stream_name] = self.catalog_provider.get_stream_json_schema(
                         stream_name=stream_name
                     )
 
@@ -250,14 +219,15 @@ class RecordProcessorBase(abc.ABC):
             write_strategy=write_strategy,
         )
 
-        # Clean up files, if requested.
-        if self.cache.cleanup:
-            self.cleanup_all()
+        self.cleanup_all()
 
     def write_all_stream_data(self, write_strategy: WriteStrategy) -> None:
         """Finalize any pending writes."""
-        for stream_name in self.expected_streams:
-            self.write_stream_data(stream_name, write_strategy=write_strategy)
+        for stream_name in self.catalog_provider.stream_names:
+            self.write_stream_data(
+                stream_name,
+                write_strategy=write_strategy,
+            )
 
     @abc.abstractmethod
     def write_stream_data(
@@ -295,7 +265,7 @@ class RecordProcessorBase(abc.ABC):
 
         This method is a convenience wrapper around the catalog manager implementation.
         """
-        return self.catalog_manager.get_configured_stream_info(stream_name)
+        return self.catalog_provider.get_configured_stream_info(stream_name)
 
     @final
     def get_stream_json_schema(
@@ -306,7 +276,7 @@ class RecordProcessorBase(abc.ABC):
 
         This method is a convenience wrapper around the catalog manager implementation.
         """
-        return self.catalog_manager.get_stream_json_schema(stream_name)
+        return self.catalog_provider.get_stream_json_schema(stream_name)
 
     def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Clean up all resources.

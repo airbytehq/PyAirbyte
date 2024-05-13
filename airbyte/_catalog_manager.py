@@ -19,8 +19,7 @@ from airbyte_protocol.models import (
     SyncMode,
 )
 
-from airbyte import exceptions as exc
-from airbyte._future_cdk.catalog_managers import CatalogManagerBase
+from airbyte._future_cdk.catalog_managers import CatalogBackendBase, CatalogProvider
 
 
 if TYPE_CHECKING:
@@ -42,7 +41,7 @@ class CachedStream(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     catalog_metadata = Column(String)
 
 
-class SqlCatalogManager(CatalogManagerBase):
+class SqlCatalogBackend(CatalogBackendBase):
     """
     A class to manage the stream catalog of data synced to a cache:
     - What streams exist and to what tables they map
@@ -56,28 +55,14 @@ class SqlCatalogManager(CatalogManagerBase):
     ) -> None:
         self._engine: Engine = engine
         self._table_prefix = table_prefix
-        self._source_catalog: ConfiguredAirbyteCatalog | None = None
-        self._load_catalog_info()
-        assert self._source_catalog is not None
-
-    @property
-    def stream_names(self) -> list[str]:
-        """Return the names of all streams in the cache."""
-        return [stream.stream.name for stream in self.configured_catalog.streams]
-
-    @property
-    def configured_catalog(self) -> ConfiguredAirbyteCatalog:
-        """Return the source catalog.
-
-        Raises:
-            PyAirbyteInternalError: If the source catalog is not set.
-        """
-        if not self._source_catalog:
-            raise exc.PyAirbyteInternalError(
-                message="Source catalog should be initialized but is not.",
+        self._ensure_internal_tables()
+        self._full_catalog: ConfiguredAirbyteCatalog = ConfiguredAirbyteCatalog(
+            streams=self._fetch_streams_info(
+                source_name=None,
+                table_prefix=self._table_prefix,
             )
-
-        return self._source_catalog
+        )
+        self._source_catalogs: dict[str, ConfiguredAirbyteCatalog] = {}
 
     def _ensure_internal_tables(self) -> None:
         engine = self._engine
@@ -90,36 +75,14 @@ class SqlCatalogManager(CatalogManagerBase):
         incoming_stream_names: set[str],
     ) -> None:
         """Register a source and its streams in the cache."""
-        self._update_catalog(
-            incoming_source_catalog=incoming_source_catalog,
-            incoming_stream_names=incoming_stream_names,
-        )
         self._save_catalog_info(
             source_name=source_name,
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=incoming_stream_names,
         )
-
-    def _update_catalog(
-        self,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        incoming_stream_names: set[str],
-    ) -> None:
-        if not self._source_catalog:
-            self._source_catalog = ConfiguredAirbyteCatalog(
-                streams=[
-                    stream
-                    for stream in incoming_source_catalog.streams
-                    if stream.stream.name in incoming_stream_names
-                ],
-            )
-            assert len(self._source_catalog.streams) == len(incoming_stream_names)
-            return
-
-        # Keep existing streams untouched if not incoming
         unchanged_streams: list[ConfiguredAirbyteStream] = [
             stream
-            for stream in self._source_catalog.streams
+            for stream in self._full_catalog.streams
             if stream.stream.name not in incoming_stream_names
         ]
         new_streams: list[ConfiguredAirbyteStream] = [
@@ -127,7 +90,25 @@ class SqlCatalogManager(CatalogManagerBase):
             for stream in incoming_source_catalog.streams
             if stream.stream.name in incoming_stream_names
         ]
-        self._source_catalog = ConfiguredAirbyteCatalog(streams=unchanged_streams + new_streams)
+        # We update the existing catalog in place, rather than creating a new one.
+        # This is so that any CatalogProvider references to the catalog will see the updated
+        # streams.
+        self._full_catalog.streams = unchanged_streams + new_streams
+
+        if source_name in self._source_catalogs:
+            source_streams = self._source_catalogs[source_name].streams
+            # Now use the same process to update the source-specific catalog if it exists
+            unchanged_streams = [
+                stream
+                for stream in source_streams
+                if stream.stream.name not in incoming_stream_names
+            ]
+            new_streams = [
+                stream
+                for stream in incoming_source_catalog.streams
+                if stream.stream.name in incoming_stream_names
+            ]
+            self._source_catalogs[source_name].streams = new_streams + unchanged_streams
 
     def _save_catalog_info(
         self,
@@ -162,12 +143,16 @@ class SqlCatalogManager(CatalogManagerBase):
             session.add_all(insert_streams)
             session.commit()
 
-    def _load_catalog_info(
+    def _fetch_streams_info(
         self,
         *,
-        force_refresh: bool = False,
-    ) -> None:
-        self._ensure_internal_tables()
+        source_name: str | None = None,
+        table_prefix: str | None = None,
+    ) -> list[ConfiguredAirbyteStream]:
+        """Fetch the streams information from the cache.
+
+        The `source_name` and `table_prefix` args are optional filters.
+        """
         engine = self._engine
         with Session(engine) as session:
             # load all the streams
@@ -175,26 +160,48 @@ class SqlCatalogManager(CatalogManagerBase):
 
         if not streams:
             # no streams means the cache is pristine
-            if not self._source_catalog:
-                self._source_catalog = ConfiguredAirbyteCatalog(streams=[])
-
-            return
+            return []
 
         # load the catalog
-        self._source_catalog = ConfiguredAirbyteCatalog(
-            streams=[
-                ConfiguredAirbyteStream(
-                    stream=AirbyteStream(
-                        name=stream.stream_name,
-                        json_schema=json.loads(stream.catalog_metadata),
-                        supported_sync_modes=[SyncMode.full_refresh],
-                    ),
-                    sync_mode=SyncMode.full_refresh,
-                    destination_sync_mode=DestinationSyncMode.append,
+        return [
+            ConfiguredAirbyteStream(
+                stream=AirbyteStream(
+                    name=stream.stream_name,
+                    json_schema=json.loads(stream.catalog_metadata),
+                    supported_sync_modes=[SyncMode.full_refresh],
+                ),
+                sync_mode=SyncMode.full_refresh,
+                destination_sync_mode=DestinationSyncMode.append,
+            )
+            for stream in streams
+            if (source_name is None or stream.source_name == source_name)
+            # only load the streams where the table name matches what
+            # the current cache would generate
+            and (table_prefix is None or stream.table_name == table_prefix + stream.stream_name)
+        ]
+
+    @property
+    def stream_names(self) -> list[str]:
+        return [stream.stream.name for stream in self._full_catalog.streams]
+
+    def get_full_catalog_provider(
+        self,
+    ) -> CatalogProvider:
+        """Return a catalog provider with the full catalog across all sources."""
+        return CatalogProvider(configured_catalog=self._full_catalog)
+
+    def get_source_catalog_provider(
+        self,
+        source_name: str,
+    ) -> CatalogProvider:
+        if source_name not in self._source_catalogs:
+            self._source_catalogs[source_name] = CatalogProvider(
+                configured_catalog=ConfiguredAirbyteCatalog(
+                    streams=self._fetch_streams_info(
+                        source_name=source_name,
+                        table_prefix=self._table_prefix,
+                    )
                 )
-                for stream in streams
-                # only load the streams where the table name matches what
-                # the current cache would generate
-                if stream.table_name == self._table_prefix + stream.stream_name
-            ]
-        )
+            )
+
+        return self._source_catalogs[source_name]

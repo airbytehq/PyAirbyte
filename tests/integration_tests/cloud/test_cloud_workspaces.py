@@ -60,7 +60,6 @@ def test_deploy_connection(
         database="temp",
         schema_name="public",
         table_prefix="abc_deleteme_",
-        # table_suffix="",  # Suffix not supported in CloudConnection
     )
 
     connection: CloudConnection = cloud_workspace._deploy_connection(
@@ -69,7 +68,6 @@ def test_deploy_connection(
     )
     assert set(connection.stream_names) == set(["users", "products", "purchases"])
     assert connection.table_prefix == "abc_deleteme_"
-    # assert connection.table_suffix == ""  # Suffix not supported in CloudConnection
     cloud_workspace._permanently_delete_connection(
         connection=connection,
         delete_source=True,

@@ -20,6 +20,7 @@ cache = PostgresCache(
 from __future__ import annotations
 
 from overrides import overrides
+from pydantic import PrivateAttr
 
 from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte.caches.base import CacheBase
@@ -38,7 +39,7 @@ class PostgresCache(CacheBase):
     password: SecretString
     database: str
 
-    _sql_processor_class = PostgresSqlProcessor
+    _sql_processor_class = PrivateAttr(default=PostgresSqlProcessor)
 
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
