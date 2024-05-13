@@ -27,12 +27,12 @@ if TYPE_CHECKING:
 class SnowflakeConfig(SqlConfig):
     """Configuration for the Snowflake cache."""
 
-    account: str  # type: ignore [misc]
-    username: str  # type: ignore [misc]
-    password: SecretString  # type: ignore [misc]
-    warehouse: str  # type: ignore [misc]
-    database: str  # type: ignore [misc]
-    role: str  # type: ignore [misc]
+    account: str
+    username: str
+    password: SecretString
+    warehouse: str
+    database: str
+    role: str
 
     @overrides
     def get_database_name(self) -> str:
