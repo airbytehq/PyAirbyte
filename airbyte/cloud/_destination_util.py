@@ -130,7 +130,7 @@ def create_bigquery_cache(
 ) -> BigQueryCache:
     """Create a new BigQuery cache from the destination configuration."""
     credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
-    return BigQueryCache(  # type: ignore
+    return BigQueryCache(  # type: ignore [call-arg]  # MyPy doesn't recognize the aliases
         project_name=destination_configuration.project_id,
         dataset_name=destination_configuration.dataset_id,
         schema_name=destination_configuration.schema,
