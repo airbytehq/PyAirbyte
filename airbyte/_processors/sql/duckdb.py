@@ -21,8 +21,6 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
-    from airbyte.caches.duckdb import DuckDBCache
-
 
 # Suppress warnings from DuckDB about reflection on indices.
 # https://github.com/Mause/duckdb_engine/issues/905

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, cast, final
+from typing import TYPE_CHECKING, Any, Optional, final
 
 import pandas as pd
 from pydantic import Field, PrivateAttr
