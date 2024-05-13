@@ -19,10 +19,13 @@ import airbyte as ab
 import pytest
 import ulid
 from airbyte._executor import _get_bin_dir
+from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
+from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.util import new_local_cache
+from airbyte.strategies import WriteStrategy
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -319,13 +322,18 @@ def test_merge_insert_not_supported_for_duckdb(
     duckdb_cache: DuckDBCache,
 ) -> None:
     """Confirm that duckdb does not support merge insert natively"""
-    if duckdb_cache.processor.supports_merge_insert:
+    if DuckDBSqlProcessor.supports_merge_insert:
         return  # Skip this test if the cache supports merge-insert.
 
     # Otherwise, toggle the value and we should expect an exception.
-    duckdb_cache.processor.supports_merge_insert = True
+    DuckDBSqlProcessor.supports_merge_insert = True
     try:
-        result = source_faker_seed_a.read(duckdb_cache, write_strategy="merge")
+        result = source_faker_seed_a.read(
+            duckdb_cache, write_strategy=WriteStrategy.MERGE
+        )
+        result = source_faker_seed_a.read(
+            duckdb_cache, write_strategy=WriteStrategy.MERGE
+        )
         if result:
             raise AssertionError("Cache supports merge-insert, but it's set to False.")
     except Exception as e:
@@ -341,7 +349,11 @@ def test_merge_insert_not_supported_for_postgres(
     """Confirm that postgres does not support merge insert natively"""
     # TODO - This test keeps getting skipped, investigate why.
     #        It appears to be due to the fixture `new_postgres_cache` not detecting docker properly.
-    new_postgres_cache.processor.supports_merge_insert = True
+    if PostgresSqlProcessor.supports_merge_insert:
+        return  # Skip this test if the cache supports merge-insert.
+
+    # Otherwise, toggle the value and we should expect an exception.
+    PostgresSqlProcessor.supports_merge_insert = True
     try:
         result = source_faker_seed_a.read(new_postgres_cache, write_strategy="merge")
         if result:
