@@ -100,7 +100,7 @@ class SQLDataset(DatasetBase):
         return self._length
 
     def to_pandas(self) -> DataFrame:
-        return self._cache.processor.get_pandas_dataframe(self._stream_name)
+        return self._cache.get_pandas_dataframe(self._stream_name)
 
     def with_filter(self, *filter_expressions: ClauseElement | str) -> SQLDataset:
         """Filter the dataset by a set of column values.
@@ -156,7 +156,7 @@ class CachedDataset(SQLDataset):
     @overrides
     def to_pandas(self) -> DataFrame:
         """Return the underlying dataset data as a pandas DataFrame."""
-        return self._cache.processor.get_pandas_dataframe(self._stream_name)
+        return self._cache.get_pandas_dataframe(self._stream_name)
 
     def to_sql_table(self) -> Table:
         """Return the underlying SQL table as a SQLAlchemy Table object."""

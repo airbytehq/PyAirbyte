@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, cast, final
 
+import pandas as pd
 from pydantic import Field, PrivateAttr
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
@@ -138,6 +139,24 @@ class CacheBase(SqlConfig):
             state_writer=self.get_state_writer(source_name=source_name),
             temp_dir=self.cache_dir,
         )
+
+    # Read methods:
+
+    def get_records(
+        self,
+        stream_name: str,
+    ) -> CachedDataset:
+        """Uses SQLAlchemy to select all rows from the table."""
+        return CachedDataset(self, stream_name)
+
+    def get_pandas_dataframe(
+        self,
+        stream_name: str,
+    ) -> pd.DataFrame:
+        """Return a Pandas data frame with the stream's data."""
+        table_name = self._read_processor.get_sql_table_name(stream_name)
+        engine = self.get_sql_engine()
+        return pd.read_sql_table(table_name, engine, schema=self.schema_name)
 
     @final
     @property
