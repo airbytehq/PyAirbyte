@@ -3,8 +3,36 @@
 
 from __future__ import annotations
 
-from airbyte._future_cdk import SqlProcessorBase
+from overrides import overrides
+
+from airbyte._future_cdk.sql_processor import SqlConfig, SqlProcessorBase
 from airbyte._processors.file import JsonlWriter
+from airbyte.secrets.base import SecretString
+
+
+class PostgresConfig(SqlConfig):
+    """Configuration for the Postgres cache.
+
+    Also inherits config from the JsonlWriter, which is responsible for writing files to disk.
+    """
+
+    host: str
+    port: int
+    database: str
+    username: str
+    password: SecretString | str
+
+    @overrides
+    def get_sql_alchemy_url(self) -> SecretString:
+        """Return the SQLAlchemy URL to use."""
+        return SecretString(
+            f"postgresql+psycopg2://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+        )
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        return self.database
 
 
 class PostgresSqlProcessor(SqlProcessorBase):
@@ -18,5 +46,6 @@ class PostgresSqlProcessor(SqlProcessorBase):
     or another import method. (Relatively low priority, since for now it works fine as-is.)
     """
 
-    file_writer_class = JsonlWriter
     supports_merge_insert = False  # TODO: Add native implementation for merge insert
+    file_writer_class = JsonlWriter
+    sql_config: PostgresConfig

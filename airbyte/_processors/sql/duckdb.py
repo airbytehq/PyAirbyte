@@ -95,7 +95,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
     so we insert as values instead.
     """
 
-    supports_merge_insert = True
+    supports_merge_insert = False
     file_writer_class = JsonlWriter
     sql_config: DuckDBConfig
 

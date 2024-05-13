@@ -3,17 +3,18 @@
 
 from __future__ import annotations
 
+import abc
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, final
 
 import pandas as pd
-from pydantic import Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
 from airbyte._catalog_manager import SqlCatalogBackend
 from airbyte._future_cdk.catalog_managers import CatalogBackendBase, CatalogProvider
-from airbyte._future_cdk.sql_processor import SqlConfig, SqlProcessorBase, SqlTableDomain
+from airbyte._future_cdk.sql_processor import SqlConfigProtocol, SqlProcessorBase, SqlTableDomain
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
     from airbyte.datasets._base import DatasetBase
 
 
-class CacheBase(SqlConfig):
+class CacheBase(BaseModel, abc.ABC, SqlConfigProtocol):
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings

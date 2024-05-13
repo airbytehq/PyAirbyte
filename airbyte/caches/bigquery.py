@@ -25,7 +25,7 @@ from airbyte.caches.base import (
 )
 
 
-class BigQueryCache(CacheBase, BigQueryConfig):
+class BigQueryCache(BigQueryConfig, CacheBase):
     """The BigQuery cache implementation."""
 
     _sql_processor_class: type[BigQuerySqlProcessor] = PrivateAttr(default=BigQuerySqlProcessor)

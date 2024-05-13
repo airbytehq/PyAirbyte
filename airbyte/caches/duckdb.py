@@ -33,7 +33,7 @@ warnings.filterwarnings(
 
 
 # @dataclass
-class DuckDBCache(CacheBase, DuckDBConfig):
+class DuckDBCache(DuckDBConfig, CacheBase):
     """A DuckDB cache."""
 
     _sql_processor_class: type[DuckDBSqlProcessor] = PrivateAttr(default=DuckDBSqlProcessor)
