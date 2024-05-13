@@ -69,7 +69,8 @@ class DuckDBConfig(SqlConfig):
 
         db_path_str = str(self.db_path)
         return (
-            db_path_str != ":memory:"
+            ("/" in db_path_str or "\\" in db_path_str)
+            and db_path_str != ":memory:"
             and "md:" not in db_path_str
             and "motherduck:" not in db_path_str
         )

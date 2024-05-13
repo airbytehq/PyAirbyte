@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, cast, final
+from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
 import sqlalchemy
@@ -75,27 +75,11 @@ class SQLRuntimeError(Exception):
     """Raised when an SQL operation fails."""
 
 
-class SqlConfigProtocol(Protocol):
-    """A protocol for SQL configuration classes."""
+class SqlConfig(BaseModel, abc.ABC):
+    """Common configuration for SQL connections."""
 
     schema_name: str
     """The name of the schema to write to."""
-
-    def get_database_name(self) -> str:
-        """Return the name of the database."""
-        ...
-
-    def get_sql_alchemy_url(self) -> str:
-        """Return the SQLAlchemy URL to use."""
-        ...
-
-    def get_sql_engine(self) -> Engine:
-        """Return a new SQL engine to use."""
-        ...
-
-
-class SqlConfig(BaseModel, abc.ABC, SqlConfigProtocol):
-    """Common configuration for SQL connections."""
 
     @abc.abstractmethod
     def get_sql_alchemy_url(self) -> SecretString:
@@ -159,7 +143,7 @@ class SqlProcessorBase(RecordProcessorBase):
     def __init__(
         self,
         *,
-        sql_config: SqlConfigProtocol,
+        sql_config: SqlConfig,
         sql_table_domain: SqlTableDomain,
         catalog_provider: CatalogProvider,
         state_writer: StateWriterBase | None = None,

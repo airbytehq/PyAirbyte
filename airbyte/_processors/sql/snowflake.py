@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy
 from overrides import overrides
+from pydantic import Field
 from snowflake import connector
 from snowflake.sqlalchemy import URL, VARIANT
 
@@ -33,6 +34,7 @@ class SnowflakeConfig(SqlConfig):
     warehouse: str
     database: str
     role: str
+    schema_name: str = Field(default="PUBLIC")
 
     @overrides
     def get_database_name(self) -> str:
