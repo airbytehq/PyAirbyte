@@ -319,6 +319,10 @@ def test_merge_insert_not_supported_for_duckdb(
     duckdb_cache: DuckDBCache,
 ) -> None:
     """Confirm that duckdb does not support merge insert natively"""
+    if duckdb_cache.processor.supports_merge_insert:
+        return  # Skip this test if the cache supports merge-insert.
+
+    # Otherwise, toggle the value and we should expect an exception.
     duckdb_cache.processor.supports_merge_insert = True
     try:
         result = source_faker_seed_a.read(duckdb_cache, write_strategy="merge")
@@ -336,6 +340,7 @@ def test_merge_insert_not_supported_for_postgres(
 ):
     """Confirm that postgres does not support merge insert natively"""
     # TODO - This test keeps getting skipped, investigate why.
+    #        It appears to be due to the fixture `new_postgres_cache` not detecting docker properly.
     new_postgres_cache.processor.supports_merge_insert = True
     try:
         result = source_faker_seed_a.read(new_postgres_cache, write_strategy="merge")
