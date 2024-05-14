@@ -13,9 +13,8 @@ from typing import Any
 from typing_extensions import Literal
 
 from airbyte import exceptions as exc
-from airbyte._executor import PathExecutor, VenvExecutor
+from airbyte._executor import DockerExecutor, PathExecutor, VenvExecutor
 from airbyte._util.telemetry import EventState, log_install_state
-from airbyte.experimental._docker_executor import DockerExecutor, PathExecutor, VenvExecutor
 from airbyte.sources.base import Source
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
