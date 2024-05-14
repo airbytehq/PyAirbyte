@@ -135,9 +135,6 @@ class SqlProcessorBase(RecordProcessorBase):
     supports_merge_insert = False
     """True if the database supports the MERGE INTO syntax."""
 
-    use_singleton_connection = False
-    """If true, the same connection is used for all operations. Required for in-mem DBs."""
-
     # Constructor:
 
     def __init__(
@@ -204,9 +201,8 @@ class SqlProcessorBase(RecordProcessorBase):
             self._init_connection_settings(connection)
             yield connection
 
-        if not self.use_singleton_connection:
-            connection.close()
-            del connection
+        connection.close()
+        del connection
 
     def get_sql_table_name(
         self,
