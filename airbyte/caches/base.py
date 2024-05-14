@@ -19,6 +19,7 @@ from airbyte._future_cdk.sql_processor import (
     SqlTableDomain,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte._processors import file
 from airbyte._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
 
@@ -71,9 +72,10 @@ class CacheBase(SqlConfig):
         temp_processor = self._sql_processor_class(
             sql_config=self,
             sql_table_domain=self.sql_table_domain,
-            temp_dir=self.cache_dir,
             catalog_provider=CatalogProvider(ConfiguredAirbyteCatalog(streams=[])),
             state_writer=StdOutStateWriter(),
+            temp_dir=self.cache_dir,
+            temp_file_cleanup=self.cleanup,
         )
         temp_processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
 
@@ -91,9 +93,10 @@ class CacheBase(SqlConfig):
         self._read_processor = self._sql_processor_class(
             sql_config=self,
             sql_table_domain=self.sql_table_domain,
-            temp_dir=self.cache_dir,
             catalog_provider=self._catalog_backend.get_full_catalog_provider(),
             state_writer=StdOutStateWriter(),  # Shouldn't be needed for the read-only processor
+            temp_dir=self.cache_dir,
+            temp_file_cleanup=self.cleanup,
         )
 
     @property
@@ -142,6 +145,7 @@ class CacheBase(SqlConfig):
             catalog_provider=catalog_provider,
             state_writer=self.get_state_writer(source_name=source_name),
             temp_dir=self.cache_dir,
+            temp_file_cleanup=self.cleanup,
         )
 
     # Read methods:

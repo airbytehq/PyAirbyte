@@ -149,6 +149,7 @@ class SqlProcessorBase(RecordProcessorBase):
         state_writer: StateWriterBase | None = None,
         file_writer: FileWriterBase | None = None,
         temp_dir: Path | None = None,
+        temp_file_cleanup: bool,
     ) -> None:
         if not temp_dir and not file_writer:
             raise exc.PyAirbyteInternalError(
@@ -163,7 +164,10 @@ class SqlProcessorBase(RecordProcessorBase):
             state_writer=state_writer,
             catalog_provider=catalog_provider,
         )
-        self.file_writer = file_writer or self.file_writer_class(cache_dir=cast(Path, temp_dir))
+        self.file_writer = file_writer or self.file_writer_class(
+            cache_dir=cast(Path, temp_dir),
+            cleanup=temp_file_cleanup,
+        )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
         self.domain: SqlTableDomain = sql_table_domain

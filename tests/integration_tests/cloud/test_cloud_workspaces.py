@@ -35,7 +35,7 @@ def test_deploy_cache_as_destination(
     """Test deploying a cache to a workspace as a destination."""
     cache = MotherDuckCache(
         api_key=motherduck_api_key,
-        database="temp",
+        database="new_db",
         schema_name="public",
     )
     destination_id: str = cloud_workspace._deploy_cache_as_destination(cache=cache)
@@ -57,7 +57,7 @@ def test_deploy_connection(
 
     cache = MotherDuckCache(
         api_key=motherduck_api_key,
-        database="temp",
+        database="new_db",
         schema_name="public",
         table_prefix="abc_deleteme_",
     )
