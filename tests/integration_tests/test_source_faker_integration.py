@@ -17,6 +17,7 @@ from pathlib import Path
 
 import airbyte as ab
 import pytest
+import pytest_mock
 import ulid
 from airbyte._executor import _get_bin_dir
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
@@ -320,13 +321,14 @@ def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
 def test_merge_insert_not_supported_for_duckdb(
     source_faker_seed_a: ab.Source,
     duckdb_cache: DuckDBCache,
+    mocker: pytest_mock.MockFixture,
 ) -> None:
     """Confirm that duckdb does not support merge insert natively"""
     if DuckDBSqlProcessor.supports_merge_insert:
         return  # Skip this test if the cache supports merge-insert.
 
     # Otherwise, toggle the value and we should expect an exception.
-    DuckDBSqlProcessor.supports_merge_insert = True
+    mocker.patch.object(DuckDBSqlProcessor, "supports_merge_insert", new=True)
     try:
         result = source_faker_seed_a.read(
             duckdb_cache, write_strategy=WriteStrategy.MERGE
