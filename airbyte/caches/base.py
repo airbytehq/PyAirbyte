@@ -19,7 +19,6 @@ from airbyte._future_cdk.sql_processor import (
     SqlTableDomain,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
-from airbyte._processors import file
 from airbyte._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
 
