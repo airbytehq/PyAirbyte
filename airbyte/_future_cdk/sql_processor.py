@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, Optional, cast, final
 
 import pandas as pd
 import sqlalchemy
@@ -81,6 +81,9 @@ class SqlConfig(BaseModel, abc.ABC):
     schema_name: str
     """The name of the schema to write to."""
 
+    table_prefix: Optional[str] = ""
+    """A prefix to add to created table names."""
+
     @abc.abstractmethod
     def get_sql_alchemy_url(self) -> SecretString:
         """Returns a SQL Alchemy URL."""
@@ -141,7 +144,6 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         *,
         sql_config: SqlConfig,
-        sql_table_domain: SqlTableDomain,
         catalog_provider: CatalogProvider,
         state_writer: StateWriterBase | None = None,
         file_writer: FileWriterBase | None = None,
@@ -167,7 +169,6 @@ class SqlProcessorBase(RecordProcessorBase):
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
-        self.domain: SqlTableDomain = sql_table_domain
         self._ensure_schema_exists()
 
     # Public interface:
@@ -184,7 +185,7 @@ class SqlProcessorBase(RecordProcessorBase):
     @cached_property
     def database_name(self) -> str:
         """Return the name of the database."""
-        return self.domain.database_name
+        return self.sql_config.get_database_name()
 
     @final
     def get_sql_engine(self) -> Engine:
@@ -209,7 +210,7 @@ class SqlProcessorBase(RecordProcessorBase):
         stream_name: str,
     ) -> str:
         """Return the name of the SQL table for the given stream."""
-        table_prefix = self.domain.table_prefix or ""
+        table_prefix = self.sql_config.table_prefix
 
         # TODO: Add default prefix based on the source name.
 
@@ -296,12 +297,12 @@ class SqlProcessorBase(RecordProcessorBase):
                 # the table definition in this case.
                 return sqlalchemy.Table(
                     table_name,
-                    sqlalchemy.MetaData(schema=self.domain.schema_name),
+                    sqlalchemy.MetaData(schema=self.sql_config.schema_name),
                 )
 
             self._cached_table_definitions[table_name] = sqlalchemy.Table(
                 table_name,
-                sqlalchemy.MetaData(schema=self.domain.schema_name),
+                sqlalchemy.MetaData(schema=self.sql_config.schema_name),
                 autoload_with=self.get_sql_engine(),
             )
 
@@ -311,7 +312,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
     ) -> None:
         """Return a new (unique) temporary table name."""
-        schema_name = self.domain.schema_name
+        schema_name = self.sql_config.schema_name
         if schema_name in self._get_schemas_list():
             return
 
@@ -349,7 +350,7 @@ class SqlProcessorBase(RecordProcessorBase):
         table_name: str,
     ) -> str:
         """Return the fully qualified name of the given table."""
-        return f"{self.domain.schema_name}.{self._quote_identifier(table_name)}"
+        return f"{self.sql_config.schema_name}.{self._quote_identifier(table_name)}"
 
     @final
     def _create_table_for_loading(
@@ -374,7 +375,7 @@ class SqlProcessorBase(RecordProcessorBase):
         """Return a list of all tables in the database."""
         with self.get_sql_connection() as conn:
             inspector: Inspector = sqlalchemy.inspect(conn)
-            return inspector.get_table_names(schema=self.domain.schema_name)
+            return inspector.get_table_names(schema=self.sql_config.schema_name)
 
     def _get_schemas_list(
         self,
@@ -656,7 +657,7 @@ class SqlProcessorBase(RecordProcessorBase):
             dataframe.to_sql(
                 temp_table_name,
                 self.get_sql_alchemy_url(),
-                schema=self.domain.schema_name,
+                schema=self.sql_config.schema_name,
                 if_exists="append",
                 index=False,
                 dtype=sql_column_definitions,

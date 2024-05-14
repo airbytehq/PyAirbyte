@@ -50,9 +50,6 @@ class CacheBase(SqlConfig):
     cleanup: bool = True
     """Whether to clean up the cache after use."""
 
-    table_prefix: Optional[str] = None
-    """A prefix to add to all table names."""
-
     _deployed_api_root: Optional[str] = PrivateAttr(default=None)
     _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
     _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
@@ -70,7 +67,6 @@ class CacheBase(SqlConfig):
         # Create a temporary processor to do the work of ensuring the schema exists
         temp_processor = self._sql_processor_class(
             sql_config=self,
-            sql_table_domain=self.sql_table_domain,
             catalog_provider=CatalogProvider(ConfiguredAirbyteCatalog(streams=[])),
             state_writer=StdOutStateWriter(),
             temp_dir=self.cache_dir,
@@ -91,23 +87,10 @@ class CacheBase(SqlConfig):
         # Now we can create the SQL read processor
         self._read_processor = self._sql_processor_class(
             sql_config=self,
-            sql_table_domain=self.sql_table_domain,
             catalog_provider=self._catalog_backend.get_full_catalog_provider(),
             state_writer=StdOutStateWriter(),  # Shouldn't be needed for the read-only processor
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
-        )
-
-    @property
-    def sql_table_domain(self) -> SqlTableDomain:
-        """Return the SQL table domain.
-
-        This defines the total set of tables that the cache will read to or write from.
-        """
-        return SqlTableDomain(
-            database_name=self.get_database_name(),
-            schema_name=self.schema_name,
-            table_prefix=self.table_prefix or "",
         )
 
     @final
@@ -140,7 +123,6 @@ class CacheBase(SqlConfig):
         # that writes state to the internal SQL table and associates with the given source name.
         return self._sql_processor_class(
             sql_config=self,
-            sql_table_domain=self.sql_table_domain,
             catalog_provider=catalog_provider,
             state_writer=self.get_state_writer(source_name=source_name),
             temp_dir=self.cache_dir,

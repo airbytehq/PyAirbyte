@@ -126,7 +126,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         table_name: str,
     ) -> str:
         """Return the fully qualified name of the given table."""
-        return f"`{self.domain.schema_name}`.`{table_name!s}`"
+        return f"`{self.sql_config.schema_name}`.`{table_name!s}`"
 
     @final
     @overrides
@@ -190,7 +190,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         if self._schema_exists:
             return
 
-        sql = f"CREATE SCHEMA IF NOT EXISTS {self.domain.schema_name}"
+        sql = f"CREATE SCHEMA IF NOT EXISTS {self.sql_config.schema_name}"
         try:
             self._execute_sql(sql)
         except Exception as ex:

@@ -78,7 +78,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
 
         # call base class to do necessary initialization
         super().__init__(
-            sql_table_domain=self.domain,
             catalog_provider=catalog_provider,
             state_writer=state_writer,
             sql_config=sql_config,
