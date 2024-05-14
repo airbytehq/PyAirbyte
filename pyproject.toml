@@ -294,7 +294,7 @@ coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 coverage-reset = { shell = "coverage erase" }
 
-check = { shell = "ruff check ." }
+check = { shell = "ruff check . && mypy ." }
 
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
