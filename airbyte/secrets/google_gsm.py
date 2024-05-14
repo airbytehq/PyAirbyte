@@ -106,11 +106,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
                 credentials_json = SecretString(os.environ["GCP_GSM_CREDENTIALS"])
 
         if credentials_path:
-            credentials_json = SecretString(
-                Path(credentials_path).read_text(
-                    encoding=locale.getpreferredencoding(do_setlocale=False)
-                )
-            )
+            credentials_json = SecretString(Path(credentials_path).read_text(encoding="utf-8"))
 
         if not credentials_json:
             raise exc.PyAirbyteInputError(
