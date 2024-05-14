@@ -10,8 +10,6 @@ import warnings
 from pathlib import Path
 from typing import Any
 
-from typing_extensions import Literal
-
 from airbyte import exceptions as exc
 from airbyte._executor import DockerExecutor, PathExecutor, VenvExecutor
 from airbyte._util.telemetry import EventState, log_install_state
@@ -55,7 +53,7 @@ def _get_source(  # noqa: PLR0912  # Too many branches
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: Literal[True] | str | None = None,
+    docker_image: str | bool = False,
     install_if_missing: bool = True,
 ) -> Source:
     """Get a connector by name and version.
