@@ -1,10 +1,17 @@
-from math import exp
 import pytest
-from airbyte._util.name_normalizers import CaseInsensitiveDict, LowerCaseNormalizer
+from airbyte.constants import AB_INTERNAL_COLUMNS
+from airbyte.records import StreamRecord
 
-def test_case_insensitive_dict():
-    # Initialize a CaseInsensitiveDict
-    cid = CaseInsensitiveDict({"Upper": 1, "lower": 2})
+
+def test_case_insensitive_dict() -> None:
+    # Initialize a StreamRecord
+    cid = StreamRecord(
+        {"Upper": 1, "lower": 2},
+        prune_extra_fields=True,
+    )
+    for internal_column in AB_INTERNAL_COLUMNS:
+        assert internal_column in cid
+        cid.pop(internal_column)
 
     # Test __getitem__
     assert cid["Upper"] == 1
@@ -56,11 +63,16 @@ def test_case_insensitive_dict():
     assert len(cid) == 0
 
 
-
-
 def test_case_insensitive_dict_w() -> None:
-    # Initialize a CaseInsensitiveDict
-    cid = CaseInsensitiveDict({"Upper": 1, "lower": 2}, expected_keys=["Upper", "lower", "other"])
+    # Initialize a StreamRecord
+    cid = StreamRecord(
+        {"Upper": 1, "lower": 2},
+        expected_keys=["Upper", "lower", "other"],
+        prune_extra_fields=True,
+    )
+    for internal_column in AB_INTERNAL_COLUMNS:
+        assert internal_column in cid
+        cid.pop(internal_column)
 
     # Test __len__
     assert len(cid) == 3
@@ -78,14 +90,17 @@ def test_case_insensitive_dict_w() -> None:
     assert cid == {"upper": 1, "lower": 2, "other": None}
 
 
-
 def test_case_insensitive_w_pretty_keys() -> None:
-    # Initialize a CaseInsensitiveDict
-    cid = CaseInsensitiveDict(
+    # Initialize a StreamRecord
+    cid = StreamRecord(
         {"Upper": 1, "lower": 2},
         expected_keys=["Upper", "lower", "other"],
         normalize_keys=False,
+        prune_extra_fields=True,
     )
+    for internal_column in AB_INTERNAL_COLUMNS:
+        assert internal_column in cid
+        cid.pop(internal_column)
 
     # Test __len__
     assert len(cid) == 3

@@ -8,9 +8,10 @@ from airbyte as ab
 from airbyte.caches import DuckDBCache
 
 cache = DuckDBCache(
-    db_path="/path/to/my/database.duckdb",
+    db_path="/path/to/my/duckdb-file",
     schema_name="myschema",
 )
+```
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ class DuckDBCache(CacheBase):
     """Normally db_path is a Path object.
 
     The database name will be inferred from the file name. For example, given a `db_path` of
-    `/path/to/my/my_db.duckdb`, the database name is `my_db`.
+    `/path/to/my/duckdb-file`, the database name is `my_db`.
     """
 
     schema_name: str = "main"

@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
 """A SQL Cache implementation."""
+
 from __future__ import annotations
 
 import json
@@ -85,10 +86,10 @@ class CatalogManager:
         """Return the source catalog.
 
         Raises:
-            AirbyteLibInternalError: If the source catalog is not set.
+            PyAirbyteInternalError: If the source catalog is not set.
         """
         if not self._source_catalog:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Source catalog should be initialized but is not.",
             )
 
@@ -231,7 +232,7 @@ class CatalogManager:
     ) -> ConfiguredAirbyteStream:
         """Return the column definitions for the given stream."""
         if not self.source_catalog:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Cannot get stream JSON schema without a catalog.",
             )
 
@@ -249,7 +250,7 @@ class CatalogManager:
             )
 
         if len(matching_streams) > 1:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Multiple streams found with same name.",
                 context={
                     "stream_name": stream_name,

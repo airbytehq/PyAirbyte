@@ -3,6 +3,7 @@
 
 This tool checks if connectors are compatible with PyAirbyte.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,7 +63,7 @@ def full_tests(connector_name: str, sample_config: str) -> None:
     source = ab.get_source(
         # TODO: FIXME: noqa: SIM115, PTH123
         connector_name,
-        config=json.load(open(sample_config)),  # noqa: SIM115, PTH123,
+        config=json.load(open(sample_config, encoding="utf-8")),  # noqa: SIM115, PTH123,
         install_if_missing=False,
     )
 
@@ -140,13 +141,13 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
                 "dockerRepository": f"airbyte/{connector_name}",
                 "dockerImageTag": "0.0.1",
                 "remoteRegistries": {
-                    "pypi": {"packageName": "airbyte-{connector_name}", "enabled": True}
+                    "pypi": {"packageName": f"airbyte-{connector_name}", "enabled": True}
                 },
             },
         ],
     }
 
-    with tempfile.NamedTemporaryFile(mode="w+t", delete=True) as temp_file:
+    with tempfile.NamedTemporaryFile(mode="w+t", delete=True, encoding="utf-8") as temp_file:
         temp_file.write(json.dumps(registry))
         temp_file.seek(0)
         os.environ["AIRBYTE_LOCAL_REGISTRY"] = str(temp_file.name)
@@ -154,7 +155,7 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
             install_only_test(connector_name)
         else:
             if not sample_config:
-                raise exc.AirbyteLibInputError(
+                raise exc.PyAirbyteInputError(
                     input_value="--sample-config is required without --validate-install-only set"
                 )
             full_tests(connector_name, sample_config)

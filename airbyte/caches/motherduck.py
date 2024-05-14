@@ -1,3 +1,4 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """A MotherDuck implementation of the PyAirbyte cache, built on DuckDB.
 
 ## Usage Example
@@ -20,6 +21,7 @@ from pydantic import Field
 
 from airbyte._processors.sql.motherduck import MotherDuckSqlProcessor
 from airbyte.caches.duckdb import DuckDBCache
+from airbyte.secrets import SecretString
 
 
 class MotherDuckCache(DuckDBCache):
@@ -27,14 +29,14 @@ class MotherDuckCache(DuckDBCache):
 
     db_path: str = Field(default="md:")
     database: str
-    api_key: str
+    api_key: SecretString
 
     _sql_processor_class = MotherDuckSqlProcessor
 
     @overrides
-    def get_sql_alchemy_url(self) -> str:
+    def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return (
+        return SecretString(
             f"duckdb:///md:{self.database}?motherduck_token={self.api_key}"
             # f"&schema={self.schema_name}"  # TODO: Debug why this doesn't work
         )

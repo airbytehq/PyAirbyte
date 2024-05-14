@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
+from typing_extensions import Literal
+
+from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
 
 from airbyte.datasets._base import DatasetBase
 
@@ -15,8 +19,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pandas import DataFrame
-    from sqlalchemy import Selectable, Table
+    from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
+    from sqlalchemy.sql.selectable import Selectable
+
+    from airbyte_protocol.models import ConfiguredAirbyteStream
 
     from airbyte.caches.base import CacheBase
 
@@ -33,16 +40,41 @@ class SQLDataset(DatasetBase):
         cache: CacheBase,
         stream_name: str,
         query_statement: Selectable,
+        stream_configuration: ConfiguredAirbyteStream | None | Literal[False] = None,
     ) -> None:
+        """Initialize the dataset with a cache, stream name, and query statement.
+
+        This class is not intended to be created directly. Instead, you can retrieve
+        datasets from caches or Cloud connection objects, etc.
+
+        The query statement should be a SQLAlchemy Selectable object that can be executed to
+        retrieve records from the dataset.
+
+        If stream_configuration is not provided, we attempt to retrieve the stream configuration
+        from the cache processor. This is useful when constructing a dataset from a CachedDataset
+        object, which already has the stream configuration.
+
+        If stream_configuration is set to False, we skip the stream configuration retrieval.
+        """
         self._length: int | None = None
         self._cache: CacheBase = cache
         self._stream_name: str = stream_name
         self._query_statement: Selectable = query_statement
-        super().__init__(
-            stream_metadata=cache.processor._get_stream_config(  # noqa: SLF001  # Member is private until we have a public API for it.
-                stream_name=stream_name
-            ),
-        )
+        if stream_configuration is None:
+            try:
+                stream_configuration = cache.processor._get_stream_config(  # noqa: SLF001  # Member is private until we have a public API for it.
+                    stream_name=stream_name
+                )
+            except Exception as ex:
+                warnings.warn(
+                    f"Failed to get stream configuration for {stream_name}: {ex}",
+                    stacklevel=2,
+                )
+
+            # Coalesce False to None
+            stream_configuration = stream_configuration or None
+
+        super().__init__(stream_metadata=stream_configuration)
 
     @property
     def stream_name(self) -> str:
@@ -147,7 +179,7 @@ class CachedDataset(SQLDataset):
         if self._cache is not value._cache:
             return False
 
-        if self._stream_name != value._stream_name:
-            return False
+        return not self._stream_name != value._stream_name
 
-        return True
+    def __hash__(self) -> int:
+        return hash(self._stream_name)

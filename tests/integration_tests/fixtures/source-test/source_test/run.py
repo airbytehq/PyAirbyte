@@ -33,6 +33,7 @@ sample_catalog = {
                         "Column1": {"type": "string"},
                         "Column2": {"type": "number"},
                         "empty_column": {"type": "string"},
+                        "big_number": {"type": "number"},
                     },
                 },
             },
@@ -88,7 +89,7 @@ sample_record1_stream1 = {
     "record": {
         "data": {"Column1": "value1", "Column2": 1},
         "stream": "stream1",
-        "emitted_at": 123456789,
+        "emitted_at": 1704067200,
     },
 }
 sample_record2_stream1 = {
@@ -96,15 +97,20 @@ sample_record2_stream1 = {
     "record": {
         "data": {"Column1": "value2", "Column2": 2},
         "stream": "stream1",
-        "emitted_at": 123456789,
+        "emitted_at": 1704067200,
     },
 }
 sample_record_stream2 = {
     "type": "RECORD",
     "record": {
-        "data": {"Column1": "value1", "Column2": 1},
+        "data": {
+            "Column1": "value1",
+            "Column2": 1,
+            "empty_column": None,
+            "big_number": 1234567890123456,
+        },
         "stream": "stream2",
-        "emitted_at": 123456789,
+        "emitted_at": 1704067200,
     },
 }
 
@@ -140,7 +146,12 @@ def run():
         args = parse_args()
         catalog = get_json_file(args["--catalog"])
         config = get_json_file(args["--config"])
-        print(json.dumps({"type": "LOG", "log": {"level": "INFO", "message": "Starting sync"}}))
+        print(
+            json.dumps({
+                "type": "LOG",
+                "log": {"level": "INFO", "message": "Starting sync"},
+            })
+        )
         for stream in catalog["streams"]:
             if stream["stream"]["name"] == "stream1":
                 print(json.dumps(sample_record1_stream1))

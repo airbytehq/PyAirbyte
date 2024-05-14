@@ -1,3 +1,4 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """This script will run any source that is registered in the Airbyte integration tests.
 
 
@@ -9,15 +10,22 @@ Usage:
     poetry run python examples/run_integ_test_source.py source-shopify
 
 """
+
 from __future__ import annotations
 
 import sys
 
 import airbyte as ab
-from airbyte._util.google_secrets import get_gcp_secret_json
+from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
-GCP_SECRETS_PROJECT_NAME = "dataline-integration-testing"
+AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
+SECRET_NAME = "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+
+secret_mgr = GoogleGSMSecretManager(
+    project=AIRBYTE_INTERNAL_GCP_PROJECT,
+    credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
+)
 
 
 def get_secret_name(connector_name: str) -> str:
@@ -36,13 +44,14 @@ def get_secret_name(connector_name: str) -> str:
 
 def main(
     connector_name: str,
-    secret_name: str | None,
+    secret_name: str,
     streams: list[str] | None,
 ) -> None:
-    config = get_gcp_secret_json(
+    secret = secret_mgr.get_secret(
         secret_name=secret_name,
-        project_name=GCP_SECRETS_PROJECT_NAME,
     )
+    assert secret is not None, f"Secret {secret_name} not found."
+    config = secret.parse_json()
     source = ab.get_source(
         connector_name,
         config=config,

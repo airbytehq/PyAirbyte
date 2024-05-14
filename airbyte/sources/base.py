@@ -2,9 +2,7 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import warnings
-from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -30,8 +28,6 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import protocol_util
-from airbyte._util.name_normalizers import normalize_records
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -39,9 +35,11 @@ from airbyte._util.telemetry import (
     log_source_check_result,
     send_telemetry,
 )
+from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
+from airbyte.records import StreamRecord
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
 from airbyte.warnings import PyAirbyteDataLossWarning
@@ -50,31 +48,14 @@ from airbyte.warnings import PyAirbyteDataLossWarning
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
+    from airbyte_protocol.models.airbyte_protocol import AirbyteStream
+
     from airbyte._executor import Executor
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
 
 
-@contextmanager
-def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any, None]:
-    """Write the given contents to temporary files and yield the file paths as strings."""
-    temp_files: list[Any] = []
-    try:
-        for content in files_contents:
-            temp_file = tempfile.NamedTemporaryFile(mode="w+t", delete=False)
-            temp_file.write(
-                json.dumps(content) if isinstance(content, dict) else content,
-            )
-            temp_file.flush()
-            temp_files.append(temp_file)
-        yield [file.name for file in temp_files]
-    finally:
-        for temp_file in temp_files:
-            with suppress(Exception):
-                temp_file.unlink()
-
-
-class Source:
+class Source:  # noqa: PLR0904  # Ignore max publish methods
     """A class representing a source that can be called."""
 
     def __init__(
@@ -102,6 +83,10 @@ class Source:
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
+
+        self._deployed_api_root: str | None = None
+        self._deployed_workspace_id: str | None = None
+        self._deployed_source_id: str | None = None
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -281,8 +266,8 @@ class Source:
         - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
           it will be printed to the console.
         """
-        if format not in ["yaml", "json"]:
-            raise exc.AirbyteLibInputError(
+        if format not in {"yaml", "json"}:
+            raise exc.PyAirbyteInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
                 input_value=format,
             )
@@ -368,6 +353,29 @@ class Source:
             ],
         )
 
+    def get_stream_json_schema(self, stream_name: str) -> dict[str, Any]:
+        """Return the JSON Schema spec for the specified stream name."""
+        catalog: AirbyteCatalog = self.discovered_catalog
+        found: list[AirbyteStream] = [
+            stream for stream in catalog.streams if stream.name == stream_name
+        ]
+
+        if len(found) == 0:
+            raise exc.PyAirbyteInputError(
+                message="Stream name does not exist in catalog.",
+                input_value=stream_name,
+            )
+
+        if len(found) > 1:
+            raise exc.PyAirbyteInternalError(
+                message="Duplicate streams found with the same name.",
+                context={
+                    "found_streams": found,
+                },
+            )
+
+        return found[0].json_schema
+
     def get_records(self, stream: str) -> LazyDataset:
         """Read a stream from the connector.
 
@@ -392,7 +400,7 @@ class Source:
             ],
         )
         if len(configured_catalog.streams) == 0:
-            raise exc.AirbyteLibInputError(
+            raise exc.PyAirbyteInputError(
                 message="Requested stream does not exist.",
                 context={
                     "stream": stream,
@@ -412,17 +420,28 @@ class Source:
             self._log_sync_success(cache=None)
 
         iterator: Iterator[dict[str, Any]] = _with_logging(
-            normalize_records(
-                records=protocol_util.airbyte_messages_to_record_dicts(
-                    self._read_with_catalog(configured_catalog),
-                ),
-                expected_keys=all_properties,
+            records=(  # Generator comprehension yields StreamRecord objects for each record
+                StreamRecord.from_record_message(
+                    record_message=record.record,
+                    expected_keys=all_properties,
+                    prune_extra_fields=True,
+                )
+                for record in self._read_with_catalog(configured_catalog)
+                if record.record
             )
         )
         return LazyDataset(
             iterator,
             stream_metadata=configured_stream,
         )
+
+    @property
+    def connector_version(self) -> str | None:
+        """Return the version of the connector as reported by the executor.
+
+        Returns None if the version cannot be determined.
+        """
+        return self.executor.get_installed_version()
 
     def get_documents(
         self,
@@ -584,7 +603,7 @@ class Source:
 
         for message in messages:
             yield message
-            progress.log_records_read(self._processed_records)
+            progress.log_records_read(new_total_count=self._processed_records)
 
     def _log_sync_start(
         self,
@@ -674,7 +693,7 @@ class Source:
             try:
                 write_strategy = WriteStrategy(write_strategy)
             except ValueError:
-                raise exc.AirbyteLibInputError(
+                raise exc.PyAirbyteInputError(
                     message="Invalid strategy",
                     context={
                         "write_strategy": write_strategy,
@@ -686,7 +705,7 @@ class Source:
             self.select_streams(streams)
 
         if not self._selected_stream_names:
-            raise exc.AirbyteLibNoStreamsSelectedError(
+            raise exc.PyAirbyteNoStreamsSelectedError(
                 connector_name=self.name,
                 available_streams=self.get_available_streams(),
             )

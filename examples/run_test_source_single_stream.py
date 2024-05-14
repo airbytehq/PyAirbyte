@@ -17,4 +17,4 @@ os.environ["AIRBYTE_LOCAL_REGISTRY"] = "./tests/integration_tests/fixtures/regis
 
 source = ab.get_source("source-test", config={"apiKey": "test"})
 
-print(list(source.read_stream("stream1")))
+print(list(source.read(streams=["stream1"])))

@@ -46,29 +46,6 @@ class DuckDBSqlProcessor(SqlProcessorBase):
 
         Path(self.cache.db_path).parent.mkdir(parents=True, exist_ok=True)
 
-    @overrides
-    def _ensure_compatible_table_schema(
-        self,
-        stream_name: str,
-        *,
-        raise_on_error: bool = True,
-    ) -> bool:
-        """Return true if the given table is compatible with the stream's schema.
-
-        In addition to the base implementation, this also checks primary keys.
-        """
-        # call super
-        if not super()._ensure_compatible_table_schema(
-            stream_name=stream_name,
-            raise_on_error=raise_on_error,
-        ):
-            return False
-
-        # TODO: Add validation for primary keys after DuckDB adds support for primary key
-        #       inspection: https://github.com/Mause/duckdb_engine/issues/594
-
-        return True
-
     def _write_files_to_new_table(
         self,
         files: list[Path],
@@ -84,24 +61,24 @@ class DuckDBSqlProcessor(SqlProcessorBase):
             stream_name=stream_name,
             batch_id=batch_id,
         )
-        properties_list = list(self._get_stream_properties(stream_name).keys())
         columns_list = list(self._get_sql_column_definitions(stream_name=stream_name).keys())
         columns_list_str = indent(
-            "\n, ".join([self._quote_identifier(c) for c in columns_list]),
+            "\n, ".join([self._quote_identifier(col) for col in columns_list]),
             "    ",
         )
         files_list = ", ".join([f"'{f!s}'" for f in files])
         columns_type_map = indent(
             "\n, ".join(
                 [
-                    self._quote_identifier(prop_name)
-                    + ": "
+                    self._quote_identifier(self.normalizer.normalize(prop_name))
+                    + ': "'
                     + str(
                         self._get_sql_column_definitions(stream_name)[
                             self.normalizer.normalize(prop_name)
                         ]
                     )
-                    for prop_name in properties_list
+                    + '"'
+                    for prop_name in columns_list
                 ]
             ),
             "    ",

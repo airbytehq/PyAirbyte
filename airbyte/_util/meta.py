@@ -3,6 +3,7 @@
 
 This module contains functions for detecting environment and runtime information.
 """
+
 from __future__ import annotations
 
 import os
@@ -54,6 +55,17 @@ def is_colab() -> bool:
 
 
 @lru_cache
+def is_interactive() -> bool:
+    if is_colab() or is_jupyter():
+        return True
+
+    if is_ci():
+        return False
+
+    return bool(sys.__stdin__.isatty() and sys.__stdout__.isatty())
+
+
+@lru_cache
 def is_jupyter() -> bool:
     """Return True if running in a Jupyter notebook or qtconsole.
 
@@ -91,7 +103,7 @@ def get_notebook_name() -> str | None:
 @lru_cache
 def get_vscode_notebook_name() -> str | None:
     with suppress(Exception):
-        import IPython
+        import IPython  # noqa: PLC0415
 
         return Path(
             IPython.extract_module_locals()[1]["__vsc_ipynb_file__"],

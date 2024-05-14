@@ -40,12 +40,18 @@ class SnowflakeTypeConverter(SQLTypeConverter):
 
         return sql_type
 
+    @staticmethod
+    def get_json_type() -> sqlalchemy.types.TypeEngine:
+        """Get the type to use for nested JSON data."""
+        return VARIANT()
+
 
 class SnowflakeSqlProcessor(SqlProcessorBase):
     """A Snowflake implementation of the cache."""
 
     file_writer_class = JsonlWriter
     type_converter_class = SnowflakeTypeConverter
+    supports_merge_insert = True
 
     @overrides
     def _write_files_to_new_table(
@@ -64,11 +70,10 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         def path_str(path: Path) -> str:
             return str(path.absolute()).replace("\\", "\\\\")
 
-        put_files_statements = "\n".join(
-            [f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};" for file_path in files]
-        )
-        self._execute_sql(put_files_statements)
-        properties_list: list[str] = list(self._get_stream_properties(stream_name).keys())
+        for file_path in files:
+            query = f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};"
+            self._execute_sql(query)
+
         columns_list = [
             self._quote_identifier(c)
             for c in list(self._get_sql_column_definitions(stream_name).keys())
@@ -76,7 +81,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
-            [f"$1:{col}" for col in properties_list]
+            [f"$1:{self.normalizer.normalize(col)}" for col in columns_list]
         )
         copy_statement = dedent(
             f"""

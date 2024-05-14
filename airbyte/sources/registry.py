@@ -79,7 +79,7 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
         new_cache[connector_metadata.name] = connector_metadata
 
     if len(new_cache) == 0:
-        raise exc.AirbyteLibInternalError(
+        raise exc.PyAirbyteInternalError(
             message="Connector registry is empty.",
             context={
                 "registry_url": _get_registry_url(),
@@ -97,7 +97,7 @@ def get_connector_metadata(name: str) -> ConnectorMetadata:
     """
     cache = copy(_get_registry_cache())
     if not cache:
-        raise exc.AirbyteLibInternalError(
+        raise exc.PyAirbyteInternalError(
             message="Connector registry could not be loaded.",
             context={
                 "registry_url": _get_registry_url(),

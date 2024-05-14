@@ -9,19 +9,27 @@ from __future__ import annotations
 
 import tempfile
 import warnings
+from typing import cast
 
 import airbyte as ab
-from airbyte._util.google_secrets import get_gcp_secret_json
 from airbyte.caches.bigquery import BigQueryCache
+from airbyte.secrets.base import SecretString
+from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
 warnings.filterwarnings("ignore", message="Cannot create BigQuery Storage client")
 
 
-bigquery_destination_secret = get_gcp_secret_json(
-    project_name="dataline-integration-testing",
-    secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS",
-)
+AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
+SECRET_NAME = "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+
+bigquery_destination_secret: dict = cast(
+    SecretString,
+    GoogleGSMSecretManager(
+        project=AIRBYTE_INTERNAL_GCP_PROJECT,
+        credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
+    ).get_secret(SECRET_NAME),
+).parse_json()
 
 
 def main() -> None:
@@ -33,7 +41,7 @@ def main() -> None:
     source.check()
     source.select_all_streams()
 
-    with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp:
+    with tempfile.NamedTemporaryFile(mode="w+", delete=False, encoding="utf-8") as temp:
         # Write credentials to the temp file
         temp.write(bigquery_destination_secret["credentials_json"])
         temp.flush()

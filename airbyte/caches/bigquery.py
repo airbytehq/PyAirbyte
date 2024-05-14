@@ -17,16 +17,20 @@ cache = BigQueryCache(
 
 from __future__ import annotations
 
-import urllib
-from typing import Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from overrides import overrides
 from pydantic import root_validator
+from sqlalchemy.engine import make_url
 
 from airbyte._processors.sql.bigquery import BigQuerySqlProcessor
 from airbyte.caches.base import (
     CacheBase,
 )
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine.url import URL
 
 
 class BigQueryCache(CacheBase):
@@ -38,8 +42,9 @@ class BigQueryCache(CacheBase):
     dataset_name: str = "airbyte_raw"
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
-    credentials_path: str
-    """The path to the credentials file to use."""
+    credentials_path: Optional[str] = None
+    """The path to the credentials file to use.
+    If not passed, falls back to the default inferred from the environment."""
 
     _sql_processor_class: type[BigQuerySqlProcessor] = BigQuerySqlProcessor
 
@@ -60,5 +65,8 @@ class BigQueryCache(CacheBase):
     @overrides
     def get_sql_alchemy_url(self) -> str:
         """Return the SQLAlchemy URL to use."""
-        credentials_path_encoded = urllib.parse.quote(self.credentials_path)
-        return f"bigquery://{self.project_name!s}?credentials_path={credentials_path_encoded}"
+        url: URL = make_url(f"bigquery://{self.project_name!s}")
+        if self.credentials_path:
+            url = url.update_query_dict({"credentials_path": self.credentials_path})
+
+        return str(url)

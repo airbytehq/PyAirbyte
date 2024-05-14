@@ -15,7 +15,7 @@ from airbyte.datasets._sql import CachedDataset
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Iterator
 
     from sqlalchemy.engine import Engine
 
@@ -44,6 +44,10 @@ class CacheBase(BaseModel):
     table_suffix: str = ""
     """A suffix to add to all table names."""
 
+    _deployed_api_root: Optional[str] = PrivateAttr(default=None)
+    _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
+    _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
+
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _sql_processor: Optional[SqlProcessorBase] = PrivateAttr(default=None)
 
@@ -69,6 +73,11 @@ class CacheBase(BaseModel):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         ...
+
+    def get_vendor_client(self) -> object:
+        """Alternate (non-SQLAlchemy) way of getting database connection"""
+        msg = "This method needs to be implemented for specific databases"
+        raise NotImplementedError(msg)
 
     @final
     @property
@@ -108,7 +117,7 @@ class CacheBase(BaseModel):
         self,
     ) -> CatalogManager:
         if not self._has_catalog_manager:
-            raise exc.AirbyteLibInternalError(
+            raise exc.PyAirbyteInternalError(
                 message="Catalog manager should exist but does not.",
             )
 
@@ -121,5 +130,7 @@ class CacheBase(BaseModel):
     def __contains__(self, stream: str) -> bool:
         return stream in (self.processor.expected_streams)
 
-    def __iter__(self) -> Generator[tuple[str, Any], None, None]:
+    def __iter__(  # type: ignore [override]  # Overrides Pydantic BaseModel return type
+        self,
+    ) -> Iterator[tuple[str, Any]]:
         return ((name, dataset) for name, dataset in self.streams.items())
