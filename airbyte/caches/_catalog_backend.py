@@ -1,6 +1,10 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Catalog backend implementation.
 
-"""Catalog manager implementation."""
+Catalog backend is responsible for storing and retrieving the stream catalog metadata to a durable
+storage medium, such as an internal SQL table. It provides methods to register a source and its
+streams in the cache, and to get catalog providers.
+"""
 
 from __future__ import annotations
 

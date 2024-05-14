@@ -1,6 +1,10 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Catalog provider implementation.
 
-"""Catalog manager implementation."""
+A catalog provider wraps a configured catalog and configured streams. This class is responsible for
+providing information about the catalog and streams. A catalog provider can also be updated with new
+streams as they are discovered, providing a thin layer of abstraction over the configured catalog.
+"""
 
 from __future__ import annotations
 
