@@ -42,7 +42,7 @@ To publish to PyPi, simply [create a GitHub Release](https://github.com/airbyteh
 To run a coverage report, run:
 
 ```console
-poetry run poe coverage
+poetry run poe coverage-html
 ```
 
 This will generate a coverage report in the `htmlcov` folder.
