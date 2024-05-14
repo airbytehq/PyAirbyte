@@ -69,8 +69,9 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         catalog_provider: CatalogProvider,
         state_writer: StateWriterBase | None = None,
         sql_config: SnowflakeConfig,
-        temp_dir: Path | None = None,
         file_writer: FileWriterBase | None = None,
+        temp_dir: Path | None = None,
+        temp_file_cleanup: bool = True,
     ) -> None:
         """Custom initialization: Initialize type_converter with vector_length."""
         self._vector_length = vector_length
@@ -81,8 +82,9 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
             catalog_provider=catalog_provider,
             state_writer=state_writer,
             sql_config=sql_config,
-            temp_dir=temp_dir,
             file_writer=file_writer,
+            temp_dir=temp_dir,
+            temp_file_cleanup=temp_file_cleanup,
         )
 
     def _get_column_list_from_table(
