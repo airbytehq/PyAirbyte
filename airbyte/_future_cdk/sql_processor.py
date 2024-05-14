@@ -589,9 +589,6 @@ class SqlProcessorBase(RecordProcessorBase):
 
         self._finalized_state_messages[stream_name] += state_messages_to_finalize
 
-        for batch_handle in batches_to_finalize:
-            batch_handle.delete_files()
-
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
         """Execute the given SQL statement."""
         if isinstance(sql, str):
