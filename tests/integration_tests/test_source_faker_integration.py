@@ -346,7 +346,9 @@ def test_merge_insert_not_supported_for_duckdb(
 
 @pytest.mark.requires_creds
 def test_merge_insert_not_supported_for_postgres(
-    source_faker_seed_a: ab.Source, new_postgres_cache: PostgresCache
+    source_faker_seed_a: ab.Source,
+    new_postgres_cache: PostgresCache,
+    mocker: pytest_mock.MockFixture,
 ):
     """Confirm that postgres does not support merge insert natively"""
     # TODO - This test keeps getting skipped, investigate why.
@@ -355,7 +357,7 @@ def test_merge_insert_not_supported_for_postgres(
         return  # Skip this test if the cache supports merge-insert.
 
     # Otherwise, toggle the value and we should expect an exception.
-    PostgresSqlProcessor.supports_merge_insert = True
+    mocker.patch.object(PostgresSqlProcessor, "supports_merge_insert", new=True)
     try:
         result = source_faker_seed_a.read(new_postgres_cache, write_strategy="merge")
         if result:
