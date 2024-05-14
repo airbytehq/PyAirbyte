@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import shutil
 import sys
+import tempfile
 import warnings
 from pathlib import Path
 from typing import Any
 
 from airbyte import exceptions as exc
-from airbyte._executor import PathExecutor, VenvExecutor
+from airbyte._executor import DockerExecutor, PathExecutor, VenvExecutor
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte.sources.base import Source
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
@@ -50,6 +51,7 @@ def get_source(
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
+    docker_executable: bool = False,
     install_if_missing: bool = True,
 ) -> Source:
     """Get a connector by name and version.
@@ -112,6 +114,28 @@ def get_source(
             executor=PathExecutor(
                 name=name,
                 path=local_executable,
+            ),
+        )
+
+    if docker_executable:
+        version = version or "latest"
+
+        temp_dir = tempfile.gettempdir()
+        return Source(
+            name=name,
+            config=config,
+            streams=streams,
+            executor=DockerExecutor(
+                name=name,
+                executable=[
+                    "docker",
+                    "run",
+                    "--rm",
+                    "-i",
+                    "--volume",
+                    f"{temp_dir}:{temp_dir}",
+                    f"airbyte/{name}:{version}",
+                ],
             ),
         )
 

@@ -5,26 +5,23 @@ from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 import shutil
 import socket
 import subprocess
 import time
-from requests.exceptions import HTTPError
-
-import ulid
-from airbyte._util.meta import is_windows
-from airbyte.caches.duckdb import DuckDBCache
+from pathlib import Path
 
 import docker
 import psycopg2 as psycopg
 import pytest
+import ulid
 from _pytest.nodes import Item
-
-from airbyte.caches import PostgresCache
 from airbyte._executor import _get_bin_dir
+from airbyte._util.meta import is_windows
+from airbyte.caches import PostgresCache
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
-
+from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +66,8 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
         if (
             "new_postgres_cache" in item.fixturenames
             or "postgres_cache" in item.fixturenames
+            or "source_docker_faker_seed_a" in item.fixturenames
+            or "source_docker_faker_seed_b" in item.fixturenames
         ):
             if True or not is_docker_available():
                 item.add_marker(
