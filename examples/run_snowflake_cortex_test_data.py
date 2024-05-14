@@ -163,7 +163,7 @@ stream_names.add("myteststream")
 processor = SnowflakeCortexSqlProcessor(
     sql_config=cache,
     vector_length=5,
-    catalog_provider=catalog,
+    catalog_provider=catalog_provider,
     temp_dir=cache.cache_dir,  # Default to /tmp
 )
 processor.process_airbyte_messages(
