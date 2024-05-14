@@ -15,7 +15,6 @@ from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._future_cdk.sql_processor import (
     SqlConfig,
     SqlProcessorBase,
-    SqlTableDomain,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
