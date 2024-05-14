@@ -262,8 +262,6 @@ def test_file_write_and_cleanup() -> None:
     temp_dir_1 = temp_dir_root / "cache_1"
     temp_dir_2 = temp_dir_root / "cache_2"
 
-    # TODO: Fix this cleanup=False case
-
     cache_w_cleanup = ab.new_local_cache(cache_dir=temp_dir_1, cleanup=True)
     cache_wo_cleanup = ab.new_local_cache(cache_dir=temp_dir_2, cleanup=False)
 
