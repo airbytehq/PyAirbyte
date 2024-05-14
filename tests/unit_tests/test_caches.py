@@ -6,7 +6,7 @@ from pathlib import Path
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 
-UNIT_TEST_DB_PATH = ".cache/unit_tests/test_db.duckdb"
+UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
 
 
 def test_duck_db_cache_config_initialization():
