@@ -66,9 +66,9 @@ class StateProviderBase(abc.ABC):  # noqa: B024
     @property
     def known_stream_names(
         self,
-    ) -> list[str]:
+    ) -> set[str]:
         """Return the unique set of all stream names with stored state."""
-        return list({state.stream_descriptor.name for state in self.stream_state_artifacts})
+        return {state.stream_descriptor.name for state in self.stream_state_artifacts}
 
     def to_state_input_file_text(self) -> str:
         """Return the state artifacts as a JSON string.

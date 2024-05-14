@@ -242,7 +242,11 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache.get_state_provider("source-faker") == []
+    assert duckdb_cache.get_state_provider("source-faker").known_stream_names == {
+        "products",
+        "purchases",
+        "users",
+    }
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
