@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import abc
 import json
 from typing import TYPE_CHECKING
 
@@ -19,7 +20,7 @@ from airbyte_protocol.models import (
     SyncMode,
 )
 
-from airbyte._future_cdk.catalog_managers import CatalogBackendBase, CatalogProvider
+from airbyte._future_cdk.catalog_providers import CatalogProvider
 
 
 if TYPE_CHECKING:
@@ -39,6 +40,58 @@ class CachedStream(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     source_name = Column(String)
     table_name = Column(String, primary_key=True)
     catalog_metadata = Column(String)
+
+
+class CatalogBackendBase(abc.ABC):
+    """
+    A class to manage the stream catalog of data synced to a cache:
+    * What streams exist and to what tables they map
+    * The JSON schema for each stream
+    """
+
+    # Abstract implementations
+
+    @abc.abstractmethod
+    def _save_catalog_info(
+        self,
+        source_name: str,
+        incoming_source_catalog: ConfiguredAirbyteCatalog,
+        incoming_stream_names: set[str],
+    ) -> None:
+        """Serialize the incoming catalog information to storage.
+
+        Raises:
+            NotImplementedError: If the catalog is static or the catalog manager is read only.
+        """
+        ...
+
+    # Generic implementations
+
+    @property
+    @abc.abstractmethod
+    def stream_names(self) -> list[str]:
+        """Return the names of all known streams in the catalog backend."""
+        ...
+
+    @abc.abstractmethod
+    def register_source(
+        self,
+        source_name: str,
+        incoming_source_catalog: ConfiguredAirbyteCatalog,
+        incoming_stream_names: set[str],
+    ) -> None:
+        """Register a source and its streams in the cache."""
+        ...
+
+    @abc.abstractmethod
+    def get_full_catalog_provider(self) -> CatalogProvider:
+        """Return a catalog provider with the full catalog."""
+        ...
+
+    @abc.abstractmethod
+    def get_source_catalog_provider(self, source_name: str) -> CatalogProvider:
+        """Return a catalog provider filtered for a single source."""
+        ...
 
 
 class SqlCatalogBackend(CatalogBackendBase):

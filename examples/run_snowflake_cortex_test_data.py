@@ -25,7 +25,7 @@ from airbyte_cdk.models import (
 )
 
 import airbyte as ab
-from airbyte._future_cdk.catalog_managers import CatalogProvider  # noqa: PLC2701  # Allow private
+from airbyte._future_cdk.catalog_providers import CatalogProvider  # noqa: PLC2701  # Allow private
 from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor  # noqa: PLC2701
 
 # from airbyte._util.google_secrets import get_gcp_secret_json

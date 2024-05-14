@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Connection
 
-    from airbyte._future_cdk.catalog_managers import CatalogProvider
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
 

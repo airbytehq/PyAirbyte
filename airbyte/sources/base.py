@@ -27,7 +27,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._future_cdk.catalog_managers import CatalogProvider
+from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._util.telemetry import (
     EventState,
     EventType,

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
     from airbyte._batch_handles import BatchHandle
-    from airbyte._future_cdk.catalog_managers import CatalogProvider
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
 
 

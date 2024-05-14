@@ -11,15 +11,15 @@ from pydantic import Field, PrivateAttr
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
-from airbyte._catalog_manager import SqlCatalogBackend
-from airbyte._future_cdk.catalog_managers import CatalogBackendBase, CatalogProvider
+from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._future_cdk.sql_processor import (
     SqlConfig,
     SqlProcessorBase,
     SqlTableDomain,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
-from airbyte._state_backend import SqlStateBackend
+from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
+from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.datasets._sql import CachedDataset
 
 

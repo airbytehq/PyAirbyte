@@ -4,7 +4,6 @@
 
 from __future__ import annotations
 
-import abc
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte import exceptions as exc
@@ -15,58 +14,6 @@ if TYPE_CHECKING:
         ConfiguredAirbyteCatalog,
         ConfiguredAirbyteStream,
     )
-
-
-class CatalogBackendBase(abc.ABC):
-    """
-    A class to manage the stream catalog of data synced to a cache:
-    * What streams exist and to what tables they map
-    * The JSON schema for each stream
-    """
-
-    # Abstract implementations
-
-    @abc.abstractmethod
-    def _save_catalog_info(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        incoming_stream_names: set[str],
-    ) -> None:
-        """Serialize the incoming catalog information to storage.
-
-        Raises:
-            NotImplementedError: If the catalog is static or the catalog manager is read only.
-        """
-        ...
-
-    # Generic implementations
-
-    @property
-    @abc.abstractmethod
-    def stream_names(self) -> list[str]:
-        """Return the names of all known streams in the catalog backend."""
-        ...
-
-    @abc.abstractmethod
-    def register_source(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        incoming_stream_names: set[str],
-    ) -> None:
-        """Register a source and its streams in the cache."""
-        ...
-
-    @abc.abstractmethod
-    def get_full_catalog_provider(self) -> CatalogProvider:
-        """Return a catalog provider with the full catalog."""
-        ...
-
-    @abc.abstractmethod
-    def get_source_catalog_provider(self, source_name: str) -> CatalogProvider:
-        """Return a catalog provider filtered for a single source."""
-        ...
 
 
 class CatalogProvider:
