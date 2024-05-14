@@ -43,6 +43,8 @@ SqlAlchemyModel = declarative_base()
 
 
 class StreamState(SqlAlchemyModel):  # type: ignore[valid-type,misc]
+    """A SQLAlchemy ORM model to store state metadata."""
+
     __tablename__ = STATE_TABLE_NAME
 
     source_name = Column(String)

@@ -34,6 +34,8 @@ SqlAlchemyModel = declarative_base()
 
 
 class CachedStream(SqlAlchemyModel):  # type: ignore[valid-type,misc]
+    """A SQLAlchemy ORM model to store stream catalog metadata."""
+
     __tablename__ = STREAMS_TABLE_NAME
 
     stream_name = Column(String)
