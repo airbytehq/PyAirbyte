@@ -18,7 +18,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -26,6 +26,8 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
     # Job-specifc step(s):
     - name: Format code
@@ -39,7 +41,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -47,6 +49,8 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
     # Job-specifc step(s):
     - name: Check code format
@@ -60,7 +64,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -68,6 +72,8 @@ jobs:
       with:
         python-version: '3.10'
         cache: 'poetry'
+    - name: Install dependencies
+      run: poetry install
 
     # Job-specifc step(s):
     - name: Check MyPy typing

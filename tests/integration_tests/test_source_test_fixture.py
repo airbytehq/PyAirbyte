@@ -1,35 +1,30 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-from collections.abc import Mapping
 import os
 import shutil
+import tempfile
+from collections.abc import Mapping
 from contextlib import suppress
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
-import tempfile
-from pathlib import Path
-
-from airbyte import datasets
-from airbyte._processors.sql.base import SqlProcessorBase
-
-from sqlalchemy import column, text
 
 import airbyte as ab
-from airbyte.caches import SnowflakeCache
 import pandas as pd
 import pytest
-
-from airbyte.caches import PostgresCache
+import ulid
+from airbyte import datasets
+from airbyte import exceptions as exc
+from airbyte._executor import _get_bin_dir
+from airbyte._future_cdk.sql_processor import SqlProcessorBase
+from airbyte.caches import PostgresCache, SnowflakeCache
 from airbyte.constants import AB_INTERNAL_COLUMNS
+from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
+from airbyte.results import ReadResult
 from airbyte.sources import registry
 from airbyte.version import get_version
-from airbyte.results import ReadResult
-from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
-from airbyte._executor import _get_bin_dir
-
-from airbyte import exceptions as exc
-import ulid
+from sqlalchemy import column, text
 
 
 def pop_internal_columns_from_dataset(
@@ -550,7 +545,6 @@ def test_cached_dataset(
     not_a_stream_name = "not_a_stream"
 
     # Check that the stream appears in mapping-like attributes
-    assert stream_name in result.cache.processor._expected_streams
     assert stream_name in result
     assert stream_name in result.cache
     assert stream_name in result.cache.streams

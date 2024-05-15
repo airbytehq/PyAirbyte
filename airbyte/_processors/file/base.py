@@ -22,8 +22,6 @@ if TYPE_CHECKING:
         AirbyteRecordMessage,
     )
 
-    from airbyte.caches.base import CacheBase
-
 
 DEFAULT_BATCH_SIZE = 10000
 
@@ -38,11 +36,13 @@ class FileWriterBase(abc.ABC):
 
     def __init__(
         self,
-        cache: CacheBase,
+        cache_dir: Path,
+        *,
+        cleanup: bool = True,
     ) -> None:
         """Initialize the file writer."""
-        self.cache = cache
-
+        self._cache_dir = cache_dir
+        self._do_cleanup = cleanup
         self._active_batches: dict[str, BatchHandle] = {}
         self._completed_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
 
@@ -53,7 +53,7 @@ class FileWriterBase(abc.ABC):
     ) -> Path:
         """Return a new cache file path for the given stream."""
         batch_id = batch_id or str(ulid.ULID())
-        target_dir = Path(self.cache.cache_dir)
+        target_dir = Path(self._cache_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / f"{stream_name}_{batch_id}{self.default_cache_file_suffix}"
 
@@ -195,7 +195,7 @@ class FileWriterBase(abc.ABC):
         """
         self._close_batch(batch_handle)
 
-        if self.cache.cleanup:
+        if self._do_cleanup:
             batch_handle.delete_files()
 
     def _new_batch_id(self) -> str:
@@ -207,7 +207,7 @@ class FileWriterBase(abc.ABC):
     @final
     def __del__(self) -> None:
         """Teardown temporary resources when instance is unloaded from memory."""
-        if self.cache.cleanup:
+        if self._do_cleanup:
             self.cleanup_all()
 
     # Abstract methods

@@ -34,7 +34,7 @@ python-dotenv = "^1.0.1"
 python-ulid = "^2.2.0"
 requests = "^2.31.0"
 rich = "^13.7.0"
-snowflake-connector-python = "3.6.0"
+snowflake-connector-python = "^3.10.0"
 snowflake-sqlalchemy = "^1.5.1"
 sqlalchemy = "1.4.51"
 types-pyyaml = "^6.0.12.12"
@@ -62,13 +62,19 @@ tomli = "^2.0"
 responses = "^0.25.0"
 airbyte-source-pokeapi = "^0.2.0"
 pytest-mock = "^3.14.0"
+poethepoet = "^0.26.1"
+coverage = "^7.5.1"
+pytest-timeout = "^2.3.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
-addopts = "--strict-markers"
+# Pytest configuration as follows:
+# - No test can take longer than 10 minutes (600 seconds)
+# - Markers must be declared explicitly
+addopts = "--strict-markers --timeout=600"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
@@ -285,7 +291,18 @@ generate-docs = "docs.generate:run"
 airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
-test = "pytest tests"
+test = { shell = "pytest" }
+
+coverage = { shell = "coverage run -m pytest && coverage report" }
+coverage-report = { shell = "coverage report" }
+coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
+coverage-reset = { shell = "coverage erase" }
+
+check = { shell = "ruff check . && mypy ." }
+
+fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
+fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
+fix-and-check = { shell = "poe fix && poe check" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]

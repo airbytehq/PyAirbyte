@@ -16,7 +16,6 @@ from typing_extensions import Literal
 from airbyte_protocol.models import (
     AirbyteCatalog,
     AirbyteMessage,
-    AirbyteStateMessage,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
     ConnectorSpecification,
@@ -28,6 +27,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executor import Executor
+    from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
 
@@ -521,7 +522,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
-        state: list[AirbyteStateMessage] | None = None,
+        state: StateProviderBase | None = None,
     ) -> Iterator[AirbyteMessage]:
         """Call read on the connector.
 
@@ -537,7 +538,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             [
                 self._config,
                 catalog.json(),
-                json.dumps(state) if state else "[]",
+                state.to_state_input_file_text() if state else "[]",
             ]
         ) as [
             config_file,
@@ -686,9 +687,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 category=PyAirbyteDataLossWarning,
                 stacklevel=1,
             )
-        if cache is None:
-            cache = get_default_cache()
-
         if isinstance(write_strategy, str):
             try:
                 write_strategy = WriteStrategy(write_strategy)
@@ -710,32 +708,38 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 available_streams=self.get_available_streams(),
             )
 
-        cache.processor.register_source(
-            source_name=self.name,
-            incoming_source_catalog=self.configured_catalog,
-            stream_names=set(self._selected_stream_names),
-        )
-
-        state = (
-            cache._get_state(  # noqa: SLF001  # Private method until we have a public API for it.
-                source_name=self.name,
-                streams=self._selected_stream_names,
-            )
-            if not force_full_refresh
-            else None
-        )
+        # Run optional validation step
         if not skip_validation:
             self.validate_config()
 
+        # Set up cache and related resources
+        if cache is None:
+            cache = get_default_cache()
+
+        # Set up state provider if not in full refresh mode
+        if force_full_refresh:
+            state_provider: StateProviderBase | None = None
+        else:
+            state_provider = cache.get_state_provider(
+                source_name=self.name,
+            )
+
         self._log_sync_start(cache=cache)
+
+        cache_processor = cache.get_record_processor(
+            source_name=self.name,
+            catalog_provider=CatalogProvider(self.configured_catalog),
+        )
         try:
-            cache.processor.process_airbyte_messages(
+            cache_processor.process_airbyte_messages(
                 self._read_with_catalog(
                     catalog=self.configured_catalog,
-                    state=state,
+                    state=state_provider,
                 ),
                 write_strategy=write_strategy,
             )
+
+        # TODO: We should catch more specific exceptions here
         except Exception as ex:
             self._log_sync_failure(cache=cache, exception=ex)
             raise exc.AirbyteConnectorFailedError(

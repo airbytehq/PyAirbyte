@@ -1,10 +1,10 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""A BigQuery implementation of the cache."""
+"""A BigQuery implementation of the SQL Processor."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, Optional, final
 
 import google.oauth2
 import sqlalchemy
@@ -12,19 +12,72 @@ from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.oauth2 import service_account
 from overrides import overrides
+from pydantic import Field
+from sqlalchemy.engine import make_url
 
 from airbyte import exceptions as exc
+from airbyte._future_cdk import SqlProcessorBase
+from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
-from airbyte._processors.sql.base import SqlProcessorBase
+from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter
+
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine.url import URL
 
 
 if TYPE_CHECKING:
     from sqlalchemy.engine.reflection import Inspector
 
-    from airbyte._processors.file.base import FileWriterBase
-    from airbyte.caches.base import CacheBase
-    from airbyte.caches.bigquery import BigQueryCache
+
+class BigQueryConfig(SqlConfig):
+    """Configuration for BigQuery."""
+
+    database_name: str = Field(alias="project_name")
+    """The name of the project to use. In BigQuery, this is equivalent to the database name."""
+
+    schema_name: str = Field(alias="dataset_name")
+    """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
+
+    credentials_path: Optional[str] = None
+    """The path to the credentials file to use.
+    If not passed, falls back to the default inferred from the environment."""
+
+    @property
+    def project_name(self) -> str:
+        """Return the project name (alias of self.database_name)."""
+        return self.database_name
+
+    @property
+    def dataset_name(self) -> str:
+        """Return the dataset name (alias of self.schema_name)."""
+        return self.schema_name
+
+    @overrides
+    def get_sql_alchemy_url(self) -> SecretString:
+        """Return the SQLAlchemy URL to use."""
+        url: URL = make_url(f"bigquery://{self.project_name!s}")
+        if self.credentials_path:
+            url = url.update_query_dict({"credentials_path": self.credentials_path})
+
+        return SecretString(url)
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database. For BigQuery, this is the project name."""
+        return self.project_name
+
+    def get_vendor_client(self) -> bigquery.Client:
+        """Return a BigQuery python client."""
+        if self.credentials_path:
+            credentials = service_account.Credentials.from_service_account_file(
+                self.credentials_path
+            )
+        else:
+            credentials, _ = google.auth.default()
+
+        return bigquery.Client(credentials=credentials)
 
 
 class BigQueryTypeConverter(SQLTypeConverter):
@@ -56,18 +109,15 @@ class BigQueryTypeConverter(SQLTypeConverter):
 
 
 class BigQuerySqlProcessor(SqlProcessorBase):
-    """A BigQuery implementation of the cache."""
+    """A BigQuery implementation of the SQL Processor."""
 
     file_writer_class = JsonlWriter
     type_converter_class = BigQueryTypeConverter
     supports_merge_insert = True
 
-    cache: BigQueryCache
+    sql_config: BigQueryConfig
 
-    def __init__(self, cache: CacheBase, file_writer: FileWriterBase | None = None) -> None:
-        self._credentials: google.auth.credentials.Credentials | None = None
-        self._schema_exists: bool | None = None
-        super().__init__(cache, file_writer)
+    _schema_exists: bool = False
 
     @final
     @overrides
@@ -76,7 +126,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         table_name: str,
     ) -> str:
         """Return the fully qualified name of the given table."""
-        return f"`{self.cache.schema_name}`.`{table_name!s}`"
+        return f"`{self.sql_config.schema_name}`.`{table_name!s}`"
 
     @final
     @overrides
@@ -102,10 +152,12 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
 
         # Specify the table ID (in the format `project_id.dataset_id.table_id`)
-        table_id = f"{self.cache.project_name}.{self.cache.dataset_name}.{temp_table_name}"
+        table_id = (
+            f"{self.sql_config.project_name}.{self.sql_config.dataset_name}.{temp_table_name}"
+        )
 
         # Initialize a BigQuery client
-        client = bigquery.Client(credentials=self._get_credentials())
+        client = self.sql_config.get_vendor_client()
 
         for file_path in files:
             with Path.open(file_path, "rb") as source_file:
@@ -138,7 +190,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         if self._schema_exists:
             return
 
-        sql = f"CREATE SCHEMA IF NOT EXISTS {self.cache.schema_name}"
+        sql = f"CREATE SCHEMA IF NOT EXISTS {self.sql_config.schema_name}"
         try:
             self._execute_sql(sql)
         except Exception as ex:
@@ -148,17 +200,6 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
         self._schema_exists = True
 
-    def _get_credentials(self) -> google.auth.credentials.Credentials:
-        """Return the GCP credentials."""
-        if self._credentials is None:
-            if self.cache.credentials_path:
-                self._credentials = service_account.Credentials.from_service_account_file(
-                    self.cache.credentials_path
-                )
-            else:
-                self._credentials, _ = google.auth.default()
-        return self._credentials
-
     def _table_exists(
         self,
         table_name: str,
@@ -167,8 +208,8 @@ class BigQuerySqlProcessor(SqlProcessorBase):
 
         We override the default implementation because BigQuery is very slow at scanning tables.
         """
-        client = bigquery.Client(credentials=self._get_credentials())
-        table_id = f"{self.cache.project_name}.{self.cache.dataset_name}.{table_name}"
+        client = self.sql_config.get_vendor_client()
+        table_id = f"{self.sql_config.project_name}.{self.sql_config.dataset_name}.{table_name}"
         try:
             client.get_table(table_id)
         except NotFound:
@@ -180,8 +221,8 @@ class BigQuerySqlProcessor(SqlProcessorBase):
                 context={
                     "table_id": table_id,
                     "table_name": table_name,
-                    "project_name": self.cache.project_name,
-                    "dataset_name": self.cache.dataset_name,
+                    "project_name": self.sql_config.project_name,
+                    "dataset_name": self.sql_config.dataset_name,
                 },
             ) from ex
 
@@ -202,8 +243,8 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         """
         with self.get_sql_connection() as conn:
             inspector: Inspector = sqlalchemy.inspect(conn)
-            tables = inspector.get_table_names(schema=self.cache.schema_name)
-            schema_prefix = f"{self.cache.schema_name}."
+            tables = inspector.get_table_names(schema=self.sql_config.schema_name)
+            schema_prefix = f"{self.sql_config.schema_name}."
             return [
                 table.replace(schema_prefix, "", 1) if table.startswith(schema_prefix) else table
                 for table in tables

@@ -15,6 +15,7 @@ from airbyte import (
     datasets,
     documents,
     exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
+    experimental,
     results,
     secrets,
     sources,
@@ -39,6 +40,7 @@ __all__ = [
     "datasets",
     "documents",
     "exceptions",
+    "experimental",
     "records",
     "registry",
     "results",

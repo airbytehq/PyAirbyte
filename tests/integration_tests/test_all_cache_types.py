@@ -9,15 +9,13 @@ and available on PATH for the poetry-managed venv.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
-
-import pytest
+from pathlib import Path
 
 import airbyte as ab
+import pytest
 from airbyte._executor import _get_bin_dir
-from airbyte.progress import progress, ReadProgress
-
+from airbyte.progress import ReadProgress, progress
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -277,6 +275,8 @@ def test_auto_add_columns(
     new_generic_cache.processor._invalidate_table_cache(table_name)
 
     assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
+
+    new_generic_cache.processor._invalidate_table_cache(table_name)
 
     # Now re-read the stream with the auto strategy and ensure the column is back.
     result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")

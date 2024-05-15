@@ -11,20 +11,21 @@ from overrides import overrides
 from sqlalchemy import text
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import RecordProcessor
-from airbyte._processors.sql.snowflake import SnowflakeSqlProcessor, SnowflakeTypeConverter
-from airbyte.caches._catalog_manager import CatalogManager
+from airbyte._processors.sql.snowflake import (
+    SnowflakeConfig,
+    SnowflakeSqlProcessor,
+    SnowflakeTypeConverter,
+)
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from sqlalchemy.engine import Connection, Engine
+    from sqlalchemy.engine import Connection
 
-    from airbyte_cdk.models import ConfiguredAirbyteCatalog
-
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
-    from airbyte.caches.base import CacheBase
 
 
 class SnowflakeCortexTypeConverter(SnowflakeTypeConverter):
@@ -59,44 +60,31 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
     """A Snowflake implementation for use with Cortex functions."""
 
     supports_merge_insert = True
+    type_converter_class = SnowflakeCortexTypeConverter
 
     def __init__(
         self,
-        cache: CacheBase,
-        catalog: ConfiguredAirbyteCatalog,
-        vector_length: int,
-        source_name: str,
-        stream_names: set[str],
         *,
+        vector_length: int,
+        catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase | None = None,
+        sql_config: SnowflakeConfig,
         file_writer: FileWriterBase | None = None,
+        temp_dir: Path | None = None,
+        temp_file_cleanup: bool = True,
     ) -> None:
         """Custom initialization: Initialize type_converter with vector_length."""
-        self._catalog = catalog
-        # to-do: see if we can get rid of the following assignment
-        self.source_catalog = catalog
         self._vector_length = vector_length
-        self._engine: Engine | None = None
-        self._connection_to_reuse: Connection | None = None
 
         # call base class to do necessary initialization
-        RecordProcessor.__init__(self, cache=cache, catalog_manager=None)
-        self._ensure_schema_exists()
-        self._catalog_manager = CatalogManager(
-            engine=self.get_sql_engine(),
-            table_name_resolver=lambda stream_name: self.get_sql_table_name(stream_name),
+        super().__init__(
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
+            sql_config=sql_config,
+            file_writer=file_writer,
+            temp_dir=temp_dir,
+            temp_file_cleanup=temp_file_cleanup,
         )
-
-        # TODO: read streams and source from catalog if not provided
-
-        # initialize catalog manager by registering source
-        self.register_source(
-            source_name=source_name,
-            incoming_source_catalog=self._catalog,
-            stream_names=stream_names,
-        )
-        self.file_writer = file_writer or self.file_writer_class(cache)
-        self.type_converter = SnowflakeCortexTypeConverter(vector_length=vector_length)
-        self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
 
     def _get_column_list_from_table(
         self,
@@ -107,7 +95,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         This is overridden due to lack of SQLAlchemy compatibility for the
         `VECTOR` data type.
         """
-        conn: Connection = self.cache.get_vendor_client()
+        conn: Connection = self.sql_config.get_vendor_client()
         cursor = conn.cursor()
         cursor.execute(f"DESCRIBE TABLE {table_name};")
         results = cursor.fetchall()
@@ -123,8 +111,8 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         *,
         raise_on_error: bool = True,
     ) -> bool:
-        """Read the exsting table schema using Snowflake python connector"""
-        json_schema = self.get_stream_json_schema(stream_name)
+        """Read the existing table schema using Snowflake python connector"""
+        json_schema = self.catalog_provider.get_stream_json_schema(stream_name)
         stream_column_names: list[str] = json_schema["properties"].keys()
         table_column_names: list[str] = self._get_column_list_from_table(stream_name)
 
@@ -225,7 +213,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         column_name: str,
         column_type: sqlalchemy.types.TypeEngine,
     ) -> None:
-        conn: Connection = self.cache.get_vendor_client()
+        conn: Connection = self.sql_config.get_vendor_client()
         cursor = conn.cursor()
         cursor.execute(
             text(

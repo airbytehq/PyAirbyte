@@ -28,7 +28,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -39,14 +39,31 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    # Job-specific step(s):
-    - name: Run Pytest (Fast Tests Only)
+    - name: Run Pytest with Coverage (Fast Tests Only)
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run pytest -m
-        "not slow and not requires_creds and not linting"
+        poetry run coverage run -m pytest
         --durations=5 --exitfirst
+        -m "not slow and not requires_creds and not linting"
+
+    - name: Print Coverage Report
+      if: always()
+      run: poetry run coverage report
+
+    - name: Create Coverage Artifacts
+      if: always()
+      run: |
+        poetry run coverage html -d htmlcov
+        poetry run coverage xml -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: fasttest-coverage
+        path: htmlcov/
 
   pytest-no-creds:
     name: Pytest (No Creds)
@@ -56,7 +73,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -69,12 +86,31 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
+      timeout-minutes: 60
       env:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
       run: >
-        poetry run pytest -m
-        "not requires_creds and not linting and not super_slow"
+        poetry run coverage run -m pytest
+        --durations=5 --exitfirst
+        -m "not requires_creds and not linting and not super_slow"
+
+    - name: Print Coverage Report
+      if: always()
+      run: poetry run coverage report
+
+    - name: Create Coverage Artifacts
+      if: always()
+      run: |
+        poetry run coverage html -d htmlcov
+        poetry run coverage xml -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: nocreds-test-coverage
+        path: htmlcov/
 
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -101,7 +137,7 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -114,7 +150,27 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Pytest
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run pytest -m "not linting and not super_slow"
+        poetry run coverage run -m pytest
+        --verbose
+        -m "not linting and not super_slow"
+
+    - name: Print Coverage Report
+      if: always()
+      run: poetry run coverage report
+
+    - name: Create Coverage Artifacts
+      if: always()
+      run: |
+        poetry run coverage html -d htmlcov
+        poetry run coverage xml -o htmlcov/coverage.xml
+
+    - name: Upload coverage to GitHub Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
+        path: htmlcov/

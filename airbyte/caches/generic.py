@@ -6,14 +6,15 @@ from __future__ import annotations
 from overrides import overrides
 
 from airbyte.caches.base import CacheBase
+from airbyte.secrets.base import SecretString
 
 
 class GenericSQLCacheConfig(CacheBase):
     """Allows configuring 'sql_alchemy_url' directly."""
 
-    sql_alchemy_url: str
+    sql_alchemy_url: SecretString | str
 
     @overrides
-    def get_sql_alchemy_url(self) -> str:
+    def get_sql_alchemy_url(self) -> SecretString:
         """Returns a SQL Alchemy URL."""
-        return self.sql_alchemy_url
+        return SecretString(self.sql_alchemy_url)
