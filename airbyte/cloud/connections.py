@@ -3,97 +3,82 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
-from airbyte._util import api_util
+from airbyte_api.models.connectionresponse import ConnectionResponse
+
+from airbyte.cloud import _api_util
+from airbyte.cloud._resources import ICloudResource
 from airbyte.cloud.sync_results import SyncResult
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from airbyte_api.models import ConnectionResponse, JobResponse
 
+    from airbyte.cloud.connectors import CloudConnector
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
-class CloudConnection:
+@dataclass
+class CloudConnection(ICloudResource):
     """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
 
     You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
     """
 
-    def __init__(
-        self,
-        workspace: CloudWorkspace,
-        connection_id: str,
-        source: str | None = None,
-        destination: str | None = None,
-    ) -> None:
-        """It is not recommended to create a `CloudConnection` object directly.
+    connection_id: str
+    """The ID of the connection."""
 
-        Instead, use `CloudWorkspace.get_connection()` to create a connection object.
-        """
-        self.connection_id = connection_id
-        """The ID of the connection."""
+    workspace: CloudWorkspace
+    """The workspace that the connection belongs to."""
 
-        self.workspace = workspace
-        """The workspace that the connection belongs to."""
+    _source_id: str | None = None
+    """The ID of the source."""
 
-        self._source_id = source
-        """The ID of the source."""
+    _destination_id: str | None = None
+    """The ID of the destination."""
 
-        self._destination_id = destination
-        """The ID of the destination."""
+    _resource_info: ConnectionResponse | None = field(default=None, init=False)
+    """The connection info for the connection. Internal use only."""
 
-        self._connection_info: ConnectionResponse | None = None
-
-    def _fetch_connection_info(self) -> ConnectionResponse:
+    def _fetch_resource_info(self) -> ConnectionResponse:
         """Populate the connection with data from the API."""
-        return api_util.get_connection(
-            workspace_id=self.workspace.workspace_id,
+        self._resource_info = _api_util.fetch_connection_info(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
         )
+        return self._resource_info
 
     # Properties
 
     @property
     def source_id(self) -> str:
         """The ID of the source."""
-        if not self._source_id:
-            if not self._connection_info:
-                self._connection_info = self._fetch_connection_info()
-
-            self._source_id = self._connection_info.source_id
-
-        return cast(str, self._source_id)
+        return self._fetch_resource_info().source_id
 
     @property
     def destination_id(self) -> str:
         """The ID of the destination."""
-        if not self._destination_id:
-            if not self._connection_info:
-                self._connection_info = self._fetch_connection_info()
+        return self._fetch_resource_info().destination_id
 
-            self._destination_id = self._connection_info.source_id
-
-        return cast(str, self._destination_id)
+    @property
+    def destination(self) -> CloudConnector:
+        """The destination."""
+        return self.workspace.get_destination(destination_id=self.destination_id)
 
     @property
     def stream_names(self) -> list[str]:
         """The stream names."""
-        if not self._connection_info:
-            self._connection_info = self._fetch_connection_info()
-
-        return [stream.name for stream in self._connection_info.configurations.streams]
+        return [stream.name for stream in self._fetch_resource_info().configurations.streams]
 
     @property
     def table_prefix(self) -> str:
         """The table prefix."""
-        if not self._connection_info:
-            self._connection_info = self._fetch_connection_info()
-
-        return self._connection_info.prefix
+        return self._fetch_resource_info().prefix
 
     @property
     def connection_url(self) -> str | None:
@@ -112,7 +97,7 @@ class CloudConnection:
         wait_timeout: int = 300,
     ) -> SyncResult:
         """Run a sync."""
-        connection_response = api_util.run_connection(
+        job_response: ConnectionResponse = _api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -121,7 +106,8 @@ class CloudConnection:
         sync_result = SyncResult(
             workspace=self.workspace,
             connection=self,
-            job_id=connection_response.job_id,
+            job_id=job_response.job_id,
+            table_name_prefix=self.table_prefix,
         )
 
         if wait:
@@ -141,7 +127,7 @@ class CloudConnection:
         limit: int = 10,
     ) -> list[SyncResult]:
         """Get the previous sync logs for a connection."""
-        sync_logs: list[JobResponse] = api_util.get_job_logs(
+        sync_logs: Iterator[JobResponse] = _api_util.list_jobs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             api_key=self.workspace.api_key,
@@ -153,7 +139,8 @@ class CloudConnection:
                 workspace=self.workspace,
                 connection=self,
                 job_id=sync_log.job_id,
-                _latest_job_info=sync_log,
+                _resource_info=sync_log,
+                table_name_prefix=self.table_prefix,
             )
             for sync_log in sync_logs
         ]
@@ -170,7 +157,7 @@ class CloudConnection:
         """
         if job_id is None:
             # Get the most recent sync job
-            results = self.get_previous_sync_logs(
+            results: list[SyncResult] = self.get_previous_sync_logs(
                 limit=1,
             )
             if results:
@@ -183,11 +170,12 @@ class CloudConnection:
             workspace=self.workspace,
             connection=self,
             job_id=job_id,
+            table_name_prefix=self.table_prefix,
         )
 
     # Deletions
 
-    def _permanently_delete(
+    def permanently_delete_connection(
         self,
         *,
         delete_source: bool = False,
@@ -199,16 +187,10 @@ class CloudConnection:
             delete_source: Whether to also delete the source.
             delete_destination: Whether to also delete the destination.
         """
-        self.workspace._permanently_delete_connection(  # noqa: SLF001  # Non-public API (for now)
-            connection=self
-        )
+        self.workspace.permanently_delete_connection(connection=self)
 
         if delete_source:
-            self.workspace._permanently_delete_source(  # noqa: SLF001  # Non-public API (for now)
-                source=self.source_id
-            )
+            self.workspace.permanently_delete_source(source=self.source_id)
 
         if delete_destination:
-            self.workspace._permanently_delete_destination(  # noqa: SLF001  # Non-public API
-                destination=self.destination_id,
-            )
+            self.workspace.permanently_delete_destination(destination=self.destination_id)

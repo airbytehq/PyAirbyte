@@ -6,9 +6,8 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
-import pytest
-
 import airbyte as ab
+import pytest
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.sync_results import SyncResult
@@ -67,7 +66,11 @@ def test_deploy_and_run_connection(
         schema_name="public",
     )
 
-    connection_id: str = cloud_workspace._deploy_connection(source=source, cache=cache)
+    connection_id: str = cloud_workspace.deploy_connection(
+        name="My Faker Source (DELETEME)",
+        source=source,
+        cache=cache,
+    )
     sync_result = cloud_workspace.run_sync(connection_id=connection_id)
     _ = sync_result
 
@@ -75,4 +78,4 @@ def test_deploy_and_run_connection(
     assert cache.stream_names
     assert cache.streams["users"].to_pandas()
 
-    cloud_workspace._permanently_delete_connection(connection_id=connection_id)
+    cloud_workspace.permanently_delete_connection(connection_id=connection_id)

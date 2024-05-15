@@ -34,26 +34,11 @@ from airbyte.cloud.workspaces import CloudWorkspace as Stable_CloudWorkspace
 # This module is not imported anywhere by default, so this warning should only print if the user
 # explicitly imports it.
 warnings.warn(
-    message="The `airbyte.cloud.experimental` module is experimental and may change in the future.",
-    category=FutureWarning,
+    message="The `airbyte.cloud.experimental` module is deprecated. All features are finalized.",
+    category=DeprecationWarning,
     stacklevel=2,
 )
 
-
-class CloudWorkspace(Stable_CloudWorkspace):
-    __doc__ = (
-        f"Experimental implementation of `.CloudWorkspace`.\n\n{Stable_CloudConnection.__doc__}"
-    )
-    deploy_connection = Stable_CloudWorkspace._deploy_connection
-    deploy_source = Stable_CloudWorkspace._deploy_source
-    deploy_cache_as_destination = Stable_CloudWorkspace._deploy_cache_as_destination
-    permanently_delete_connection = Stable_CloudWorkspace._permanently_delete_connection
-    permanently_delete_source = Stable_CloudWorkspace._permanently_delete_source
-    permanently_delete_destination = Stable_CloudWorkspace._permanently_delete_destination
-
-
-class CloudConnection(Stable_CloudConnection):
-    __doc__ = (
-        f"Experimental implementation of `.CloudConnection`.\n\n{Stable_CloudConnection.__doc__}"
-    )
-    permanently_delete = Stable_CloudConnection._permanently_delete
+# All experimental methods are now stable.
+CloudConnection = Stable_CloudConnection
+CloudWorkspace = Stable_CloudWorkspace

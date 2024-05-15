@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import sys
 import pytest
-from airbyte._util.api_util import CLOUD_API_ROOT
+from airbyte.cloud._api_util import CLOUD_API_ROOT
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace

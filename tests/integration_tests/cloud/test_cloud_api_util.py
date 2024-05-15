@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import ulid
 
-from airbyte._util import api_util
+from airbyte.cloud import _api_util
 from airbyte_api.models import SourceFaker, DestinationDuckdb
 
 
@@ -20,7 +20,7 @@ def test_create_and_delete_source(
 ) -> None:
     new_resource_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
     source_config = SourceFaker()
-    source = api_util.create_source(
+    source = _api_util.create_source(
         name=new_resource_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -31,7 +31,7 @@ def test_create_and_delete_source(
     assert source.source_type == "faker"
     assert source.source_id
 
-    api_util.delete_source(
+    _api_util.delete_source(
         source_id=source.source_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -51,7 +51,7 @@ def test_create_and_delete_destination(
         motherduck_api_key=motherduck_api_key,
     )
 
-    destination = api_util.create_destination(
+    destination = _api_util.create_destination(
         name=new_resource_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -62,7 +62,7 @@ def test_create_and_delete_destination(
     assert destination.destination_type == "duckdb"
     assert destination.destination_id
 
-    api_util.delete_destination(
+    _api_util.delete_destination(
         destination_id=destination.destination_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -79,7 +79,7 @@ def test_create_and_delete_connection(
     new_source_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
     new_destination_name = "deleteme-destination-dummy" + str(ulid.ULID()).lower()[-6:]
     new_connection_name = "deleteme-connection-dummy" + str(ulid.ULID()).lower()[-6:]
-    source = api_util.create_source(
+    source = _api_util.create_source(
         name=new_source_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -90,7 +90,7 @@ def test_create_and_delete_connection(
     assert source.source_type == "faker"
     assert source.source_id
 
-    destination = api_util.create_destination(
+    destination = _api_util.create_destination(
         name=new_destination_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -104,7 +104,7 @@ def test_create_and_delete_connection(
     assert destination.destination_type == "duckdb"
     assert destination.destination_id
 
-    connection = api_util.create_connection(
+    connection = _api_util.create_connection(
         name=new_connection_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
@@ -118,19 +118,19 @@ def test_create_and_delete_connection(
     assert connection.destination_id == destination.destination_id
     assert connection.connection_id
 
-    api_util.delete_connection(
+    _api_util.delete_connection(
         connection_id=connection.connection_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
-    api_util.delete_source(
+    _api_util.delete_source(
         source_id=source.source_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
         workspace_id=workspace_id,
     )
-    api_util.delete_destination(
+    _api_util.delete_destination(
         destination_id=destination.destination_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,

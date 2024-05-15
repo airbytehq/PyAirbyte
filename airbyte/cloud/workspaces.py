@@ -7,33 +7,180 @@ both OSS and Enterprise.
 
 from __future__ import annotations
 
+import warnings
+from contextlib import suppress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from functools import wraps
+from typing import TYPE_CHECKING, Any, Callable
 
 from airbyte import exceptions as exc
-from airbyte._util.api_util import (
-    CLOUD_API_ROOT,
-    create_connection,
-    create_destination,
-    create_source,
-    delete_connection,
-    delete_destination,
-    delete_source,
-    get_workspace,
-)
+from airbyte._util import iter as iter_util
+from airbyte.cloud import _api_util
 from airbyte.cloud._destination_util import get_destination_config_from_cache
+from airbyte.cloud._resources import ICloudResource
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connectors import CloudConnector
+from airbyte.cloud.constants import ConnectorTypeEnum
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
     from airbyte._util.api_imports import DestinationResponse
     from airbyte.caches.base import CacheBase
+    from airbyte.sources.base import Source
+
+
+# Decorator for resolving connection objects
+def resolve_connection(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapper(
+        self: CloudWorkspace,
+        *args: Any,  # noqa: ANN401
+        connection: str | CloudConnection | None = None,
+        connection_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
+        if connection_id is not None:
+            warnings.warn(
+                message="The `connection_id` parameter is deprecated. Use `connection` instead.",
+                category=DeprecationWarning,
+                stacklevel=2,
+            )
+            connection = connection_id
+
+        if isinstance(connection, str):
+            connection = CloudConnection(
+                workspace=self,
+                connection_id=connection,
+            )
+
+        return func(self, *args, connection=connection, **kwargs)
+
+    return wrapper
+
+
+# Decorator for resolving source objects
+def resolve_source(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapper(
+        self: CloudWorkspace,
+        *args: Any,  # noqa: ANN401
+        source: str | CloudConnector | None = None,
+        source_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
+        if source_id is not None:
+            warnings.warn(
+                "The `source_id` parameter is deprecated. Use the `source` parameter instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            source = source_id
+
+        if isinstance(source, str):
+            source = CloudConnector(
+                workspace=self,
+                connector_id=source,
+                connector_type=ConnectorTypeEnum.SOURCE,
+            )
+
+        return func(self, *args, source=source, **kwargs)
+
+    return wrapper
+
+
+# Decorator for resolving source IDs from objects
+def resolve_source_id(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapper(
+        self: CloudWorkspace,
+        *args: Any,  # noqa: ANN401
+        source: str | CloudConnector | None = None,
+        source_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
+        if not isinstance(source, (str, CloudConnector)):
+            raise ValueError(f"Invalid source type: {type(source)}")  # noqa: TRY004, TRY003
+
+        if source_id is not None:
+            warnings.warn(
+                "The `source_id` parameter is deprecated. Use the `source` parameter instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            source = source_id
+
+        if isinstance(source, CloudConnector):
+            source = source.source_id
+
+        return func(self, *args, source=source, **kwargs)
+
+    return wrapper
+
+
+# Decorator for resolving destination objects
+def resolve_destination(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapper(
+        self: CloudWorkspace,
+        *args: Any,  # noqa: ANN401
+        destination: str | CloudConnector | None = None,
+        destination_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
+        if destination_id is not None:
+            warnings.warn(
+                "The `destination_id` parameter is deprecated. Use `destination` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            destination = destination_id
+
+        if isinstance(destination, str):
+            destination = CloudConnector(
+                workspace=self,
+                connector_id=destination,
+                connector_type=ConnectorTypeEnum.DESTINATION,
+            )
+
+        return func(self, *args, destination=destination, **kwargs)
+
+    return wrapper
+
+
+# Decorator for resolving destination IDs from objects
+def resolve_destination_id(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapper(
+        self: CloudWorkspace,
+        *args: Any,  # noqa: ANN401
+        destination: str | CloudConnector | None = None,
+        destination_id: str | None = None,
+        **kwargs: Any,  # noqa: ANN401
+    ) -> Any:  # noqa: ANN401
+        if destination is None and destination_id is None:
+            raise exc.PyAirbyteInputError(
+                message="No destination or destination ID provided.",
+            )
+
+        if destination_id is not None:
+            warnings.warn(
+                "The `destination_id` parameter is deprecated. Use `destination` instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            destination = destination_id
+
+        if isinstance(destination, CloudConnector):
+            destination = destination.connector_id
+
+        return func(self, *args, destination=destination, **kwargs)
+
+    return wrapper
 
 
 @dataclass
-class CloudWorkspace:
+class CloudWorkspace(ICloudResource):
     """A remote workspace on the Airbyte Cloud.
 
     By overriding `api_root`, you can use this class to interact with self-managed Airbyte
@@ -42,7 +189,7 @@ class CloudWorkspace:
 
     workspace_id: str
     api_key: str
-    api_root: str = CLOUD_API_ROOT
+    api_root: str = _api_util.CLOUD_API_ROOT
 
     @property
     def workspace_url(self) -> str | None:
@@ -57,83 +204,115 @@ class CloudWorkspace:
               serves primarily as a simple check to ensure that the workspace is reachable
               and credentials are correct.
         """
-        _ = get_workspace(
+        _ = _api_util.fetch_workspace_info(
+            workspace_id=self.workspace_id,
             api_root=self.api_root,
             api_key=self.api_key,
-            workspace_id=self.workspace_id,
         )
-        print(f"Successfully connected to workspace: {self.workspace_url}")
+
+        print("Successfully connected to workspace.")
 
     # Deploy and delete sources
 
-    # TODO: Make this a public API
-    def _deploy_source(
+    def deploy_source(
         self,
         source: Source,
-    ) -> str:
+        name: str,
+    ) -> CloudConnector:
         """Deploy a source to the workspace.
 
-        Returns the newly deployed source ID.
+        This method will deploy a source to the workspace and return the `CloudConnector` object of
+        the deployed source.
+
+        Args:
+            name (str): The key to use for the source name. This is used to provide
+                idempotency when deploying the same source multiple times. If `None`, then
+                `source_id` is required. If a matching source source is found and `update_existing`
+                is `False`, then a `AirbyteResourceAlreadyExists` exception will be raised.
+            source (Source): The source to deploy.
         """
-        source_configuration = source.get_config().copy()
+        source_configuration: dict[str, Any] = source.get_config().copy()
         source_configuration["sourceType"] = source.name.replace("source-", "")
 
-        deployed_source = create_source(
-            name=f"{source.name.replace('-', ' ').title()} (Deployed by PyAirbyte)",
+        iter_util.no_existing_resources(
+            _api_util.list_sources(
+                workspace_id=self.workspace_id,
+                name_filter=name,
+                api_root=self.api_root,
+                api_key=self.api_key,
+                limit=1,
+            ),
+        )
+
+        deployed_source = _api_util.create_source(
+            name=name,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
             config=source_configuration,
         )
 
-        # Set the deployment Ids on the source object
+        # Set the deployment IDs on the source object
         source._deployed_api_root = self.api_root  # noqa: SLF001  # Accessing nn-public API
         source._deployed_workspace_id = self.workspace_id  # noqa: SLF001  # Accessing nn-public API
         source._deployed_source_id = deployed_source.source_id  # noqa: SLF001  # Accessing nn-public API
 
-        return deployed_source.source_id
+        return CloudConnector(
+            workspace=self,
+            connector_id=deployed_source.source_id,
+            connector_type=ConnectorTypeEnum.SOURCE,
+        )
 
-    def _permanently_delete_source(
+    def get_source(
         self,
-        source: str | Source,
+        source_id: str,
+    ) -> CloudConnector:
+        """Get a source by ID.
+
+        This method does not fetch data from the API. It returns a `CloudConnector` object, which
+        will be loaded lazily as needed.
+        """
+        result = CloudConnector(
+            workspace=self,
+            connector_id=source_id,
+            connector_type=ConnectorTypeEnum.SOURCE,
+        )
+        if result.connector_type != "source":
+            raise exc.PyAirbyteInputError(message="Connector is not a source.")
+
+        return result
+
+    @resolve_source_id
+    def permanently_delete_source(
+        self,
+        source: str | CloudConnector,
     ) -> None:
         """Delete a source from the workspace.
 
-        You can pass either the source ID `str` or a deployed `Source` object.
+        You can pass either the source ID `str` or a `CloudConnector` object.
         """
-        if not isinstance(source, (str, Source)):
-            raise ValueError(f"Invalid source type: {type(source)}")  # noqa: TRY004, TRY003
+        assert isinstance(source, str), "Decorator should resolve source ID."
 
-        if isinstance(source, Source):
-            if not source._deployed_source_id:  # noqa: SLF001
-                raise ValueError("Source has not been deployed.")  # noqa: TRY003
-
-            source_id = source._deployed_source_id  # noqa: SLF001
-
-        elif isinstance(source, str):
-            source_id = source
-
-        delete_source(
-            source_id=source_id,
+        _api_util.delete_source(
+            source_id=source,
             api_root=self.api_root,
             api_key=self.api_key,
         )
 
     # Deploy and delete destinations
 
-    # TODO: Make this a public API
-    def _deploy_cache_as_destination(
+    def deploy_cache_as_destination(
         self,
         cache: CacheBase,
+        *,
+        name: str,
     ) -> str:
         """Deploy a cache to the workspace as a new destination.
 
         Returns the newly deployed destination ID.
         """
-        cache_type_name = cache.__class__.__name__.replace("Cache", "")
-
-        deployed_destination: DestinationResponse = create_destination(
-            name=f"Destination {cache_type_name} (Deployed by PyAirbyte)",
+        deployed_destination: DestinationResponse = _api_util.create_destination(
+            name=name,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
@@ -147,33 +326,33 @@ class CloudWorkspace:
 
         return deployed_destination.destination_id
 
-    def _permanently_delete_destination(
+    def get_destination(
+        self,
+        destination_id: str,
+    ) -> CloudConnector:
+        """Get a destination by ID.
+
+        This method does not fetch data from the API. It returns a `CloudConnector` object, which
+        will be loaded lazily as needed.
+        """
+        return CloudConnector(
+            workspace=self,
+            connector_id=destination_id,
+            connector_type=ConnectorTypeEnum.DESTINATION,
+        )
+
+    @resolve_destination_id
+    def permanently_delete_destination(
         self,
         *,
-        destination: str | None = None,
-        cache: CacheBase | None = None,
+        destination: str | CloudConnector | None = None,
     ) -> None:
         """Delete a deployed destination from the workspace.
 
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
         """
-        if destination is None and cache is None:
-            raise ValueError("You must provide either a destination ID or a cache object.")  # noqa: TRY003
-        if destination is not None and cache is not None:
-            raise ValueError(  # noqa: TRY003
-                "You must provide either a destination ID or a cache object, not both."
-            )
-
-        if cache:
-            if not cache._deployed_destination_id:  # noqa: SLF001
-                raise ValueError("Cache has not been deployed.")  # noqa: TRY003
-
-            destination = cache._deployed_destination_id  # noqa: SLF001
-
-        if destination is None:
-            raise ValueError("No destination ID provided.")  # noqa: TRY003
-
-        delete_destination(
+        assert isinstance(destination, str), "Decorator should resolve destination ID."
+        _api_util.delete_destination(
             destination_id=destination,
             api_root=self.api_root,
             api_key=self.api_key,
@@ -181,12 +360,14 @@ class CloudWorkspace:
 
     # Deploy and delete connections
 
-    # TODO: Make this a public API
-    def _deploy_connection(
+    @resolve_source_id
+    @resolve_destination_id
+    def deploy_connection(
         self,
-        source: Source | str,
-        cache: CacheBase | None = None,
-        destination: str | None = None,
+        name: str,
+        *,
+        source: CloudConnector | str,
+        destination: CloudConnector | str,
         table_prefix: str | None = None,
         selected_streams: list[str] | None = None,
     ) -> CloudConnection:
@@ -195,51 +376,34 @@ class CloudWorkspace:
         Returns the newly deployed connection ID as a `str`.
 
         Args:
-            source (Source | str): The source to deploy. You can pass either an already deployed
+            source: The source to deploy. You can pass either an already deployed
                 source ID `str` or a PyAirbyte `Source` object. If you pass a `Source` object,
                 it will be deployed automatically.
-            cache (CacheBase, optional): The cache to deploy as a new destination. You can provide
-                `cache` or `destination`, but not both.
-            destination (str, optional): The destination ID to use. You can provide
-                `cache` or `destination`, but not both.
+            destination (str, optional): The cache, destination, or destination ID to use.
         """
-        # Resolve source ID
-        source_id: str
-        if isinstance(source, Source):
-            selected_streams = selected_streams or source.get_selected_streams()
-            if source._deployed_source_id:  # noqa: SLF001
-                source_id = source._deployed_source_id  # noqa: SLF001
-            else:
-                source_id = self._deploy_source(source)
-        else:
-            source_id = source
-            if not selected_streams:
-                raise exc.PyAirbyteInputError(
-                    guidance="You must provide `selected_streams` when deploying a source ID."
-                )
-
-        # Resolve destination ID
-        destination_id: str
-        if destination:
-            destination_id = destination
-        elif cache:
-            table_prefix = table_prefix if table_prefix is not None else (cache.table_prefix or "")
-            if not cache._deployed_destination_id:  # noqa: SLF001
-                destination_id = self._deploy_cache_as_destination(cache)
-            else:
-                destination_id = cache._deployed_destination_id  # noqa: SLF001
-        else:
-            raise exc.PyAirbyteInputError(
-                guidance="You must provide either a destination ID or a cache object."
+        assert isinstance(source, str), "Decorator should resolve source ID."
+        assert isinstance(destination, str), "Decorator should resolve destination ID."
+        existing_connection: CloudConnection | None = None
+        with suppress(exc.AirbyteMissingResourceError):
+            existing_connection = _api_util.fetch_connection_by_name(
+                connection_name=name,
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                api_key=self.api_key,
+            )
+        if existing_connection:
+            raise exc.AirbyteResourceAlreadyExistsError(
+                message="Connection with matching name key already exists.",
+                context={
+                    "name_key": name,
+                    "connection_id": existing_connection.connection_id,
+                },
             )
 
-        assert source_id is not None
-        assert destination_id is not None
-
-        deployed_connection = create_connection(
-            name="Connection (Deployed by PyAirbyte)",
-            source_id=source_id,
-            destination_id=destination_id,
+        deployed_connection = _api_util.create_connection(
+            name=name,
+            source_id=source,
+            destination_id=destination,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
@@ -247,37 +411,55 @@ class CloudWorkspace:
             prefix=table_prefix or "",
         )
 
-        if isinstance(source, Source):
-            source._deployed_api_root = self.api_root  # noqa: SLF001
-            source._deployed_workspace_id = self.workspace_id  # noqa: SLF001
-            source._deployed_source_id = source_id  # noqa: SLF001
-        if cache:
-            cache._deployed_api_root = self.api_root  # noqa: SLF001
-            cache._deployed_workspace_id = self.workspace_id  # noqa: SLF001
-            cache._deployed_destination_id = deployed_connection.destination_id  # noqa: SLF001
-
         return CloudConnection(
             workspace=self,
             connection_id=deployed_connection.connection_id,
-            source=deployed_connection.source_id,
-            destination=deployed_connection.destination_id,
+            _source_id=deployed_connection.source_id,
+            _destination_id=deployed_connection.destination_id,
         )
 
     def get_connection(
         self,
-        connection_id: str,
+        *,
+        connection_id: str | None = None,
+        name: str | None = None,
     ) -> CloudConnection:
         """Get a connection by ID.
 
         This method does not fetch data from the API. It returns a `CloudConnection` object,
         which will be loaded lazily as needed.
         """
-        return CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
+        if connection_id is None and name is None:
+            raise exc.PyAirbyteInputError(message="No connection ID or name key provided.")
+        if connection_id and name:
+            raise exc.PyAirbyteInputError(
+                message="You can provide either a connection ID or a name key, but not both."
+            )
+
+        if connection_id:
+            return CloudConnection(
+                workspace=self,
+                connection_id=connection_id,
+            )
+
+        assert isinstance(name, str), "Name should be a string, per above validation."
+
+        # Else derive connection ID from name key
+        connection = _api_util.fetch_connection_by_name(
+            connection_name=name,
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            api_key=self.api_key,
         )
 
-    def _permanently_delete_connection(
+        return CloudConnection(
+            workspace=self,
+            connection_id=connection.connection_id,
+            _source_id=connection.source_id,
+            _destination_id=connection.destination_id,
+        )
+
+    def permanently_delete_connection(
         self,
         connection: str | CloudConnection,
         *,
@@ -294,32 +476,35 @@ class CloudWorkspace:
                 connection_id=connection,
             )
 
-        delete_connection(
+        _api_util.delete_connection(
             connection_id=connection.connection_id,
             api_root=self.api_root,
             api_key=self.api_key,
             workspace_id=self.workspace_id,
         )
         if delete_source:
-            self._permanently_delete_source(source=connection.source_id)
+            self.permanently_delete_source(source=connection.source_id)
 
         if delete_destination:
-            self._permanently_delete_destination(destination=connection.destination_id)
+            self.permanently_delete_destination(destination=connection.destination_id)
 
     # Run syncs
 
+    @resolve_connection
     def run_sync(
         self,
-        connection_id: str,
+        connection: str | CloudConnection,
         *,
         wait: bool = True,
         wait_timeout: int = 300,
+        connection_id: str | None = None,
     ) -> SyncResult:
-        """Run a sync on a deployed connection."""
-        connection = CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
-        )
+        """Run a sync on a deployed connection.
+
+        Note: The `connection_id` parameter is deprecated. Use the `connection` parameter instead.
+        """
+        _ = connection_id  # Deprecated
+        assert isinstance(connection, CloudConnection), "Decorate should have resolved this."
         return connection.run_sync(wait=wait, wait_timeout=wait_timeout)
 
     # Get sync results and previous sync logs
@@ -356,6 +541,7 @@ class CloudWorkspace:
             workspace=self,
             connection=connection,
             job_id=job_id,
+            table_name_prefix=connection.table_prefix,
         )
 
     def get_previous_sync_logs(
