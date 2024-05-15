@@ -116,13 +116,6 @@ class SqlConfig(BaseModel, abc.ABC):
         )
 
 
-@dataclass
-class SqlTableDomain:
-    database_name: str
-    schema_name: str
-    table_prefix: str
-
-
 class SqlProcessorBase(RecordProcessorBase):
     """A base class to be used for SQL Caches."""
 
