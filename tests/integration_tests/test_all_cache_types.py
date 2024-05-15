@@ -191,11 +191,12 @@ def test_replace_strategy(
     """
     # We attach a monitor to the cache processor to check if the swap and merge methods are called
     # as expected.
-    mocker.spy(new_generic_cache.processor, '_swap_temp_table_with_final_table')
-    mocker.spy(new_generic_cache.processor, '_merge_temp_table_to_final_table')
+    mocker.spy(new_generic_cache.processor, "_swap_temp_table_with_final_table")
+    mocker.spy(new_generic_cache.processor, "_merge_temp_table_to_final_table")
 
-    assert FAKER_SCALE_B > FAKER_SCALE_A, \
-        "The test requires that 'b' has a greater count of records than 'a'."
+    assert (
+        FAKER_SCALE_B > FAKER_SCALE_A
+    ), "The test requires that 'b' has a greater count of records than 'a'."
 
     result = source_faker_seed_b.read(
         new_generic_cache,
