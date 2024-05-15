@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import abc
+import re
 from typing import TYPE_CHECKING
+
+from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
@@ -46,8 +49,43 @@ class LowerCaseNormalizer(NameNormalizerBase):
 
     @staticmethod
     def normalize(name: str) -> str:
-        """Return the normalized name."""
-        return name.lower().replace(" ", "_").replace("-", "_")
+        """Return the normalized name.
+
+        - Any non-alphanumeric characters are replaced with underscores.
+        - Any sequence of 3+ underscores is replaced with a double underscore.
+        - Leading and trailing underscores are removed.
+        - "%" is replaced with "pct".
+        - "#" is replaced with "num".
+
+        Examples:
+        - "Hello World!" -> "hello_world"
+        - "Hello, World!" -> "hello__world"
+        - "Hello - World" -> "hello__world"
+        - "___Hello, World___" -> "hello_world"
+        - "Average Sales (%)" -> "average_sales__pct"
+        - "Average Sales (#)" -> "average_sales__num"
+        """
+        result = name
+        # Replace "%" or "#" with "pct" or "num".
+        result = result.replace("%", "pct").replace("#", "num")
+
+        # Replace non-alphanumeric characters with underscores.
+        result = re.sub("[^A-Za-z0-9]+", "_", result.lower())
+
+        # Replace 3+ underscores with a double underscore.
+        result = re.sub("_{3,}", "__", result)
+
+        # Remove leading and trailing underscores.
+        result = result.rstrip("_").lstrip("_")
+
+        if not result:
+            raise exc.PyAirbyteNameNormalizationError(
+                message="Name cannot be empty after normalization.",
+                raw_name=name,
+                normalization_result=result,
+            )
+
+        return name
 
 
 __all__ = [
