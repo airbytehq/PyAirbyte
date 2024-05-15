@@ -150,7 +150,7 @@ class SqlProcessorBase(RecordProcessorBase):
 
         state_writer = state_writer or StdOutStateWriter()
 
-        self._sql_config: Engine = sql_config
+        self._sql_config: SqlConfig = sql_config
 
         super().__init__(
             state_writer=state_writer,
