@@ -40,6 +40,7 @@ jobs:
       run: poetry install
 
     - name: Run Pytest with Coverage (Fast Tests Only)
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
@@ -85,6 +86,7 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
+      timeout-minutes: 60
       env:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
@@ -147,6 +149,7 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Pytest
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
