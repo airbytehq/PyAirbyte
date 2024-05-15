@@ -256,28 +256,6 @@ class RecordProcessorBase(abc.ABC):
         """
         pass
 
-    @final
-    def _get_configured_stream_info(
-        self,
-        stream_name: str,
-    ) -> ConfiguredAirbyteStream:
-        """Return the definition of the given stream.
-
-        This method is a convenience wrapper around the catalog manager implementation.
-        """
-        return self.catalog_provider.get_configured_stream_info(stream_name)
-
-    @final
-    def get_stream_json_schema(
-        self,
-        stream_name: str,
-    ) -> dict[str, Any]:
-        """Return the column definitions for the given stream.
-
-        This method is a convenience wrapper around the catalog manager implementation.
-        """
-        return self.catalog_provider.get_stream_json_schema(stream_name)
-
     def cleanup_all(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Clean up all resources.
 

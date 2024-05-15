@@ -134,11 +134,14 @@ class SqlCatalogBackend(CatalogBackendBase):
         incoming_stream_names: set[str],
     ) -> None:
         """Register a source and its streams in the cache."""
+        # First, go ahead and serialize the incoming catalog information to SQL table storage
         self._save_catalog_info(
             source_name=source_name,
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=incoming_stream_names,
         )
+
+        # Now update the in-memory catalog
         unchanged_streams: list[ConfiguredAirbyteStream] = [
             stream
             for stream in self._full_catalog.streams
@@ -154,6 +157,7 @@ class SqlCatalogBackend(CatalogBackendBase):
         # streams.
         self._full_catalog.streams = unchanged_streams + new_streams
 
+        # Repeat the process for the source-specific catalog cache
         if source_name in self._source_catalogs:
             source_streams = self._source_catalogs[source_name].streams
             # Now use the same process to update the source-specific catalog if it exists

@@ -62,7 +62,7 @@ class SQLDataset(DatasetBase):
         self._query_statement: Selectable = query_statement
         if stream_configuration is None:
             try:
-                stream_configuration = cache.processor._get_configured_stream_info(  # noqa: SLF001  # Member is private until we have a public API for it.
+                stream_configuration = cache.processor.catalog_provider.get_configured_stream_info(
                     stream_name=stream_name
                 )
             except Exception as ex:
