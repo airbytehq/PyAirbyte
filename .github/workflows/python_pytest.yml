@@ -45,7 +45,6 @@ jobs:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
         poetry run coverage run -m pytest
-        --verbose
         --durations=5 --exitfirst
         -m "not slow and not requires_creds and not linting"
 
@@ -93,7 +92,7 @@ jobs:
         GCP_GSM_CREDENTIALS: ""
       run: >
         poetry run coverage run -m pytest
-        --verbose
+        --durations=5 --exitfirst
         -m "not requires_creds and not linting and not super_slow"
 
     - name: Print Coverage Report
