@@ -69,11 +69,11 @@ class LowerCaseNormalizer(NameNormalizerBase):
         # Replace "%" or "#" with "pct" or "num".
         result = result.replace("%", "pct").replace("#", "num")
 
-        # Replace non-alphanumeric characters with underscores.
-        result = re.sub("[^A-Za-z0-9]+", "_", result.lower())
+        # Replace all non-alphanumeric characters with underscores.
+        result = re.sub("[^A-Za-z0-9]", "_", result.lower())
 
         # Replace 3+ underscores with a double underscore.
-        result = re.sub("_{3,}", "__", result)
+        result = re.sub("___+", "__", result)
 
         # Remove leading and trailing underscores.
         result = result.rstrip("_").lstrip("_")
@@ -85,7 +85,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
                 normalization_result=result,
             )
 
-        return name
+        return result
 
 
 __all__ = [
