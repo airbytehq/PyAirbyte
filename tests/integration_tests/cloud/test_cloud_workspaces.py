@@ -35,7 +35,7 @@ def test_deploy_cache_as_destination(
     """Test deploying a cache to a workspace as a destination."""
     cache = MotherDuckCache(
         api_key=motherduck_api_key,
-        database="temp",
+        database="new_db",
         schema_name="public",
     )
     destination_id: str = cloud_workspace._deploy_cache_as_destination(cache=cache)
@@ -57,10 +57,9 @@ def test_deploy_connection(
 
     cache = MotherDuckCache(
         api_key=motherduck_api_key,
-        database="temp",
+        database="new_db",
         schema_name="public",
         table_prefix="abc_deleteme_",
-        # table_suffix="",  # Suffix not supported in CloudConnection
     )
 
     connection: CloudConnection = cloud_workspace._deploy_connection(
@@ -69,7 +68,6 @@ def test_deploy_connection(
     )
     assert set(connection.stream_names) == set(["users", "products", "purchases"])
     assert connection.table_prefix == "abc_deleteme_"
-    # assert connection.table_suffix == ""  # Suffix not supported in CloudConnection
     cloud_workspace._permanently_delete_connection(
         connection=connection,
         delete_source=True,

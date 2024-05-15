@@ -6,9 +6,8 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
-import pytest
-
 import airbyte as ab
+import pytest
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.sync_results import SyncResult
@@ -40,7 +39,7 @@ def test_get_previous_sync_result(
     """Test running a connection."""
     sync_result: SyncResult = cloud_workspace.get_previous_sync_logs(
         connection_id=pre_created_connection_id,
-    )
+    )[0]
     assert sync_result.is_job_complete()
     assert sync_result.get_job_status()
     assert sync_result.stream_names

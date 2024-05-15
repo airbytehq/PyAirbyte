@@ -8,23 +8,25 @@ and available on PATH for the poetry-managed venv.
 
 from __future__ import annotations
 
-from collections.abc import Generator
 import os
-import sys
 import shutil
-from pathlib import Path
+import sys
 import tempfile
-
-import pytest
-import ulid
-
+from collections.abc import Generator
+from pathlib import Path
 
 import airbyte as ab
+import pytest
+import pytest_mock
+import ulid
 from airbyte._executor import _get_bin_dir
+from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
+from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.util import new_local_cache
+from airbyte.strategies import WriteStrategy
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -240,7 +242,11 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache.processor._catalog_manager.get_state("source-faker") == []
+    assert duckdb_cache.get_state_provider("source-faker").known_stream_names == {
+        "products",
+        "purchases",
+        "users",
+    }
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
@@ -269,10 +275,9 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert (
-        second_cache.processor._catalog_manager
-        and second_cache.processor._catalog_manager.get_state("source-faker")
-    )
+    state_provider = second_cache.get_state_provider("source-faker")
+    assert len(state_provider.state_message_artifacts) > 0
+
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
@@ -320,11 +325,21 @@ def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
 def test_merge_insert_not_supported_for_duckdb(
     source_faker_seed_a: ab.Source,
     duckdb_cache: DuckDBCache,
+    mocker: pytest_mock.MockFixture,
 ) -> None:
     """Confirm that duckdb does not support merge insert natively"""
-    duckdb_cache.processor.supports_merge_insert = True
+    if DuckDBSqlProcessor.supports_merge_insert:
+        return  # Skip this test if the cache supports merge-insert.
+
+    # Otherwise, toggle the value and we should expect an exception.
+    mocker.patch.object(DuckDBSqlProcessor, "supports_merge_insert", new=True)
     try:
-        result = source_faker_seed_a.read(duckdb_cache, write_strategy="merge")
+        result = source_faker_seed_a.read(
+            duckdb_cache, write_strategy=WriteStrategy.MERGE
+        )
+        result = source_faker_seed_a.read(
+            duckdb_cache, write_strategy=WriteStrategy.MERGE
+        )
         if result:
             raise AssertionError("Cache supports merge-insert, but it's set to False.")
     except Exception as e:
@@ -335,11 +350,18 @@ def test_merge_insert_not_supported_for_duckdb(
 
 @pytest.mark.requires_creds
 def test_merge_insert_not_supported_for_postgres(
-    source_faker_seed_a: ab.Source, new_postgres_cache: PostgresCache
+    source_faker_seed_a: ab.Source,
+    new_postgres_cache: PostgresCache,
+    mocker: pytest_mock.MockFixture,
 ):
     """Confirm that postgres does not support merge insert natively"""
     # TODO - This test keeps getting skipped, investigate why.
-    new_postgres_cache.processor.supports_merge_insert = True
+    #        It appears to be due to the fixture `new_postgres_cache` not detecting docker properly.
+    if PostgresSqlProcessor.supports_merge_insert:
+        return  # Skip this test if the cache supports merge-insert.
+
+    # Otherwise, toggle the value and we should expect an exception.
+    mocker.patch.object(PostgresSqlProcessor, "supports_merge_insert", new=True)
     try:
         result = source_faker_seed_a.read(new_postgres_cache, write_strategy="merge")
         if result:

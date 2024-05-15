@@ -3,17 +3,19 @@
 
 from __future__ import annotations
 
+import abc
 import contextlib
 import enum
 from contextlib import contextmanager
 from functools import cached_property
-from typing import TYPE_CHECKING, final
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional, cast, final
 
 import pandas as pd
 import sqlalchemy
 import ulid
-from overrides import overrides
 from pandas import Index
+from pydantic import BaseModel
 from sqlalchemy import (
     Column,
     Table,
@@ -25,20 +27,18 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.pool import StaticPool
 from sqlalchemy.sql.elements import TextClause
 
 from airbyte import exceptions as exc
-from airbyte._processors.base import RecordProcessor
+from airbyte._future_cdk.record_processor import RecordProcessorBase
+from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._util.name_normalizers import LowerCaseNormalizer
-from airbyte.caches._catalog_manager import CatalogManager
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
     AB_META_COLUMN,
     AB_RAW_ID_COLUMN,
     DEBUG_MODE,
 )
-from airbyte.datasets._sql import CachedDataset
 from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
 from airbyte.types import SQLTypeConverter
@@ -46,7 +46,6 @@ from airbyte.types import SQLTypeConverter
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
@@ -57,12 +56,13 @@ if TYPE_CHECKING:
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
         AirbyteStateMessage,
-        ConfiguredAirbyteCatalog,
     )
 
     from airbyte._batch_handles import BatchHandle
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
-    from airbyte.caches.base import CacheBase
+    from airbyte.secrets.base import SecretString
 
 
 class RecordDedupeMode(enum.Enum):
@@ -74,7 +74,48 @@ class SQLRuntimeError(Exception):
     """Raised when an SQL operation fails."""
 
 
-class SqlProcessorBase(RecordProcessor):
+class SqlConfig(BaseModel, abc.ABC):
+    """Common configuration for SQL connections."""
+
+    schema_name: str
+    """The name of the schema to write to."""
+
+    table_prefix: Optional[str] = ""
+    """A prefix to add to created table names."""
+
+    @abc.abstractmethod
+    def get_sql_alchemy_url(self) -> SecretString:
+        """Returns a SQL Alchemy URL."""
+        ...
+
+    @abc.abstractmethod
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        ...
+
+    def get_sql_engine(self) -> Engine:
+        """Return a new SQL engine to use."""
+        return create_engine(
+            url=self.get_sql_alchemy_url(),
+            echo=DEBUG_MODE,
+            execution_options={
+                "schema_translate_map": {None: self.schema_name},
+            },
+        )
+
+    def get_vendor_client(self) -> object:
+        """Return the vendor-specific client object.
+
+        This is used for vendor-specific operations.
+
+        Raises `NotImplementedError` if a custom vendor client is not defined.
+        """
+        raise NotImplementedError(
+            f"The type '{type(self).__name__}' does not define a custom client."
+        )
+
+
+class SqlProcessorBase(RecordProcessorBase):
     """A base class to be used for SQL Caches."""
 
     type_converter_class: type[SQLTypeConverter] = SQLTypeConverter
@@ -89,97 +130,59 @@ class SqlProcessorBase(RecordProcessor):
     supports_merge_insert = False
     """True if the database supports the MERGE INTO syntax."""
 
-    use_singleton_connection = False  # If true, the same connection is used for all operations.
-
     # Constructor:
 
     def __init__(
         self,
-        cache: CacheBase,
+        *,
+        sql_config: SqlConfig,
+        catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase | None = None,
         file_writer: FileWriterBase | None = None,
+        temp_dir: Path | None = None,
+        temp_file_cleanup: bool,
     ) -> None:
-        self._engine: Engine | None = None
-        self._connection_to_reuse: Connection | None = None
-        super().__init__(cache, catalog_manager=None)
-        self._ensure_schema_exists()
-        self._catalog_manager = CatalogManager(
-            engine=self.get_sql_engine(),
-            table_name_resolver=self.get_sql_table_name,
+        if not temp_dir and not file_writer:
+            raise exc.PyAirbyteInternalError(
+                message="Either `temp_dir` or `file_writer` must be provided.",
+            )
+
+        state_writer = state_writer or StdOutStateWriter()
+
+        self._sql_config: SqlConfig = sql_config
+
+        super().__init__(
+            state_writer=state_writer,
+            catalog_provider=catalog_provider,
         )
-        self.file_writer = file_writer or self.file_writer_class(cache)
+        self.file_writer = file_writer or self.file_writer_class(
+            cache_dir=cast(Path, temp_dir),
+            cleanup=temp_file_cleanup,
+        )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
+        self._ensure_schema_exists()
 
     # Public interface:
 
-    def get_sql_alchemy_url(self) -> str:
+    @property
+    def sql_config(self) -> SqlConfig:
+        return self._sql_config
+
+    def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return self.cache.get_sql_alchemy_url()
+        return self.sql_config.get_sql_alchemy_url()
 
     @final
     @cached_property
     def database_name(self) -> str:
         """Return the name of the database."""
-        return self.cache.get_database_name()
+        return self.sql_config.get_database_name()
 
     @final
     def get_sql_engine(self) -> Engine:
         """Return a new SQL engine to use."""
-        if self._engine:
-            return self._engine
-
-        sql_alchemy_url = self.get_sql_alchemy_url()
-
-        execution_options = {"schema_translate_map": {None: self.cache.schema_name}}
-        if self.use_singleton_connection:
-            if self._connection_to_reuse is None:
-                # This temporary bootstrap engine will be created once and is needed to
-                # create the long-lived connection object.
-                bootstrap_engine = create_engine(
-                    sql_alchemy_url,
-                )
-                self._connection_to_reuse = bootstrap_engine.connect()
-
-            self._engine = create_engine(
-                sql_alchemy_url,
-                creator=lambda: self._connection_to_reuse,
-                poolclass=StaticPool,
-                echo=DEBUG_MODE,
-                execution_options=execution_options,
-                # isolation_level="AUTOCOMMIT",
-            )
-        else:
-            # Regular engine creation for new connections
-            self._engine = create_engine(
-                sql_alchemy_url,
-                echo=DEBUG_MODE,
-                execution_options=execution_options,
-                # isolation_level="AUTOCOMMIT",
-            )
-
-        return self._engine
-
-    @overrides
-    def register_source(
-        self,
-        source_name: str,
-        incoming_source_catalog: ConfiguredAirbyteCatalog,
-        stream_names: set[str],
-    ) -> None:
-        """Register the source with the cache.
-
-        We use stream_names to determine which streams will receive data, and
-        we only register the stream if is expected to receive data.
-
-        This method is called by the source when it is initialized.
-        """
-        self._source_name = source_name
-        self._ensure_schema_exists()
-        super().register_source(
-            source_name,
-            incoming_source_catalog,
-            stream_names=stream_names,
-        )
+        return self.sql_config.get_sql_engine()
 
     @contextmanager
     def get_sql_connection(self) -> Generator[sqlalchemy.engine.Connection, None, None]:
@@ -187,31 +190,24 @@ class SqlProcessorBase(RecordProcessor):
 
         If the connection needs to close, it will be closed automatically.
         """
-        if self.use_singleton_connection and self._connection_to_reuse is not None:
-            connection = self._connection_to_reuse
+        with self.get_sql_engine().begin() as connection:
             self._init_connection_settings(connection)
             yield connection
 
-        else:
-            with self.get_sql_engine().begin() as connection:
-                self._init_connection_settings(connection)
-                yield connection
-
-        if not self.use_singleton_connection:
-            connection.close()
-            del connection
+        connection.close()
+        del connection
 
     def get_sql_table_name(
         self,
         stream_name: str,
     ) -> str:
         """Return the name of the SQL table for the given stream."""
-        table_prefix = self.cache.table_prefix or ""
+        table_prefix = self.sql_config.table_prefix
 
         # TODO: Add default prefix based on the source name.
 
         return self.normalizer.normalize(
-            f"{table_prefix}{stream_name}{self.cache.table_suffix}",
+            f"{table_prefix}{stream_name}",
         )
 
     @final
@@ -224,23 +220,7 @@ class SqlProcessorBase(RecordProcessor):
             self.get_sql_table_name(stream_name),
         )
 
-    # Read methods:
-
-    def get_records(
-        self,
-        stream_name: str,
-    ) -> CachedDataset:
-        """Uses SQLAlchemy to select all rows from the table."""
-        return CachedDataset(self.cache, stream_name)
-
-    def get_pandas_dataframe(
-        self,
-        stream_name: str,
-    ) -> pd.DataFrame:
-        """Return a Pandas data frame with the stream's data."""
-        table_name = self.get_sql_table_name(stream_name)
-        engine = self.get_sql_engine()
-        return pd.read_sql_table(table_name, engine, schema=self.cache.schema_name)
+    # Record processing:
 
     def process_record_message(
         self,
@@ -309,12 +289,12 @@ class SqlProcessorBase(RecordProcessor):
                 # the table definition in this case.
                 return sqlalchemy.Table(
                     table_name,
-                    sqlalchemy.MetaData(schema=self.cache.schema_name),
+                    sqlalchemy.MetaData(schema=self.sql_config.schema_name),
                 )
 
             self._cached_table_definitions[table_name] = sqlalchemy.Table(
                 table_name,
-                sqlalchemy.MetaData(schema=self.cache.schema_name),
+                sqlalchemy.MetaData(schema=self.sql_config.schema_name),
                 autoload_with=self.get_sql_engine(),
             )
 
@@ -324,7 +304,7 @@ class SqlProcessorBase(RecordProcessor):
         self,
     ) -> None:
         """Return a new (unique) temporary table name."""
-        schema_name = self.cache.schema_name
+        schema_name = self.sql_config.schema_name
         if schema_name in self._get_schemas_list():
             return
 
@@ -362,7 +342,7 @@ class SqlProcessorBase(RecordProcessor):
         table_name: str,
     ) -> str:
         """Return the fully qualified name of the given table."""
-        return f"{self.cache.schema_name}.{self._quote_identifier(table_name)}"
+        return f"{self.sql_config.schema_name}.{self._quote_identifier(table_name)}"
 
     @final
     def _create_table_for_loading(
@@ -387,7 +367,7 @@ class SqlProcessorBase(RecordProcessor):
         """Return a list of all tables in the database."""
         with self.get_sql_connection() as conn:
             inspector: Inspector = sqlalchemy.inspect(conn)
-            return inspector.get_table_names(schema=self.cache.schema_name)
+            return inspector.get_table_names(schema=self.sql_config.schema_name)
 
     def _get_schemas_list(
         self,
@@ -441,7 +421,7 @@ class SqlProcessorBase(RecordProcessor):
 
         Returns true if the table is compatible, false if it is not.
         """
-        json_schema = self.get_stream_json_schema(stream_name)
+        json_schema = self.catalog_provider.get_stream_json_schema(stream_name)
         stream_column_names: list[str] = json_schema["properties"].keys()
         table_column_names: list[str] = self.get_sql_table(stream_name).columns.keys()
 
@@ -483,13 +463,6 @@ class SqlProcessorBase(RecordProcessor):
         """
         _ = self._execute_sql(cmd)
 
-    def get_stream_properties(
-        self,
-        stream_name: str,
-    ) -> dict[str, dict]:
-        """Return the names of the top-level properties for the given stream."""
-        return self.get_stream_json_schema(stream_name)["properties"]
-
     @final
     def _get_sql_column_definitions(
         self,
@@ -497,7 +470,7 @@ class SqlProcessorBase(RecordProcessor):
     ) -> dict[str, sqlalchemy.types.TypeEngine]:
         """Return the column definitions for the given stream."""
         columns: dict[str, sqlalchemy.types.TypeEngine] = {}
-        properties = self.get_stream_properties(stream_name)
+        properties = self.catalog_provider.get_stream_properties(stream_name)
         for property_name, json_schema_property_def in properties.items():
             clean_prop_name = self.normalizer.normalize(property_name)
             columns[clean_prop_name] = self.type_converter.to_sql_type(
@@ -597,17 +570,13 @@ class SqlProcessorBase(RecordProcessor):
 
         progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
         yield batches_to_finalize
-        self._finalize_state_messages(stream_name, state_messages_to_finalize)
+        self._finalize_state_messages(state_messages_to_finalize)
         progress.log_batches_finalized(stream_name, len(batches_to_finalize))
 
         for batch_handle in batches_to_finalize:
             batch_handle.finalized = True
 
         self._finalized_state_messages[stream_name] += state_messages_to_finalize
-
-        if self.cache.cleanup:
-            for batch_handle in batches_to_finalize:
-                batch_handle.delete_files()
 
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
         """Execute the given SQL statement."""
@@ -680,7 +649,7 @@ class SqlProcessorBase(RecordProcessor):
             dataframe.to_sql(
                 temp_table_name,
                 self.get_sql_alchemy_url(),
-                schema=self.cache.schema_name,
+                schema=self.sql_config.schema_name,
                 if_exists="append",
                 index=False,
                 dtype=sql_column_definitions,
@@ -813,7 +782,7 @@ class SqlProcessorBase(RecordProcessor):
         self,
         stream_name: str,
     ) -> list[str]:
-        pks = self._get_stream_config(stream_name).primary_key
+        pks = self.catalog_provider.get_configured_stream_info(stream_name).primary_key
         if not pks:
             return []
 
@@ -829,7 +798,7 @@ class SqlProcessorBase(RecordProcessor):
         self,
         stream_name: str,
     ) -> str | None:
-        return self._get_stream_config(stream_name).cursor_field
+        return self.catalog_provider.get_configured_stream_info(stream_name).cursor_field
 
     def _swap_temp_table_with_final_table(
         self,

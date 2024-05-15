@@ -64,13 +64,17 @@ airbyte-source-pokeapi = "^0.2.0"
 pytest-mock = "^3.14.0"
 poethepoet = "^0.26.1"
 coverage = "^7.5.1"
+pytest-timeout = "^2.3.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
-addopts = "--strict-markers"
+# Pytest configuration as follows:
+# - No test can take longer than 10 minutes (600 seconds)
+# - Markers must be declared explicitly
+addopts = "--strict-markers --timeout=600"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",

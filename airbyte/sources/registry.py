@@ -69,7 +69,7 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
         data = response.json()
     else:
         # Assume local file
-        with Path(registry_url).open() as f:
+        with Path(registry_url).open(encoding="utf-8") as f:
             data = json.load(f)
 
     new_cache: dict[str, ConnectorMetadata] = {}

@@ -118,7 +118,7 @@ def run() -> None:
 def validate(connector_dir: str, sample_config: str, *, validate_install_only: bool) -> None:
     # read metadata.yaml
     metadata_path = Path(connector_dir) / "metadata.yaml"
-    with Path(metadata_path).open() as stream:
+    with Path(metadata_path).open(encoding="utf-8") as stream:
         metadata = yaml.safe_load(stream)["data"]
 
     # TODO: Use remoteRegistries.pypi.packageName once set for connectors

@@ -49,6 +49,7 @@ def main() -> None:
 
         cache = BigQueryCache(
             project_name=bigquery_destination_secret["project_id"],
+            dataset_name=bigquery_destination_secret["dataset_id"],
             credentials_path=temp.name,
         )
 

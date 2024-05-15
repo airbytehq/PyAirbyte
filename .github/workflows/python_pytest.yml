@@ -40,12 +40,13 @@ jobs:
       run: poetry install
 
     - name: Run Pytest with Coverage (Fast Tests Only)
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest -m
-        "not slow and not requires_creds and not linting"
+        poetry run coverage run -m pytest
         --durations=5 --exitfirst
+        -m "not slow and not requires_creds and not linting"
 
     - name: Print Coverage Report
       if: always()
@@ -85,12 +86,14 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
+      timeout-minutes: 60
       env:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
       run: >
-        poetry run coverage run -m pytest -m
-        "not requires_creds and not linting and not super_slow"
+        poetry run coverage run -m pytest
+        --durations=5 --exitfirst
+        -m "not requires_creds and not linting and not super_slow"
 
     - name: Print Coverage Report
       if: always()
@@ -147,11 +150,13 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Pytest
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest -m
-        "not linting and not super_slow"
+        poetry run coverage run -m pytest
+        --verbose
+        -m "not linting and not super_slow"
 
     - name: Print Coverage Report
       if: always()
