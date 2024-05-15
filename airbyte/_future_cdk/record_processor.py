@@ -10,7 +10,7 @@ import abc
 import io
 import sys
 from collections import defaultdict
-from typing import TYPE_CHECKING, Any, cast, final
+from typing import TYPE_CHECKING, cast, final
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -18,7 +18,6 @@ from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
     AirbyteStreamState,
-    ConfiguredAirbyteStream,
     Type,
 )
 

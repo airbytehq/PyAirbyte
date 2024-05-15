@@ -7,7 +7,6 @@ import abc
 import contextlib
 import enum
 from contextlib import contextmanager
-from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, cast, final
