@@ -2,13 +2,13 @@
 
 [[package]]
 name = "airbyte-api"
-version = "0.49.2"
+version = "0.49.3"
 description = "Python Client SDK for Airbyte API"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "airbyte-api-0.49.2.tar.gz", hash = "sha256:33432602a84f54700fd42d8a2e25574803a13543b467ae7e4948191fb0c17a9f"},
-    {file = "airbyte_api-0.49.2-py3-none-any.whl", hash = "sha256:e41d3ed0247589570cdf4e3ef125b78569f15823cb6530e31bae6b4b064aed1d"},
+    {file = "airbyte-api-0.49.3.tar.gz", hash = "sha256:7fe8d87460ada54354e10dfb57f6e79e420a303e8ec5f8df0529d59ab5c0ab1d"},
+    {file = "airbyte_api-0.49.3-py3-none-any.whl", hash = "sha256:f46ffa9db3b3a7ca365708db8d4ba8914dec89c9aeeff964ed906701e4499a5e"},
 ]
 
 [package.dependencies]
@@ -69,13 +69,13 @@ vector-db-based = ["cohere (==4.21)", "langchain (==0.1.16)", "openai[embeddings
 
 [[package]]
 name = "airbyte-protocol-models"
-version = "0.9.0"
+version = "0.10.0"
 description = "Declares the Airbyte Protocol."
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "airbyte_protocol_models-0.9.0-py3-none-any.whl", hash = "sha256:e972e140b5efd1edad5a338bcae8fdee9fc12545caf2c321e0f61b151c163a9b"},
-    {file = "airbyte_protocol_models-0.9.0.tar.gz", hash = "sha256:40b69c33df23fe82d7078e84beb123bd604480e4d73cb277a890fcc92aedc8d2"},
+    {file = "airbyte_protocol_models-0.10.0-py3-none-any.whl", hash = "sha256:84447b00492193d2852e90898b56c0eeb8387a7cdb0b033860a606cee30451be"},
+    {file = "airbyte_protocol_models-0.10.0.tar.gz", hash = "sha256:03835e75104ca6feb82fa86a69afa5e970a7ddf8fd6c2d4494ff4b5a64e05c07"},
 ]
 
 [package.dependencies]
@@ -671,13 +671,13 @@ typing = ["typing-extensions (>=4.8)"]
 
 [[package]]
 name = "freezegun"
-version = "1.5.0"
+version = "1.5.1"
 description = "Let your Python tests travel through time"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "freezegun-1.5.0-py3-none-any.whl", hash = "sha256:ec3f4ba030e34eb6cf7e1e257308aee2c60c3d038ff35996d7475760c9ff3719"},
-    {file = "freezegun-1.5.0.tar.gz", hash = "sha256:200a64359b363aa3653d8aac289584078386c7c3da77339d257e46a01fb5c77c"},
+    {file = "freezegun-1.5.1-py3-none-any.whl", hash = "sha256:bf111d7138a8abe55ab48a71755673dbaa4ab87f4cff5634a4442dfec34c15f1"},
+    {file = "freezegun-1.5.1.tar.gz", hash = "sha256:b29dedfcda6d5e8e083ce71b2b542753ad48cfec44037b3fc79702e2980a89e9"},
 ]
 
 [package.dependencies]
@@ -1236,13 +1236,13 @@ extended-testing = ["jinja2 (>=3,<4)"]
 
 [[package]]
 name = "langsmith"
-version = "0.1.56"
+version = "0.1.57"
 description = "Client library to connect to the LangSmith LLM Tracing and Evaluation Platform."
 optional = false
 python-versions = "<4.0,>=3.8.1"
 files = [
-    {file = "langsmith-0.1.56-py3-none-any.whl", hash = "sha256:2f930e054ea8eccd8ff99f0f129ae7d2513973b2e706d5483f44ea9951a1dca0"},
-    {file = "langsmith-0.1.56.tar.gz", hash = "sha256:ff645b5bf16e2566740218ed6c048a1f8edbbedb4480a0d305a837ec71303fbf"},
+    {file = "langsmith-0.1.57-py3-none-any.whl", hash = "sha256:dbd83b0944a2fbea4151f0aa053530d93fcf6784a580621bc60633cb890b57dc"},
+    {file = "langsmith-0.1.57.tar.gz", hash = "sha256:4682204de19f0218029c2b8445ce2cc3485c8d0df9796b31e2ce4c9051fce365"},
 ]
 
 [package.dependencies]
@@ -1638,13 +1638,13 @@ xml = ["lxml (>=4.8.0)"]
 
 [[package]]
 name = "pandas-stubs"
-version = "2.2.1.240316"
+version = "2.2.2.240514"
 description = "Type annotations for pandas"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "pandas_stubs-2.2.1.240316-py3-none-any.whl", hash = "sha256:0126a26451a37cb893ea62357ca87ba3d181bd999ec8ba2ca5602e20207d6682"},
-    {file = "pandas_stubs-2.2.1.240316.tar.gz", hash = "sha256:236a4f812fb6b1922e9607ff09e427f6d8540c421c9e5a40e3e4ddf7adac7f05"},
+    {file = "pandas_stubs-2.2.2.240514-py3-none-any.whl", hash = "sha256:5d6f64d45a98bc94152a0f76fa648e598cd2b9ba72302fd34602479f0c391a53"},
+    {file = "pandas_stubs-2.2.2.240514.tar.gz", hash = "sha256:85b20da44a62c80eb8389bcf4cbfe31cce1cafa8cca4bf1fc75ec45892e72ce8"},
 ]
 
 [package.dependencies]
