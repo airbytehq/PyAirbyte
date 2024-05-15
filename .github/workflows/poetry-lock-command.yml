@@ -103,7 +103,7 @@ jobs:
         git config --global user.name "octavia-squidington-iii"
         git config --global user.email "contact@airbyte.com"
         git add .
-        git commit -m "Auto-fix lint and format issues"
+        git commit -m "Auto-commit `poetry lock` changes"
 
     - name: Push changes to '(${{ steps.pr-info.outputs.repo }})'
       if: steps.git-diff.outputs.changes == 'true'
