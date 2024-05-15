@@ -44,9 +44,10 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest -m
-        "not slow and not requires_creds and not linting"
+        poetry run coverage run -m pytest
+        --verbose
         --durations=5 --exitfirst
+        -m "not slow and not requires_creds and not linting"
 
     - name: Print Coverage Report
       if: always()
@@ -91,8 +92,9 @@ jobs:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
       run: >
-        poetry run coverage run -m pytest -m
-        "not requires_creds and not linting and not super_slow"
+        poetry run coverage run -m pytest
+        --verbose
+        -m "not requires_creds and not linting and not super_slow"
 
     - name: Print Coverage Report
       if: always()
@@ -153,8 +155,9 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest -m
-        "not linting and not super_slow"
+        poetry run coverage run -m pytest
+        --verbose
+        -m "not linting and not super_slow"
 
     - name: Print Coverage Report
       if: always()
