@@ -51,8 +51,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
     def normalize(name: str) -> str:
         """Return the normalized name.
 
-        - Any non-alphanumeric characters are replaced with underscores.
-        - Leading and trailing underscores are removed.
+        - All non-alphanumeric characters are replaced with underscores.
         - "%" is replaced with "pct".
         - "#" is replaced with "num".
         - "+" is replaced with "plus".
@@ -63,27 +62,23 @@ class LowerCaseNormalizer(NameNormalizerBase):
         - "Hello World!" -> "hello_world"
         - "Hello, World!" -> "hello__world"
         - "Hello - World" -> "hello___world"
-        - "___Hello, World___" -> "hello__world"
-        - "Average Sales (%)" -> "average_sales__pct"
-        - "Average Sales (#)" -> "average_sales__num"
-        - "+1" -> "plus1"
+        - "___Hello, World___" -> "___hello__world___"
+        - "Average Sales (%)" -> "average_sales____"
+        - "Average Sales (#)" -> "average_sales____"
+        - "+1" -> "_1"
+        - "-1" -> "_1"
         """
         result = name
-        # Replace "%" or "#" with "pct" or "num".
-        result = result.replace("%", "pct").replace("#", "num").replace("+", "plus")
 
         # Replace all non-alphanumeric characters with underscores.
         result = re.sub("[^A-Za-z0-9]", "_", result.lower())
 
-        # Remove leading and trailing underscores.
-        result = result.rstrip("_").lstrip("_")
-
-        # Check if name starts with a number and prepend "c" if it does.
+        # Check if name starts with a number and prepend "_" if it does.
         if result and result[0].isdigit():
             # Most databases do not allow identifiers to start with a number.
             result = f"_{result}"
 
-        if not result:
+        if not result.replace("_", ""):
             raise exc.PyAirbyteNameNormalizationError(
                 message="Name cannot be empty after normalization.",
                 raw_name=name,
