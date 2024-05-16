@@ -10,7 +10,6 @@ import sqlalchemy
 from overrides import overrides
 from sqlalchemy import text
 
-from airbyte import exceptions as exc
 from airbyte._processors.sql.snowflake import (
     SnowflakeConfig,
     SnowflakeSqlProcessor,

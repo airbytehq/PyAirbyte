@@ -662,10 +662,7 @@ class SqlProcessorBase(RecordProcessorBase):
             table_name,
             force_refresh=False,
         )
-        missing_columns: bool = any(
-            column_name not in table.columns
-            for column_name in columns
-        )
+        missing_columns: bool = any(column_name not in table.columns for column_name in columns)
 
         if missing_columns:
             # If we found missing columns, refresh the cache and then take action on anything
