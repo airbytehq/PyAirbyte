@@ -57,6 +57,8 @@ class LowerCaseNormalizer(NameNormalizerBase):
         - "%" is replaced with "pct".
         - "#" is replaced with "num".
         - "+" is replaced with "_plus_".
+        - Any names that start with a numeric ("1", "2", "123", etc.) are prefixed
+          with the letter "c" ("c1", "c2", "c123", etc.)
 
         Examples:
         - "Hello World!" -> "hello_world"
