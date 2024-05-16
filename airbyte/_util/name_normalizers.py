@@ -52,32 +52,28 @@ class LowerCaseNormalizer(NameNormalizerBase):
         """Return the normalized name.
 
         - Any non-alphanumeric characters are replaced with underscores.
-        - Any sequence of 3+ underscores is replaced with a double underscore.
         - Leading and trailing underscores are removed.
         - "%" is replaced with "pct".
         - "#" is replaced with "num".
-        - "+" is replaced with "_plus_".
-        - Any names that start with a numeric ("1", "2", "123", etc.) are prefixed
-          with the letter "c" ("c1", "c2", "c123", etc.)
+        - "+" is replaced with "plus".
+        - Any names that start with a numeric ("1", "2", "123", "1b" etc.) are prefixed
+          with and underscore ("_1", "_2", "_123", "_1b" etc.)
 
         Examples:
         - "Hello World!" -> "hello_world"
         - "Hello, World!" -> "hello__world"
-        - "Hello - World" -> "hello__world"
-        - "___Hello, World___" -> "hello_world"
+        - "Hello - World" -> "hello___world"
+        - "___Hello, World___" -> "hello__world"
         - "Average Sales (%)" -> "average_sales__pct"
         - "Average Sales (#)" -> "average_sales__num"
-        - "+1" -> "plus_1"
+        - "+1" -> "plus1"
         """
         result = name
         # Replace "%" or "#" with "pct" or "num".
-        result = result.replace("%", "pct").replace("#", "num").replace("+", "_plus_")
+        result = result.replace("%", "pct").replace("#", "num").replace("+", "plus")
 
         # Replace all non-alphanumeric characters with underscores.
         result = re.sub("[^A-Za-z0-9]", "_", result.lower())
-
-        # Replace 3+ underscores with a double underscore.
-        result = re.sub("___+", "__", result)
 
         # Remove leading and trailing underscores.
         result = result.rstrip("_").lstrip("_")
@@ -85,7 +81,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
         # Check if name starts with a number and prepend "c" if it does.
         if result and result[0].isdigit():
             # Most databases do not allow identifiers to start with a number.
-            result = f"c{result}"
+            result = f"_{result}"
 
         if not result:
             raise exc.PyAirbyteNameNormalizationError(
