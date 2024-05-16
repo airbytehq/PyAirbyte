@@ -410,40 +410,20 @@ class SqlProcessorBase(RecordProcessorBase):
     def _ensure_compatible_table_schema(
         self,
         stream_name: str,
-        *,
-        raise_on_error: bool = False,
-    ) -> bool:
+        table_name: str,
+    ) -> None:
         """Return true if the given table is compatible with the stream's schema.
 
-        If raise_on_error is true, raise an exception if the table is not compatible.
+        Raises an exception if the table schema is not compatible with the schema of the
+        input stream.
 
-        TODO: Expand this to check for column types and sizes, and to add missing columns.
-
-        Returns true if the table is compatible, false if it is not.
+        TODO:
+        - Expand this to check for column types and sizes.
         """
-        json_schema = self.catalog_provider.get_stream_json_schema(stream_name)
-        stream_column_names: list[str] = json_schema["properties"].keys()
-        table_column_names: list[str] = self.get_sql_table(stream_name).columns.keys()
-
-        lower_case_table_column_names = self.normalizer.normalize_set(table_column_names)
-        missing_columns = [
-            stream_col
-            for stream_col in stream_column_names
-            if self.normalizer.normalize(stream_col) not in lower_case_table_column_names
-        ]
-        if missing_columns:
-            if raise_on_error:
-                raise exc.PyAirbyteCacheTableValidationError(
-                    violation="Cache table is missing expected columns.",
-                    context={
-                        "stream_column_names": stream_column_names,
-                        "table_column_names": table_column_names,
-                        "missing_columns": missing_columns,
-                    },
-                )
-            return False  # Some columns are missing.
-
-        return True  # All columns exist.
+        self._add_missing_columns_to_table(
+            stream_name=stream_name,
+            table_name=table_name,
+        )
 
     @final
     def _create_table(
@@ -508,10 +488,6 @@ class SqlProcessorBase(RecordProcessorBase):
             final_table_name = self._ensure_final_table_exists(
                 stream_name,
                 create_if_missing=True,
-            )
-            self._ensure_compatible_table_schema(
-                stream_name=stream_name,
-                raise_on_error=True,
             )
 
             if not batches_to_finalize:
@@ -675,14 +651,38 @@ class SqlProcessorBase(RecordProcessorBase):
         stream_name: str,
         table_name: str,
     ) -> None:
-        """Add missing columns to the table."""
-        columns = self._get_sql_column_definitions(stream_name)
-        table = self._get_table_by_name(table_name, force_refresh=True)
-        for column_name, column_type in columns.items():
-            if column_name not in table.columns:
-                self._add_column_to_table(table, column_name, column_type)
+        """Add missing columns to the table.
 
-        self._invalidate_table_cache(table_name)
+        This is a no-op if all columns are already present.
+        """
+        columns = self._get_sql_column_definitions(stream_name)
+        # First check without forcing a refresh of the cache (faster). If nothing is missing,
+        # then we're done.
+        table = self._get_table_by_name(
+            table_name,
+            force_refresh=False,
+        )
+        missing_columns: bool = any(
+            column_name not in table.columns
+            for column_name in columns
+        )
+
+        if missing_columns:
+            # If we found missing columns, refresh the cache and then take action on anything
+            # that's still confirmed missing.
+            columns_added = False
+            table = self._get_table_by_name(
+                table_name,
+                force_refresh=True,
+            )
+            for column_name, column_type in columns.items():
+                if column_name not in table.columns:
+                    self._add_column_to_table(table, column_name, column_type)
+                    columns_added = True
+
+            if columns_added:
+                # We've added columns, so invalidate the cache.
+                self._invalidate_table_cache(table_name)
 
     @final
     def _write_temp_table_to_final_table(
@@ -712,6 +712,8 @@ class SqlProcessorBase(RecordProcessorBase):
                 write_strategy = WriteStrategy.REPLACE
 
         if write_strategy == WriteStrategy.REPLACE:
+            # Note: No need to check for schema compatibility
+            # here, because we are fully replacing the table.
             self._swap_temp_table_with_final_table(
                 stream_name=stream_name,
                 temp_table_name=temp_table_name,
@@ -720,7 +722,7 @@ class SqlProcessorBase(RecordProcessorBase):
             return
 
         if write_strategy == WriteStrategy.APPEND:
-            self._add_missing_columns_to_table(
+            self._ensure_compatible_table_schema(
                 stream_name=stream_name,
                 table_name=final_table_name,
             )
@@ -732,7 +734,7 @@ class SqlProcessorBase(RecordProcessorBase):
             return
 
         if write_strategy == WriteStrategy.MERGE:
-            self._add_missing_columns_to_table(
+            self._ensure_compatible_table_schema(
                 stream_name=stream_name,
                 table_name=final_table_name,
             )

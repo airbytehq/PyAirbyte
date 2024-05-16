@@ -105,39 +105,6 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         return column_names
 
     @overrides
-    def _ensure_compatible_table_schema(
-        self,
-        stream_name: str,
-        *,
-        raise_on_error: bool = True,
-    ) -> bool:
-        """Read the existing table schema using Snowflake python connector"""
-        json_schema = self.catalog_provider.get_stream_json_schema(stream_name)
-        stream_column_names: list[str] = json_schema["properties"].keys()
-        table_column_names: list[str] = self._get_column_list_from_table(stream_name)
-
-        lower_case_table_column_names = self.normalizer.normalize_set(table_column_names)
-        missing_columns = [
-            stream_col
-            for stream_col in stream_column_names
-            if self.normalizer.normalize(stream_col) not in lower_case_table_column_names
-        ]
-        # TODO: shouldn't we just return false here, so missing tables can be created ?
-        if missing_columns:
-            if raise_on_error:
-                raise exc.PyAirbyteCacheTableValidationError(
-                    violation="Cache table is missing expected columns.",
-                    context={
-                        "stream_column_names": stream_column_names,
-                        "table_column_names": table_column_names,
-                        "missing_columns": missing_columns,
-                    },
-                )
-            return False  # Some columns are missing.
-
-        return True  # All columns exist.
-
-    @overrides
     def _write_files_to_new_table(
         self,
         files: list[Path],
