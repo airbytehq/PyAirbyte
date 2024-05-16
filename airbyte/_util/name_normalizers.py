@@ -52,9 +52,6 @@ class LowerCaseNormalizer(NameNormalizerBase):
         """Return the normalized name.
 
         - All non-alphanumeric characters are replaced with underscores.
-        - "%" is replaced with "pct".
-        - "#" is replaced with "num".
-        - "+" is replaced with "plus".
         - Any names that start with a numeric ("1", "2", "123", "1b" etc.) are prefixed
           with and underscore ("_1", "_2", "_123", "_1b" etc.)
 
