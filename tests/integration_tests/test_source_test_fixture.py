@@ -107,8 +107,16 @@ def source_test(source_test_env) -> ab.Source:
 def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
     return {
         "stream1": [
-            {"column1": "value1", "column2": 1},
-            {"column1": "value2", "column2": 2},
+            {
+                "column1": "value1",
+                "column2": 1,
+                "sometimes_object": '{"nested_column":"nested_value"}',
+            },
+            {
+                "column1": "value2",
+                "column2": 2,
+                "sometimes_object": '"string_value"',
+            },
         ],
         "stream2": [
             {
