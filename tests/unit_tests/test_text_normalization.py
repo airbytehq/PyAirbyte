@@ -123,6 +123,7 @@ def test_case_insensitive_w_pretty_keys() -> None:
 @pytest.mark.parametrize(
     "raw_value, expected_result, should_raise",
     [
+        ("_airbyte_meta", "_airbyte_meta", False),
         ("Test_String", "test_string", False),
         ("ANOTHER-TEST", "another_test", False),
         ("another.test", "another_test", False),
