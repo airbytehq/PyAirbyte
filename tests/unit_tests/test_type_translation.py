@@ -54,6 +54,7 @@ from airbyte.types import SQLTypeConverter, _get_airbyte_type
         ({"type": ["null", "array"], "items": {"type": "object"}}, types.JSON),
         ({"type": "object", "properties": {}}, types.JSON),
         ({"type": ["null", "object"], "properties": {}}, types.JSON),
+        ({"type": ["null", "string", "object"], "properties": {}}, types.JSON),
         # Malformed JSON schema seen in the wild:
         ({"type": "array", "items": {}}, types.JSON),
         ({"type": ["null", "array"], "items": {"items": {}}}, types.JSON),
@@ -112,6 +113,7 @@ def test_to_sql_type(json_schema_property_def, expected_sql_type):
         ({"type": ["null", "array"], "items": {"type": "object"}}, "array"),
         # Object type:
         ({"type": "object"}, "object"),
+        ({"type": ["null", "object", "string"]}, "object"),
         # Malformed JSON schema seen in the wild:
         ({"type": "array", "items": {"items": {}}}, "array"),
         ({"type": ["null", "array"], "items": {"items": {}}}, "array"),

@@ -53,6 +53,14 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
         non_null_types = [t for t in json_schema_type if t != "null"]
         if len(non_null_types) == 1:
             json_schema_type = non_null_types[0]
+        elif "object" in non_null_types:
+            # If one of the types is an object, we pick "object" as the type.
+            # For example, ["object", "string"] should be treated as "object".
+            json_schema_type = "object"
+
+    if not isinstance(json_schema_type, str):
+        err_msg = f"Could not determine airbyte type from JSON schema: {json_schema_property_def}"
+        raise SQLTypeConversionError(err_msg)
 
     if json_schema_type == "string":
         if json_schema_format == "date":
@@ -65,7 +73,7 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
             return "time_without_timezone", None
 
     if json_schema_type in {"string", "number", "boolean", "integer"}:
-        return cast(str, json_schema_type), None
+        return json_schema_type, None
 
     if json_schema_type == "object":
         return "object", None
