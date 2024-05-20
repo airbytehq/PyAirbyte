@@ -12,6 +12,7 @@ import os
 import shutil
 import sys
 import tempfile
+import warnings
 from collections.abc import Generator
 from pathlib import Path
 
@@ -27,6 +28,7 @@ from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.util import new_local_cache
 from airbyte.strategies import WriteStrategy
+from duckdb_engine import DuckDBEngineWarning
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -100,6 +102,14 @@ def source_faker_seed_b() -> ab.Source:
 @pytest.fixture(scope="function")
 def duckdb_cache() -> Generator[DuckDBCache, None, None]:
     """Fixture to return a fresh cache."""
+    # Suppress warnings from DuckDB about reflection on indices.
+    # https://github.com/Mause/duckdb_engine/issues/905
+    warnings.filterwarnings(
+        "ignore",
+        message="duckdb-engine doesn't yet support reflection on indices",
+        category=DuckDBEngineWarning,
+    )
+
     cache: DuckDBCache = new_local_cache()
     yield cache
     # TODO: Delete cache DB file after test is complete.

@@ -8,6 +8,7 @@ from pathlib import Path
 from textwrap import dedent, indent
 from typing import TYPE_CHECKING, Union
 
+from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
 from typing_extensions import Literal
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 warnings.filterwarnings(
     "ignore",
     message="duckdb-engine doesn't yet support reflection on indices",
+    category=DuckDBEngineWarning,
 )
 
 
