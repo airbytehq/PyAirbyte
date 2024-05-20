@@ -86,6 +86,7 @@ markers = [
 filterwarnings = [
     "error",
     "ignore::sqlalchemy.exc.MovedIn20Warning",
+    "ignore::airbyte.exc.AirbyteExperimentalFeatureWarning",
 ]
 
 [tool.ruff]
