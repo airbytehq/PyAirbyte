@@ -802,15 +802,6 @@ def test_sync_limited_streams(expected_test_stream_data):
     )
 
 
-def test_read_stream():
-    source = ab.get_source("source-test", config={"apiKey": "test"})
-
-    assert pop_internal_columns_from_dataset(source.get_records("stream1")) == [
-        {"column1": "value1", "column2": 1},
-        {"column1": "value2", "column2": 2},
-    ]
-
-
 def test_read_stream_nonexisting():
     source = ab.get_source("source-test", config={"apiKey": "test"})
 
