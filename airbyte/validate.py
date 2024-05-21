@@ -63,7 +63,7 @@ def full_tests(connector_name: str, sample_config: str) -> None:
     source = ab.get_source(
         # TODO: FIXME: noqa: SIM115, PTH123
         connector_name,
-        config=json.load(open(sample_config, encoding="utf-8")),  # noqa: SIM115, PTH123,
+        config=json.loads(Path(sample_config).read_text(encoding="utf-8")),  # noqa: SIM115, PTH123,
         install_if_missing=False,
     )
 
@@ -118,8 +118,7 @@ def run() -> None:
 def validate(connector_dir: str, sample_config: str, *, validate_install_only: bool) -> None:
     # read metadata.yaml
     metadata_path = Path(connector_dir) / "metadata.yaml"
-    with Path(metadata_path).open(encoding="utf-8") as stream:
-        metadata = yaml.safe_load(stream)["data"]
+    metadata = yaml.safe_load(Path(metadata_path).read_text(encoding="utf-8"))["data"]
 
     # TODO: Use remoteRegistries.pypi.packageName once set for connectors
     connector_name = metadata["dockerRepository"].replace("airbyte/", "")
@@ -147,15 +146,21 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
         ],
     }
 
-    with tempfile.NamedTemporaryFile(mode="w+t", delete=True, encoding="utf-8") as temp_file:
+    with tempfile.NamedTemporaryFile(
+        mode="w+t", delete=True, encoding="utf-8", suffix="-catalog.json"
+    ) as temp_file:
         temp_file.write(json.dumps(registry))
         temp_file.seek(0)
         os.environ["AIRBYTE_LOCAL_REGISTRY"] = str(temp_file.name)
-        if validate_install_only:
-            install_only_test(connector_name)
-        else:
-            if not sample_config:
-                raise exc.PyAirbyteInputError(
-                    input_value="--sample-config is required without --validate-install-only set"
-                )
-            full_tests(connector_name, sample_config)
+        try:
+            if validate_install_only:
+                install_only_test(connector_name)
+            else:
+                if not sample_config:
+                    raise exc.PyAirbyteInputError(
+                        input_value="--sample-config is required without --validate-install-only set"
+                    )
+                full_tests(connector_name, sample_config)
+        finally:
+            # del os.environ["AIRBYTE_LOCAL_REGISTRY"]
+            temp_file.close()
