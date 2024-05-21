@@ -110,7 +110,7 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             {
                 "column1": "value1",
                 "column2": 1,
-                "sometimes_object": '{"nested_column":"nested_value"}',
+                "sometimes_object": '{"nested_column": "nested_value"}',
             },
             {
                 "column1": "value2",

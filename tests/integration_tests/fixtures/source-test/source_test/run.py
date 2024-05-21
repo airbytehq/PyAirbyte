@@ -90,7 +90,10 @@ sample_record1_stream1 = {
         "data": {
             "Column1": "value1",
             "Column2": 1,
-            "sometimes_object": {"nested_column": "nested_value"},
+            # TODO: Output this as an object instead of a string
+            # Breaks tests.
+            # https://github.com/airbytehq/PyAirbyte/issues/253
+            "sometimes_object": '{"nested_column": "nested_value"}',
         },
         "stream": "stream1",
         "emitted_at": 1704067200,

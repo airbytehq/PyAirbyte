@@ -56,8 +56,8 @@ from sqlalchemy import types
         ({"type": ["null", "object"], "properties": {}}, types.JSON),
         (
             {"type": ["null", "string", "object"], "properties": {}},
-            # TODO: Migrate to object-type handling instead of string
-            # https://github.com/airbytehq/PyAirbyte/pull/246
+            # TODO: Consider migrating to object-type handling instead of string
+            # https://github.com/airbytehq/PyAirbyte/issues/253
             types.VARCHAR,
         ),
         # Malformed JSON schema seen in the wild:
