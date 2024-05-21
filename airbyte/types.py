@@ -64,8 +64,13 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
         if json_schema_format == "time":
             return "time_without_timezone", None
 
-    if json_schema_type in {"string", "number", "boolean", "integer"}:
-        return cast(str, json_schema_type), None
+    if isinstance(json_schema_type, str) and json_schema_type in {
+        "string",
+        "number",
+        "boolean",
+        "integer",
+    }:
+        return json_schema_type, None
 
     if json_schema_type == "object":
         return "object", None
