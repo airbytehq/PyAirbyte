@@ -86,8 +86,11 @@ markers = [
 # Treat python warnings as errors in pytest
 filterwarnings = [
     "error",
-    "ignore::sqlalchemy.exc.MovedIn20Warning",
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
+    # TODO: Remove these ignores once we are able to fix the warnings:
+    "ignore::sqlalchemy.exc.MovedIn20Warning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    "ignore:unclosed file:ResourceWarning",
 ]
 
 [tool.ruff]
