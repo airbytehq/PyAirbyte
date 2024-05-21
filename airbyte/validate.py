@@ -63,7 +63,7 @@ def full_tests(connector_name: str, sample_config: str) -> None:
     source = ab.get_source(
         # TODO: FIXME: noqa: SIM115, PTH123
         connector_name,
-        config=json.loads(Path(sample_config).read_text(encoding="utf-8")),  # noqa: SIM115, PTH123,
+        config=json.loads(Path(sample_config).read_text(encoding="utf-8")),  # ,
         install_if_missing=False,
     )
 
@@ -158,7 +158,10 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
             else:
                 if not sample_config:
                     raise exc.PyAirbyteInputError(
-                        input_value="--sample-config is required without --validate-install-only set"
+                        input_value=(
+                            "`--sample-config` is required when `--validate-install-only`"
+                            "is not set."
+                        )
                     )
                 full_tests(connector_name, sample_config)
         finally:

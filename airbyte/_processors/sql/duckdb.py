@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
 
-
 # @dataclass
 class DuckDBConfig(SqlConfig):
     """Configuration for DuckDB."""

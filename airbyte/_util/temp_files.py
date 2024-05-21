@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import warnings
 from contextlib import contextmanager, suppress
