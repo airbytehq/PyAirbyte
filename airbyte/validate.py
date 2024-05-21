@@ -150,7 +150,7 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
         mode="w+t", delete=True, encoding="utf-8", suffix="-catalog.json"
     ) as temp_file:
         temp_file.write(json.dumps(registry))
-        temp_file.seek(0)
+        temp_file.flush()
         os.environ["AIRBYTE_LOCAL_REGISTRY"] = str(temp_file.name)
         try:
             if validate_install_only:
@@ -162,5 +162,5 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
                     )
                 full_tests(connector_name, sample_config)
         finally:
-            # del os.environ["AIRBYTE_LOCAL_REGISTRY"]
+            del os.environ["AIRBYTE_LOCAL_REGISTRY"]
             temp_file.close()
