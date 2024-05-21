@@ -37,13 +37,17 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
         yield [file.name for file in temp_files]
     finally:
         for temp_file in temp_files:
-            # with suppress(Exception):
-            #     temp_file.close()
-            try:
-                Path(temp_file.name).unlink(missing_ok=True)
-            except Exception as ex:
-                # Something went wrong and the file could not be deleted. Warn the user.
-                warnings.warn(
-                    f"Failed to remove temporary file: '{temp_file.name}'. {ex}",
-                    stacklevel=2,
-                )
+            with suppress(Exception):
+                Path(temp_file.name).unlink()
+
+            # TODO: Restore below after retrying the above reverted code
+            # # with suppress(Exception):
+            # #     temp_file.close()
+            # try:
+            #     Path(temp_file.name).unlink(missing_ok=True)
+            # except Exception as ex:
+            #     # Something went wrong and the file could not be deleted. Warn the user.
+            #     warnings.warn(
+            #         f"Failed to remove temporary file: '{temp_file.name}'. {ex}",
+            #         stacklevel=2,
+            #     )
