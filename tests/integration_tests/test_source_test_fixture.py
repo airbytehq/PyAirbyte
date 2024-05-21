@@ -115,7 +115,7 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             {
                 "column1": "value2",
                 "column2": 2,
-                "sometimes_object": '"string_value"',
+                "sometimes_object": "string_value",
             },
         ],
         "stream2": [
