@@ -37,8 +37,8 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
         yield [file.name for file in temp_files]
     finally:
         for temp_file in temp_files:
-            with suppress(Exception):
-                temp_file.close()
+            # with suppress(Exception):
+            #     temp_file.close()
             try:
                 Path(temp_file.name).unlink(missing_ok=True)
             except Exception as ex:
