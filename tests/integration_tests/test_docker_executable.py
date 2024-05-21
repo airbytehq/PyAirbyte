@@ -42,13 +42,8 @@ def source_docker_faker_seed_a() -> ab.Source:
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
+        streams=["users", "products", "purchases"],
     )
-    source.check()
-    source.select_streams([
-        "users",
-        "products",
-        "purchases",
-    ])
     return source
 
 
@@ -63,13 +58,8 @@ def source_docker_faker_seed_b() -> ab.Source:
             "seed": SEED_B,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
+        streams=["users", "products", "purchases"],
     )
-    source.check()
-    source.select_streams([
-        "products",
-        "purchases",
-        "users",
-    ])
     return source
 
 
