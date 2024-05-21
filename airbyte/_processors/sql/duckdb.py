@@ -23,14 +23,6 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
 
-# Suppress warnings from DuckDB about reflection on indices.
-# https://github.com/Mause/duckdb_engine/issues/905
-warnings.filterwarnings(
-    "ignore",
-    message="duckdb-engine doesn't yet support reflection on indices",
-    category=DuckDBEngineWarning,
-)
-
 
 # @dataclass
 class DuckDBConfig(SqlConfig):
@@ -49,7 +41,13 @@ class DuckDBConfig(SqlConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
+        # Suppress warnings from DuckDB about reflection on indices.
+        # https://github.com/Mause/duckdb_engine/issues/905
+        warnings.filterwarnings(
+            "ignore",
+            message="duckdb-engine doesn't yet support reflection on indices",
+            category=DuckDBEngineWarning,
+        )
         return SecretString(f"duckdb:///{self.db_path!s}")
 
     @overrides

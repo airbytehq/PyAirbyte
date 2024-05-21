@@ -16,6 +16,9 @@ cache = MotherDuckCache(
 
 from __future__ import annotations
 
+import warnings
+
+from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field, PrivateAttr
 
@@ -35,6 +38,14 @@ class MotherDuckConfig(DuckDBConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
+        # Suppress warnings from DuckDB about reflection on indices.
+        # https://github.com/Mause/duckdb_engine/issues/905
+        warnings.filterwarnings(
+            "ignore",
+            message="duckdb-engine doesn't yet support reflection on indices",
+            category=DuckDBEngineWarning,
+        )
+
         return SecretString(
             f"duckdb:///md:{self.database}?motherduck_token={self.api_key}"
             # f"&schema={self.schema_name}"  # TODO: Debug why this doesn't work
