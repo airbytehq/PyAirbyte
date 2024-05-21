@@ -19,6 +19,16 @@ sample_catalog = {
                     "properties": {
                         "Column1": {"type": "string"},
                         "Column2": {"type": "number"},
+                        "sometimes_object": {
+                            "type": [
+                                "null",
+                                "string",
+                                "object",
+                            ],
+                            "properties": {
+                                "nested_column": {"type": "string"},
+                            },
+                        },
                     },
                 },
             },
@@ -87,7 +97,14 @@ sample_connection_check_failure = {
 sample_record1_stream1 = {
     "type": "RECORD",
     "record": {
-        "data": {"Column1": "value1", "Column2": 1},
+        "data": {
+            "Column1": "value1",
+            "Column2": 1,
+            # TODO: Output this as an object instead of a string
+            # Breaks tests.
+            # https://github.com/airbytehq/PyAirbyte/issues/253
+            "sometimes_object": '{"nested_column": "nested_value"}',
+        },
         "stream": "stream1",
         "emitted_at": 1704067200,
     },
@@ -95,7 +112,11 @@ sample_record1_stream1 = {
 sample_record2_stream1 = {
     "type": "RECORD",
     "record": {
-        "data": {"Column1": "value2", "Column2": 2},
+        "data": {
+            "Column1": "value2",
+            "Column2": 2,
+            "sometimes_object": "string_value",
+        },
         "stream": "stream1",
         "emitted_at": 1704067200,
     },
