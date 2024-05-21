@@ -19,6 +19,16 @@ sample_catalog = {
                     "properties": {
                         "Column1": {"type": "string"},
                         "Column2": {"type": "number"},
+                        "sometimes_object": {
+                            "type": [
+                                "null",
+                                "string",
+                                "object",
+                            ],
+                            "properties": {
+                                "nested_column": {"type": "string"},
+                            },
+                        },
                     },
                 },
             },
