@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import tempfile
-import warnings
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any

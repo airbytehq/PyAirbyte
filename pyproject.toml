@@ -82,13 +82,15 @@ markers = [
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
     "linting: marks a test as a linting test",
 ]
-# Treat python warnings as errors in pytest
 filterwarnings = [
+    # Treat python warnings as errors in pytest
     "error",
-    "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
+    # TODO: Remove these ignores once we are able to fix the warnings:
     "ignore::sqlalchemy.exc.MovedIn20Warning",
-    "ignore::pytest.PytestUnraisableExceptionWarning",
     "ignore:unclosed file:ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    # Order matters here. This must be last.
+    "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
 ]
 
 [tool.ruff]
