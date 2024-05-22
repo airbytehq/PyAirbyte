@@ -107,6 +107,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         This is overridden due to lack of SQLAlchemy compatibility for the
         `VECTOR` data type.
         """
+        # ensure table name is normalized
         normalized_table_name = self.normalizer.normalize(table_name)
         conn: Connection = self.cache.get_vendor_client()
         cursor = conn.cursor()
