@@ -86,7 +86,6 @@ markers = [
 filterwarnings = [
     "error",
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
-    # TODO: Remove these ignores once we are able to fix the warnings:
     "ignore::sqlalchemy.exc.MovedIn20Warning",
     "ignore::pytest.PytestUnraisableExceptionWarning",
     "ignore:unclosed file:ResourceWarning",
