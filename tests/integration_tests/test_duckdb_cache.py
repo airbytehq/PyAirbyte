@@ -8,15 +8,13 @@ and available on PATH for the poetry-managed venv.
 
 from __future__ import annotations
 
-from collections.abc import Generator
 import os
-from pathlib import Path
 import sys
-
-import pytest
-
+from collections.abc import Generator
+from pathlib import Path
 
 import airbyte as ab
+import pytest
 from airbyte._executor import _get_bin_dir
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
@@ -44,9 +42,8 @@ def add_venv_bin_to_path(monkeypatch):
     monkeypatch.setenv("PATH", new_path)
 
 
-@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker() -> ab.Source:
-    """Fixture to return a source-faker connector instance."""
+def setup_source_faker() -> ab.Source:
+    """Test the source-faker setup."""
     source = ab.get_source(
         "source-faker",
         local_executable="source-faker",
@@ -64,6 +61,17 @@ def source_faker() -> ab.Source:
         "purchases",
     ])
     return source
+
+
+@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
+def source_faker() -> ab.Source:
+    """Fixture to return a source-faker connector instance."""
+    return setup_source_faker()
+
+
+def test_setup_source_faker() -> None:
+    """Test that fixture logic works as expected."""
+    source = setup_source_faker()
 
 
 @pytest.fixture(scope="function")

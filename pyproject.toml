@@ -32,7 +32,7 @@ psycopg2-binary = "^2.9.9"
 pydantic = "<=2.0"
 python-dotenv = "^1.0.1"
 python-ulid = "^2.2.0"
-requests = "^2.31.0"
+requests = "<=2.31.0"  # 3.32.0 breaks docker tests
 rich = "^13.7.0"
 snowflake-connector-python = "^3.10.0"
 snowflake-sqlalchemy = "^1.5.1"
@@ -43,6 +43,7 @@ ulid = "^1.1"
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
 airbyte-api = "^0.49.2"
+google-cloud-bigquery-storage = "^2.25.0"
 
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
@@ -50,8 +51,8 @@ faker = "^21.0.0"
 mypy = "^1.7.1"
 pandas-stubs = "^2.1.4.231218"
 pdoc = "^14.3.0"
-pytest = "^7.4.3"
-pytest-docker = "^2.0.1"
+pytest = "^8.2.0"
+pytest-docker = "^3.1.1"
 pytest-mypy = "^0.10.3"
 ruff = "^0.4.1"
 types-jsonschema = "^4.20.0.0"
@@ -80,6 +81,18 @@ markers = [
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
     "linting: marks a test as a linting test",
+]
+filterwarnings = [
+    # Treat python warnings as errors in pytest
+    "error",
+    # TODO: Remove these ignores once we are able to fix the warnings:
+    "ignore::sqlalchemy.exc.MovedIn20Warning",
+    # Ignore these, specifically on Windows because of file cleanup and locking issues:
+    "ignore:unclosed file:ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
+    # Order matters here. This must be last because it will fail if we
+    # hit another warning during the import.
+    "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
 ]
 
 [tool.ruff]

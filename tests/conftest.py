@@ -8,7 +8,9 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 import time
+import warnings
 from pathlib import Path
 
 import docker
@@ -31,6 +33,20 @@ PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
 LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
+
+
+def pytest_configure(config):
+    if sys.platform.startswith("win"):
+        # Ignore specific warnings only on Windows
+        warnings.filterwarnings(
+            "ignore",
+            category=pytest.PytestUnraisableExceptionWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            category=ResourceWarning,
+            message="unclosed file",
+        )
 
 
 def pytest_collection_modifyitems(items: list[Item]) -> None:

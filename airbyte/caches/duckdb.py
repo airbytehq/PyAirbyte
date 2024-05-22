@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import warnings
 
+from duckdb_engine import DuckDBEngineWarning
 from pydantic import PrivateAttr
 
 from airbyte._processors.sql.duckdb import DuckDBConfig, DuckDBSqlProcessor
@@ -29,6 +30,7 @@ from airbyte.caches.base import CacheBase
 warnings.filterwarnings(
     "ignore",
     message="duckdb-engine doesn't yet support reflection on indices",
+    category=DuckDBEngineWarning,
 )
 
 

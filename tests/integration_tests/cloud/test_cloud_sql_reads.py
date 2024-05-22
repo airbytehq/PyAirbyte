@@ -5,13 +5,12 @@ from __future__ import annotations
 
 from contextlib import suppress
 
+import airbyte as ab
 import pandas as pd
 import pytest
-from sqlalchemy.engine.base import Engine
-
-import airbyte as ab
 from airbyte import cloud
 from airbyte.cloud.sync_results import SyncResult
+from sqlalchemy.engine.base import Engine
 
 
 @pytest.fixture
@@ -109,7 +108,7 @@ def test_read_from_deployed_connection(
     cache = sync_result.get_sql_cache()
     sqlalchemy_url = cache.get_sql_alchemy_url()
     engine: Engine = sync_result.get_sql_engine()
-    # assert sync_result.stream_names == ["users", "products", "purchases"]
+    assert "users" in sync_result.stream_names
 
     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
