@@ -87,6 +87,9 @@ filterwarnings = [
     "error",
     # TODO: Remove these ignores once we are able to fix the warnings:
     "ignore::sqlalchemy.exc.MovedIn20Warning",
+    # Ignore these, specifically on Windows because of file cleanup and locking issues:
+    "ignore:unclosed file:ResourceWarning",
+    "ignore::pytest.PytestUnraisableExceptionWarning",
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
