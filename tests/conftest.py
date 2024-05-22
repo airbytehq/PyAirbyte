@@ -39,7 +39,13 @@ def pytest_configure(config):
     if sys.platform.startswith("win"):
         # Ignore specific warnings only on Windows
         warnings.filterwarnings(
-            "ignore", category=pytest.PytestUnraisableExceptionWarning
+            "ignore",
+            category=pytest.PytestUnraisableExceptionWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            category=ResourceWarning,
+            message="unclosed file",
         )
 
 
