@@ -89,7 +89,8 @@ filterwarnings = [
     "ignore::sqlalchemy.exc.MovedIn20Warning",
     "ignore:unclosed file:ResourceWarning",
     "ignore::pytest.PytestUnraisableExceptionWarning",
-    # Order matters here. This must be last.
+    # Order matters here. This must be last because it will fail if we
+    # hit another warning during the import.
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
 ]
 
