@@ -414,3 +414,10 @@ class AirbyteMultipleResourcesError(AirbyteError):
 
     resource_type: str | None = None
     resource_name_or_id: str | None = None
+
+
+# Custom Warnings
+
+
+class AirbyteExperimentalFeatureWarning(FutureWarning):
+    """Warning whenever using experimental features in PyAirbyte."""

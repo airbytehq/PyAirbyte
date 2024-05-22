@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, final
 
@@ -56,7 +57,17 @@ class BigQueryConfig(SqlConfig):
 
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
-        """Return the SQLAlchemy URL to use."""
+        """Return the SQLAlchemy URL to use.
+
+        We suppress warnings about unrecognized JSON type. More info on that here:
+        - https://github.com/airbytehq/PyAirbyte/issues/254
+        """
+        warnings.filterwarnings(
+            "ignore",
+            message="Did not recognize type 'JSON' of column",
+            category=sqlalchemy.exc.SAWarning,
+        )
+
         url: URL = make_url(f"bigquery://{self.project_name!s}")
         if self.credentials_path:
             url = url.update_query_dict({"credentials_path": self.credentials_path})

@@ -139,10 +139,17 @@ class CachedDataset(SQLDataset):
         self,
         cache: CacheBase,
         stream_name: str,
+        stream_configuration: ConfiguredAirbyteStream | None | Literal[False] = None,
     ) -> None:
         """We construct the query statement by selecting all columns from the table.
 
         This prevents the need to scan the table schema to construct the query statement.
+
+        If stream_configuration is None, we attempt to retrieve the stream configuration from the
+        cache processor. This is useful when constructing a dataset from a CachedDataset object,
+        which already has the stream configuration.
+
+        If stream_configuration is set to False, we skip the stream configuration retrieval.
         """
         table_name = cache.processor.get_sql_table_name(stream_name)
         schema_name = cache.schema_name
@@ -151,6 +158,7 @@ class CachedDataset(SQLDataset):
             cache=cache,
             stream_name=stream_name,
             query_statement=query,
+            stream_configuration=stream_configuration,
         )
 
     @overrides

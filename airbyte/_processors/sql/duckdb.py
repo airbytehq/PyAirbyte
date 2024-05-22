@@ -8,6 +8,7 @@ from pathlib import Path
 from textwrap import dedent, indent
 from typing import TYPE_CHECKING, Union
 
+from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
 from typing_extensions import Literal
@@ -20,14 +21,6 @@ from airbyte.secrets.base import SecretString
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
-
-
-# Suppress warnings from DuckDB about reflection on indices.
-# https://github.com/Mause/duckdb_engine/issues/905
-warnings.filterwarnings(
-    "ignore",
-    message="duckdb-engine doesn't yet support reflection on indices",
-)
 
 
 # @dataclass
@@ -47,7 +40,13 @@ class DuckDBConfig(SqlConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        # return f"duckdb:///{self.db_path}?schema={self.schema_name}"
+        # Suppress warnings from DuckDB about reflection on indices.
+        # https://github.com/Mause/duckdb_engine/issues/905
+        warnings.filterwarnings(
+            "ignore",
+            message="duckdb-engine doesn't yet support reflection on indices",
+            category=DuckDBEngineWarning,
+        )
         return SecretString(f"duckdb:///{self.db_path!s}")
 
     @overrides

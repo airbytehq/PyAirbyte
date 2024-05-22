@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import warnings
 
+from airbyte import exceptions as exc
 from airbyte.cloud.connections import CloudConnection as Stable_CloudConnection
 from airbyte.cloud.workspaces import CloudWorkspace as Stable_CloudWorkspace
 
@@ -35,7 +36,7 @@ from airbyte.cloud.workspaces import CloudWorkspace as Stable_CloudWorkspace
 # explicitly imports it.
 warnings.warn(
     message="The `airbyte.cloud.experimental` module is experimental and may change in the future.",
-    category=FutureWarning,
+    category=exc.AirbyteExperimentalFeatureWarning,
     stacklevel=2,
 )
 

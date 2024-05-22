@@ -294,8 +294,16 @@ class SyncResult:
         """Retrieve an `airbyte.datasets.CachedDataset` object for a given stream name.
 
         This can be used to read and analyze the data in a SQL-based destination.
+
+        TODO: In a future iteration, we can consider providing stream configuration information
+              (catalog information) to the `CachedDataset` object via the "Get stream properties"
+              API: https://reference.airbyte.com/reference/getstreamproperties
         """
-        return CachedDataset(self.get_sql_cache(), stream_name=stream_name)
+        return CachedDataset(
+            self.get_sql_cache(),
+            stream_name=stream_name,
+            stream_configuration=False,  # Don't look for stream configuration in cache.
+        )
 
     def get_sql_database_name(self) -> str:
         """Return the SQL database name."""

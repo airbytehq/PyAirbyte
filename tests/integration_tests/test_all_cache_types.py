@@ -54,11 +54,8 @@ def source_faker_seed_a() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         install_if_missing=False,  # Should already be on PATH
+        streams=["users"],
     )
-    source.check()
-    source.select_streams([
-        "users",
-    ])
     return source
 
 
@@ -74,11 +71,8 @@ def source_faker_seed_b() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         install_if_missing=False,  # Should already be on PATH
+        streams=["users"],
     )
-    source.check()
-    source.select_streams([
-        "users",
-    ])
     return source
 
 
@@ -94,7 +88,6 @@ def source_pokeapi() -> ab.Source:
         install_if_missing=False,  # Should already be on PATH
         streams="*",
     )
-    source.check()
     return source
 
 
