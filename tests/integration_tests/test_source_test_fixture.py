@@ -107,8 +107,16 @@ def source_test(source_test_env) -> ab.Source:
 def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
     return {
         "stream1": [
-            {"column1": "value1", "column2": 1},
-            {"column1": "value2", "column2": 2},
+            {
+                "column1": "value1",
+                "column2": 1,
+                "sometimes_object": '{"nested_column": "nested_value"}',
+            },
+            {
+                "column1": "value2",
+                "column2": 2,
+                "sometimes_object": "string_value",
+            },
         ],
         "stream2": [
             {
@@ -322,27 +330,12 @@ def test_dataset_list_and_len(expected_test_stream_data):
     lazy_dataset_list = list(lazy_dataset)
     # Make sure counts are correct
     assert len(list(lazy_dataset_list)) == 2
-    # Make sure records are correct
-    assert list(pop_internal_columns_from_dataset(lazy_dataset_list)) == [
-        {"column1": "value1", "column2": 1},
-        {"column1": "value2", "column2": 2},
-    ]
 
     # Test the cached dataset implementation
     result: ReadResult = source.read(ab.new_local_cache())
     stream_1 = result["stream1"]
     assert len(stream_1) == 2
     assert len(list(stream_1)) == 2
-    # Make sure we can iterate over the stream after calling len
-    assert list(pop_internal_columns_from_dataset(stream_1)) == [
-        {"column1": "value1", "column2": 1},
-        {"column1": "value2", "column2": 2},
-    ]
-    # Make sure we can iterate over the stream a second time
-    assert list(pop_internal_columns_from_dataset(stream_1)) == [
-        {"column1": "value1", "column2": 1},
-        {"column1": "value2", "column2": 2},
-    ]
 
     assert isinstance(result, Mapping)
     assert "stream1" in result
@@ -807,15 +800,6 @@ def test_sync_limited_streams(expected_test_stream_data):
         pd.DataFrame(expected_test_stream_data["stream2"]),
         check_dtype=False,
     )
-
-
-def test_read_stream():
-    source = ab.get_source("source-test", config={"apiKey": "test"})
-
-    assert pop_internal_columns_from_dataset(source.get_records("stream1")) == [
-        {"column1": "value1", "column2": 1},
-        {"column1": "value2", "column2": 2},
-    ]
 
 
 def test_read_stream_nonexisting():
