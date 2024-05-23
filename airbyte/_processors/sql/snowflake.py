@@ -15,6 +15,7 @@ from snowflake.sqlalchemy import URL, VARIANT
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
+from airbyte.constants import DEFAULT_CACHE_SCHEMA_NAME
 from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter
 
@@ -34,7 +35,7 @@ class SnowflakeConfig(SqlConfig):
     warehouse: str
     database: str
     role: str
-    schema_name: str = Field(default="PUBLIC")
+    schema_name: str = Field(default=DEFAULT_CACHE_SCHEMA_NAME)
 
     @overrides
     def get_database_name(self) -> str:
