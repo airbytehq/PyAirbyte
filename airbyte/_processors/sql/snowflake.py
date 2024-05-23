@@ -143,7 +143,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                 FROM {internal_sf_stage_name}
             )
             FILES = ( {files_list} )
-            FILE_FORMAT = ( TYPE = JSON )
+            FILE_FORMAT = ( TYPE = JSON, COMPRESSION = GZIP )
             ;
             """
         )
