@@ -129,9 +129,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         ]
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
-        variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
-            [f"$1:{self.normalizer.normalize(col)}" for col in columns_list]
-        )
+        variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
         copy_statement = dedent(
             f"""
             COPY INTO {temp_table_name}
@@ -143,7 +141,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                 FROM {internal_sf_stage_name}
             )
             FILES = ( {files_list} )
-            FILE_FORMAT = ( TYPE = JSON )
+            FILE_FORMAT = ( TYPE = JSON, COMPRESSION = GZIP )
             ;
             """
         )
