@@ -18,6 +18,7 @@ from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
     AirbyteStreamState,
+    AirbyteTraceMessage,
     Type,
 )
 
@@ -207,9 +208,19 @@ class RecordProcessorBase(abc.ABC):
                     stream_name = stream_state.stream_descriptor.name
                     self._pending_state_messages[stream_name].append(state_msg)
 
+            elif message.type is Type.TRACE:
+                trace_msg: AirbyteTraceMessage = cast(AirbyteTraceMessage, message.trace)
+                if trace_msg.stream_status and trace_msg.stream_status.status == "SUCCEEDED":
+                    # This stream has completed successfully, so go ahead and write the data.
+                    # This will also finalize any pending state messages.
+                    self.write_stream_data(
+                        stream_name=trace_msg.stream_status.stream_descriptor.name,
+                        write_strategy=write_strategy,
+                    )
+
             else:
                 # Ignore unexpected or unhandled message types:
-                # Type.LOG, Type.TRACE, Type.CONTROL, etc.
+                # Type.LOG, Type.CONTROL, etc.
                 pass
 
         # We've finished processing input data.
