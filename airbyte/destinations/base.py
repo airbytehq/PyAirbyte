@@ -53,7 +53,6 @@ class Destination(ConnectorBase):
         *,
         streams: Literal["*"] | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
-        force_full_refresh: bool = False,
         skip_validation: bool = False,
         state_writer: StateWriterBase,
         state_provider: state_providers.StateProviderBase,
