@@ -63,7 +63,7 @@ def is_interactive() -> bool:
         if is_ci():
             return False
 
-        return bool(sys.__stdin__.isatty() and sys.__stdout__.isatty())    
+        return bool(sys.__stdin__.isatty() and sys.__stdout__.isatty())
     except Exception:
         return False
 
