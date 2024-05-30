@@ -6,6 +6,7 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING
 
+from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 
 from airbyte._processors.file import JsonlWriter
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 warnings.filterwarnings(
     "ignore",
     message="duckdb-engine doesn't yet support reflection on indices",
+    category=DuckDBEngineWarning,
 )
 
 

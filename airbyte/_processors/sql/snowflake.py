@@ -8,10 +8,14 @@ from typing import TYPE_CHECKING
 
 import sqlalchemy
 from overrides import overrides
-from snowflake.sqlalchemy import VARIANT
+from pydantic import Field
+from snowflake import connector
+from snowflake.sqlalchemy import URL, VARIANT
 
+from airbyte._future_cdk import SqlProcessorBase
+from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
-from airbyte._processors.sql.base import SqlProcessorBase
+from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter
 
 
@@ -19,6 +23,50 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sqlalchemy.engine import Connection
+
+
+class SnowflakeConfig(SqlConfig):
+    """Configuration for the Snowflake cache."""
+
+    account: str
+    username: str
+    password: SecretString
+    warehouse: str
+    database: str
+    role: str
+    schema_name: str = Field(default="PUBLIC")
+
+    @overrides
+    def get_database_name(self) -> str:
+        """Return the name of the database."""
+        return self.database
+
+    @overrides
+    def get_sql_alchemy_url(self) -> SecretString:
+        """Return the SQLAlchemy URL to use."""
+        return SecretString(
+            URL(
+                account=self.account,
+                user=self.username,
+                password=self.password,
+                database=self.database,
+                warehouse=self.warehouse,
+                schema=self.schema_name,
+                role=self.role,
+            )
+        )
+
+    def get_vendor_client(self) -> object:
+        """Return the Snowflake connection object."""
+        return connector.connect(
+            user=self.username,
+            password=self.password,
+            account=self.account,
+            warehouse=self.warehouse,
+            database=self.database,
+            schema=self.schema_name,
+            role=self.role,
+        )
 
 
 class SnowflakeTypeConverter(SQLTypeConverter):
@@ -50,7 +98,9 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
     """A Snowflake implementation of the cache."""
 
     file_writer_class = JsonlWriter
-    type_converter_class = SnowflakeTypeConverter
+    type_converter_class: type[SnowflakeTypeConverter] = SnowflakeTypeConverter
+    supports_merge_insert = True
+    sql_config: SnowflakeConfig
 
     @overrides
     def _write_files_to_new_table(
@@ -69,19 +119,17 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         def path_str(path: Path) -> str:
             return str(path.absolute()).replace("\\", "\\\\")
 
-        put_files_statements = "\n".join(
-            [f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};" for file_path in files]
-        )
-        self._execute_sql(put_files_statements)
+        for file_path in files:
+            query = f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};"
+            self._execute_sql(query)
+
         columns_list = [
             self._quote_identifier(c)
             for c in list(self._get_sql_column_definitions(stream_name).keys())
         ]
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
-        variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
-            [f"$1:{self.normalizer.normalize(col)}" for col in columns_list]
-        )
+        variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
         copy_statement = dedent(
             f"""
             COPY INTO {temp_table_name}
@@ -93,7 +141,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                 FROM {internal_sf_stage_name}
             )
             FILES = ( {files_list} )
-            FILE_FORMAT = ( TYPE = JSON )
+            FILE_FORMAT = ( TYPE = JSON, COMPRESSION = GZIP )
             ;
             """
         )

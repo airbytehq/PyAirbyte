@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import abc
+import re
 from typing import TYPE_CHECKING
+
+from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
@@ -46,8 +49,40 @@ class LowerCaseNormalizer(NameNormalizerBase):
 
     @staticmethod
     def normalize(name: str) -> str:
-        """Return the normalized name."""
-        return name.lower().replace(" ", "_").replace("-", "_")
+        """Return the normalized name.
+
+        - All non-alphanumeric characters are replaced with underscores.
+        - Any names that start with a numeric ("1", "2", "123", "1b" etc.) are prefixed
+          with and underscore ("_1", "_2", "_123", "_1b" etc.)
+
+        Examples:
+        - "Hello World!" -> "hello_world"
+        - "Hello, World!" -> "hello__world"
+        - "Hello - World" -> "hello___world"
+        - "___Hello, World___" -> "___hello__world___"
+        - "Average Sales (%)" -> "average_sales____"
+        - "Average Sales (#)" -> "average_sales____"
+        - "+1" -> "_1"
+        - "-1" -> "_1"
+        """
+        result = name
+
+        # Replace all non-alphanumeric characters with underscores.
+        result = re.sub("[^A-Za-z0-9]", "_", result.lower())
+
+        # Check if name starts with a number and prepend "_" if it does.
+        if result and result[0].isdigit():
+            # Most databases do not allow identifiers to start with a number.
+            result = f"_{result}"
+
+        if not result.replace("_", ""):
+            raise exc.PyAirbyteNameNormalizationError(
+                message="Name cannot be empty after normalization.",
+                raw_name=name,
+                normalization_result=result,
+            )
+
+        return result
 
 
 __all__ = [

@@ -3,14 +3,17 @@
 import os
 
 import docs.generate as generate
+import pytest
 
 
-def test_docs_checked_in():
+@pytest.mark.filterwarnings("ignore")
+def test_docs_generation():
     """
-    Docs need to be generated via `poetry run generate-docs` and checked in to the repo.
+    Docs need to be able to be generated via `poetry run generate-docs`.
 
-    This test runs the docs generation and compares the output with the checked in docs.
-    It will fail if there are any differences.
+    This test runs the docs generation and ensures that it can complete successfully.
+
+    Generation often produces warnings that are not relevant, so we suppress warnings in this test.
     """
 
     generate.run()
@@ -19,4 +22,6 @@ def test_docs_checked_in():
     diff = os.system("git diff --exit-code docs/generated")
 
     # if there is a diff, fail the test
-    assert diff == 0, "Docs are out of date. Please run `poetry run generate-docs` and commit the changes."
+    assert (
+        diff == 0
+    ), "Docs are out of date. Please run `poetry run generate-docs` and commit the changes."

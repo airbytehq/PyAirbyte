@@ -25,6 +25,7 @@ jobs:
           commands: |
             fix-pr
             test-pr
+            poetry-lock
           static-args: |
             pr=${{ github.event.issue.number }}
             comment-id=${{ github.event.comment.id }}

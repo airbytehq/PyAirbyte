@@ -5,25 +5,30 @@
 Since source-faker is included in dev dependencies, we can assume `source-faker` is installed
 and available on PATH for the poetry-managed venv.
 """
+
 from __future__ import annotations
 
-from collections.abc import Generator
 import os
-import sys
 import shutil
-from pathlib import Path
+import sys
 import tempfile
-
-import pytest
-import ulid
-
+import warnings
+from collections.abc import Generator
+from pathlib import Path
 
 import airbyte as ab
+import pytest
+import pytest_mock
+import ulid
 from airbyte._executor import _get_bin_dir
+from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
+from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.util import new_local_cache
+from airbyte.strategies import WriteStrategy
+from duckdb_engine import DuckDBEngineWarning
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -39,6 +44,7 @@ FAKER_SCALE_B = 300
 
 # Patch PATH to include the source-faker executable.
 
+
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
@@ -46,7 +52,7 @@ def add_venv_bin_to_path(monkeypatch):
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-    monkeypatch.setenv('PATH', new_path)
+    monkeypatch.setenv("PATH", new_path)
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
@@ -61,13 +67,8 @@ def source_faker_seed_a() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         install_if_missing=False,  # Should already be on PATH
+        streams=["users", "products", "purchases"],
     )
-    source.check()
-    source.select_streams([
-        "users",
-        "products",
-        "purchases",
-    ])
     return source
 
 
@@ -83,19 +84,22 @@ def source_faker_seed_b() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         install_if_missing=False,  # Should already be on PATH
+        streams=["users", "products", "purchases"],
     )
-    source.check()
-    source.select_streams([
-        "products",
-        "purchases",
-        "users",
-    ])
     return source
 
 
 @pytest.fixture(scope="function")
 def duckdb_cache() -> Generator[DuckDBCache, None, None]:
     """Fixture to return a fresh cache."""
+    # Suppress warnings from DuckDB about reflection on indices.
+    # https://github.com/Mause/duckdb_engine/issues/905
+    warnings.filterwarnings(
+        "ignore",
+        message="duckdb-engine doesn't yet support reflection on indices",
+        category=DuckDBEngineWarning,
+    )
+
     cache: DuckDBCache = new_local_cache()
     yield cache
     # TODO: Delete cache DB file after test is complete.
@@ -124,14 +128,9 @@ def all_cache_types(
 
 def test_which_source_faker() -> None:
     """Test that source-faker is available on PATH."""
-    assert shutil.which("source-faker"), \
-        f"Can't find source-faker on PATH: {os.environ['PATH']}"
-
-
-def test_duckdb_cache(duckdb_cache: DuckDBCache) -> None:
-    """Test that the duckdb cache is available."""
-    assert duckdb_cache
-    assert isinstance(duckdb_cache, DuckDBCache)
+    assert shutil.which(
+        "source-faker"
+    ), f"Can't find source-faker on PATH: {os.environ['PATH']}"
 
 
 def test_faker_pks(
@@ -156,7 +155,9 @@ def test_replace_strategy(
     all_cache_types: CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
-    for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
+    for (
+        cache
+    ) in all_cache_types:  # Function-scoped fixtures can't be used in parametrized().
         for _ in range(2):
             result = source_faker_seed_a.read(
                 cache, write_strategy="replace", force_full_refresh=True
@@ -171,11 +172,18 @@ def test_append_strategy(
     all_cache_types: CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
-    for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
+    for (
+        cache
+    ) in all_cache_types:  # Function-scoped fixtures can't be used in parametrized().
         for iteration in range(1, 3):
             result = source_faker_seed_a.read(cache, write_strategy="append")
-            assert len(list(result.cache.streams["products"])) == NUM_PRODUCTS * iteration
-            assert len(list(result.cache.streams["purchases"])) == FAKER_SCALE_A * iteration
+            assert (
+                len(list(result.cache.streams["products"])) == NUM_PRODUCTS * iteration
+            )
+            assert (
+                len(list(result.cache.streams["purchases"]))
+                == FAKER_SCALE_A * iteration
+            )
 
 
 @pytest.mark.slow
@@ -191,7 +199,9 @@ def test_merge_strategy(
     Since all streams have primary keys, we should expect the auto strategy to be identical to the
     merge strategy.
     """
-    for cache in all_cache_types: # Function-scoped fixtures can't be used in parametrized().
+    for (
+        cache
+    ) in all_cache_types:  # Function-scoped fixtures can't be used in parametrized().
         # First run, seed A (counts should match the scale or the product count)
         result = source_faker_seed_a.read(cache, write_strategy=strategy)
         assert len(list(result.cache.streams["products"])) == NUM_PRODUCTS
@@ -232,7 +242,11 @@ def test_incremental_sync(
     assert len(list(result1.cache.streams["purchases"])) == FAKER_SCALE_A
     assert result1.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
 
-    assert not duckdb_cache.processor._catalog_manager.get_state("source-faker") == []
+    assert duckdb_cache.get_state_provider("source-faker").known_stream_names == {
+        "products",
+        "purchases",
+        "users",
+    }
 
     # Second run should not return records as it picks up the state and knows it's up to date.
     result2 = source_faker_seed_b.read(duckdb_cache)
@@ -261,8 +275,9 @@ def test_incremental_state_cache_persistence(
     result2 = source_faker_seed_b.read(second_cache)
     assert result2.processed_records == 0
 
-    assert second_cache.processor._catalog_manager and \
-        second_cache.processor._catalog_manager.get_state("source-faker")
+    state_provider = second_cache.get_state_provider("source-faker")
+    assert len(state_provider.state_message_artifacts) > 0
+
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
@@ -280,7 +295,9 @@ def test_incremental_state_prefix_isolation(
     cache_name = str(ulid.ULID())
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     cache = DuckDBCache(db_path=db_path, table_prefix="prefix_")
-    different_prefix_cache = DuckDBCache(db_path=db_path, table_prefix="different_prefix_")
+    different_prefix_cache = DuckDBCache(
+        db_path=db_path, table_prefix="different_prefix_"
+    )
 
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
@@ -295,6 +312,7 @@ def test_incremental_state_prefix_isolation(
 def test_config_spec(source_faker_seed_a: ab.Source) -> None:
     assert source_faker_seed_a.config_spec
 
+
 def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
     with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp:
         source_faker_seed_a.print_config_spec(
@@ -302,3 +320,53 @@ def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
             output_file=temp.name,
         )
         assert Path(temp.name).exists()
+
+
+def test_merge_insert_not_supported_for_duckdb(
+    source_faker_seed_a: ab.Source,
+    duckdb_cache: DuckDBCache,
+    mocker: pytest_mock.MockFixture,
+) -> None:
+    """Confirm that duckdb does not support merge insert natively"""
+    if DuckDBSqlProcessor.supports_merge_insert:
+        return  # Skip this test if the cache supports merge-insert.
+
+    # Otherwise, toggle the value and we should expect an exception.
+    mocker.patch.object(DuckDBSqlProcessor, "supports_merge_insert", new=True)
+    try:
+        result = source_faker_seed_a.read(
+            duckdb_cache, write_strategy=WriteStrategy.MERGE
+        )
+        result = source_faker_seed_a.read(
+            duckdb_cache, write_strategy=WriteStrategy.MERGE
+        )
+        if result:
+            raise AssertionError("Cache supports merge-insert, but it's set to False.")
+    except Exception as e:
+        print(f"An exception occurred: {e}")
+        if isinstance(e, AssertionError):
+            raise e
+
+
+@pytest.mark.requires_creds
+def test_merge_insert_not_supported_for_postgres(
+    source_faker_seed_a: ab.Source,
+    new_postgres_cache: PostgresCache,
+    mocker: pytest_mock.MockFixture,
+):
+    """Confirm that postgres does not support merge insert natively"""
+    # TODO - This test keeps getting skipped, investigate why.
+    #        It appears to be due to the fixture `new_postgres_cache` not detecting docker properly.
+    if PostgresSqlProcessor.supports_merge_insert:
+        return  # Skip this test if the cache supports merge-insert.
+
+    # Otherwise, toggle the value and we should expect an exception.
+    mocker.patch.object(PostgresSqlProcessor, "supports_merge_insert", new=True)
+    try:
+        result = source_faker_seed_a.read(new_postgres_cache, write_strategy="merge")
+        if result:
+            raise AssertionError("Cache supports merge-insert, but it's set to False.")
+    except Exception as e:
+        print(f"An exception occurred: {e}")
+        if isinstance(e, AssertionError):
+            raise e

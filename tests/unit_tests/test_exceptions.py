@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import inspect
 import pytest
-import inspect
 import airbyte.exceptions as exceptions_module
+
 
 def test_exceptions():
     exception_classes = [
@@ -21,7 +21,9 @@ def test_exceptions():
         assert message.count("\n") == 0
         assert message != ""
         assert message.strip() == message
-        assert name.startswith("Airbyte")
+        assert any([
+            name.startswith(prefix) for prefix in ["Airbyte", "PyAirbyte"]
+        ]), f"{name} does not start with Airbyte or PyAirbyte"
         assert name.endswith("Error")
 
 

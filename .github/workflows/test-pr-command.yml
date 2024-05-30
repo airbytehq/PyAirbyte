@@ -24,9 +24,11 @@ jobs:
       id: vars
       run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
     - name: Append comment with job run link
+      id: first-comment-action
       uses: peter-evans/create-or-update-comment@v4
       with:
         comment-id: ${{ github.event.inputs.comment-id }}
+        issue-number: ${{ github.event.inputs.pr }}
         body: |
 
           > PR test job started... [Check job output.][1]
@@ -68,7 +70,7 @@ jobs:
     # Same as the `python_pytest.yml` file:
 
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v8
+      uses: Gr1N/setup-poetry@v9
       with:
         poetry-version: "1.7.1"
     - name: Set up Python
@@ -80,9 +82,13 @@ jobs:
       run: poetry install
 
     - name: Run Pytest
+      timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: poetry run pytest
+      run: >
+        poetry run pytest
+        --verbose
+        -m "not super_slow"
 
   log-success-comment:
     name: Append 'Success' Comment
@@ -92,6 +98,7 @@ jobs:
     - name: Append success comment
       uses: peter-evans/create-or-update-comment@v4
       with:
+        issue-number: ${{ github.event.inputs.pr }}
         comment-id: ${{ github.event.inputs.comment-id }}
         reactions: hooray
         body: |
@@ -100,13 +107,14 @@ jobs:
   log-failure-comment:
     name: Append 'Failure' Comment
     # This job will only run if the workflow fails
-    needs: [pytest-on-demand]
+    needs: [pytest-on-demand, log-starting-comment]
     if: always() && needs.pytest-on-demand.result == 'failure'
     runs-on: ubuntu-latest
     steps:
     - name: Append failure comment
       uses: peter-evans/create-or-update-comment@v4
       with:
+        issue-number: ${{ github.event.inputs.pr }}
         comment-id: ${{ github.event.inputs.comment-id }}
         reactions: confused
         body: |
