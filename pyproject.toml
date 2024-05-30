@@ -45,8 +45,6 @@ sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
 airbyte-api = "^0.49.2"
 google-cloud-bigquery-storage = "^2.25.0"
 
-airbyte-source-declarative-manifest = { version = "0.79.1", python = ">=3.9,<3.12" }
-
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
 faker = "^21.0.0"
