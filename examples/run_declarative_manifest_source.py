@@ -32,29 +32,37 @@ definitions:
     characters:
       type: DeclarativeStream
       name: characters
+      primary_key:
+        - id
       retriever:
         type: SimpleRetriever
-        paginator:
-          type: DefaultPaginator
-          page_token_option:
-            type: RequestOption
-            field_name: page
-            inject_into: request_parameter
-          pagination_strategy:
-            type: PageIncrement
-            start_from_page: 1
         requester:
           $ref: '#/definitions/base_requester'
           path: character/
           http_method: GET
+          error_handler:
+            type: CompositeErrorHandler
+            error_handlers:
+              - type: DefaultErrorHandler
+                response_filters:
+                  - type: HttpResponseFilter
+                    action: SUCCESS
+                    error_message_contains: There is nothing here
         record_selector:
           type: RecordSelector
           extractor:
             type: DpathExtractor
             field_path:
               - results
-      primary_key:
-        - id
+        paginator:
+          type: DefaultPaginator
+          page_token_option:
+            type: RequestOption
+            inject_into: request_parameter
+            field_name: page
+          pagination_strategy:
+            type: PageIncrement
+            start_from_page: 40
       schema_loader:
         type: InlineSchemaLoader
         schema:
@@ -83,45 +91,8 @@ schemas:
   characters:
     type: object
     $schema: http://json-schema.org/schema#
-    required:
-      - id
     properties:
       type:
-        type:
-          - string
-          - 'null'
-      id:
-        type: number
-      url:
-        type:
-          - string
-          - 'null'
-      name:
-        type:
-          - string
-          - 'null'
-      image:
-        type:
-          - string
-          - 'null'
-      gender:
-        type:
-          - string
-          - 'null'
-      origin:
-        type:
-          - object
-          - 'null'
-        properties:
-          url:
-            type:
-              - string
-              - 'null'
-          name:
-            type:
-              - string
-              - 'null'
-      status:
         type:
           - string
           - 'null'
@@ -137,7 +108,13 @@ schemas:
           type:
             - string
             - 'null'
-      species:
+      gender:
+        type:
+          - string
+          - 'null'
+      id:
+        type: number
+      image:
         type:
           - string
           - 'null'
@@ -146,14 +123,45 @@ schemas:
           - object
           - 'null'
         properties:
-          url:
-            type:
-              - string
-              - 'null'
           name:
             type:
               - string
               - 'null'
+          url:
+            type:
+              - string
+              - 'null'
+      name:
+        type:
+          - string
+          - 'null'
+      origin:
+        type:
+          - object
+          - 'null'
+        properties:
+          name:
+            type:
+              - string
+              - 'null'
+          url:
+            type:
+              - string
+              - 'null'
+      species:
+        type:
+          - string
+          - 'null'
+      status:
+        type:
+          - string
+          - 'null'
+      url:
+        type:
+          - string
+          - 'null'
+    required:
+      - id
     additionalProperties: true
 """
 
