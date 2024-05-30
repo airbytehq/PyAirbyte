@@ -46,6 +46,7 @@ class DeclarativeExecutor(Executor):
             raise ValueError("Manifest must be a dict.")
 
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
+        self.reported_version: str | None = None  # TODO: Consider adding version detection
 
     def execute(self, args: list[str]) -> Iterator[str]:
         """Execute the declarative source."""
