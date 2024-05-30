@@ -14,6 +14,7 @@ from airbyte import exceptions as exc
 from airbyte._executor import DockerExecutor, PathExecutor, VenvExecutor
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte.sources.base import Source
+from airbyte.sources.declarative import DeclarativeExecutor
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
@@ -53,7 +54,8 @@ def _get_source(  # noqa: PLR0912  # Too many branches
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: str | bool = False,
+    docker_image: bool | str = False,
+    source_manifest: bool | dict | Path | str = False,
     install_if_missing: bool = True,
 ) -> Source:
     """Get a connector by name and version.
@@ -80,16 +82,27 @@ def _get_source(  # noqa: PLR0912  # Too many branches
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
     """
-    if sum([bool(local_executable), bool(docker_image), bool(pip_url)]) > 1:
+    if (
+        sum(
+            [
+                bool(local_executable),
+                bool(docker_image),
+                bool(pip_url),
+                bool(source_manifest),
+            ]
+        )
+        > 1
+    ):
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
-                "or 'pip_url'."
+                "'pip_url', or 'source_manifest'."
             ),
             context={
                 "local_executable": local_executable,
                 "docker_image": docker_image,
                 "pip_url": pip_url,
+                "source_manifest": source_manifest,
             },
         )
 
@@ -169,6 +182,19 @@ def _get_source(  # noqa: PLR0912  # Too many branches
             ),
         )
 
+    if source_manifest:
+        if source_manifest is True:
+            # TODO: Locate the manifest file
+            raise NotImplementedError("Manifest file location is not yet implemented.")
+
+        return Source(
+            name=name,
+            config=config,
+            streams=streams,
+            executor=DeclarativeExecutor(
+                manifest=source_manifest,
+            ),
+        )
     # else: we are installing a connector in a virtual environment:
 
     metadata: ConnectorMetadata | None = None
