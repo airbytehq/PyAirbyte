@@ -62,7 +62,7 @@ definitions:
             field_name: page
           pagination_strategy:
             type: PageIncrement
-            start_from_page: 40
+            start_from_page: 1
       schema_loader:
         type: InlineSchemaLoader
         schema:
