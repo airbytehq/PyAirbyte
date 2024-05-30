@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import json
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
-from source_declarative_manifest import run
+from airbyte_cdk.entrypoint import AirbyteEntrypoint
+from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
 from airbyte._executor import Executor
 from airbyte.sources.base import Source
@@ -13,7 +16,6 @@ from airbyte.sources.base import Source
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
 
 class DeclarativeExecutor(Executor):
@@ -23,12 +25,33 @@ class DeclarativeExecutor(Executor):
         self,
         manifest: str | dict | Path,
     ) -> None:
-        """Initialize a declarative executor."""
-        self.manifest = manifest
+        """Initialize a declarative executor.
+
+        - If `manifest` is a path, it will be read as a json file.
+        - If `manifest` is a string, it will be parsed as an HTTP path.
+        - If `manifest` is a dict, it will be used as is.
+        """
+        self._manifest_dict: dict
+        if isinstance(manifest, Path):
+            self._manifest_dict = cast(dict, json.loads(manifest.read_text()))
+
+        elif isinstance(manifest, str):
+            # TODO: Implement HTTP path parsing
+            raise NotImplementedError("HTTP path parsing is not yet implemented.")
+
+        elif isinstance(manifest, dict):
+            self._manifest_dict = manifest
+
+        if not isinstance(self._manifest_dict, dict):
+            raise ValueError("Manifest must be a dict.")
+
+        self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
 
     def execute(self, args: list[str]) -> Iterator[str]:
         """Execute the declarative source."""
-        return run(args)
+        source_entrypoint = AirbyteEntrypoint(self.declarative_source)
+        parsed_args = source_entrypoint.parse_args(args)
+        yield from source_entrypoint.run(parsed_args)
 
     def ensure_installation(self, *, auto_fix: bool = True) -> None:
         """No-op. The declarative source is included with PyAirbyte."""
