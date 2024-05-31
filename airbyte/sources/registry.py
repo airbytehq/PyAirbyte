@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import json
 import os
+import warnings
 from copy import copy
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Union, cast
 
 import requests
 
@@ -18,6 +21,18 @@ __cache: dict[str, ConnectorMetadata] | None = None
 
 _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
+
+
+class InstallType(str, Enum):
+    YAML = "yaml"
+    PYTHON = "python"
+    DOCKER = "docker"
+    JAVA = "java"
+
+
+class Language(str, Enum):
+    PYTHON = InstallType.PYTHON.value
+    JAVA = InstallType.JAVA.value
 
 
 @dataclass
@@ -33,6 +48,12 @@ class ConnectorMetadata:
     pypi_package_name: str | None
     """The name of the PyPI package for the connector, if it exists."""
 
+    language: Language | None
+    """The language of the connector."""
+
+    install_types: set[InstallType]
+    """The supported install types for the connector."""
+
 
 def _get_registry_url() -> str:
     if _REGISTRY_ENV_VAR in os.environ:
@@ -43,14 +64,27 @@ def _get_registry_url() -> str:
 
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
+    language = cast(Union[str, None], entry.get("language", None))
     remote_registries: dict = entry.get("remoteRegistries", {})
     pypi_registry: dict = remote_registries.get("pypi", {})
     pypi_package_name: str = pypi_registry.get("packageName", None)
     pypi_enabled: bool = pypi_registry.get("enabled", False)
+    install_types: set[InstallType] = {
+        InstallType(x)
+        for x in [
+            "docker" if entry.get("dockerImageTag") else None,
+            "python" if pypi_enabled else None,
+            "java" if language == "java" else None,
+            "yaml" if "cdk:low-code" in entry.get("tags", []) else None,
+        ]
+        if x
+    }
     return ConnectorMetadata(
         name=name,
         latest_available_version=entry["dockerImageTag"],
         pypi_package_name=pypi_package_name if pypi_enabled else None,
+        language=Language(language) if language else None,
+        install_types=install_types,
     )
 
 
@@ -114,11 +148,44 @@ def get_connector_metadata(name: str) -> ConnectorMetadata:
     return cache[name]
 
 
-def get_available_connectors() -> list[str]:
+def get_available_connectors(install_type: InstallType | str = InstallType.PYTHON) -> list[str]:
     """Return a list of all available connectors.
 
     Connectors will be returned in alphabetical order, with the standard prefix "source-".
     """
-    return sorted(
-        conn.name for conn in _get_registry_cache().values() if conn.pypi_package_name is not None
+    if not isinstance(install_type, InstallType):
+        install_type = InstallType(install_type)
+
+    if install_type == InstallType.PYTHON:
+        return sorted(
+            conn.name
+            for conn in _get_registry_cache().values()
+            if conn.pypi_package_name is not None
+        )
+
+    if install_type == InstallType.JAVA:
+        warnings.warn(
+            message="Java connectors are not yet supported.",
+            stacklevel=2,
+        )
+        return sorted(
+            conn.name for conn in _get_registry_cache().values() if conn.language == Language.JAVA
+        )
+
+    if install_type == InstallType.DOCKER:
+        return sorted(conn.name for conn in _get_registry_cache().values())
+
+    if install_type == InstallType.YAML:
+        return sorted(
+            conn.name
+            for conn in _get_registry_cache().values()
+            if InstallType.YAML in conn.install_types
+        )
+
+    # pragma: no cover  # Should never be reached.
+    raise exc.PyAirbyteInputError(
+        message="Invalid install type.",
+        context={
+            "install_type": install_type,
+        },
     )
