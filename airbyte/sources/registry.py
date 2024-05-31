@@ -22,6 +22,79 @@ __cache: dict[str, ConnectorMetadata] | None = None
 _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
+_LOWCODE_CONNECTORS_NEEDING_PYTHON = [
+    "source-alpha-vantage",
+    "source-amplitude",
+    "source-apify-dataset",
+    "source-avni",
+    "source-braintree",
+    "source-braze",
+    "source-chargebee",
+    "source-close-com",
+    "source-commercetools",
+    "source-facebook-pages",
+    "source-fastbill",
+    "source-freshdesk",
+    "source-gitlab",
+    "source-gnews",
+    "source-greenhouse",
+    "source-instatus",
+    "source-intercom",
+    "source-iterable",
+    "source-jira",
+    "source-klaviyo",
+    "source-mailchimp",
+    "source-mixpanel",
+    "source-monday",
+    "source-my-hours",
+    "source-notion",
+    "source-okta",
+    "source-outreach",
+    "source-partnerstack",
+    "source-paypal-transaction",
+    "source-pinterest",
+    "source-pipedrive",
+    "source-pocket",
+    "source-posthog",
+    "source-prestashop",
+    "source-public-apis",
+    "source-qualaroo",
+    "source-quickbooks",
+    "source-railz",
+    "source-recharge",
+    "source-retently",
+    "source-rss",
+    "source-slack",
+    "source-surveymonkey",
+    "source-the-guardian-api",
+    "source-trello",
+    "source-typeform",
+    "source-xero",
+    "source-younium",
+    "source-zendesk-chat",
+    "source-zendesk-sunshine",
+    "source-zendesk-support",
+    "source-zendesk-talk",
+    "source-zenloop",
+    "source-zoom",
+]
+_LOWCODE_CONNECTORS_FAILING_VALIDATION = [
+    "source-amazon-ads",
+    "source-senseforce",
+    "source-shortio",
+    "source-smaily",
+    "source-vantage",
+    "source-woocommerce",
+]
+_LOWCODE_CONNECTORS_404 = [
+    "source-unleash",
+]
+_LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
+    *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
+    *_LOWCODE_CONNECTORS_404,
+    *_LOWCODE_CONNECTORS_NEEDING_PYTHON,
+]
+
 
 class InstallType(str, Enum):
     YAML = "yaml"
@@ -180,6 +253,7 @@ def get_available_connectors(install_type: InstallType | str = InstallType.PYTHO
             conn.name
             for conn in _get_registry_cache().values()
             if InstallType.YAML in conn.install_types
+            and conn.name not in _LOWCODE_CONNECTORS_EXCLUDED
         )
 
     # pragma: no cover  # Should never be reached.
