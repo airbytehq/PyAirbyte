@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
-import http
 import shutil
 import sys
 import tempfile
 import warnings
 from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import requests
 import yaml
@@ -193,13 +192,25 @@ def _get_source(  # noqa: PLR0912, PLR0913 # Too many branches & arguments
                 "https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
                 f"/connectors/{name}/{name.replace('-', '_')}/manifest.yaml"
             )
-            print("Installing connector from YAML manifest URL:", http_url)
+            print("Installing connector from YAML manifest:", http_url)
             # Download the file
             response = requests.get(http_url)
             response.raise_for_status()  # Raise an exception if the download failed
 
+            if "class_name:" in response.text:
+                raise exc.AirbyteConnectorInstallationError(
+                    message=(
+                        "The provided manifest requires additional code files"
+                        "and is not compatible with the declarative no-code executor."
+                    ),
+                    connector_name=name,
+                    context={
+                        "manifest_url": http_url,
+                    },
+                )
+
             try:
-                source_manifest: dict = yaml.safe_load(response.content)
+                source_manifest = cast(dict, yaml.safe_load(response.text))
             except JSONDecodeError as ex:
                 raise exc.AirbyteConnectorInstallationError(
                     connector_name=name,
