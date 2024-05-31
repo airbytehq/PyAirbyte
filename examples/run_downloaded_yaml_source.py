@@ -8,23 +8,21 @@ Usage (from PyAirbyte root directory):
 
 from __future__ import annotations
 
-from typing import cast
-
-import yaml
-
 import airbyte as ab
 from airbyte.experimental import get_source
 
 
-nl = "\n"
 print(
-    f"Downloadable yaml sources: \n- {(nl + '- ').join(ab.get_available_connectors(install_type='yaml'))}"
+    "Downloadable yaml sources: \n- "
+    + "\n- ".join(ab.get_available_connectors(install_type="yaml"))
 )
 
 print("Running declarative source...")
 source = get_source(
-    "source-xkcd",
-    config={},
+    "source-pokeapi",
+    config={
+        "pokemon_name": "ditto",
+    },
     source_manifest=True,
 )
 source.check()
