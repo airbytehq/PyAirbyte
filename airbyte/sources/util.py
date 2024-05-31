@@ -3,12 +3,17 @@
 
 from __future__ import annotations
 
+import http
 import shutil
 import sys
 import tempfile
 import warnings
+from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
+
+import requests
+import yaml
 
 from airbyte import exceptions as exc
 from airbyte._executor import DockerExecutor, PathExecutor, VenvExecutor
@@ -184,8 +189,24 @@ def _get_source(  # noqa: PLR0912, PLR0913 # Too many branches & arguments
 
     if source_manifest:
         if source_manifest is True:
-            # TODO: Locate the manifest file
-            raise NotImplementedError("Manifest file location is not yet implemented.")
+            http_url = (
+                "https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
+                f"/connectors/{name}/{name.replace('-', '_')}/manifest.yaml"
+            )
+            print("Installing connector from YAML manifest URL:", http_url)
+            # Download the file
+            response = requests.get(http_url)
+            response.raise_for_status()  # Raise an exception if the download failed
+
+            try:
+                source_manifest: dict = yaml.safe_load(response.content)
+            except JSONDecodeError as ex:
+                raise exc.AirbyteConnectorInstallationError(
+                    connector_name=name,
+                    context={
+                        "manifest_url": http_url,
+                    },
+                ) from ex
 
         return Source(
             name=name,
