@@ -9,13 +9,29 @@ Usage (from PyAirbyte root directory):
 from __future__ import annotations
 
 import airbyte as ab
+from airbyte import exceptions as exc
 from airbyte.experimental import get_source
 
 
-print(
-    "Downloadable yaml sources: \n- "
-    + "\n- ".join(ab.get_available_connectors(install_type="yaml"))
-)
+yaml_connectors: list[str] = ab.get_available_connectors(install_type="yaml")
+
+print("Downloadable yaml sources: \n- " + "\n- ".join(yaml_connectors))
+
+failed_installs: dict[str, list[str]] = {}
+
+for yaml_connector in yaml_connectors:
+    try:
+        _ = get_source(yaml_connector, source_manifest=True)
+    except Exception as ex:
+        exception_type = type(ex).__name__
+        if exception_type in failed_installs:
+            failed_installs[exception_type].append(yaml_connector)
+        else:
+            failed_installs[exception_type] = [yaml_connector]
+
+# Print any connector failures, grouped by the error message
+for error, connectors_failed in failed_installs.items():
+    print(f"\nInstallation Errors: {error}\n- " + "\n- ".join(connectors_failed) + "\n")
 
 print("Running declarative source...")
 source = get_source(
