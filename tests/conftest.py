@@ -225,7 +225,7 @@ def new_postgres_cache():
     postgres.remove()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)
 def source_test_registry(monkeypatch):
     """
     Set environment variables for the test source.

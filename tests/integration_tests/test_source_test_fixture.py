@@ -27,6 +27,11 @@ from airbyte.version import get_version
 from sqlalchemy import column, text
 
 
+@pytest.fixture(scope="function", autouse=True)
+def autouse_source_test_registry(source_test_registry):
+    return
+
+
 def pop_internal_columns_from_dataset(
     dataset: datasets.DatasetBase | list[dict[str, Any]],
     /,
