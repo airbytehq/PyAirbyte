@@ -2,16 +2,19 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from unittest.mock import MagicMock
-
-import responses
 
 import airbyte as ab
 import pytest
-
+import responses
 from airbyte._util import telemetry
+
+
+@pytest.fixture(scope="function", autouse=True)
+def autouse_source_test_registry(source_test_registry):
+    return
 
 
 @responses.activate

@@ -98,11 +98,6 @@ def autouse_source_test_installation(source_test_installation):
     return
 
 
-@pytest.fixture(scope="function", autouse=True)
-def autouse_source_test_registry(source_test_registry):
-    return
-
-
 @pytest.fixture
 def source_test(source_test_env) -> ab.Source:
     return ab.get_source("source-test", config={"apiKey": "test"})
