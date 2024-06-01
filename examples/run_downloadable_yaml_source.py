@@ -9,13 +9,12 @@ Usage (from PyAirbyte root directory):
 from __future__ import annotations
 
 import airbyte as ab
-from airbyte import exceptions as exc
 from airbyte.experimental import get_source
 
 
 yaml_connectors: list[str] = ab.get_available_connectors(install_type="yaml")
 
-print("Downloadable yaml sources: \n- " + "\n- ".join(yaml_connectors))
+print(f"Downloadable yaml sources ({len(yaml_connectors)}): \n- " + "\n- ".join(yaml_connectors))
 
 failed_installs: dict[str, list[str]] = {}
 
@@ -31,7 +30,11 @@ for yaml_connector in yaml_connectors:
 
 # Print any connector failures, grouped by the error message
 for error, connectors_failed in failed_installs.items():
-    print(f"\nInstallation Errors: {error}\n- " + "\n- ".join(connectors_failed) + "\n")
+    print(
+        f"\nInstallation Errors ({len(failed_installs)}): {error}\n- "
+        + "\n- ".join(connectors_failed)
+        + "\n"
+    )
 
 print("Running declarative source...")
 source = get_source(
