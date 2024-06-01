@@ -80,11 +80,6 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
 ]
 _LOWCODE_CONNECTORS_FAILING_VALIDATION = [
     "source-amazon-ads",
-    "source-senseforce",
-    "source-shortio",
-    "source-smaily",
-    "source-vantage",
-    "source-woocommerce",
 ]
 _LOWCODE_CONNECTORS_404 = [
     "source-unleash",
