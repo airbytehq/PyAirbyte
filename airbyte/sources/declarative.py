@@ -11,6 +11,7 @@ from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
 from airbyte._executor import Executor
+from airbyte.exceptions import PyAirbyteInternalError
 from airbyte.sources.base import Source
 
 
@@ -43,7 +44,7 @@ class DeclarativeExecutor(Executor):
             self._manifest_dict = manifest
 
         if not isinstance(self._manifest_dict, dict):
-            raise ValueError("Manifest must be a dict.")
+            raise PyAirbyteInternalError(message="Manifest must be a dict.")
 
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
         self.reported_version: str | None = None  # TODO: Consider adding version detection

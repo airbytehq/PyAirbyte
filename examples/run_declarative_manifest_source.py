@@ -12,7 +12,6 @@ from typing import cast
 
 import yaml
 
-import airbyte as ab
 from airbyte.experimental import get_source
 
 

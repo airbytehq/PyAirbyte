@@ -50,7 +50,7 @@ def get_connector(
 
 # This non-public function includes the `docker_image` parameter, which is not exposed in the
 # public API. See the `experimental` module for more info.
-def _get_source(  # noqa: PLR0912, PLR0913 # Too many branches & arguments
+def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     name: str,
     config: dict[str, Any] | None = None,
     *,
