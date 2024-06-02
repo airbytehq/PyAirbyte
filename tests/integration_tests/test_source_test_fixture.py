@@ -218,6 +218,8 @@ def test_version_enforcement(
         name="source-test",
         latest_available_version=latest_available_version,
         pypi_package_name="airbyte-source-test",
+        language=registry.Language.PYTHON,
+        install_types={registry.InstallType.PYTHON, registry.InstallType.DOCKER},
     )
 
     # We need to initialize the cache before we can patch it.
