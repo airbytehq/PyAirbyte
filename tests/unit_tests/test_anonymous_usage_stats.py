@@ -18,7 +18,7 @@ def autouse_source_test_registry(source_test_registry):
 
 
 @responses.activate
-def test_telemetry_track(monkeypatch):
+def test_telemetry_track(monkeypatch, source_test_registry):
     """Check that track is called and the correct data is sent."""
     monkeypatch.delenv("DO_NOT_TRACK", raising=False)
 
@@ -72,7 +72,11 @@ def test_telemetry_track(monkeypatch):
 
 @pytest.mark.parametrize("do_not_track", ["1", "true", "t"])
 @responses.activate
-def test_do_not_track(monkeypatch, do_not_track):
+def test_do_not_track(
+    monkeypatch,
+    do_not_track,
+    source_test_registry,
+):
     """Check that track is called and the correct data is sent."""
     monkeypatch.setenv("DO_NOT_TRACK", do_not_track)
 
