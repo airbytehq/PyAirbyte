@@ -139,12 +139,12 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     pypi_package_name: str = pypi_registry.get("packageName", None)
     pypi_enabled: bool = pypi_registry.get("enabled", False)
     install_types: set[InstallType] = {
-        InstallType(x)
+        x
         for x in [
-            "docker" if entry.get("dockerImageTag") else None,
-            "python" if pypi_enabled else None,
-            "java" if language == "java" else None,
-            "yaml" if "cdk:low-code" in entry.get("tags", []) else None,
+            InstallType.DOCKER if entry.get("dockerImageTag") else None,
+            InstallType.PYTHON if pypi_enabled else None,
+            InstallType.JAVA if language == "java" else None,
+            InstallType.YAML if "cdk:low-code" in entry.get("tags", []) else None,
         ]
         if x
     }
