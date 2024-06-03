@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import warnings
+from contextlib import suppress
 from copy import copy
 from dataclasses import dataclass
 from enum import Enum
@@ -21,6 +22,8 @@ __cache: dict[str, ConnectorMetadata] | None = None
 
 _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
+
+_LOWCODE_LABEL = "cdk:low-code"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
     "source-alpha-vantage",
@@ -133,7 +136,15 @@ def _get_registry_url() -> str:
 
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
-    language = cast(Union[str, None], entry.get("language", None))
+    language: Language | None = None
+    if "language" in entry and entry["language"] is not None:
+        try:
+            language = Language(entry["language"])
+        except Exception:
+            warnings.warn(
+                message=f"Invalid language for connector {name}: {entry['language']}",
+                stacklevel=2,
+            )
     remote_registries: dict = entry.get("remoteRegistries", {})
     pypi_registry: dict = remote_registries.get("pypi", {})
     pypi_package_name: str = pypi_registry.get("packageName", None)
@@ -143,16 +154,17 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
         for x in [
             InstallType.DOCKER if entry.get("dockerImageTag") else None,
             InstallType.PYTHON if pypi_enabled else None,
-            InstallType.JAVA if language == "java" else None,
-            InstallType.YAML if "cdk:low-code" in entry.get("tags", []) else None,
+            InstallType.JAVA if language == Language.JAVA else None,
+            InstallType.YAML if _LOWCODE_LABEL in entry.get("tags", []) else None,
         ]
         if x
     }
+
     return ConnectorMetadata(
         name=name,
-        latest_available_version=entry["dockerImageTag"],
+        latest_available_version=entry.get("dockerImageTag", None),
         pypi_package_name=pypi_package_name if pypi_enabled else None,
-        language=Language(language) if language else None,
+        language=language,
         install_types=install_types,
     )
 
