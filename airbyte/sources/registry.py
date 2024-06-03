@@ -4,12 +4,10 @@ from __future__ import annotations
 import json
 import os
 import warnings
-from contextlib import suppress
 from copy import copy
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Union, cast
 
 import requests
 
