@@ -32,13 +32,13 @@ dev = ["pylint (==3.1.0)"]
 
 [[package]]
 name = "airbyte-cdk"
-version = "1.2.0"
+version = "1.2.1"
 description = "A framework for writing Airbyte Connectors."
 optional = false
 python-versions = "<4.0,>=3.9"
 files = [
-    {file = "airbyte_cdk-1.2.0-py3-none-any.whl", hash = "sha256:c206858aa7ecc6ea253f8b55ba71c1a98f8501f0c533850ec2656a9613cf77d0"},
-    {file = "airbyte_cdk-1.2.0.tar.gz", hash = "sha256:111ea617cbcd786340b9cc0ce003b33ee268414f437f90274ea2b46e96aa2ea0"},
+    {file = "airbyte_cdk-1.2.1-py3-none-any.whl", hash = "sha256:ca60ae569cdb8360daac2f428efb52591a34fb959ab48498a6996788ade8af24"},
+    {file = "airbyte_cdk-1.2.1.tar.gz", hash = "sha256:da958afe1a08701a5db47786f865aa889003f77d4863e60384a363845ee78042"},
 ]
 
 [package.dependencies]
@@ -3093,4 +3093,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.9,<4.0"
-content-hash = "9760c471339d38ed0b5a1a9652d3fa85a3e3337f04cf7b823bbc45a850ecdbc3"
+content-hash = "09d2f91cad4deb7bb2c1b4cc87375b69d7792a4fa324de8d04d67256d47f7f47"
