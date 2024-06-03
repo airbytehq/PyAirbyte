@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from abc import ABC, abstractmethod
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -18,11 +19,12 @@ from typing_extensions import Literal
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
-from airbyte.sources.registry import ConnectorMetadata
+from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
+    from io import IOBase
 
 
 _LATEST_VERSION = "latest"
@@ -34,6 +36,124 @@ def _get_bin_dir(venv_path: Path, /) -> Path:
         return venv_path / "Scripts"
 
     return venv_path / "bin"
+
+
+def get_connector_executor(  # noqa: PLR0912  # Too many branches
+    name: str,
+    *,
+    version: str | None = None,
+    pip_url: str | None = None,
+    local_executable: Path | str | None = None,
+    docker_image: str | bool = False,
+    install_if_missing: bool = True,
+) -> Executor:
+    """This factory function creates an executor for a connector."""
+    if sum([bool(local_executable), bool(docker_image), bool(pip_url)]) > 1:
+        raise exc.PyAirbyteInputError(
+            message=(
+                "You can only specify one of the settings: 'local_executable', 'docker_image', "
+                "or 'pip_url'."
+            ),
+            context={
+                "local_executable": local_executable,
+                "docker_image": docker_image,
+                "pip_url": pip_url,
+            },
+        )
+
+    if local_executable:
+        if version:
+            raise exc.PyAirbyteInputError(
+                message="Param 'version' is not supported when 'local_executable' is set."
+            )
+
+        if isinstance(local_executable, str):
+            if "/" in local_executable or "\\" in local_executable:
+                # Assume this is a path
+                local_executable = Path(local_executable).absolute()
+            else:
+                which_executable: str | None = None
+                which_executable = shutil.which(local_executable)
+                if not which_executable and sys.platform == "win32":
+                    # Try with the .exe extension
+                    local_executable = f"{local_executable}.exe"
+                    which_executable = shutil.which(local_executable)
+
+                if which_executable is None:
+                    raise exc.AirbyteConnectorExecutableNotFoundError(
+                        connector_name=name,
+                        context={
+                            "executable": local_executable,
+                            "working_directory": Path.cwd().absolute(),
+                        },
+                    ) from FileNotFoundError(local_executable)
+                local_executable = Path(which_executable).absolute()
+
+                print(f"Using local `{name}` executable: {local_executable!s}")
+                return PathExecutor(
+                    name=name,
+                    path=local_executable,
+                )
+
+    if docker_image:
+        if docker_image is True:
+            # Use the default image name for the connector
+            docker_image = f"airbyte/{name}"
+
+        if version is not None and ":" in docker_image:
+            raise exc.PyAirbyteInputError(
+                message="The 'version' parameter is not supported when a tag is already set in the "
+                "'docker_image' parameter.",
+                context={
+                    "docker_image": docker_image,
+                    "version": version,
+                },
+            )
+
+        if ":" not in docker_image:
+            docker_image = f"{docker_image}:{version or 'latest'}"
+
+        temp_dir = tempfile.gettempdir()
+        return DockerExecutor(
+            name=name,
+            executable=[
+                "docker",
+                "run",
+                "--rm",
+                "-i",
+                "--volume",
+                f"{temp_dir}:{temp_dir}",
+                docker_image,
+            ],
+        )
+
+    # else: we are installing a connector in a virtual environment:
+
+    metadata: ConnectorMetadata | None = None
+    try:
+        metadata = get_connector_metadata(name)
+    except exc.AirbyteConnectorNotRegisteredError as ex:
+        if not pip_url:
+            log_install_state(name, state=EventState.FAILED, exception=ex)
+            # We don't have a pip url or registry entry, so we can't install the connector
+            raise
+
+    try:
+        executor = VenvExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+            pip_url=pip_url,
+        )
+        if install_if_missing:
+            executor.ensure_installation()
+
+    except Exception as e:
+        log_install_state(name, state=EventState.FAILED, exception=e)
+        raise
+    else:
+        # No exceptions were raised, so return the executor.
+        return executor
 
 
 class Executor(ABC):
@@ -64,7 +184,16 @@ class Executor(ABC):
                 self.target_version = target_version
 
     @abstractmethod
-    def execute(self, args: list[str]) -> Iterator[str]:
+    def execute(
+        self,
+        args: list[str],
+        *,
+        stdin: IOBase | Iterable[str] | None = None,
+    ) -> Iterator[str]:
+        """Execute a command and return an iterator of STDOUT lines.
+
+        If stdin is provided, it will be passed to the subprocess as STDIN.
+        """
         pass
 
     @abstractmethod
@@ -94,9 +223,14 @@ class Executor(ABC):
 
 
 @contextmanager
-def _stream_from_subprocess(args: list[str]) -> Generator[Iterable[str], None, None]:
+def _stream_from_subprocess(
+    args: list[str],
+    *,
+    stdin: IOBase | Path | None = None,
+) -> Generator[Iterable[str], None, None]:
     process = subprocess.Popen(
         args,
+        stdin=stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         universal_newlines=True,
@@ -406,10 +540,18 @@ class VenvExecutor(Executor):
                         },
                     )
 
-    def execute(self, args: list[str]) -> Iterator[str]:
+    def execute(
+        self,
+        args: list[str],
+        *,
+        stdin: IOBase | None = None,
+    ) -> Iterator[str]:
         connector_path = self._get_connector_path()
 
-        with _stream_from_subprocess([str(connector_path), *args]) as stream:
+        with _stream_from_subprocess(
+            [str(connector_path), *args],
+            stdin=stdin,
+        ) as stream:
             yield from stream
 
 
@@ -462,8 +604,16 @@ class PathExecutor(Executor):
             connector_name=self.name,
         )
 
-    def execute(self, args: list[str]) -> Iterator[str]:
-        with _stream_from_subprocess([str(self.path), *args]) as stream:
+    def execute(
+        self,
+        args: list[str],
+        *,
+        stdin: IOBase | None = None,
+    ) -> Iterator[str]:
+        with _stream_from_subprocess(
+            [str(self.path), *args],
+            stdin=stdin,
+        ) as stream:
             yield from stream
 
 
@@ -514,6 +664,23 @@ class DockerExecutor(Executor):
             connector_name=self.name,
         )
 
-    def execute(self, args: list[str]) -> Iterator[str]:
-        with _stream_from_subprocess([*self.executable, *args]) as stream:
+    def execute(
+        self,
+        args: list[str],
+        *,
+        stdin: IOBase | None = None,
+    ) -> Iterator[str]:
+        with _stream_from_subprocess(
+            [*self.executable, *args],
+            stdin=stdin,
+        ) as stream:
             yield from stream
+
+
+__all__ = [
+    "Executor",
+    "VenvExecutor",
+    "PathExecutor",
+    "DockerExecutor",
+    "get_connector_executor",
+]
