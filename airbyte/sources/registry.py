@@ -27,6 +27,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
     "source-amplitude",
     "source-apify-dataset",
     "source-avni",
+    "source-bamboo-hr",
     "source-braintree",
     "source-braze",
     "source-chargebee",
