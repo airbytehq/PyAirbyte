@@ -200,8 +200,10 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             if "class_name:" in response.text:
                 raise exc.AirbyteConnectorInstallationError(
                     message=(
-                        "The provided manifest requires additional code files"
-                        "and is not compatible with the declarative no-code executor."
+                        "The provided manifest requires additional code files (`class_name` key "
+                        "detected). This feature is not compatible with the declarative YAML "
+                        "executor. To use this executor, please try again with the Python "
+                        "executor."
                     ),
                     connector_name=name,
                     context={
