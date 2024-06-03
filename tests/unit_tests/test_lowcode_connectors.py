@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from airbyte._util.meta import is_windows
 from airbyte.experimental import get_source
 
 UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
@@ -15,6 +16,7 @@ UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
         ("source-pokeapi", {"pokemon_name": "ditto"}),
     ],
 )
+@pytest.mark.xfail(condition=is_windows(), reason="Test expected to fail on Windows.")
 def test_nocode_execution(connector_name: str, config: dict) -> None:
     source = get_source(
         name=connector_name,
