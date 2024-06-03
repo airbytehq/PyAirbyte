@@ -32,3 +32,9 @@ AB_INTERNAL_COLUMNS = {
     AB_META_COLUMN,
 }
 """A set of internal columns that are reserved for PyAirbyte's internal use."""
+
+DEFAULT_CACHE_SCHEMA_NAME = "airbyte_raw"
+"""The default schema name to use for caches.
+
+Specific caches may override this value with a different schema name.
+"""

@@ -20,6 +20,7 @@ from airbyte import exceptions as exc
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
+from airbyte.constants import DEFAULT_CACHE_SCHEMA_NAME
 from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter
 
@@ -38,7 +39,7 @@ class BigQueryConfig(SqlConfig):
     database_name: str = Field(alias="project_name")
     """The name of the project to use. In BigQuery, this is equivalent to the database name."""
 
-    schema_name: str = Field(alias="dataset_name")
+    schema_name: str = Field(alias="dataset_name", default=DEFAULT_CACHE_SCHEMA_NAME)
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
     credentials_path: Optional[str] = None
