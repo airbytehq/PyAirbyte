@@ -61,6 +61,7 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     docker_image: bool | str = False,
     source_manifest: bool | dict | Path | str = False,
     install_if_missing: bool = True,
+    install_root: Path | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
@@ -83,8 +84,14 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             to use the default image for the connector, or you can specify a custom image name.
             If `version` is specified and your image name does not already contain a tag
             (e.g. `my-image:latest`), the version will be appended as a tag (e.g. `my-image:0.1.0`).
+        source_manifest: If set, the connector will be executed based on a declarative Yaml
+            source definition. This input can be `True` to auto-download the yaml spec, `dict`
+            to accept a Python dictionary as the manifest, `Path` to pull a manifest from
+            the local file system, or `str` to pull the definition from a web URL.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
+        install_root: (Optional.) The root directory where the virtual environment will be
+            created. If not provided, the current working directory will be used.
     """
     if (
         sum(
@@ -246,6 +253,7 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             metadata=metadata,
             target_version=version,
             pip_url=pip_url,
+            install_root=install_root,
         )
         if install_if_missing:
             executor.ensure_installation()
@@ -273,6 +281,7 @@ def get_source(
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
     install_if_missing: bool = True,
+    install_root: Path | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
@@ -293,6 +302,8 @@ def get_source(
             automatically in a virtual environment.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
+        install_root: (Optional.) The root directory where the virtual environment will be
+            created. If not provided, the current working directory will be used.
     """
     return _get_source(
         name=name,
@@ -302,6 +313,7 @@ def get_source(
         pip_url=pip_url,
         local_executable=local_executable,
         install_if_missing=install_if_missing,
+        install_root=install_root,
     )
 
 
