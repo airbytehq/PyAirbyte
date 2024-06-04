@@ -45,7 +45,7 @@ def get_connector(
 
 # This non-public function includes the `docker_image` parameter, which is not exposed in the
 # public API. See the `experimental` module for more info.
-def _get_source(  # noqa: PLR0912  # Too many branches
+def _get_source(  # noqa: PLR0912, PLR0913  # Too many branches
     name: str,
     config: dict[str, Any] | None = None,
     *,
@@ -55,6 +55,7 @@ def _get_source(  # noqa: PLR0912  # Too many branches
     local_executable: Path | str | None = None,
     docker_image: str | bool = False,
     install_if_missing: bool = True,
+    install_root: Path | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
@@ -79,6 +80,8 @@ def _get_source(  # noqa: PLR0912  # Too many branches
             (e.g. `my-image:latest`), the version will be appended as a tag (e.g. `my-image:0.1.0`).
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
+        install_root: (Optional.) The root directory where the virtual environment will be
+            created. If not provided, the current working directory will be used.
     """
     if sum([bool(local_executable), bool(docker_image), bool(pip_url)]) > 1:
         raise exc.PyAirbyteInputError(
@@ -186,6 +189,7 @@ def _get_source(  # noqa: PLR0912  # Too many branches
             metadata=metadata,
             target_version=version,
             pip_url=pip_url,
+            install_root=install_root,
         )
         if install_if_missing:
             executor.ensure_installation()
@@ -213,6 +217,7 @@ def get_source(
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
     install_if_missing: bool = True,
+    install_root: Path | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
@@ -233,6 +238,8 @@ def get_source(
             automatically in a virtual environment.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
+        install_root: (Optional.) The root directory where the virtual environment will be
+            created. If not provided, the current working directory will be used.
     """
     return _get_source(
         name=name,
@@ -242,6 +249,7 @@ def get_source(
         pip_url=pip_url,
         local_executable=local_executable,
         install_if_missing=install_if_missing,
+        install_root=install_root,
     )
 
 
