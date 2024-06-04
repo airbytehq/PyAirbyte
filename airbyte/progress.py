@@ -18,6 +18,7 @@ import math
 import os
 import sys
 import time
+import warnings
 from contextlib import suppress
 from enum import Enum, auto
 from typing import TYPE_CHECKING, cast
@@ -195,11 +196,19 @@ class ReadProgress:
         Otherwise, this is a no-op.
         """
         if self.style == ProgressStyle.RICH and not self._rich_view:
-            self._rich_view = RichLive(
-                auto_refresh=True,
-                refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
-            )
-            self._rich_view.start()
+            try:
+                self._rich_view = RichLive(
+                    auto_refresh=True,
+                    refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
+                )
+                self._rich_view.start()
+            except Exception:
+                warnings.warn(
+                    "Failed to start Rich live view. Falling back to plain text progress.",
+                    stacklevel=2,
+                )
+                self.style = ProgressStyle.PLAIN
+                self._stop_rich_view()
 
     def _stop_rich_view(self) -> None:
         """Stop the rich view display, if applicable.
