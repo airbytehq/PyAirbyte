@@ -27,6 +27,11 @@ from airbyte.version import get_version
 from sqlalchemy import column, text
 
 
+@pytest.fixture(scope="function", autouse=True)
+def autouse_source_test_registry(source_test_registry):
+    return
+
+
 def pop_internal_columns_from_dataset(
     dataset: datasets.DatasetBase | list[dict[str, Any]],
     /,
@@ -90,11 +95,6 @@ def assert_data_matches_cache(
 
 @pytest.fixture(scope="module", autouse=True)
 def autouse_source_test_installation(source_test_installation):
-    return
-
-
-@pytest.fixture(scope="function", autouse=True)
-def autouse_source_test_registry(source_test_registry):
     return
 
 
@@ -218,6 +218,8 @@ def test_version_enforcement(
         name="source-test",
         latest_available_version=latest_available_version,
         pypi_package_name="airbyte-source-test",
+        language=registry.Language.PYTHON,
+        install_types={registry.InstallType.PYTHON, registry.InstallType.DOCKER},
     )
 
     # We need to initialize the cache before we can patch it.

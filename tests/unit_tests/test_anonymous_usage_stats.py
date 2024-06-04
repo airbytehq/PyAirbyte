@@ -2,20 +2,23 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import re
+from pathlib import Path
 from unittest.mock import MagicMock
-
-import responses
 
 import airbyte as ab
 import pytest
-
+import responses
 from airbyte._util import telemetry
 
 
+@pytest.fixture(scope="function", autouse=True)
+def autouse_source_test_registry(source_test_registry):
+    return
+
+
 @responses.activate
-def test_telemetry_track(monkeypatch):
+def test_telemetry_track(monkeypatch, source_test_registry):
     """Check that track is called and the correct data is sent."""
     monkeypatch.delenv("DO_NOT_TRACK", raising=False)
 
@@ -69,7 +72,11 @@ def test_telemetry_track(monkeypatch):
 
 @pytest.mark.parametrize("do_not_track", ["1", "true", "t"])
 @responses.activate
-def test_do_not_track(monkeypatch, do_not_track):
+def test_do_not_track(
+    monkeypatch,
+    do_not_track,
+    source_test_registry,
+):
     """Check that track is called and the correct data is sent."""
     monkeypatch.setenv("DO_NOT_TRACK", do_not_track)
 

@@ -13,6 +13,7 @@ import time
 import warnings
 from pathlib import Path
 
+import airbyte
 import docker
 import psycopg2 as psycopg
 import pytest
@@ -225,21 +226,31 @@ def new_postgres_cache():
     postgres.remove()
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=False)
 def source_test_registry(monkeypatch):
     """
-    Set environment variables for the test source.
-
-    These are applied to this test file only.
+    Mock the registry to return our custom registry containing the 'source-test' connector.
 
     This means the normal registry is not usable. Expect AirbyteConnectorNotRegisteredError for
     other connectors.
     """
-    env_vars = {
-        "AIRBYTE_LOCAL_REGISTRY": LOCAL_TEST_REGISTRY_URL,
-    }
-    for key, value in env_vars.items():
-        monkeypatch.setenv(key, value)
+
+    # Define the mock function
+    def mock_get_registry_cache():
+        return LOCAL_TEST_REGISTRY_URL
+
+    # Replace _get_registry_url() with the mock function
+    monkeypatch.setattr(
+        airbyte.sources.registry, "_get_registry_url", mock_get_registry_cache
+    )
+
+    # reset the registry cache
+    airbyte.sources.registry.__cache = None
+
+    yield
+
+    # reset the registry cache (clean up)
+    airbyte.sources.registry.__cache = None
 
 
 @pytest.fixture(autouse=True)

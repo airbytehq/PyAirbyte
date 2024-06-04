@@ -7,13 +7,18 @@ import shutil
 import sys
 import tempfile
 import warnings
+from json import JSONDecodeError
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+import requests
+import yaml
 
 from airbyte import exceptions as exc
 from airbyte._executor import DockerExecutor, PathExecutor, VenvExecutor
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte.sources.base import Source
+from airbyte.sources.declarative import DeclarativeExecutor
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
@@ -45,7 +50,7 @@ def get_connector(
 
 # This non-public function includes the `docker_image` parameter, which is not exposed in the
 # public API. See the `experimental` module for more info.
-def _get_source(  # noqa: PLR0912, PLR0913  # Too many branches
+def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     name: str,
     config: dict[str, Any] | None = None,
     *,
@@ -53,7 +58,8 @@ def _get_source(  # noqa: PLR0912, PLR0913  # Too many branches
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: str | bool = False,
+    docker_image: bool | str = False,
+    source_manifest: bool | dict | Path | str = False,
     install_if_missing: bool = True,
     install_root: Path | None = None,
 ) -> Source:
@@ -78,21 +84,36 @@ def _get_source(  # noqa: PLR0912, PLR0913  # Too many branches
             to use the default image for the connector, or you can specify a custom image name.
             If `version` is specified and your image name does not already contain a tag
             (e.g. `my-image:latest`), the version will be appended as a tag (e.g. `my-image:0.1.0`).
+        source_manifest: If set, the connector will be executed based on a declarative Yaml
+            source definition. This input can be `True` to auto-download the yaml spec, `dict`
+            to accept a Python dictionary as the manifest, `Path` to pull a manifest from
+            the local file system, or `str` to pull the definition from a web URL.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
     """
-    if sum([bool(local_executable), bool(docker_image), bool(pip_url)]) > 1:
+    if (
+        sum(
+            [
+                bool(local_executable),
+                bool(docker_image),
+                bool(pip_url),
+                bool(source_manifest),
+            ]
+        )
+        > 1
+    ):
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
-                "or 'pip_url'."
+                "'pip_url', or 'source_manifest'."
             ),
             context={
                 "local_executable": local_executable,
                 "docker_image": docker_image,
                 "pip_url": pip_url,
+                "source_manifest": source_manifest,
             },
         )
 
@@ -172,6 +193,49 @@ def _get_source(  # noqa: PLR0912, PLR0913  # Too many branches
             ),
         )
 
+    if source_manifest:
+        if source_manifest is True:
+            http_url = (
+                "https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
+                f"/connectors/{name}/{name.replace('-', '_')}/manifest.yaml"
+            )
+            print("Installing connector from YAML manifest:", http_url)
+            # Download the file
+            response = requests.get(http_url)
+            response.raise_for_status()  # Raise an exception if the download failed
+
+            if "class_name:" in response.text:
+                raise exc.AirbyteConnectorInstallationError(
+                    message=(
+                        "The provided manifest requires additional code files (`class_name` key "
+                        "detected). This feature is not compatible with the declarative YAML "
+                        "executor. To use this executor, please try again with the Python "
+                        "executor."
+                    ),
+                    connector_name=name,
+                    context={
+                        "manifest_url": http_url,
+                    },
+                )
+
+            try:
+                source_manifest = cast(dict, yaml.safe_load(response.text))
+            except JSONDecodeError as ex:
+                raise exc.AirbyteConnectorInstallationError(
+                    connector_name=name,
+                    context={
+                        "manifest_url": http_url,
+                    },
+                ) from ex
+
+        return Source(
+            name=name,
+            config=config,
+            streams=streams,
+            executor=DeclarativeExecutor(
+                manifest=source_manifest,
+            ),
+        )
     # else: we are installing a connector in a virtual environment:
 
     metadata: ConnectorMetadata | None = None
