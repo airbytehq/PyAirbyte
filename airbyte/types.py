@@ -156,7 +156,7 @@ class SQLTypeConverter:
 
         if json_schema_type == "object":
             return sqlalchemy.types.JSON()
-        
+
         if json_schema_type == "dict":
             return sqlalchemy.types.JSON()
 
