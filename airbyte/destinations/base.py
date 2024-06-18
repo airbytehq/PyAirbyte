@@ -93,7 +93,7 @@ class Destination(ConnectorBase):
         with as_temp_files(
             [
                 self._config,
-                configured_catalog_dict,
+                configured_catalog.dict(),
             ]
         ) as [
             config_file,
