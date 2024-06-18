@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import abc
+import sys
 from typing import TYPE_CHECKING, Callable
 
 import pydantic
@@ -37,12 +38,13 @@ class StdinMessageGenerator(AirbyteMessageGenerator):
 
     def __next__(self) -> AirbyteMessage:
         """Reads the next message from STDIN and returns it as an AirbyteMessage."""
+        next_line: str | None = next(sys.stdin, None)  # Read the next line from STDIN
+        if next_line is None:
+            # End of file (EOF) indicates no more input from STDIN
+            raise StopIteration
         try:
             # Let Pydantic handle the JSON decoding from the raw string
-            return AirbyteMessage.parse_raw(input())
-        except EOFError:
-            # End of file (EOF) indicates no more input from STDIN
-            raise StopIteration from None
+            return AirbyteMessage.parse_raw(next_line)
         except pydantic.ValidationError:
             # Handle JSON decoding errors (optional)
             raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
