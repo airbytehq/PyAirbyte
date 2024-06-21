@@ -59,6 +59,7 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
     docker_image: bool | str = False,
+    use_host_network: bool = False,
     source_manifest: bool | dict | Path | str = False,
     install_if_missing: bool = True,
     install_root: Path | None = None,
@@ -84,6 +85,9 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             to use the default image for the connector, or you can specify a custom image name.
             If `version` is specified and your image name does not already contain a tag
             (e.g. `my-image:latest`), the version will be appended as a tag (e.g. `my-image:0.1.0`).
+        use_host_network: If set, along with docker_image, the connector will be executed using
+            the host network. This is useful for connectors that need to access resources on
+            the host machine, such as a local database.
         source_manifest: If set, the connector will be executed based on a declarative Yaml
             source definition. This input can be `True` to auto-download the yaml spec, `dict`
             to accept a Python dictionary as the manifest, `Path` to pull a manifest from
@@ -175,21 +179,28 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             docker_image = f"{docker_image}:{version or 'latest'}"
 
         temp_dir = tempfile.gettempdir()
+
+        docker_cmd = [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+            "--volume",
+            f"{temp_dir}:{temp_dir}",
+        ]
+
+        if use_host_network is True:
+            docker_cmd.extend(["--network", "host"])
+
+        docker_cmd.extend([docker_image])
+
         return Source(
             name=name,
             config=config,
             streams=streams,
             executor=DockerExecutor(
                 name=name,
-                executable=[
-                    "docker",
-                    "run",
-                    "--rm",
-                    "-i",
-                    "--volume",
-                    f"{temp_dir}:{temp_dir}",
-                    docker_image,
-                ],
+                executable=docker_cmd,
             ),
         )
 
