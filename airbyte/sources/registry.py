@@ -25,6 +25,7 @@ _LOWCODE_LABEL = "cdk:low-code"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
     "source-alpha-vantage",
+    "source-asana",
     "source-amplitude",
     "source-apify-dataset",
     "source-avni",
@@ -66,6 +67,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
     "source-recharge",
     "source-retently",
     "source-rss",
+    "source-salesloft",
     "source-slack",
     "source-surveymonkey",
     "source-the-guardian-api",
@@ -83,9 +85,8 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
 _LOWCODE_CONNECTORS_FAILING_VALIDATION = [
     "source-amazon-ads",
 ]
-_LOWCODE_CONNECTORS_404 = [
-    "source-unleash",
-]
+# Connectors that return 404 or some other misc error.
+_LOWCODE_CONNECTORS_404: list[str] = []
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
     *_LOWCODE_CONNECTORS_404,
