@@ -10,6 +10,7 @@ import pandas as pd
 from pydantic import Field, PrivateAttr
 
 import pyarrow as pa
+import pyarrow.dataset as ds
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
@@ -148,7 +149,7 @@ class CacheBase(SqlConfig):
         engine = self.get_sql_engine()
         return pd.read_sql_table(table_name, engine, schema=self.schema_name)
 
-    def get_arrow_dataset(self, stream_name: str, chunksize: int) -> pa.dataset.Dataset:
+    def get_arrow_dataset(self, stream_name: str, chunksize: int) -> Any:
         """Return an Arrow Dataset with the stream's data."""
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
@@ -168,7 +169,7 @@ class CacheBase(SqlConfig):
             arrow_table = pa.Table.from_pandas(pandas_chunk, schema=arrow_schema)
             arrow_tables_list.append(arrow_table)
 
-        return pa.dataset.dataset(arrow_tables_list)
+        return ds.dataset(arrow_tables_list)
 
     @final
     @property
