@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, cast, List
 
 from pandas import DataFrame
+import pyarrow
 
 from airbyte._util.document_rendering import DocumentRenderer
 
@@ -36,6 +37,10 @@ class DatasetBase(ABC):
         # expects an iterator of dict objects. This cast is safe because we know
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
+
+    def to_arrow_dataset(self, chunksize:int) -> pyarrow.dataset.Dataset:
+        """Return an Arrow Dataset representation of the dataset."""
+        return pyarrow.dataset.Dataset(List[pyarrow.Table])
 
     def to_documents(
         self,

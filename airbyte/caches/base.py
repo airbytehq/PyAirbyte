@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Any, Optional, final
 import pandas as pd
 from pydantic import Field, PrivateAttr
 
+import pyarrow as pa
+
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
 from airbyte._future_cdk.catalog_providers import CatalogProvider
@@ -145,6 +147,28 @@ class CacheBase(SqlConfig):
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
         return pd.read_sql_table(table_name, engine, schema=self.schema_name)
+
+    def get_arrow_dataset(self, stream_name: str, chunksize: int) -> pa.dataset.Dataset:
+        """Return an Arrow Dataset with the stream's data."""
+        table_name = self._read_processor.get_sql_table_name(stream_name)
+        engine = self.get_sql_engine()
+
+        # Read the table in chunks to handle large tables which does not fits in memory
+        pandas_chunks = pd.read_sql_table(table_name, engine, schema=self.schema_name, chunksize=chunksize)
+
+        arrow_tables_list = []
+        arrow_schema = None
+
+        for pandas_chunk in pandas_chunks:
+            if arrow_schema is None:
+                # Initialize the schema with the first chunk
+                arrow_schema = pa.Schema.from_pandas(pandas_chunk)
+
+            # Convert each pandas chunk to an Arrow Table
+            arrow_table = pa.Table.from_pandas(pandas_chunk, schema=arrow_schema)
+            arrow_tables_list.append(arrow_table)
+
+        return pa.dataset.dataset(arrow_tables_list)
 
     @final
     @property

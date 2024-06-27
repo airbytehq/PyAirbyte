@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pandas import DataFrame
+    from pyarrow.dataset import Dataset
     from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
     from sqlalchemy.sql.selectable import Selectable
@@ -102,6 +103,9 @@ class SQLDataset(DatasetBase):
     def to_pandas(self) -> DataFrame:
         return self._cache.get_pandas_dataframe(self._stream_name)
 
+    def to_arrow_dataset(self, chunksize:int= 100000) -> Dataset:
+        return self._cache.get_arrow_dataset(self._stream_name, chunksize=chunksize)
+
     def with_filter(self, *filter_expressions: ClauseElement | str) -> SQLDataset:
         """Filter the dataset by a set of column values.
 
@@ -165,6 +169,19 @@ class CachedDataset(SQLDataset):
     def to_pandas(self) -> DataFrame:
         """Return the underlying dataset data as a pandas DataFrame."""
         return self._cache.get_pandas_dataframe(self._stream_name)
+
+    @overrides
+    def to_arrow_dataset(self, chunksize:int= 100000) -> Dataset:
+        """Return an Arrow Dataset containing the data from the specified stream.
+
+        Args:
+            stream_name (str): Name of the stream to retrieve data from.
+            chunksize (int): number of records to include in each batch of pyarrow dataset.
+
+        Returns:
+            pa.dataset.Dataset: Arrow Dataset containing the stream's data.
+        """
+        return self._cache.get_arrow_dataset(self._stream_name, chunksize=chunksize)
 
     def to_sql_table(self) -> Table:
         """Return the underlying SQL table as a SQLAlchemy Table object."""
