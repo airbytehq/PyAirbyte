@@ -7,9 +7,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
 
-import pyarrow
-from pyarrow.dataset import dataset
-
 from airbyte._util.document_rendering import DocumentRenderer
 
 

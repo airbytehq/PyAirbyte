@@ -159,7 +159,9 @@ class CacheBase(SqlConfig):
         engine = self.get_sql_engine()
 
         # Read the table in chunks to handle large tables which does not fits in memory
-        pandas_chunks = pd.read_sql_table(table_name, engine, schema=self.schema_name, chunksize=chunksize)
+        pandas_chunks = pd.read_sql_table(
+            table_name, engine, schema=self.schema_name, chunksize=chunksize
+        )
 
         arrow_tables_list = []
         arrow_schema = None
