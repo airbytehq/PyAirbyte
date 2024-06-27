@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
-from typing import TYPE_CHECKING, Any, cast, List
+from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
 
@@ -40,9 +40,12 @@ class DatasetBase(ABC):
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
 
-    def to_arrow_dataset(self, chunksize:int) -> Any:
-        """Return an Arrow Dataset representation of the dataset."""
-        return dataset(List[pyarrow.Table])
+    def to_arrow_dataset(self, chunksize: int = 100000) -> Any:
+        """Return an Arrow Dataset representation of the dataset.
+
+        This method should be implemented by subclasses.
+        """
+        raise NotImplementedError("Not implemented in base class")
 
     def to_documents(
         self,

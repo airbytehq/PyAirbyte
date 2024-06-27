@@ -149,7 +149,11 @@ class CacheBase(SqlConfig):
         engine = self.get_sql_engine()
         return pd.read_sql_table(table_name, engine, schema=self.schema_name)
 
-    def get_arrow_dataset(self, stream_name: str, chunksize: int) -> Any:
+    def get_arrow_dataset(
+        self,
+        stream_name: str,
+        chunksize: int
+    ) -> Any:
         """Return an Arrow Dataset with the stream's data."""
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
