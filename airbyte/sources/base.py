@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import jsonschema
 import pendulum
@@ -631,7 +631,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def _log_incremental_stream(
         self,
         *,
-        incremental_streams: set[str] = None,
+        incremental_streams: Optional[set[str]] = None,
     ) -> None:
         """Log the streams which are using incremental sync mode."""
         print("The following streams are currently using incremental sync :")
