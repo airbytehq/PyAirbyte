@@ -16,13 +16,22 @@ env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
 jobs:
-  log-starting-comment:
+  start-workflow:
     name: Append 'Starting' Comment
     runs-on: ubuntu-latest
     steps:
-    - name: Create URL to the run output
-      id: vars
-      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+    - name: Get PR JSON
+      id: pr-info
+      run: |
+        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
+        echo "$PR_JSON" > pr-info.json
+        echo "sha=$(cat pr-info.json | jq -r .head.sha)" >> $GITHUB_OUTPUT
+        echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+    - name: Upload PR details as artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: pr-info
+        path: pr-info.json
     - name: Append comment with job run link
       id: first-comment-action
       uses: peter-evans/create-or-update-comment@v4
@@ -33,7 +42,7 @@ jobs:
 
           > PR test job started... [Check job output.][1]
 
-          [1]: ${{ steps.vars.outputs.run-url }}
+          [1]: ${{ steps.pr-info.outputs.run-url }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
@@ -57,6 +66,13 @@ jobs:
     steps:
 
     # Custom steps to fetch the PR and checkout the code:
+
+    - name: Download PR info
+      # This puts the `pr-info.json` file in the current directory.
+      # We need this to get the PR's SHA at the time of the workflow run.
+      uses: actions/download-artifact@v2
+      with:
+        name: pr-info
 
     - name: Checkout PR
       uses: actions/checkout@v4
@@ -100,6 +116,18 @@ jobs:
         --verbose
         -m "flaky and not super_slow"
 
+    - name: Post CI Success to GitHub
+      run: |
+        curl --request POST \
+        --url https://api.github.com/repos/${{ github.repository }}/statuses/$(cat pr-info.json | jq -r .head.sha) \
+        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
+        --header 'content-type: application/json' \
+        --data '{
+          "state": "success",
+          "context": "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})",
+          "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+          }' \
+
   log-success-comment:
     name: Append 'Success' Comment
     needs: [pytest-on-demand]
@@ -114,10 +142,26 @@ jobs:
         body: |
           > ✅ Tests passed.
 
+  log-github-actions-success:
+    name: Log GitHub Actions Success
+    needs: [pytest-on-demand]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Get PR info
+      id: pr-info
+      run: |
+        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
+        echo "::set-output name=repo::$(echo "$PR_JSON" | jq -r .head.repo.full_name)"
+        echo "::set-output name=branch::$(echo "$PR_JSON" | jq -r .head.ref)"
+        echo "::set-output name=sha::$(echo "$PR_JSON" | jq -r .head.sha)"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+
   log-failure-comment:
     name: Append 'Failure' Comment
     # This job will only run if the workflow fails
-    needs: [pytest-on-demand, log-starting-comment]
+    needs: [pytest-on-demand, start-workflow]
     if: always() && needs.pytest-on-demand.result == 'failure'
     runs-on: ubuntu-latest
     steps:
