@@ -6,6 +6,7 @@ from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
+from pyarrow.dataset import Dataset
 
 from airbyte._util.document_rendering import DocumentRenderer
 
@@ -37,7 +38,7 @@ class DatasetBase(ABC):
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
 
-    def to_arrow_dataset(self, chunksize: int = 100000) -> Any:
+    def to_arrow(self, chunksize: int) -> Dataset:
         """Return an Arrow Dataset representation of the dataset.
 
         This method should be implemented by subclasses.

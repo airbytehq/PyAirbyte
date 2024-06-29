@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pandas import DataFrame
+    from pyarrow.dataset import Dataset
     from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
     from sqlalchemy.sql.selectable import Selectable
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
 
     from airbyte.caches.base import CacheBase
 
+DEFAULT_ARROW_CHUNKSIZE = 100000
 
 class SQLDataset(DatasetBase):
     """A dataset that is loaded incrementally from a SQL query.
@@ -102,7 +104,7 @@ class SQLDataset(DatasetBase):
     def to_pandas(self) -> DataFrame:
         return self._cache.get_pandas_dataframe(self._stream_name)
 
-    def to_arrow_dataset(self, chunksize: int = 100000) -> Any:
+    def to_arrow(self, chunksize: int = DEFAULT_ARROW_CHUNKSIZE) -> Dataset:
         return self._cache.get_arrow_dataset(self._stream_name, chunksize=chunksize)
 
     def with_filter(self, *filter_expressions: ClauseElement | str) -> SQLDataset:
@@ -170,7 +172,7 @@ class CachedDataset(SQLDataset):
         return self._cache.get_pandas_dataframe(self._stream_name)
 
     @overrides
-    def to_arrow_dataset(self, chunksize: int = 100000) -> Any:
+    def to_arrow(self, chunksize: int = DEFAULT_ARROW_CHUNKSIZE) -> Dataset:
         """Return an Arrow Dataset containing the data from the specified stream.
 
         Args:

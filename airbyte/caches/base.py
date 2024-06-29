@@ -153,7 +153,7 @@ class CacheBase(SqlConfig):
         self,
         stream_name: str,
         chunksize: int
-    ) -> Any:
+    ) -> ds.Dataset:
         """Return an Arrow Dataset with the stream's data."""
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
