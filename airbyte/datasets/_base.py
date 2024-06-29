@@ -6,11 +6,14 @@ from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
+from pyarrow.dataset import Dataset
 
 from airbyte._util.document_rendering import DocumentRenderer
 
 
 if TYPE_CHECKING:
+    from pyarrow.dataset import Dataset
+
     from airbyte_protocol.models import ConfiguredAirbyteStream
 
     from airbyte.documents import Document
@@ -36,6 +39,13 @@ class DatasetBase(ABC):
         # expects an iterator of dict objects. This cast is safe because we know
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
+
+    def to_arrow(self, chunksize: int) -> Dataset:
+        """Return an Arrow Dataset representation of the dataset.
+
+        This method should be implemented by subclasses.
+        """
+        raise NotImplementedError("Not implemented in base class")
 
     def to_documents(
         self,
