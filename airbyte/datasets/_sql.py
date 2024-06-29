@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from airbyte.caches.base import CacheBase
 
-DEFAULT_ARROW_CHUNKSIZE = 100000
+DEFAULT_ARROW_CHUNKSIZE = 100_000
 
 class SQLDataset(DatasetBase):
     """A dataset that is loaded incrementally from a SQL query.
