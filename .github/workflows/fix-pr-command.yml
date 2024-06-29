@@ -68,6 +68,11 @@ jobs:
         comment-id: ${{ github.event.inputs.comment-id }}
         issue-number: ${{ github.event.inputs.pr }}
         body: |
+          > **Auto-Fix Job Info**
+          >
+          > This job attempts to auto-fix any linting or formating issues. If any fixes are made,
+          > those changes will be automatically committed and pushed back to the PR.
+          > (This job requires that the PR author has "Allow edits from maintainers" enabled.)
 
           > PR auto-fix job started... [Check job output.][1]
 
