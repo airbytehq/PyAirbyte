@@ -23,12 +23,14 @@ _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry
 
 _LOWCODE_LABEL = "cdk:low-code"
 
-_LOWCODE_CONNECTORS_NEEDING_PYTHON = [
+_LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
+    "source-adjust",
     "source-alpha-vantage",
-    "source-asana",
     "source-amplitude",
     "source-apify-dataset",
+    "source-asana",
     "source-avni",
+    "source-aws-cloudtrail",
     "source-bamboo-hr",
     "source-braintree",
     "source-braze",
@@ -41,9 +43,11 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
     "source-gitlab",
     "source-gnews",
     "source-greenhouse",
+    "source-instagram",
     "source-instatus",
     "source-intercom",
     "source-iterable",
+    "source-jina-ai-reader",
     "source-jira",
     "source-klaviyo",
     "source-mailchimp",
@@ -52,6 +56,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON = [
     "source-my-hours",
     "source-notion",
     "source-okta",
+    "source-orb",
     "source-outreach",
     "source-partnerstack",
     "source-paypal-transaction",

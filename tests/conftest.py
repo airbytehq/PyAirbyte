@@ -108,9 +108,9 @@ def is_port_in_use(port):
 
 @pytest.fixture(scope="session", autouse=True)
 def remove_postgres_container():
-    client = docker.from_env()
     if is_port_in_use(PYTEST_POSTGRES_PORT):
         try:
+            client = docker.from_env()
             container = client.containers.get(
                 PYTEST_POSTGRES_CONTAINER,
             )
@@ -118,6 +118,8 @@ def remove_postgres_container():
             container.remove()
         except docker.errors.NotFound:
             pass  # Container not found, nothing to do.
+        except docker.errors.DockerException:
+            pass  # Docker not running, nothing to do.
 
 
 def test_pg_connection(host) -> bool:
