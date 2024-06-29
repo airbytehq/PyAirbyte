@@ -750,7 +750,8 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             # Retrieve set of the known streams support which support incremental sync
             incremental_streams = (
                 set(self.get_incremental_stream_names()) & 
-                state_provider.known_stream_names
+                state_provider.known_stream_names &
+                set(self.get_selected_streams())
             )
             if incremental_streams:
                 self._log_incremental_stream(
