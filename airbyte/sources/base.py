@@ -631,7 +631,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def _log_incremental_stream(
         self,
         *,
-        incremental_streams: list[str] = None,
+        incremental_streams: set[str] = None,
     ) -> None:
         """Log the streams which are using incremental sync mode."""
         print("The following streams are currently using incremental sync :")
