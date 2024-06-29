@@ -81,6 +81,7 @@ markers = [
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
     "linting: marks a test as a linting test",
+    "flaky: marks a test as flaky",
 ]
 filterwarnings = [
     # Treat python warnings as errors in pytest
