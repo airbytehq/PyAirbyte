@@ -22,6 +22,8 @@ jobs:
     steps:
     - name: Get PR JSON
       id: pr-info
+      env:
+        GH_TOKEN: ${{ github.token }}
       run: |
         PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
         echo "$PR_JSON" > pr-info.json
@@ -141,22 +143,6 @@ jobs:
         reactions: hooray
         body: |
           > ✅ Tests passed.
-
-  log-github-actions-success:
-    name: Log GitHub Actions Success
-    needs: [pytest-on-demand]
-    runs-on: ubuntu-latest
-    steps:
-    - name: Get PR info
-      id: pr-info
-      run: |
-        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
-        echo "::set-output name=repo::$(echo "$PR_JSON" | jq -r .head.repo.full_name)"
-        echo "::set-output name=branch::$(echo "$PR_JSON" | jq -r .head.ref)"
-        echo "::set-output name=sha::$(echo "$PR_JSON" | jq -r .head.sha)"
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: bash
 
   log-failure-comment:
     name: Append 'Failure' Comment
