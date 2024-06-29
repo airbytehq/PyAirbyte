@@ -637,7 +637,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         log_message = (
             "The following streams are currently using incremental sync:\n"
             f"{incremental_streams}\n"
-            "To perform a full refresh, set 'force_full_refresh=True' in the 'airbyte.read()' method."
+            "To perform a full refresh, set 'force_full_refresh=True' in 'airbyte.read()' method."
         )
         print(log_message)
 
