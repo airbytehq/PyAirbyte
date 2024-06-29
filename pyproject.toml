@@ -15,7 +15,7 @@ enable = true
 [tool.poetry.dependencies]
 python = ">=3.9,<4.0"
 
-airbyte-cdk = "^1.2.1"
+airbyte-cdk = "^1.3.1"
 duckdb = "^1.0.0"
 duckdb-engine = "^0.13.0"
 google-auth = ">=2.27.0,<3.0"
