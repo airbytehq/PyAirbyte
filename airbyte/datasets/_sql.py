@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 
 DEFAULT_ARROW_CHUNKSIZE = 100_000
 
+
 class SQLDataset(DatasetBase):
     """A dataset that is loaded incrementally from a SQL query.
 

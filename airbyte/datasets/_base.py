@@ -12,6 +12,8 @@ from airbyte._util.document_rendering import DocumentRenderer
 
 
 if TYPE_CHECKING:
+    from pyarrow.dataset import Dataset
+    
     from airbyte_protocol.models import ConfiguredAirbyteStream
 
     from airbyte.documents import Document
