@@ -748,7 +748,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self._log_sync_start(cache=cache)
 
         # Log incremental stream if incremental streams are known
-        if not force_full_refresh and state_provider.known_stream_names:
+        if state_provider and state_provider.known_stream_names:
             # Retrieve set of the known streams support which support incremental sync
             incremental_streams = (
                 set(self.get_incremental_stream_names())
