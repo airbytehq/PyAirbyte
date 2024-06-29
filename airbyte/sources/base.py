@@ -631,7 +631,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def _log_incremental_stream(
         self,
         *,
-        cache: CacheBase | None,
         incremental_streams: list[str] = None,
     ) -> None:
         """Log the streams which are using incremental sync mode."""
@@ -755,7 +754,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             )
             if incremental_streams:
                 self._log_incremental_stream(
-                    cache=cache,
                     incremental_streams=incremental_streams
                 )
 
