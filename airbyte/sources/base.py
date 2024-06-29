@@ -220,6 +220,14 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
         return [s.name for s in self.discovered_catalog.streams]
+    
+    def get_incremental_stream_names(self) -> list[str]:
+        """Get the name of streams that support incremental sync."""
+        return [
+            stream.name
+            for stream in self.discovered_catalog.streams
+            if SyncMode.incremental in stream.supported_sync_modes
+        ]
 
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
@@ -619,6 +627,17 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             state=EventState.STARTED,
             event_type=EventType.SYNC,
         )
+        
+    def _log_incremental_stream(
+        self,
+        *,
+        cache: CacheBase | None,
+        incremental_streams: list[str] = None,
+    ) -> None:
+        """Log the streams which are using incremental sync mode."""
+        print("The following streams are currently using incremental sync :")
+        print(incremental_streams)
+        print("To perform a full refresh, set 'force_full_refresh=True' in the 'airbyte.read()' method.")
 
     def _log_sync_success(
         self,
@@ -725,6 +744,20 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             )
 
         self._log_sync_start(cache=cache)
+        
+        # Log incremental stream if incremental streams are known
+        if not force_full_refresh and state_provider.known_stream_names:
+            
+            # Retrieve set of the known streams support which support incremental sync
+            incremental_streams = (
+                set(self.get_incremental_stream_names()) & 
+                state_provider.known_stream_names
+            )
+            if incremental_streams:
+                self._log_incremental_stream(
+                    cache=cache,
+                    incremental_streams=incremental_streams
+                )
 
         cache_processor = cache.get_record_processor(
             source_name=self.name,
