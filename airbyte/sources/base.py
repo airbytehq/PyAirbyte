@@ -634,11 +634,12 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         incremental_streams: Optional[set[str]] = None,
     ) -> None:
         """Log the streams which are using incremental sync mode."""
-        print("The following streams are currently using incremental sync :")
-        print(incremental_streams)
-        print(
+        log_message = (
+            "The following streams are currently using incremental sync:\n"
+            f"{incremental_streams}\n"
             "To perform a full refresh, set 'force_full_refresh=True' in the 'airbyte.read()' method."
         )
+        print(log_message)
 
     def _log_sync_success(
         self,
