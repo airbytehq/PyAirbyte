@@ -44,6 +44,7 @@ from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
 from airbyte.warnings import PyAirbyteDataLossWarning
 
+import logging
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
@@ -124,6 +125,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             streams = [streams]
 
         available_streams = self.get_available_streams()
+        if not available_streams:
+            logging.warning("No available streams to select from. Please check the configuration and stream names.")
+            return
+
         for stream in streams:
             if stream not in available_streams:
                 raise exc.AirbyteStreamNotFoundError(
@@ -219,6 +224,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
+        if not self._config:
+            logging.warning("Configuration is not set. Cannot retrieve available streams.")
+            return []
         return [s.name for s in self.discovered_catalog.streams]
 
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
