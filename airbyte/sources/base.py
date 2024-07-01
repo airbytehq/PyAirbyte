@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -44,7 +45,6 @@ from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
 from airbyte.warnings import PyAirbyteDataLossWarning
 
-import logging
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
@@ -125,10 +125,11 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             streams = [streams]
 
         available_streams = self.get_available_streams()
-        if not available_streams:
-            logging.warning("No available streams to select from. Please check the configuration and stream names.")
+        
+        if available_streams is None:
+            logging.warning("Configuration is not set. Please set the configuration before selecting streams.")
             return
-
+        
         for stream in streams:
             if stream not in available_streams:
                 raise exc.AirbyteStreamNotFoundError(
@@ -170,9 +171,8 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     @property
     def _config(self) -> dict[str, Any]:
         if self._config_dict is None:
-            raise exc.AirbyteConnectorConfigurationMissingError(
-                guidance="Provide via get_source() or set_config()"
-            )
+            logging.warning("Configuration is not set. Proceeding without configuration.")                
+            return {}
         return self._config_dict
 
     def _discover(self) -> AirbyteCatalog:
@@ -222,12 +222,13 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             )
             raise validation_ex from ex
 
-    def get_available_streams(self) -> list[str]:
+    def get_available_streams(self) -> list[str] | None:
         """Get the available streams from the spec."""
-        if not self._config:
+        if not self._config and self.requires_config():
             logging.warning("Configuration is not set. Cannot retrieve available streams.")
-            return []
+            return None
         return [s.name for s in self.discovered_catalog.streams]
+
 
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
