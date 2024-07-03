@@ -665,15 +665,19 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         Args:
             cache: The cache to write to. If None, a default cache will be used.
+            streams: Optional if already set. A list of stream names to select for reading. If set
+                to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
                 one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
                 of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
-            streams: Optional if already set. A list of stream names to select for reading. If set
-                to "*", all streams will be selected.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option
                 must be True when using the "replace" strategy.
+            skip_validation: If True, PyAirbyte will not pre-validate the input configuration before
+                running the connector. This can be helpful in debugging, when you want to send
+                configurations to the connector that otherwise might be rejected by JSON Schema
+                validation rules.
         """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(
