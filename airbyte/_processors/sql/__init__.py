@@ -13,6 +13,4 @@ __all__ = [
     # Classes
     "SnowflakeCortexSqlProcessor",
     "SnowflakeCortexTypeConverter",
-    # modules
-    "snowflakecortex",
 ]

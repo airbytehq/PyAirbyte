@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import gzip
 import json
+from pathlib import Path
 from typing import IO, TYPE_CHECKING, cast
 
 import orjson
@@ -17,8 +18,6 @@ from airbyte._processors.file.base import (
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from airbyte.records import StreamRecord
 
 
@@ -41,9 +40,9 @@ class IcebergStateWriter(StateWriterBase):
 
     def write_state(self, state_message: dict) -> None:
         """Write the state for the given stream."""
-        state_file_path = self._get_state_file_path(stream_name)
-        with open(state_file_path, "w") as state_file:
-            json.dump(state, state_file)
+        stream_name = state_message["stream"]
+        state_file_path = Path(self._get_state_file_path(stream_name))
+        state_file_path.write_text(json.dumps(state_message))
 
 
 class IcebergWriter(FileWriterBase):

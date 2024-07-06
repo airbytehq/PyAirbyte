@@ -32,10 +32,11 @@ from airbyte._util.temp_files import as_temp_files
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
-    from io import IOBase
+    from collections.abc import Iterator
+    from typing import IO
 
     from airbyte._executor import Executor
+    from airbyte._message_generators import AirbyteMessageGenerator
 
 
 MAX_LOG_LINES = 20
@@ -285,7 +286,7 @@ class ConnectorBase(abc.ABC):
         self,
         args: list[str],
         *,
-        stdin: IOBase | Iterable[str] | None = None,
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
     ) -> Iterator[AirbyteMessage]:
         """Execute the connector with the given arguments.
 

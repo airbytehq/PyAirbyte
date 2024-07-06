@@ -27,7 +27,6 @@ __all__ = [
     "SnowflakeCache",
     # Submodules,
     "util",
-    "base",
     "bigquery",
     "duckdb",
     "motherduck",

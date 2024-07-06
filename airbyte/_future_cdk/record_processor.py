@@ -10,10 +10,9 @@ import abc
 import io
 import sys
 from collections import defaultdict
-from typing import TYPE_CHECKING, cast, final
+from typing import IO, TYPE_CHECKING, cast, final
 
 from airbyte_protocol.models import (
-    AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStateMessage,
     AirbyteStateType,
@@ -24,11 +23,14 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte._message_generators import MessageGeneratorFromStrBuffer
 from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Iterable
+
+    from airbyte_cdk import AirbyteMessage
 
     from airbyte._batch_handles import BatchHandle
     from airbyte._future_cdk.catalog_providers import CatalogProvider
@@ -129,17 +131,9 @@ class RecordProcessorBase(abc.ABC):
         )
 
     @final
-    def _airbyte_messages_from_buffer(
-        self,
-        buffer: io.TextIOBase,
-    ) -> Iterator[AirbyteMessage]:
-        """Yield messages from a buffer."""
-        yield from (AirbyteMessage.parse_raw(line) for line in buffer)
-
-    @final
     def process_input_stream(
         self,
-        input_stream: io.TextIOBase,
+        input_stream: IO[str],
         *,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
     ) -> None:
@@ -147,7 +141,7 @@ class RecordProcessorBase(abc.ABC):
 
         Return a list of summaries for testing.
         """
-        messages = self._airbyte_messages_from_buffer(input_stream)
+        messages = MessageGeneratorFromStrBuffer(input_stream)
         self.process_airbyte_messages(
             messages,
             write_strategy=write_strategy,

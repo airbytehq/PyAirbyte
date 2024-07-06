@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 import pendulum
 from rich import print
@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from airbyte._executor import Executor
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte._message_generators import AirbyteMessageGenerator
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
@@ -364,7 +365,11 @@ class Source(ConnectorBase):
                 )
             )
 
-    def _execute(self, args: list[str], stdin: None = None) -> Iterator[AirbyteMessage]:
+    def _execute(
+        self,
+        args: list[str],
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
+    ) -> Iterator[AirbyteMessage]:
         """Execute the connector with the given arguments.
 
         This involves the following steps:
@@ -448,6 +453,7 @@ class Source(ConnectorBase):
         skip_validation: bool = False,
     ) -> dict[str, list[Path]]:
         """Read from the connector and write to the file, returning a dictionary of file paths."""
+        _ = state_provider, state_writer  # TODO: Fix: Should be used.
         if not skip_validation:
             self.validate_config()
             self.check()
@@ -461,7 +467,7 @@ class Source(ConnectorBase):
                 available_streams=self.get_available_streams(),
             )
 
-        return file_writer._completed_batches
+        return file_writer._completed_batches  # noqa: SLF001  # Non-public API
 
     def read(
         self,

@@ -11,7 +11,11 @@ from airbyte_protocol.models.airbyte_protocol import AirbyteMessage, ConfiguredA
 
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.record_processor import RecordProcessorBase
-from airbyte._message_generators import FileBasedMessageGenerator, StdinMessageGenerator
+from airbyte._message_generators import (
+    AirbyteMessageGenerator,
+    FileBasedMessageGenerator,
+    StdinMessageGenerator,
+)
 from airbyte._util.temp_files import as_temp_files
 
 
@@ -72,7 +76,7 @@ class Destination(ConnectorBase):
     #         source.validate_config()
     #         self.validate_config()
 
-    #     source_msg_iterator: Iterator[AirbyteMessage] = source._read_with_catalog(  # noqa: SLF001
+    #     source_msg_iterator: Iterator[AirbyteMessage] = source._read_with_catalog(
     #         catalog=configured_catalog,
     #         state=state_provider,
     #     )
@@ -89,9 +93,10 @@ class Destination(ConnectorBase):
     ) -> None:
         """Write records to the destination."""
         print(f"Sending `{stream_name}` stream data to destination `{self.name}`...")
+        message_iterator: AirbyteMessageGenerator
         if data_files:
             file_iterator: Iterator[Path] = iter(data_files)
-            message_iterator: Iterator[AirbyteMessage] = FileBasedMessageGenerator(
+            message_iterator = FileBasedMessageGenerator(
                 file_iterator=file_iterator,
                 file_opener=open,
             )

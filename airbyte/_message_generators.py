@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import abc
 import sys
-from typing import TYPE_CHECKING, Callable
+from typing import IO, TYPE_CHECKING, Any, Callable
 
 import pydantic
+from typing_extensions import final
 
 from airbyte_cdk import AirbyteMessage
 
@@ -19,35 +20,63 @@ if TYPE_CHECKING:
 
 
 class AirbyteMessageGenerator(abc.ABC):
-    """Abstract base class for Airbyte message generators."""
+    """Abstract base class for Airbyte message generators.
 
+    This class behaves like Iterator[AirbyteMessage] but it can also be used
+    as IO[str]. In the latter case, it will return the JSON string representation of
+    the all messages in the generator.
+    """
+
+    @final
     def __iter__(self) -> Iterator[AirbyteMessage]:
-        return self
+        """The class itself is not a generator but this method makes it iterable."""
+        return self._generator()
 
     @abc.abstractmethod
+    # def _generator(self) -> Generator[AirbyteMessage, None, None]:
+    def _generator(self) -> Generator[Any, Any, Any]:
+        """Should be implemented by subclasses to yield AirbyteMessage objects."""
+        yield  # Placeholder for actual implementation. This should be replaced with actual logic.
+
+    @final
     def __next__(self) -> AirbyteMessage:
-        """Should be implemented by subclasses to return the next message."""
-        ...
+        """Delegate to the internal generator."""
+        if not hasattr(self, "_internal_generator"):
+            self._internal_generator = self._generator()
+        return next(self._internal_generator)
+
+    @final
+    def read(self) -> str:
+        """Read the next message from the generator."""
+        return next(self).json()
 
 
-class StdinMessageGenerator(AirbyteMessageGenerator):
+class MessageGeneratorFromStrBuffer(AirbyteMessageGenerator):
     """A message generator that reads messages from STDIN."""
 
-    def __iter__(self) -> Iterator[AirbyteMessage]:
-        return self
+    def __init__(self, buffer: IO[str]) -> None:
+        self.buffer: IO[str] = buffer
 
-    def __next__(self) -> AirbyteMessage:
-        """Reads the next message from STDIN and returns it as an AirbyteMessage."""
-        next_line: str | None = next(sys.stdin, None)  # Read the next line from STDIN
-        if next_line is None:
-            # End of file (EOF) indicates no more input from STDIN
-            raise StopIteration
-        try:
-            # Let Pydantic handle the JSON decoding from the raw string
-            return AirbyteMessage.parse_raw(next_line)
-        except pydantic.ValidationError:
-            # Handle JSON decoding errors (optional)
-            raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
+    def _generator(self) -> Generator[AirbyteMessage, None, None]:
+        """Yields AirbyteMessage objects read from STDIN."""
+        while True:
+            next_line: str | None = next(self.buffer, None)  # Read the next line from STDIN
+            if next_line is None:
+                # End of file (EOF) indicates no more input from STDIN
+                break
+            try:
+                # Let Pydantic handle the JSON decoding from the raw string
+                yield AirbyteMessage.parse_raw(next_line)
+            except pydantic.ValidationError:
+                # Handle JSON decoding errors (optional)
+                raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
+
+
+class StdinMessageGenerator(MessageGeneratorFromStrBuffer):
+    """A message generator that reads messages from STDIN."""
+
+    def __init__(self) -> None:
+        super().__init__(buffer=sys.stdin)
 
 
 class FileBasedMessageGenerator(AirbyteMessageGenerator):
@@ -68,7 +97,7 @@ class FileBasedMessageGenerator(AirbyteMessageGenerator):
         self._current_file_buffer: io.StringIO | None = None
         self._generator_instance: Generator[AirbyteMessage, None, None] = self._generator()
 
-    def _generator(self) -> Generator[AirbyteMessage]:
+    def _generator(self) -> Generator[AirbyteMessage, None, None]:
         """Read the next line from the current file and return it as a tuple with the file path."""
         while True:
             if self._current_file_buffer is None:
@@ -97,10 +126,3 @@ class FileBasedMessageGenerator(AirbyteMessageGenerator):
                 self._current_file_buffer.close()
                 self._current_file_buffer = None
                 raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
-
-    def __iter__(self) -> Iterator[AirbyteMessage]:
-        return self._generator_instance
-
-    def __next__(self) -> AirbyteMessage:
-        """Reads the next message from the file iterator and return it as an AirbyteMessage."""
-        return next(self._generator_instance)

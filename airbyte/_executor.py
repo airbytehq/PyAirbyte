@@ -17,6 +17,7 @@ from rich import print
 from typing_extensions import Literal
 
 from airbyte import exceptions as exc
+from airbyte._message_generators import AirbyteMessageGenerator
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
@@ -24,7 +25,6 @@ from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
-    from io import IOBase
 
 
 _LATEST_VERSION = "latest"
@@ -188,7 +188,7 @@ class Executor(ABC):
         self,
         args: list[str],
         *,
-        stdin: IOBase | Iterable[str] | None = None,
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
     ) -> Iterator[str]:
         """Execute a command and return an iterator of STDOUT lines.
 
@@ -226,8 +226,11 @@ class Executor(ABC):
 def _stream_from_subprocess(
     args: list[str],
     *,
-    stdin: IOBase | Path | None = None,
+    stdin: IO[str] | AirbyteMessageGenerator | None = None,
 ) -> Generator[Iterable[str], None, None]:
+    if isinstance(stdin, AirbyteMessageGenerator):
+        # AirbyteMessageGenerator implements IO[str]
+        stdin = cast(IO[str], stdin)
     process = subprocess.Popen(
         args,
         stdin=stdin,
@@ -544,7 +547,7 @@ class VenvExecutor(Executor):
         self,
         args: list[str],
         *,
-        stdin: IOBase | None = None,
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
     ) -> Iterator[str]:
         connector_path = self._get_connector_path()
 
@@ -608,7 +611,7 @@ class PathExecutor(Executor):
         self,
         args: list[str],
         *,
-        stdin: IOBase | None = None,
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
     ) -> Iterator[str]:
         with _stream_from_subprocess(
             [str(self.path), *args],
@@ -668,7 +671,7 @@ class DockerExecutor(Executor):
         self,
         args: list[str],
         *,
-        stdin: IOBase | None = None,
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
     ) -> Iterator[str]:
         with _stream_from_subprocess(
             [*self.executable, *args],
