@@ -60,9 +60,9 @@ class FileWriterBase(abc.ABC):
     def _open_new_file(
         self,
         file_path: Path,
-    ) -> IO[bytes]:
+    ) -> IO[str]:
         """Open a new file for writing."""
-        return file_path.open("wb")
+        return file_path.open("w")
 
     def _flush_active_batch(
         self,
@@ -216,7 +216,7 @@ class FileWriterBase(abc.ABC):
     def _write_record_dict(
         self,
         record_dict: StreamRecord,
-        open_file_writer: IO[bytes],
+        open_file_writer: IO[str],
     ) -> None:
         """Write one record to a file."""
         raise NotImplementedError("No default implementation.")

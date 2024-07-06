@@ -391,7 +391,7 @@ class Source(ConnectorBase):
     ) -> Generator[AirbyteMessage, Any, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         self._processed_records = 0  # Reset the counter before we start
-        progress.reset(len(self._selected_stream_names or []))
+        progress.reset(num_streams_expected=len(self._selected_stream_names or []))
 
         for message in messages:
             yield message
