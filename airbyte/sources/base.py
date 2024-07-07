@@ -174,10 +174,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         """Call discover on the connector.
 
         This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with discover --config <config_file>
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
+        - Write the config to a temporary file
+        - execute the connector with discover --config <config_file>
+        - Listen to the messages and return the first AirbyteCatalog that comes along.
+        - Make sure the subprocess is killed when the function returns.
         """
         with as_temp_files([self._config]) as [config_file]:
             for msg in self._execute(["discover", "--config", config_file]):
@@ -306,7 +306,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         for each connector.
         """
         spec_obj: ConnectorSpecification = self._get_spec()
-        spec_dict = spec_obj.dict(exclude_unset=True)
+        spec_dict: dict[str, Any] = spec_obj.model_dump(exclude_unset=True)
         # convert to a yaml string
         return yaml.dump(spec_dict)
 
@@ -545,7 +545,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         with as_temp_files(
             [
                 self._config,
-                catalog.json(),
+                catalog.model_dump_json(),
                 state.to_state_input_file_text() if state else "[]",
             ]
         ) as [
@@ -587,7 +587,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             self._last_log_messages = []
             for line in self.executor.execute(args):
                 try:
-                    message = AirbyteMessage.parse_raw(line)
+                    message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if message.type is Type.RECORD:
                         self._processed_records += 1
                     if message.type == Type.LOG:

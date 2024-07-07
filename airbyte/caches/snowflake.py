@@ -31,6 +31,6 @@ from airbyte.caches.base import CacheBase
 class SnowflakeCache(SnowflakeConfig, CacheBase):
     """Configuration for the Snowflake cache."""
 
-    dedupe_mode = RecordDedupeMode.APPEND
+    dedupe_mode: RecordDedupeMode = RecordDedupeMode.APPEND
 
     _sql_processor_class = PrivateAttr(default=SnowflakeSqlProcessor)

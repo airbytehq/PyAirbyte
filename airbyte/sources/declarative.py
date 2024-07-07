@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
+
+import pydantic
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
@@ -17,6 +20,18 @@ from airbyte.sources.base import Source
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+def _suppress_cdk_pydantic_deprecation_warnings() -> None:
+    """Suppress deprecation warnings from Pydantic in the CDK.
+
+    CDK has deprecated uses of `json()` and `parse_obj()`, and we don't want users
+    to see these warnings.
+    """
+    warnings.filterwarnings(
+        "ignore",
+        category=pydantic.warnings.PydanticDeprecatedSince20,
+    )
 
 
 class DeclarativeExecutor(Executor):
@@ -32,6 +47,7 @@ class DeclarativeExecutor(Executor):
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
         """
+        _suppress_cdk_pydantic_deprecation_warnings()
         self._manifest_dict: dict
         if isinstance(manifest, Path):
             self._manifest_dict = cast(dict, json.loads(manifest.read_text()))
@@ -91,6 +107,8 @@ class DeclarativeSource(Source):
             manifest: The manifest for the declarative source. This can be a path to a yaml file, a
             yaml string, or a dict.
         """
+        _suppress_cdk_pydantic_deprecation_warnings()
+
         # TODO: Conform manifest to a dict or str (TBD)
         self.manifest = manifest
 
