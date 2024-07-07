@@ -13,11 +13,8 @@ from __future__ import annotations
 import airbyte as ab
 
 
-SCALE = 50_000  # Number of records to generate between users and purchases.
+SCALE = 200_000  # Number of records to generate between users and purchases.
 FORCE_FULL_REFRESH = True  # Whether to force a full refresh on the source.
-
-# This is a dummy secret, just to test functionality.
-DUMMY_SECRET = ab.get_secret("DUMMY_SECRET")
 
 
 print("Initializing cache...")
