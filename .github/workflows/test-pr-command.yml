@@ -50,7 +50,7 @@ jobs:
   # Only the first two steps of the job are different, and they check out the PR's branch.
   pytest-on-demand:
     name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
-    # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
+    needs: [start-workflow]
     strategy:
       matrix:
         python-version: [
@@ -63,8 +63,11 @@ jobs:
           Windows,
         ]
       fail-fast: false
-
     runs-on: "${{ matrix.os }}-latest"
+    env:
+      # Enforce UTF-8 encoding so Windows runners don't fail inside the connector code.
+      # TODO: See if we can fully enforce this within PyAirbyte itself.
+      PYTHONIOENCODING: utf-8
     steps:
 
     # Custom steps to fetch the PR and checkout the code:

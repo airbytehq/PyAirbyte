@@ -15,6 +15,7 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 from airbyte._executor import _get_bin_dir
+from airbyte.experimental import get_source
 from airbyte.progress import ReadProgress, progress
 
 # Product count is always the same, regardless of faker scale.
@@ -45,7 +46,7 @@ def add_venv_bin_to_path(monkeypatch):
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
-    source = ab.get_source(
+    source = get_source(
         "source-faker",
         local_executable="source-faker",
         config={
@@ -62,7 +63,7 @@ def source_faker_seed_a() -> ab.Source:
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_faker_seed_b() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
-    source = ab.get_source(
+    source = get_source(
         "source-faker",
         local_executable="source-faker",
         config={
@@ -76,16 +77,15 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
-@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
+@pytest.fixture(scope="function")  # Each test gets a fresh source instance.
 def source_pokeapi() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
-    source = ab.get_source(
+    source = get_source(
         "source-pokeapi",
-        local_executable="source-pokeapi",
         config={
             "pokemon_name": "pikachu",
         },
-        install_if_missing=False,  # Should already be on PATH
+        source_manifest=True,
         streams="*",
     )
     return source

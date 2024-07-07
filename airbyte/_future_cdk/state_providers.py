@@ -78,7 +78,10 @@ class StateProviderBase(abc.ABC):  # noqa: B024
         return (
             "["
             + "\n, ".join(
-                [state_artifact.json() for state_artifact in (self._state_message_artifacts or [])]
+                [
+                    state_artifact.model_dump_json()
+                    for state_artifact in (self._state_message_artifacts or [])
+                ]
             )
             + "]"
         )

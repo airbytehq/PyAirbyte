@@ -75,6 +75,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-salesloft",
     "source-slack",
     "source-surveymonkey",
+    "source-tiktok-marketing",
     "source-the-guardian-api",
     "source-trello",
     "source-typeform",
