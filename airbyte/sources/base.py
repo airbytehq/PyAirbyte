@@ -75,7 +75,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self.executor = executor
         self.name = name
         self._processed_records = 0
-        self._last_stream_processed : str = None
+        self._last_stream_processed: str = None
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
@@ -623,7 +623,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             state=EventState.STARTED,
             event_type=EventType.SYNC,
         )
-        
+
     def _log_stream_read_start(self, stream) -> None:
         print(f"Read started on stream: {stream} at {pendulum.now().format('HH:mm:ss')}...")
 
