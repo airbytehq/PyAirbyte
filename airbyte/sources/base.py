@@ -221,7 +221,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         """Get the available streams from the spec."""
         return [s.name for s in self.discovered_catalog.streams]
 
-    def get_incremental_stream_names(self) -> list[str]:
+    def _get_incremental_stream_names(self) -> list[str]:
         """Get the name of streams that support incremental sync."""
         return [
             stream.name
@@ -628,7 +628,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             event_type=EventType.SYNC,
         )
 
-    def _log_incremental_stream(
+    def _log_incremental_streams(
         self,
         *,
         incremental_streams: Optional[set[str]] = None,
@@ -751,12 +751,12 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         if state_provider and state_provider.known_stream_names:
             # Retrieve set of the known streams support which support incremental sync
             incremental_streams = (
-                set(self.get_incremental_stream_names())
+                set(self._get_incremental_stream_names())
                 & state_provider.known_stream_names
                 & set(self.get_selected_streams())
             )
             if incremental_streams:
-                self._log_incremental_stream(incremental_streams=incremental_streams)
+                self._log_incremental_streams(incremental_streams=incremental_streams)
 
         cache_processor = cache.get_record_processor(
             source_name=self.name,
