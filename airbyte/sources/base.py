@@ -179,10 +179,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         """Call discover on the connector.
 
         This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with discover --config <config_file>
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
+        - Write the config to a temporary file
+        - execute the connector with discover --config <config_file>
+        - Listen to the messages and return the first AirbyteCatalog that comes along.
+        - Make sure the subprocess is killed when the function returns.
         """
         with as_temp_files([self._config]) as [config_file]:
             for msg in self._execute(["discover", "--config", config_file]):
@@ -307,7 +307,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         for each connector.
         """
         spec_obj: ConnectorSpecification = self._get_spec()
-        spec_dict = spec_obj.dict(exclude_unset=True)
+        spec_dict: dict[str, Any] = spec_obj.model_dump(exclude_unset=True)
         # convert to a yaml string
         return yaml.dump(spec_dict)
 
@@ -546,7 +546,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         with as_temp_files(
             [
                 self._config,
-                catalog.json(),
+                catalog.model_dump_json(),
                 state.to_state_input_file_text() if state else "[]",
             ]
         ) as [
@@ -588,7 +588,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             self._last_log_messages = []
             for line in self.executor.execute(args):
                 try:
-                    message = AirbyteMessage.parse_raw(line)
+                    message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if message.type is Type.RECORD:
                         self._processed_records += 1
                     if message.type == Type.LOG:
@@ -674,15 +674,19 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         Args:
             cache: The cache to write to. If None, a default cache will be used.
+            streams: Optional if already set. A list of stream names to select for reading. If set
+                to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
                 one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
                 of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
-            streams: Optional if already set. A list of stream names to select for reading. If set
-                to "*", all streams will be selected.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option
                 must be True when using the "replace" strategy.
+            skip_validation: If True, PyAirbyte will not pre-validate the input configuration before
+                running the connector. This can be helpful in debugging, when you want to send
+                configurations to the connector that otherwise might be rejected by JSON Schema
+                validation rules.
         """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(

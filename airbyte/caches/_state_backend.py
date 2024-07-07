@@ -104,7 +104,7 @@ class SqlStateWriter(StateWriterBase):
                     source_name=self.source_name,
                     stream_name=stream_name,
                     table_name=table_prefix + stream_name,
-                    state_json=state_message.json(),
+                    state_json=state_message.model_dump_json(),
                 )
             )
             session.commit()
@@ -170,7 +170,7 @@ class SqlStateBackend(StateBackendBase):
 
         return StaticInputState(
             from_state_messages=[
-                AirbyteStateMessage.parse_raw(state.state_json) for state in states
+                AirbyteStateMessage.model_validate_json(state.state_json) for state in states
             ]
         )
 

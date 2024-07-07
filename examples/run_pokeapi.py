@@ -11,12 +11,13 @@ if your installation gets interrupted or corrupted.
 from __future__ import annotations
 
 import airbyte as ab
+from airbyte.experimental import get_source
 
 
-source = ab.get_source(
+source = get_source(
     "source-pokeapi",
     config={"pokemon_name": "bulbasaur"},
-    install_if_missing=True,
+    source_manifest=True,
 )
 source.check()
 

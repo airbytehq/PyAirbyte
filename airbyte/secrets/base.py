@@ -6,9 +6,16 @@ from __future__ import annotations
 import json
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import cast
+from typing import TYPE_CHECKING, Any, cast
+
+from pydantic_core import CoreSchema, core_schema
 
 from airbyte import exceptions as exc
+
+
+if TYPE_CHECKING:
+    from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, ValidationInfo
+    from pydantic.json_schema import JsonSchemaValue
 
 
 class SecretSourceEnum(str, Enum):
@@ -64,6 +71,49 @@ class SecretString(str):
                     "SecretString_Length": len(self),  # Debug secret blank or an unexpected format.
                 },
             ) from None
+
+    # Pydantic compatibility
+
+    @classmethod
+    def validate(
+        cls,
+        v: Any,  # noqa: ANN401  # Must allow `Any` to match Pydantic signature
+        info: ValidationInfo,
+    ) -> SecretString:
+        """Validate the input value is valid as a secret string."""
+        _ = info  # Unused
+        if not isinstance(v, str):
+            raise exc.PyAirbyteInputError(
+                message="A valid `str` or `SecretString` object is required.",
+            )
+        return cls(v)
+
+    @classmethod
+    def __get_pydantic_core_schema__(  # noqa: PLW3201  # Pydantic dunder
+        cls,
+        source_type: Any,  # noqa: ANN401  # Must allow `Any` to match Pydantic signature
+        handler: GetCoreSchemaHandler,
+    ) -> CoreSchema:
+        return core_schema.with_info_after_validator_function(
+            function=cls.validate, schema=handler(str), field_name=handler.field_name
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(  # noqa: PLW3201  # Pydantic dunder method
+        cls, _core_schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        """
+        Return a modified JSON schema for the secret string.
+
+        - `writeOnly=True` is the official way to prevent secrets from being exposed inadvertently.
+        - `Format=password` is a popular and readable convention to indicate the field is sensitive.
+        """
+        _ = _core_schema, handler  # Unused
+        return {
+            "type": "string",
+            "format": "password",
+            "writeOnly": True,
+        }
 
 
 class SecretManager(ABC):
