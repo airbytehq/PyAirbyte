@@ -140,12 +140,12 @@ jobs:
           Windows,
         ]
       fail-fast: false
+
+    runs-on: "${{ matrix.os }}-latest"
     env:
       # Enforce UTF-8 encoding so Windows runners don't fail inside the connector code.
       # TODO: See if we can fully enforce this within PyAirbyte itself.
       PYTHONIOENCODING: utf-8
-
-    runs-on: "${{ matrix.os }}-latest"
     steps:
     # Common steps:
     - name: Checkout code
