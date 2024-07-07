@@ -75,7 +75,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self.executor = executor
         self.name = name
         self._processed_records = 0
-        self._last_stream_processed: str = None
+        self._stream_names_observed: set[str] = set()
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
@@ -583,9 +583,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     message = AirbyteMessage.parse_raw(line)
                     if message.type is Type.RECORD:
                         self._processed_records += 1
-                        if self._last_stream_processed != message.record.stream:
-                            self._last_stream_processed = message.record.stream
-                            self._log_stream_read_start(self._last_stream_processed)
+                        if message.record.stream not in self._stream_names_observed:
+                            self._stream_names_observed += message.record.stream
+                            self._log_stream_read_start(message.record.stream)
                     if message.type == Type.LOG:
                         self._add_to_logs(message.log.message)
                     if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
