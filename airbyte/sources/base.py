@@ -624,7 +624,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             event_type=EventType.SYNC,
         )
 
-    def _log_stream_read_start(self, stream) -> None:
+    def _log_stream_read_start(self, stream: str) -> None:
         print(f"Read started on stream: {stream} at {pendulum.now().format('HH:mm:ss')}...")
 
     def _log_sync_success(
