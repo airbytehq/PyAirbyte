@@ -50,7 +50,7 @@ jobs:
   # Only the first two steps of the job are different, and they check out the PR's branch.
   pytest-on-demand:
     name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
-    # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
+    needs: [start-workflow]
     strategy:
       matrix:
         python-version: [
