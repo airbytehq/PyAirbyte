@@ -133,7 +133,7 @@ class RecordProcessorBase(abc.ABC):
         buffer: io.TextIOBase,
     ) -> Iterator[AirbyteMessage]:
         """Yield messages from a buffer."""
-        yield from (AirbyteMessage.parse_raw(line) for line in buffer)
+        yield from (AirbyteMessage.model_validate_json(line) for line in buffer)
 
     @final
     def process_input_stream(
