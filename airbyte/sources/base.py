@@ -75,6 +75,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self.executor = executor
         self.name = name
         self._processed_records = 0
+        self._stream_names_observed: set[str] = set()
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
@@ -582,6 +583,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if message.type is Type.RECORD:
                         self._processed_records += 1
+                        if message.record.stream not in self._stream_names_observed:
+                            self._stream_names_observed.add(message.record.stream)
+                            self._log_stream_read_start(message.record.stream)
                     if message.type == Type.LOG:
                         self._add_to_logs(message.log.message)
                     if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
@@ -619,6 +623,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             state=EventState.STARTED,
             event_type=EventType.SYNC,
         )
+
+    def _log_stream_read_start(self, stream: str) -> None:
+        print(f"Read started on stream: {stream} at {pendulum.now().format('HH:mm:ss')}...")
 
     def _log_sync_success(
         self,
