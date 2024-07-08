@@ -167,7 +167,7 @@ class CacheBase(SqlConfig):
             chunksize=max_chunk_size,
         )
 
-        arrow_tables_list = []
+        arrow_batches_list = []
         arrow_schema = None
 
         for pandas_chunk in pandas_chunks:
@@ -176,10 +176,10 @@ class CacheBase(SqlConfig):
                 arrow_schema = pa.Schema.from_pandas(pandas_chunk)
 
             # Convert each pandas chunk to an Arrow Table
-            arrow_table = pa.Table.from_pandas(pandas_chunk, schema=arrow_schema)
-            arrow_tables_list.append(arrow_table)
+            arrow_table = pa.RecordBatch.from_pandas(pandas_chunk, schema=arrow_schema)
+            arrow_batches_list.append(arrow_table)
 
-        return ds.dataset(arrow_tables_list)
+        return ds.dataset(arrow_batches_list)
 
     @final
     @property
