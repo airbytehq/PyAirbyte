@@ -5,7 +5,7 @@ import json
 import logging
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import jsonschema
 import pendulum
@@ -76,11 +76,13 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self.executor = executor
         self.name = name
         self._processed_records = 0
+        self._stream_names_observed: set[str] = set()
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
+        self._pending_streams: str | list[str] | None = None 
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -116,6 +118,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         Currently, if this is not set, all streams will be read.
         """
+        if not self._config:
+            print("Warning : Configuration is missing. Streams will be selected after configuration is set.")
+            self._pending_streams = streams
+        
         if streams == "*":
             self.select_all_streams()
             return
@@ -165,6 +171,11 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             self.validate_config(config)
 
         self._config_dict = config
+        
+        # Apply pending streams if any
+        if self._pending_streams:
+            self.select_streams(self._pending_streams)
+            self._pending_streams = None
 
     def get_config(self) -> dict[str, Any]:
         """Get the config for the connector."""
@@ -186,13 +197,20 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         - Listen to the messages and return the first AirbyteCatalog that comes along.
         - Make sure the subprocess is killed when the function returns.
         """
-        with as_temp_files([self._config]) as [config_file]:
-            for msg in self._execute(["discover", "--config", config_file]):
-                if msg.type == Type.CATALOG and msg.catalog:
-                    return msg.catalog
-            raise exc.AirbyteConnectorMissingCatalogError(
-                log_text=self._last_log_messages,
-            )
+        if self._config_dict:
+            with as_temp_files([self._config]) as [config_file]:
+                for msg in self._execute(["discover", "--config", config_file]):
+                    if msg.type == Type.CATALOG and msg.catalog:
+                        return msg.catalog
+        
+        for msg in self._execute(["discover"]):
+            if msg.type == Type.CATALOG and msg.catalog:
+                return msg.catalog
+
+        raise exc.AirbyteConnectorMissingCatalogError(
+            log_text=self._last_log_messages,
+        )
+
 
     def validate_config(self, config: dict[str, Any] | None = None) -> None:
         """Validate the config against the spec.
@@ -230,6 +248,14 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             logging.warning("Configuration is not set. Cannot retrieve available streams.")
             return None
         return [s.name for s in self.discovered_catalog.streams]
+
+    def _get_incremental_stream_names(self) -> list[str]:
+        """Get the name of streams that support incremental sync."""
+        return [
+            stream.name
+            for stream in self.discovered_catalog.streams
+            if SyncMode.incremental in stream.supported_sync_modes
+        ]
 
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
@@ -592,6 +618,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if message.type is Type.RECORD:
                         self._processed_records += 1
+                        if message.record.stream not in self._stream_names_observed:
+                            self._stream_names_observed.add(message.record.stream)
+                            self._log_stream_read_start(message.record.stream)
                     if message.type == Type.LOG:
                         self._add_to_logs(message.log.message)
                     if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
@@ -629,6 +658,22 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             state=EventState.STARTED,
             event_type=EventType.SYNC,
         )
+
+    def _log_incremental_streams(
+        self,
+        *,
+        incremental_streams: Optional[set[str]] = None,
+    ) -> None:
+        """Log the streams which are using incremental sync mode."""
+        log_message = (
+            "The following streams are currently using incremental sync:\n"
+            f"{incremental_streams}\n"
+            "To perform a full refresh, set 'force_full_refresh=True' in 'airbyte.read()' method."
+        )
+        print(log_message)
+
+    def _log_stream_read_start(self, stream: str) -> None:
+        print(f"Read started on stream: {stream} at {pendulum.now().format('HH:mm:ss')}...")
 
     def _log_sync_success(
         self,
@@ -739,6 +784,17 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             )
 
         self._log_sync_start(cache=cache)
+
+        # Log incremental stream if incremental streams are known
+        if state_provider and state_provider.known_stream_names:
+            # Retrieve set of the known streams support which support incremental sync
+            incremental_streams = (
+                set(self._get_incremental_stream_names())
+                & state_provider.known_stream_names
+                & set(self.get_selected_streams())
+            )
+            if incremental_streams:
+                self._log_incremental_streams(incremental_streams=incremental_streams)
 
         cache_processor = cache.get_record_processor(
             source_name=self.name,
