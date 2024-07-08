@@ -584,7 +584,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     if message.type is Type.RECORD:
                         self._processed_records += 1
                         if message.record.stream not in self._stream_names_observed:
-                            self._stream_names_observed += message.record.stream
+                            self._stream_names_observed.add(message.record.stream)
                             self._log_stream_read_start(message.record.stream)
                     if message.type == Type.LOG:
                         self._add_to_logs(message.log.message)
