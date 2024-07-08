@@ -9,6 +9,7 @@ from pandas import DataFrame
 from pyarrow.dataset import Dataset
 
 from airbyte._util.document_rendering import DocumentRenderer
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 
 
 if TYPE_CHECKING:
@@ -40,7 +41,11 @@ class DatasetBase(ABC):
         # duck typing is correct for this use case.
         return DataFrame(cast(Iterator[dict[str, Any]], self))
 
-    def to_arrow(self, chunksize: int) -> Dataset:
+    def to_arrow(
+        self,
+        *,
+        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
+    ) -> Dataset:
         """Return an Arrow Dataset representation of the dataset.
 
         This method should be implemented by subclasses.

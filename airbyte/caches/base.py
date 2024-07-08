@@ -21,6 +21,7 @@ from airbyte._future_cdk.sql_processor import (
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -148,14 +149,22 @@ class CacheBase(SqlConfig):
         engine = self.get_sql_engine()
         return pd.read_sql_table(table_name, engine, schema=self.schema_name)
 
-    def get_arrow_dataset(self, stream_name: str, chunksize: int) -> ds.Dataset:
+    def get_arrow_dataset(
+        self,
+        stream_name: str,
+        *,
+        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
+    ) -> ds.Dataset:
         """Return an Arrow Dataset with the stream's data."""
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
 
         # Read the table in chunks to handle large tables which does not fits in memory
         pandas_chunks = pd.read_sql_table(
-            table_name, engine, schema=self.schema_name, chunksize=chunksize
+            table_name=table_name,
+            con=engine,
+            schema=self.schema_name,
+            chunksize=max_chunk_size,
         )
 
         arrow_tables_list = []

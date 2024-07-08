@@ -163,7 +163,7 @@ def test_faker_read(
 
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
-    arrow_dataset = result["users"].to_arrow(chunksize=10)
+    arrow_dataset = result["users"].to_arrow(max_chunk_size=10)
     assert arrow_dataset.count_rows() == FAKER_SCALE_A
     assert sum(1 for _ in arrow_dataset.to_batches()) == 20
 
