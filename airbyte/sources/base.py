@@ -82,7 +82,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self._discovered_catalog: AirbyteCatalog | None = None
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
-        self._pending_streams: str | list[str] | None = None 
+        self._pending_streams: str | list[str] | None = None
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -121,7 +121,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         if not self._config:
             print("Warning : Configuration is missing. Streams will be selected after configuration is set.")
             self._pending_streams = streams
-        
         if streams == "*":
             self.select_all_streams()
             return
@@ -171,7 +170,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             self.validate_config(config)
 
         self._config_dict = config
-        
         # Apply pending streams if any
         if self._pending_streams:
             self.select_streams(self._pending_streams)
@@ -202,7 +200,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 for msg in self._execute(["discover", "--config", config_file]):
                     if msg.type == Type.CATALOG and msg.catalog:
                         return msg.catalog
-        
         for msg in self._execute(["discover"]):
             if msg.type == Type.CATALOG and msg.catalog:
                 return msg.catalog
@@ -827,3 +824,4 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 __all__ = [
     "Source",
 ]
++
