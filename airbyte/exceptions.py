@@ -172,6 +172,23 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
     available_streams: list[str] | None = None
 
 
+# Normalization Errors
+
+
+@dataclass
+class PyAirbyteNameNormalizationError(PyAirbyteError, ValueError):
+    """Error occurred while normalizing a table or column name."""
+
+    guidance = (
+        "Please consider renaming the source object if possible, or "
+        "raise an issue in GitHub if not."
+    )
+    help_url = NEW_ISSUE_URL
+
+    raw_name: str | None = None
+    normalization_result: str | None = None
+
+
 # PyAirbyte Cache Errors
 
 

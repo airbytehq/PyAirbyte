@@ -12,6 +12,7 @@ import sys
 from collections import defaultdict
 from typing import IO, TYPE_CHECKING, cast, final
 
+from airbyte_cdk import AirbyteMessage
 from airbyte_protocol.models import (
     AirbyteRecordMessage,
     AirbyteStateMessage,
@@ -28,9 +29,7 @@ from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
-    from airbyte_cdk import AirbyteMessage
+    from collections.abc import Iterable, Iterator
 
     from airbyte._batch_handles import BatchHandle
     from airbyte._future_cdk.catalog_providers import CatalogProvider
@@ -129,6 +128,14 @@ class RecordProcessorBase(abc.ABC):
             input_stream,
             write_strategy=write_strategy,
         )
+
+    @final
+    def _airbyte_messages_from_buffer(
+        self,
+        buffer: io.TextIOBase,
+    ) -> Iterator[AirbyteMessage]:
+        """Yield messages from a buffer."""
+        yield from (AirbyteMessage.model_validate_json(line) for line in buffer)
 
     @final
     def process_input_stream(

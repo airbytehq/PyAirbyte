@@ -15,6 +15,7 @@ from snowflake.sqlalchemy import URL, VARIANT
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
+from airbyte.constants import DEFAULT_CACHE_SCHEMA_NAME
 from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter
 
@@ -34,7 +35,7 @@ class SnowflakeConfig(SqlConfig):
     warehouse: str
     database: str
     role: str
-    schema_name: str = Field(default="PUBLIC")
+    schema_name: str = Field(default=DEFAULT_CACHE_SCHEMA_NAME)
 
     @overrides
     def get_database_name(self) -> str:
@@ -129,9 +130,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         ]
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
-        variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
-            [f"$1:{self.normalizer.normalize(col)}" for col in columns_list]
-        )
+        variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
         copy_statement = dedent(
             f"""
             COPY INTO {temp_table_name}
@@ -143,7 +142,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                 FROM {internal_sf_stage_name}
             )
             FILES = ( {files_list} )
-            FILE_FORMAT = ( TYPE = JSON )
+            FILE_FORMAT = ( TYPE = JSON, COMPRESSION = GZIP )
             ;
             """
         )

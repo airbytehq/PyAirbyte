@@ -1,4 +1,6 @@
 import pytest
+from airbyte import exceptions as exc
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.records import StreamRecord
 
@@ -116,3 +118,40 @@ def test_case_insensitive_w_pretty_keys() -> None:
     # Assert case insensitivity when comparing natively to a dict
     assert cid == {"UPPER": 1, "lower": 2, "other": None}
     assert cid == {"upper": 1, "lower": 2, "other": None}
+
+
+@pytest.mark.parametrize(
+    "raw_value, expected_result, should_raise",
+    [
+        ("_airbyte_meta", "_airbyte_meta", False),
+        ("Test_String", "test_string", False),
+        ("ANOTHER-TEST", "another_test", False),
+        ("another.test", "another_test", False),
+        ("sales(%)", "sales___", False),
+        ("something_-_-_-_else", "something_______else", False),
+        ("sales (%)", "sales____", False),
+        ("sales-%", "sales__", False),
+        ("sales(#)", "sales___", False),
+        ("sales (#)", "sales____", False),
+        ("sales--(#)", "sales_____", False),
+        ("sales-#", "sales__", False),
+        ("+1", "_1", False),
+        ("1", "_1", False),
+        ("2", "_2", False),
+        ("3", "_3", False),
+        ("-1", "_1", False),
+        ("+#$", "", True),
+        ("+", "", True),
+        ("", "", True),
+        ("*", "", True),
+        ("!@$", "", True),
+    ],
+)
+def test_lower_case_normalizer(raw_value, expected_result, should_raise):
+    normalizer = LowerCaseNormalizer()
+
+    if should_raise:
+        with pytest.raises(exc.PyAirbyteNameNormalizationError):
+            assert normalizer.normalize(raw_value) == expected_result
+    else:
+        assert normalizer.normalize(raw_value) == expected_result

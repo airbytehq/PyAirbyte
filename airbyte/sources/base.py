@@ -1,11 +1,15 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import json
 import warnings
+from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
 
 import pendulum
+import yaml
 from rich import print
+from rich.syntax import Syntax
 from typing_extensions import Literal
 
 from airbyte_protocol.models import (
@@ -15,6 +19,7 @@ from airbyte_protocol.models import (
     ConfiguredAirbyteStream,
     DestinationSyncMode,
     SyncMode,
+    TraceType,
     Type,
 )
 
@@ -38,8 +43,8 @@ from airbyte.warnings import PyAirbyteDataLossWarning
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
-    from pathlib import Path
 
+    from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executor import Executor
@@ -140,10 +145,10 @@ class Source(ConnectorBase):
         """Call discover on the connector.
 
         This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with discover --config <config_file>
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
+        - Write the config to a temporary file
+        - execute the connector with discover --config <config_file>
+        - Listen to the messages and return the first AirbyteCatalog that comes along.
+        - Make sure the subprocess is killed when the function returns.
         """
         with as_temp_files([self._config]) as [config_file]:
             for msg in self._execute(["discover", "--config", config_file]):
@@ -156,6 +161,95 @@ class Source(ConnectorBase):
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
         return [s.name for s in self.discovered_catalog.streams]
+
+    def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
+        """Call spec on the connector.
+
+        This involves the following steps:
+        * execute the connector with spec
+        * Listen to the messages and return the first AirbyteCatalog that comes along.
+        * Make sure the subprocess is killed when the function returns.
+        """
+        if force_refresh or self._spec is None:
+            for msg in self._execute(["spec"]):
+                if msg.type == Type.SPEC and msg.spec:
+                    self._spec = msg.spec
+                    break
+
+        if self._spec:
+            return self._spec
+
+        raise exc.AirbyteConnectorMissingSpecError(
+            log_text=self._last_log_messages,
+        )
+
+    @property
+    def config_spec(self) -> dict[str, Any]:
+        """Generate a configuration spec for this connector, as a JSON Schema definition.
+
+        This function generates a JSON Schema dictionary with configuration specs for the
+        current connector, as a dictionary.
+
+        Returns:
+            dict: The JSON Schema configuration spec as a dictionary.
+        """
+        return self._get_spec(force_refresh=True).connectionSpecification
+
+    def print_config_spec(
+        self,
+        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
+        *,
+        output_file: Path | str | None = None,
+    ) -> None:
+        """Print the configuration spec for this connector.
+
+        Args:
+        - format: The format to print the spec in. Must be "yaml" or "json".
+        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
+          it will be printed to the console.
+        """
+        if format not in {"yaml", "json"}:
+            raise exc.PyAirbyteInputError(
+                message="Invalid format. Expected 'yaml' or 'json'",
+                input_value=format,
+            )
+        if isinstance(output_file, str):
+            output_file = Path(output_file)
+
+        if format == "yaml":
+            content = yaml.dump(self.config_spec, indent=2)
+        elif format == "json":
+            content = json.dumps(self.config_spec, indent=2)
+
+        if output_file:
+            output_file.write_text(content)
+            return
+
+        syntax_highlighted = Syntax(content, format)
+        print(syntax_highlighted)
+
+    @property
+    def _yaml_spec(self) -> str:
+        """Get the spec as a yaml string.
+
+        For now, the primary use case is for writing and debugging a valid config for a source.
+
+        This is private for now because we probably want better polish before exposing this
+        as a stable interface. This will also get easier when we have docs links with this info
+        for each connector.
+        """
+        spec_obj: ConnectorSpecification = self._get_spec()
+        spec_dict: dict[str, Any] = spec_obj.model_dump(exclude_unset=True)
+        # convert to a yaml string
+        return yaml.dump(spec_dict)
+
+    @property
+    def docs_url(self) -> str:
+        """Get the URL to the connector's documentation."""
+        # TODO: Replace with docs URL from metadata when available
+        return "https://docs.airbyte.com/integrations/sources/" + self.name.lower().replace(
+            "source-", ""
+        )
 
     @property
     def discovered_catalog(self) -> AirbyteCatalog:
@@ -343,7 +437,7 @@ class Source(ConnectorBase):
         with as_temp_files(
             [
                 self._config,
-                catalog.json(),
+                catalog.model_dump_json(),
                 state.to_state_input_file_text() if state else "[]",
             ]
         ) as [
@@ -379,11 +473,24 @@ class Source(ConnectorBase):
           Drop if not valid.
         """
         _ = stdin  # Unused, but kept for compatibility with the base class
-        for message in super()._execute(args):
-            if message.type is Type.RECORD:
-                self._processed_records += 1
-
-            yield message
+        try:
+            self._last_log_messages = []
+            for line in self.executor.execute(args):
+                try:
+                    message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
+                    if message.type is Type.RECORD:
+                        self._processed_records += 1
+                    if message.type == Type.LOG:
+                        self._add_to_logs(message.log.message)
+                    if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
+                        self._add_to_logs(message.trace.error.message)
+                    yield message
+                except Exception:
+                    self._add_to_logs(line)
+        except Exception as e:
+            raise exc.AirbyteConnectorReadError(
+                log_text=self._last_log_messages,
+            ) from e
 
     def _tally_records(
         self,
@@ -482,15 +589,19 @@ class Source(ConnectorBase):
 
         Args:
             cache: The cache to write to. If None, a default cache will be used.
+            streams: Optional if already set. A list of stream names to select for reading. If set
+                to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
                 one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
                 of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
-            streams: Optional if already set. A list of stream names to select for reading. If set
-                to "*", all streams will be selected.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option
                 must be True when using the "replace" strategy.
+            skip_validation: If True, PyAirbyte will not pre-validate the input configuration before
+                running the connector. This can be helpful in debugging, when you want to send
+                configurations to the connector that otherwise might be rejected by JSON Schema
+                validation rules.
         """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from airbyte.caches import bigquery, duckdb, motherduck, postgres, snowflake, util
+from airbyte.caches import base, bigquery, duckdb, motherduck, postgres, snowflake, util
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache

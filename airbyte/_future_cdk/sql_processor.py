@@ -15,7 +15,7 @@ import pandas as pd
 import sqlalchemy
 import ulid
 from pandas import Index
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import (
     Column,
     Table,
@@ -77,7 +77,7 @@ class SQLRuntimeError(Exception):
 class SqlConfig(BaseModel, abc.ABC):
     """Common configuration for SQL connections."""
 
-    schema_name: str
+    schema_name: str = Field(default="airbyte_raw")
     """The name of the schema to write to."""
 
     table_prefix: Optional[str] = ""

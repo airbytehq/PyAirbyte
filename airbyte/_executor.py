@@ -237,6 +237,7 @@ def _stream_from_subprocess(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         universal_newlines=True,
+        encoding="utf-8",
     )
 
     def _stream_from_file(file: IO[str]) -> Generator[str, Any, None]:

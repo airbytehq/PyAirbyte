@@ -1,14 +1,24 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
-"""A simple progress bar for the command line and IPython notebooks."""
+"""A simple progress bar for the command line and IPython notebooks.
+
+Note: Some runtimes (e.g. Dagger) may not support Rich Live views, and sometimes because they _also_
+use Rich, and Rich only supports one live view at a time. PyAirbyte will try to use smart defaults
+based on your execution environment.
+
+If you experience issues, you can force plain text status reporting by setting the environment
+variable `NO_LIVE_PROGRESS=1`.
+"""
 
 from __future__ import annotations
 
 import datetime
 import importlib
 import math
+import os
 import sys
 import time
+import warnings
 from contextlib import suppress
 from enum import Enum, auto
 from typing import TYPE_CHECKING, cast
@@ -16,6 +26,8 @@ from typing import TYPE_CHECKING, cast
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
+
+from airbyte._util import meta
 
 
 if TYPE_CHECKING:
@@ -129,13 +141,38 @@ class ReadProgress:
         self.last_update_time: float | None = None
 
         self._rich_view: RichLive | None = None
+
+        self.reset_progress_style(style)
+
+    def reset_progress_style(
+        self,
+        style: ProgressStyle = ProgressStyle.AUTO,
+    ) -> None:
+        """Set the progress bar style.
+
+        You can call this method at any time to change the progress bar style as needed.
+
+        Usage:
+
+        ```python
+        from airbyte.progress import progress, ProgressStyle
+
+        progress.reset_progress_style(ProgressStyle.PLAIN)
+        ```
+        """
+        self._stop_rich_view()  # Stop Rich's live view if running.
         self.style: ProgressStyle = style
         if self.style == ProgressStyle.AUTO:
             self.style = ProgressStyle.PLAIN
             if IS_NOTEBOOK:
                 self.style = ProgressStyle.IPYTHON
 
-            elif IS_REPL:
+            elif IS_REPL or "NO_LIVE_PROGRESS" in os.environ:
+                self.style = ProgressStyle.PLAIN
+
+            elif meta.is_ci():
+                # Some CI environments support Rich, but Dagger does not.
+                # TODO: Consider updating this to check for Dagger specifically.
                 self.style = ProgressStyle.PLAIN
 
             else:
@@ -145,23 +182,39 @@ class ReadProgress:
                     self._rich_view.start()
                     self._rich_view.stop()
                     self._rich_view = None
-                    self.style = ProgressStyle.RICH
                 except LiveError:
                     # Rich live view not available. Using plain text progress.
                     self._rich_view = None
                     self.style = ProgressStyle.PLAIN
+                else:
+                    # No exceptions raised, so we can use Rich.
+                    self.style = ProgressStyle.RICH
 
-    def _start(self) -> None:
-        """Start the progress bar."""
+    def _start_rich_view(self) -> None:
+        """Start the rich view display, if applicable per `self.style`.
+
+        Otherwise, this is a no-op.
+        """
         if self.style == ProgressStyle.RICH and not self._rich_view:
-            self._rich_view = RichLive(
-                auto_refresh=True,
-                refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
-            )
-            self._rich_view.start()
+            try:
+                self._rich_view = RichLive(
+                    auto_refresh=True,
+                    refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
+                )
+                self._rich_view.start()
+            except Exception:
+                warnings.warn(
+                    "Failed to start Rich live view. Falling back to plain text progress.",
+                    stacklevel=2,
+                )
+                self.style = ProgressStyle.PLAIN
+                self._stop_rich_view()
 
-    def _stop(self) -> None:
-        """Stop the progress bar."""
+    def _stop_rich_view(self) -> None:
+        """Stop the rich view display, if applicable.
+
+        Otherwise, this is a no-op.
+        """
         if self._rich_view:
             with suppress(Exception):
                 self._rich_view.stop()
@@ -169,7 +222,7 @@ class ReadProgress:
 
     def __del__(self) -> None:
         """Close the Rich view."""
-        self._stop()
+        self._stop_rich_view()
 
     def log_success(self) -> None:
         """Log success and stop tracking progress."""
@@ -179,7 +232,7 @@ class ReadProgress:
             self.finalize_end_time = time.time()
 
             self.update_display(force_refresh=True)
-            self._stop()
+            self._stop_rich_view()
 
     def reset(self, num_streams_expected: int) -> None:
         """Reset the progress tracker."""
@@ -203,7 +256,7 @@ class ReadProgress:
         self.total_batches_finalized = 0
         self.finalized_stream_names = set()
 
-        self._start()
+        self._start_rich_view()
 
     @property
     def elapsed_seconds(self) -> int:

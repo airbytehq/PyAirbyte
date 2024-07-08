@@ -3,9 +3,16 @@ from __future__ import annotations
 
 import datetime
 import time
-from freezegun import freeze_time
-from airbyte.progress import ReadProgress, _get_elapsed_time_str, _to_time_str
+
+from airbyte.progress import (
+    ProgressStyle,
+    ReadProgress,
+    _get_elapsed_time_str,
+    _to_time_str,
+)
 from dateutil.tz import tzlocal
+from freezegun import freeze_time
+from rich.errors import LiveError
 
 # Calculate the offset from UTC in hours
 tz_offset_hrs = int(datetime.datetime.now(tzlocal()).utcoffset().total_seconds() / 3600)
@@ -176,3 +183,45 @@ def test_get_status_message_after_finalizing_records():
             "Total time elapsed: 2min 0s",
         ]
         _assert_lines(expected_lines, message)
+
+
+def test_default_progress_style(monkeypatch):
+    """Test the style when running in a notebook environment."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("NO_LIVE_PROGRESS", raising=False)
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    progress = ReadProgress()
+    assert progress.style == ProgressStyle.RICH
+
+
+def test_no_live_progress(monkeypatch):
+    """Test the style when NO_LIVE_PROGRESS is set."""
+    monkeypatch.setattr("sys.stdout.isatty", lambda: True)
+    monkeypatch.setenv("NO_LIVE_PROGRESS", "1")
+    progress = ReadProgress()
+    assert progress.style == ProgressStyle.PLAIN
+
+
+def test_ci_environment_a_progress_style(monkeypatch):
+    """Test the style in a CI environment."""
+    monkeypatch.setattr("airbyte._util.meta.is_ci", lambda: True)
+    progress = ReadProgress()
+    assert progress.style == ProgressStyle.PLAIN
+
+
+def test_ci_environment_b_progress_style(monkeypatch):
+    """Test the style in a CI environment."""
+    monkeypatch.setenv("CI", "1")
+    progress = ReadProgress()
+    assert progress.style == ProgressStyle.PLAIN
+
+
+def test_rich_unavailable_progress_style(monkeypatch):
+    """Test the fallback to PLAIN when Rich is unavailable."""
+    monkeypatch.setattr(
+        "rich.live.Live.start",
+        lambda self: (_ for _ in ()).throw(LiveError("Live view not available")),
+    )
+    monkeypatch.setattr("rich.live.Live.stop", lambda self: None)
+    progress = ReadProgress()
+    assert progress.style == ProgressStyle.PLAIN
