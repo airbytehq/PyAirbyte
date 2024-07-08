@@ -125,11 +125,13 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             streams = [streams]
 
         available_streams = self.get_available_streams()
-        
+
         if available_streams is None:
-            logging.warning("Configuration is not set. Please set the configuration before selecting streams.")
+            logging.warning(
+                "Configuration is not set. Please set the configuration before selecting streams."
+            )
             return
-        
+
         for stream in streams:
             if stream not in available_streams:
                 raise exc.AirbyteStreamNotFoundError(
@@ -171,7 +173,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     @property
     def _config(self) -> dict[str, Any]:
         if self._config_dict is None:
-            logging.warning("Configuration is not set. Proceeding without configuration.")                
+            logging.warning("Configuration is not set. Proceeding without configuration.")
             return {}
         return self._config_dict
 
@@ -228,7 +230,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             logging.warning("Configuration is not set. Cannot retrieve available streams.")
             return None
         return [s.name for s in self.discovered_catalog.streams]
-
 
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
