@@ -30,14 +30,13 @@ class BigQueryCache(BigQueryConfig, CacheBase):
     """The BigQuery cache implementation."""
 
     _sql_processor_class: type[BigQuerySqlProcessor] = PrivateAttr(default=BigQuerySqlProcessor)
-    
+
     def get_arrow_dataset(
         self,
         stream_name: str,
         *,
         max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
     ) -> None:
-
         # Raises a NotImplementedError as BigQuery doesn't support pd.read_sql_table
         raise NotImplementedError(
             "BigQuery doesn't currently support to_arrow"
