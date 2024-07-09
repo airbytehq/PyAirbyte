@@ -163,9 +163,11 @@ def test_faker_read(
 
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
-    arrow_dataset = result["users"].to_arrow(max_chunk_size=10)
-    assert arrow_dataset.count_rows() == FAKER_SCALE_A
-    assert sum(1 for _ in arrow_dataset.to_batches()) == 20
+    if "bigquery" not in new_generic_cache.get_sql_alchemy_url():
+        # BigQuery doesn't support to_arrow
+        arrow_dataset = result["users"].to_arrow(max_chunk_size=10)
+        assert arrow_dataset.count_rows() == FAKER_SCALE_A
+        assert sum(1 for _ in arrow_dataset.to_batches()) == 20
 
     # TODO: Uncomment this line after resolving https://github.com/airbytehq/PyAirbyte/issues/165
     # assert len(result["users"].to_pandas()) == FAKER_SCALE_A
