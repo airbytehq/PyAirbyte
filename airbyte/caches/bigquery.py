@@ -23,9 +23,24 @@ from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcesso
 from airbyte.caches.base import (
     CacheBase,
 )
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 
 
 class BigQueryCache(BigQueryConfig, CacheBase):
     """The BigQuery cache implementation."""
 
     _sql_processor_class: type[BigQuerySqlProcessor] = PrivateAttr(default=BigQuerySqlProcessor)
+
+    def get_arrow_dataset(
+        self,
+        stream_name: str,
+        *,
+        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
+    ) -> None:
+        """Raises NotImplementedError; BigQuery doesn't support `pd.read_sql_table`.
+        https://github.com/airbytehq/PyAirbyte/issues/165
+        """
+        raise NotImplementedError(
+            "BigQuery doesn't currently support to_arrow"
+            "Please consider using a different cache implementation for these functionalities."
+        )
