@@ -57,9 +57,9 @@ class IcebergWriter(FileWriterBase):
     def _open_new_file(
         self,
         file_path: Path,
-    ) -> IO[bytes]:
+    ) -> IO[str]:
         """Open a new file for writing."""
-        return cast(IO[bytes], gzip.open(file_path, "w"))
+        return cast(IO[str], gzip.open(file_path, "w"))
 
     def _get_new_cache_file_path(
         self,
@@ -75,14 +75,12 @@ class IcebergWriter(FileWriterBase):
     def _write_record_dict(
         self,
         record_dict: StreamRecord,
-        open_file_writer: gzip.GzipFile | IO[bytes],
+        open_file_writer: IO[str],
     ) -> None:
         # If the record is too nested, `orjson` will fail with error `TypeError: Recursion
         # limit reached`. If so, fall back to the slower `json.dumps`.
         try:
-            open_file_writer.write(orjson.dumps(record_dict) + b"\n")
+            open_file_writer.write(orjson.dumps(record_dict).decode("utf-8") + "\n")
         except TypeError:
             # Using isoformat method for datetime serialization
-            open_file_writer.write(
-                json.dumps(record_dict, default=lambda _: _.isoformat()).encode() + b"\n"
-            )
+            open_file_writer.write(json.dumps(record_dict, default=lambda _: _.isoformat()) + "\n")
