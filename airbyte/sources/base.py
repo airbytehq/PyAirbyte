@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -82,7 +81,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self._discovered_catalog: AirbyteCatalog | None = None
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
-        self._pending_streams: str | list[str] | None = None
+        self._to_be_selected_stream: list[str] | str = []
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -101,6 +100,13 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             stacklevel=2,
         )
         self.select_streams(streams)
+        
+    def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
+        """Logs a warning message indicating stream selection which are not selected yet"""
+        if streams == "*":
+            print("Warning: Config is not set yet. All streams will be selected after config is set.")
+        else:
+            print(f"Warning: Config is not set yet. {streams} streams will be selected after config is set.")
 
     def select_all_streams(self) -> None:
         """Select all streams.
@@ -108,6 +114,11 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         This is a more streamlined equivalent to:
         > source.select_streams(source.get_available_streams()).
         """
+        if self._config_dict is None:
+            self._to_be_selected_streams = "*"
+            self._log_warning_preselected_stream(self._to_be_selected_streams)
+            return
+
         self._selected_stream_names = self.get_available_streams()
 
     def select_streams(self, streams: str | list[str]) -> None:
@@ -118,11 +129,11 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         Currently, if this is not set, all streams will be read.
         """
-        if not self._config:
-            logging.warning(
-                "Configuration is missing. Streams will be selected after configuration is set."
-            )
-            self._pending_streams = streams
+        if self._config_dict is None:
+            self._to_be_selected_streams = streams
+            self._log_warning_preselected_stream(streams)
+            return
+
         if streams == "*":
             self.select_all_streams()
             return
@@ -132,13 +143,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             streams = [streams]
 
         available_streams = self.get_available_streams()
-
-        if available_streams is None:
-            logging.warning(
-                "Configuration is not set. Please set the configuration before selecting streams."
-            )
-            return
-
         for stream in streams:
             if stream not in available_streams:
                 raise exc.AirbyteStreamNotFoundError(
@@ -172,10 +176,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             self.validate_config(config)
 
         self._config_dict = config
-        # Apply pending streams if any
-        if self._pending_streams:
-            self.select_streams(self._pending_streams)
-            self._pending_streams = None
+
+        if self._to_be_selected_stream:
+            self.select_streams(self._to_be_selected_stream)
+            self._to_be_selected_streams = []
 
     def get_config(self) -> dict[str, Any]:
         """Get the config for the connector."""
@@ -184,8 +188,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     @property
     def _config(self) -> dict[str, Any]:
         if self._config_dict is None:
-            logging.warning("Configuration is not set. Proceeding without configuration.")
-            return {}
+            raise exc.AirbyteConnectorConfigurationMissingError(
+                guidance="Provide via get_source() or set_config()"
+            )
         return self._config_dict
 
     def _discover(self) -> AirbyteCatalog:
@@ -197,18 +202,13 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         - Listen to the messages and return the first AirbyteCatalog that comes along.
         - Make sure the subprocess is killed when the function returns.
         """
-        if self._config_dict:
-            with as_temp_files([self._config]) as [config_file]:
-                for msg in self._execute(["discover", "--config", config_file]):
-                    if msg.type == Type.CATALOG and msg.catalog:
-                        return msg.catalog
-        for msg in self._execute(["discover"]):
-            if msg.type == Type.CATALOG and msg.catalog:
-                return msg.catalog
-
-        raise exc.AirbyteConnectorMissingCatalogError(
-            log_text=self._last_log_messages,
-        )
+        with as_temp_files([self._config]) as [config_file]:
+            for msg in self._execute(["discover", "--config", config_file]):
+                if msg.type == Type.CATALOG and msg.catalog:
+                    return msg.catalog
+            raise exc.AirbyteConnectorMissingCatalogError(
+                log_text=self._last_log_messages,
+            )
 
     def validate_config(self, config: dict[str, Any] | None = None) -> None:
         """Validate the config against the spec.
@@ -240,11 +240,8 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             )
             raise validation_ex from ex
 
-    def get_available_streams(self) -> list[str] | None:
+    def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
-        if not self._config and self.requires_config():
-            logging.warning("Configuration is not set. Cannot retrieve available streams.")
-            return None
         return [s.name for s in self.discovered_catalog.streams]
 
     def _get_incremental_stream_names(self) -> list[str]:
