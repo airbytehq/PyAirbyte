@@ -100,13 +100,17 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             stacklevel=2,
         )
         self.select_streams(streams)
-        
+
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet"""
         if streams == "*":
-            print("Warning: Config is not set yet. All streams will be selected after config is set.")
+            print(
+                "Warning: Config is not set yet. All streams will be selected after config is set."
+            )
         else:
-            print(f"Warning: Config is not set yet. {streams} streams will be selected after config is set.")
+            print(
+                f"Warning: Config is not set yet. {streams} streams will be selected after config is set."
+            )
 
     def select_all_streams(self) -> None:
         """Select all streams.
