@@ -81,7 +81,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self._discovered_catalog: AirbyteCatalog | None = None
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
-        self._to_be_selected_stream: list[str] | str = []
+        self._to_be_selected_streams: list[str] | str = []
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -181,9 +181,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         self._config_dict = config
 
-        if self._to_be_selected_stream:
-            self.select_streams(self._to_be_selected_stream)
-            self._to_be_selected_stream = []
+        if self._to_be_selected_streams:
+            self.select_streams(self._to_be_selected_streams)
+            self._to_be_selected_streams = []
 
     def get_config(self) -> dict[str, Any]:
         """Get the config for the connector."""
