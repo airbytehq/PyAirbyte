@@ -179,7 +179,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         if self._to_be_selected_stream:
             self.select_streams(self._to_be_selected_stream)
-            self._to_be_selected_streams = []
+            self._to_be_selected_stream = []
 
     def get_config(self) -> dict[str, Any]:
         """Get the config for the connector."""
