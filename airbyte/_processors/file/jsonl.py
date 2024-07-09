@@ -8,6 +8,7 @@ import json
 from typing import IO, TYPE_CHECKING, cast
 
 import orjson
+from overrides import overrides
 
 from airbyte._processors.file.base import (
     FileWriterBase,
@@ -26,6 +27,7 @@ class JsonlWriter(FileWriterBase):
     default_cache_file_suffix = ".jsonl.gz"
     prune_extra_fields = True
 
+    @overrides
     def _open_new_file(
         self,
         file_path: Path,
@@ -33,6 +35,7 @@ class JsonlWriter(FileWriterBase):
         """Open a new file for writing."""
         return cast(IO[str], gzip.open(file_path, "w"))
 
+    @overrides
     def _write_record_dict(
         self,
         record_dict: StreamRecord,

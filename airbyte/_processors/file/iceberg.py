@@ -10,6 +10,7 @@ from typing import IO, TYPE_CHECKING, cast
 
 import orjson
 import ulid
+from overrides import overrides
 
 from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte._processors.file.base import (
@@ -38,6 +39,7 @@ class IcebergStateWriter(StateWriterBase):
         """Initialize the Iceberg state writer."""
         self._cache_dir = cache_dir
 
+    @overrides
     def write_state(self, state_message: dict) -> None:
         """Write the state for the given stream."""
         stream_name = state_message["stream"]
@@ -54,6 +56,7 @@ class IcebergWriter(FileWriterBase):
     def get_state_writer(self) -> IcebergStateWriter:
         return IcebergStateWriter(self._cache_dir)
 
+    @overrides
     def _open_new_file(
         self,
         file_path: Path,
@@ -61,6 +64,7 @@ class IcebergWriter(FileWriterBase):
         """Open a new file for writing."""
         return cast(IO[str], gzip.open(file_path, "w"))
 
+    @overrides
     def _get_new_cache_file_path(
         self,
         stream_name: str,
@@ -72,6 +76,7 @@ class IcebergWriter(FileWriterBase):
         target_dir.mkdir(parents=True, exist_ok=True)
         return target_dir / f"{stream_name}_{batch_id}{self.default_cache_file_suffix}"
 
+    @overrides
     def _write_record_dict(
         self,
         record_dict: StreamRecord,
