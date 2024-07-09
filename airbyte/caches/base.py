@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, final
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
@@ -19,6 +21,7 @@ from airbyte._future_cdk.sql_processor import (
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -145,6 +148,38 @@ class CacheBase(SqlConfig):
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
         return pd.read_sql_table(table_name, engine, schema=self.schema_name)
+
+    def get_arrow_dataset(
+        self,
+        stream_name: str,
+        *,
+        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
+    ) -> ds.Dataset:
+        """Return an Arrow Dataset with the stream's data."""
+        table_name = self._read_processor.get_sql_table_name(stream_name)
+        engine = self.get_sql_engine()
+
+        # Read the table in chunks to handle large tables which does not fits in memory
+        pandas_chunks = pd.read_sql_table(
+            table_name=table_name,
+            con=engine,
+            schema=self.schema_name,
+            chunksize=max_chunk_size,
+        )
+
+        arrow_batches_list = []
+        arrow_schema = None
+
+        for pandas_chunk in pandas_chunks:
+            if arrow_schema is None:
+                # Initialize the schema with the first chunk
+                arrow_schema = pa.Schema.from_pandas(pandas_chunk)
+
+            # Convert each pandas chunk to an Arrow Table
+            arrow_table = pa.RecordBatch.from_pandas(pandas_chunk, schema=arrow_schema)
+            arrow_batches_list.append(arrow_table)
+
+        return ds.dataset(arrow_batches_list)
 
     @final
     @property
