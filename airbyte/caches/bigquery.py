@@ -37,7 +37,10 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         *,
         max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
     ) -> None:
-        # Raises a NotImplementedError as BigQuery doesn't support pd.read_sql_table
+        """Raises NotImplementedError; BigQuery doesn't support `pd.read_sql_table`.
+ 
+        https://github.com/airbytehq/PyAirbyte/issues/165
+        """
         raise NotImplementedError(
             "BigQuery doesn't currently support to_arrow"
             "Please consider using a different cache implementation for these functionalities."
