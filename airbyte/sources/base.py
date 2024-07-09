@@ -119,7 +119,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         Currently, if this is not set, all streams will be read.
         """
         if not self._config:
-            print("Warning : Configuration is missing. Streams will be selected after configuration is set.")
+            logging.warning("Configuration is missing. Streams will be selected after configuration is set.")
             self._pending_streams = streams
         if streams == "*":
             self.select_all_streams()
