@@ -109,7 +109,8 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             )
         else:
             print(
-                f"Warning: Config is not set yet. {streams} streams will be selected after config is set."
+                "Warning: Config is not set yet. "
+                f"Streams to be selected after config is set: {streams}"
             )
 
     def select_all_streams(self) -> None:
