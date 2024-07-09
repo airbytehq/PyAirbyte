@@ -28,4 +28,4 @@ def test_nocode_execution(connector_name: str, config: dict) -> None:
     source.read()
     for name, records in source.read().streams.items():
         assert name
-        assert len(records) > 0
+        assert len(records) > 0, f"No records were returned from the '{name}' stream."
