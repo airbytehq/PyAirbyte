@@ -81,6 +81,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         self._discovered_catalog: AirbyteCatalog | None = None
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
+        self._to_be_selected_streams: list[str] | str = []
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -100,12 +101,29 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         )
         self.select_streams(streams)
 
+    def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
+        """Logs a warning message indicating stream selection which are not selected yet"""
+        if streams == "*":
+            print(
+                "Warning: Config is not set yet. All streams will be selected after config is set."
+            )
+        else:
+            print(
+                "Warning: Config is not set yet. "
+                f"Streams to be selected after config is set: {streams}"
+            )
+
     def select_all_streams(self) -> None:
         """Select all streams.
 
         This is a more streamlined equivalent to:
         > source.select_streams(source.get_available_streams()).
         """
+        if self._config_dict is None:
+            self._to_be_selected_streams = "*"
+            self._log_warning_preselected_stream(self._to_be_selected_streams)
+            return
+
         self._selected_stream_names = self.get_available_streams()
 
     def select_streams(self, streams: str | list[str]) -> None:
@@ -116,6 +134,11 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         Currently, if this is not set, all streams will be read.
         """
+        if self._config_dict is None:
+            self._to_be_selected_streams = streams
+            self._log_warning_preselected_stream(streams)
+            return
+
         if streams == "*":
             self.select_all_streams()
             return
@@ -158,6 +181,10 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             self.validate_config(config)
 
         self._config_dict = config
+
+        if self._to_be_selected_streams:
+            self.select_streams(self._to_be_selected_streams)
+            self._to_be_selected_streams = []
 
     def get_config(self) -> dict[str, Any]:
         """Get the config for the connector."""
