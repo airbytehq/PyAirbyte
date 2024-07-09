@@ -208,7 +208,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             log_text=self._last_log_messages,
         )
 
-
     def validate_config(self, config: dict[str, Any] | None = None) -> None:
         """Validate the config against the spec.
 
