@@ -7,7 +7,7 @@ import airbyte
 import jsonschema
 import pytest
 from airbyte import exceptions as exc
-from airbyte.experimental import get_source
+from airbyte import get_source
 from airbyte.sources.registry import (
     _LOWCODE_CONNECTORS_404,
     _LOWCODE_CONNECTORS_FAILING_VALIDATION,

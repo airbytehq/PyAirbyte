@@ -9,7 +9,7 @@ Usage (from PyAirbyte root directory):
 from __future__ import annotations
 
 import airbyte as ab
-from airbyte.experimental import get_source
+from airbyte import get_source
 
 
 yaml_connectors: list[str] = ab.get_available_connectors(install_type="yaml")

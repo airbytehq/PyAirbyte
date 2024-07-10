@@ -48,9 +48,7 @@ def get_connector(
     )
 
 
-# This non-public function includes the `docker_image` parameter, which is not exposed in the
-# public API. See the `experimental` module for more info.
-def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
+def get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     name: str,
     config: dict[str, Any] | None = None,
     *,
@@ -87,13 +85,14 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             (e.g. `my-image:latest`), the version will be appended as a tag (e.g. `my-image:0.1.0`).
         use_host_network: If set, along with docker_image, the connector will be executed using
             the host network. This is useful for connectors that need to access resources on
-            the host machine, such as a local database.
-        source_manifest: If set, the connector will be executed based on a declarative Yaml
-            source definition. This input can be `True` to auto-download the yaml spec, `dict`
-            to accept a Python dictionary as the manifest, `Path` to pull a manifest from
+            the host machine, such as a local database. This parameter is ignored when
+            `docker_image` is not set.
+        source_manifest: If set, the connector will be executed based on a declarative YAML
+            source definition. This input can be `True` to attempt to auto-download a YAML spec,
+            `dict` to accept a Python dictionary as the manifest, `Path` to pull a manifest from
             the local file system, or `str` to pull the definition from a web URL.
         install_if_missing: Whether to install the connector if it is not available locally. This
-            parameter is ignored when local_executable is set.
+            parameter is ignored when `local_executable` or `source_manifest` are set.
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
     """
@@ -206,13 +205,15 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
 
     if source_manifest:
         if source_manifest is True:
-            http_url = (
+            # Auto-set the manifest to a valid http address URL string
+            source_manifest = (
                 "https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
                 f"/connectors/{name}/{name.replace('-', '_')}/manifest.yaml"
             )
-            print("Installing connector from YAML manifest:", http_url)
-            # Download the file
-            response = requests.get(http_url)
+        if isinstance(source_manifest, str):
+            print("Installing connector from YAML manifest:", source_manifest)
+            # Download the manifest file
+            response = requests.get(url=source_manifest)
             response.raise_for_status()  # Raise an exception if the download failed
 
             if "class_name:" in response.text:
@@ -225,7 +226,7 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
                     ),
                     connector_name=name,
                     context={
-                        "manifest_url": http_url,
+                        "manifest_url": source_manifest,
                     },
                 )
 
@@ -235,10 +236,14 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
                 raise exc.AirbyteConnectorInstallationError(
                     connector_name=name,
                     context={
-                        "manifest_url": http_url,
+                        "manifest_url": source_manifest,
                     },
                 ) from ex
 
+        if isinstance(source_manifest, Path):
+            source_manifest = cast(dict, yaml.safe_load(source_manifest.read_text()))
+
+        # Source manifest is a dict at this point
         return Source(
             name=name,
             config=config,
@@ -278,54 +283,6 @@ def _get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     except Exception as e:
         log_install_state(name, state=EventState.FAILED, exception=e)
         raise
-
-
-# This thin wrapper exposes only non-experimental functions.
-# Aka, exclude the `docker_image` parameter for now.
-# See the `experimental` module for more info.
-def get_source(
-    name: str,
-    config: dict[str, Any] | None = None,
-    *,
-    streams: str | list[str] | None = None,
-    version: str | None = None,
-    pip_url: str | None = None,
-    local_executable: Path | str | None = None,
-    install_if_missing: bool = True,
-    install_root: Path | None = None,
-) -> Source:
-    """Get a connector by name and version.
-
-    Args:
-        name: connector name
-        config: connector config - if not provided, you need to set it later via the set_config
-            method.
-        streams: list of stream names to select for reading. If set to "*", all streams will be
-            selected. If not provided, you can set it later via the `select_streams()` or
-            `select_all_streams()` method.
-        version: connector version - if not provided, the currently installed version will be used.
-            If no version is installed, the latest available version will be used. The version can
-            also be set to "latest" to force the use of the latest available version.
-        pip_url: connector pip URL - if not provided, the pip url will be inferred from the
-            connector name.
-        local_executable: If set, the connector will be assumed to already be installed and will be
-            executed using this path or executable name. Otherwise, the connector will be installed
-            automatically in a virtual environment.
-        install_if_missing: Whether to install the connector if it is not available locally. This
-            parameter is ignored when local_executable is set.
-        install_root: (Optional.) The root directory where the virtual environment will be
-            created. If not provided, the current working directory will be used.
-    """
-    return _get_source(
-        name=name,
-        config=config,
-        streams=streams,
-        version=version,
-        pip_url=pip_url,
-        local_executable=local_executable,
-        install_if_missing=install_if_missing,
-        install_root=install_root,
-    )
 
 
 __all__ = [
