@@ -1,6 +1,10 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Experimental features which may change.
 
+> **NOTE:**
+> The below "experimental" features are now "stable" and can be accessed directly from the
+`airbyte.get_source()` method.
+
 The experimental `get_source` implementation allows you to run sources
 using Docker containers. This feature is still in development and may
 change in the future.
@@ -34,7 +38,7 @@ You can help improve this product by reporting issues and providing feedback for
 
 from __future__ import annotations
 
-from airbyte.sources.util import _get_source as get_source
+from airbyte.sources.util import get_source
 
 
 __all__ = [

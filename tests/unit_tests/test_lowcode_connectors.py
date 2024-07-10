@@ -4,8 +4,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from airbyte import get_source
 from airbyte._util.meta import is_windows
-from airbyte.experimental import get_source
 
 UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
 

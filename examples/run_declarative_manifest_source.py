@@ -12,7 +12,7 @@ from typing import cast
 
 import yaml
 
-from airbyte.experimental import get_source
+from airbyte import get_source
 
 
 # Copy-pasted from the Builder "Yaml" view:

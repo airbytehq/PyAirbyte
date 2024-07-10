@@ -14,8 +14,8 @@ from pathlib import Path
 
 import airbyte as ab
 import pytest
+from airbyte import get_source
 from airbyte._executor import _get_bin_dir
-from airbyte.experimental import get_source
 from airbyte.progress import ReadProgress, progress
 
 # Product count is always the same, regardless of faker scale.
