@@ -303,7 +303,6 @@ class SqlProcessorBase(RecordProcessorBase):
     def _ensure_schema_exists(
         self,
     ) -> None:
-        """Return a new (unique) temporary table name."""
         dialect = self.get_sql_engine().dialect
         schema_name = dialect.normalize_name(self.sql_config.schema_name)
         if schema_name in self._get_schemas_list():
