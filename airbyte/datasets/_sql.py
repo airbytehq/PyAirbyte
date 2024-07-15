@@ -12,6 +12,7 @@ from typing_extensions import Literal
 
 from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
 
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._base import DatasetBase
 
 
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from pandas import DataFrame
+    from pyarrow.dataset import Dataset
     from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
     from sqlalchemy.sql.selectable import Selectable
@@ -102,6 +104,13 @@ class SQLDataset(DatasetBase):
     def to_pandas(self) -> DataFrame:
         return self._cache.get_pandas_dataframe(self._stream_name)
 
+    def to_arrow(
+        self,
+        *,
+        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
+    ) -> Dataset:
+        return self._cache.get_arrow_dataset(self._stream_name, max_chunk_size=max_chunk_size)
+
     def with_filter(self, *filter_expressions: ClauseElement | str) -> SQLDataset:
         """Filter the dataset by a set of column values.
 
@@ -165,6 +174,26 @@ class CachedDataset(SQLDataset):
     def to_pandas(self) -> DataFrame:
         """Return the underlying dataset data as a pandas DataFrame."""
         return self._cache.get_pandas_dataframe(self._stream_name)
+
+    @overrides
+    def to_arrow(
+        self,
+        *,
+        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
+    ) -> Dataset:
+        """Return an Arrow Dataset containing the data from the specified stream.
+
+        Args:
+            stream_name (str): Name of the stream to retrieve data from.
+            max_chunk_size (int): max number of records to include in each batch of pyarrow dataset.
+
+        Returns:
+            pa.dataset.Dataset: Arrow Dataset containing the stream's data.
+        """
+        return self._cache.get_arrow_dataset(
+            stream_name=self._stream_name,
+            max_chunk_size=max_chunk_size,
+        )
 
     def to_sql_table(self) -> Table:
         """Return the underlying SQL table as a SQLAlchemy Table object."""

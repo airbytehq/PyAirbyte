@@ -11,7 +11,7 @@ if your installation gets interrupted or corrupted.
 from __future__ import annotations
 
 import airbyte as ab
-from airbyte.experimental import get_source
+from airbyte import get_source
 
 
 source = get_source(

@@ -38,3 +38,6 @@ DEFAULT_CACHE_SCHEMA_NAME = "airbyte_raw"
 
 Specific caches may override this value with a different schema name.
 """
+
+DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
+"""The default number of records to include in each batch of an Arrow dataset."""

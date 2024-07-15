@@ -86,6 +86,9 @@ class Source(ConnectorBase):
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
+        self._to_be_selected_streams: list[str] | str = []
+        if config is not None:
+            self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
 
@@ -103,12 +106,29 @@ class Source(ConnectorBase):
         )
         self.select_streams(streams)
 
+    def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
+        """Logs a warning message indicating stream selection which are not selected yet"""
+        if streams == "*":
+            print(
+                "Warning: Config is not set yet. All streams will be selected after config is set."
+            )
+        else:
+            print(
+                "Warning: Config is not set yet. "
+                f"Streams to be selected after config is set: {streams}"
+            )
+
     def select_all_streams(self) -> None:
         """Select all streams.
 
         This is a more streamlined equivalent to:
         > source.select_streams(source.get_available_streams()).
         """
+        if self._config_dict is None:
+            self._to_be_selected_streams = "*"
+            self._log_warning_preselected_stream(self._to_be_selected_streams)
+            return
+
         self._selected_stream_names = self.get_available_streams()
 
     def select_streams(self, streams: str | list[str]) -> None:
@@ -119,6 +139,11 @@ class Source(ConnectorBase):
 
         Currently, if this is not set, all streams will be read.
         """
+        if self._config_dict is None:
+            self._to_be_selected_streams = streams
+            self._log_warning_preselected_stream(streams)
+            return
+
         if streams == "*":
             self.select_all_streams()
             return
@@ -143,6 +168,40 @@ class Source(ConnectorBase):
         If no streams are selected, return an empty list.
         """
         return self._selected_stream_names
+
+    def set_config(
+        self,
+        config: dict[str, Any],
+        *,
+        validate: bool = True,
+    ) -> None:
+        """Set the config for the connector.
+
+        If validate is True, raise an exception if the config fails validation.
+
+        If validate is False, validation will be deferred until check() or validate_config()
+        is called.
+        """
+        if validate:
+            self.validate_config(config)
+
+        self._config_dict = config
+
+        if self._to_be_selected_streams:
+            self.select_streams(self._to_be_selected_streams)
+            self._to_be_selected_streams = []
+
+    def get_config(self) -> dict[str, Any]:
+        """Get the config for the connector."""
+        return self._config
+
+    @property
+    def _config(self) -> dict[str, Any]:
+        if self._config_dict is None:
+            raise exc.AirbyteConnectorConfigurationMissingError(
+                guidance="Provide via get_source() or set_config()"
+            )
+        return self._config_dict
 
     def _discover(self) -> AirbyteCatalog:
         """Call discover on the connector.
