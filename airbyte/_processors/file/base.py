@@ -62,7 +62,7 @@ class FileWriterBase(abc.ABC):
         file_path: Path,
     ) -> IO[str]:
         """Open a new file for writing."""
-        return file_path.open("w")
+        return file_path.open("w", encoding="utf-8")
 
     def _flush_active_batch(
         self,

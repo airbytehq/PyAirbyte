@@ -98,7 +98,7 @@ class Destination(ConnectorBase):
             file_iterator: Iterator[Path] = iter(data_files)
             message_iterator = FileBasedMessageGenerator(
                 file_iterator=file_iterator,
-                file_opener=open,
+                file_opener=open,  # TODO: Use explicit utf-8 encoding
             )
         else:
             message_iterator = StdinMessageGenerator()

@@ -33,7 +33,7 @@ class JsonlWriter(FileWriterBase):
         file_path: Path,
     ) -> IO[str]:
         """Open a new file for writing."""
-        return cast(IO[str], gzip.open(file_path, "w"))
+        return cast(IO[str], gzip.open(file_path, "w", encoding="utf-8"))
 
     @overrides
     def _write_record_dict(
@@ -44,7 +44,7 @@ class JsonlWriter(FileWriterBase):
         # If the record is too nested, `orjson` will fail with error `TypeError: Recursion
         # limit reached`. If so, fall back to the slower `json.dumps`.
         try:
-            open_file_writer.write(orjson.dumps(record_dict).decode("utf-8") + "\n")
+            open_file_writer.write(orjson.dumps(record_dict).decode(encoding="utf-8") + "\n")
         except TypeError:
             # Using isoformat method for datetime serialization
             open_file_writer.write(
