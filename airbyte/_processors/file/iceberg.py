@@ -43,7 +43,12 @@ class IcebergStateWriter(StateWriterBase):
     def write_state(self, state_message: dict) -> None:
         """Write the state for the given stream."""
         stream_name = state_message["stream"]
-        state_file_path = Path(self._get_state_file_path(stream_name))
+        state_file_path = Path(
+            _get_state_file_path(
+                cache_dir=self._cache_dir,
+                stream_name=stream_name,
+            )
+        )
         state_file_path.write_text(json.dumps(state_message))
 
 
