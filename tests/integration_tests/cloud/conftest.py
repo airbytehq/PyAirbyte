@@ -4,16 +4,16 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import pytest
+from airbyte._executors.base import _get_bin_dir
 from airbyte._util.api_util import CLOUD_API_ROOT
-from airbyte._executor import _get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
-
 
 AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
 

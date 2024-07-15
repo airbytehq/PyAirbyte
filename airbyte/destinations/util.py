@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from airbyte._executor import get_connector_executor
+from airbyte._executors.util import get_connector_executor
 from airbyte.destinations.base import Destination
 
 

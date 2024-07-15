@@ -15,7 +15,7 @@ from pathlib import Path
 
 import airbyte as ab
 import pytest
-from airbyte._executor import _get_bin_dir
+from airbyte._executors.base import _get_bin_dir
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
 

@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
-    from airbyte._executor import Executor
+    from airbyte._executors.base import Executor
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._message_generators import AirbyteMessageGenerator
@@ -74,6 +74,7 @@ class Source(ConnectorBase):
 
         If config is provided, it will be validated against the spec if validate is True.
         """
+        self._to_be_selected_streams: list[str] | str = []
         super().__init__(
             executor=executor,
             name=name,
@@ -86,7 +87,6 @@ class Source(ConnectorBase):
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
-        self._to_be_selected_streams: list[str] | str = []
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:

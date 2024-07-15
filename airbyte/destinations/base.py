@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
-    from airbyte._executor import Executor
+    from airbyte._executors.base import Executor
     from airbyte._future_cdk.state_writers import StateWriterBase
 
 

@@ -20,7 +20,7 @@ import airbyte as ab
 import pytest
 import pytest_mock
 import ulid
-from airbyte._executor import _get_bin_dir
+from airbyte._executors.base import _get_bin_dir
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte.caches.base import CacheBase

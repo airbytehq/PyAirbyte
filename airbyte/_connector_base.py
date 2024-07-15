@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from typing import IO
 
-    from airbyte._executor import Executor
+    from airbyte._executors.base import Executor
     from airbyte._message_generators import AirbyteMessageGenerator
 
 

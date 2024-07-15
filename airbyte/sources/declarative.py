@@ -6,20 +6,21 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
-from airbyte._executor import Executor
+from airbyte._executors.base import Executor
 from airbyte.exceptions import PyAirbyteInternalError
-from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from airbyte._message_generators import AirbyteMessageGenerator
 
 
 def _suppress_cdk_pydantic_deprecation_warnings() -> None:
@@ -65,8 +66,14 @@ class DeclarativeExecutor(Executor):
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
         self.reported_version: str | None = None  # TODO: Consider adding version detection
 
-    def execute(self, args: list[str]) -> Iterator[str]:
+    def execute(
+        self,
+        args: list[str],
+        *,
+        stdin: IO[str] | AirbyteMessageGenerator | None = None,
+    ) -> Iterator[str]:
         """Execute the declarative source."""
+        _ = stdin  # Not used
         source_entrypoint = AirbyteEntrypoint(self.declarative_source)
         parsed_args = source_entrypoint.parse_args(args)
         yield from source_entrypoint.run(parsed_args)
@@ -85,38 +92,39 @@ class DeclarativeExecutor(Executor):
         pass
 
 
-class DeclarativeSource(Source):
-    """A declarative source using Airbyte's Yaml low-code/no-code framework."""
+# TODO: Delete if not needed.
+# class DeclarativeSource(Source):
+#     """A declarative source using Airbyte's Yaml low-code/no-code framework."""
 
-    def __init__(
-        self,
-        manifest: str | dict | Path,
-    ) -> None:
-        """Initialize a declarative source.
+#     def __init__(
+#         self,
+#         manifest: str | dict | Path,
+#     ) -> None:
+#         """Initialize a declarative source.
 
-        Sample usages:
-        ```python
-        manifest_path = "path/to/manifest.yaml"
+#         Sample usages:
+#         ```python
+#         manifest_path = "path/to/manifest.yaml"
 
-        source_a = DeclarativeSource(manifest=Path(manifest_path))
-        source_b = DeclarativeSource(manifest=Path(manifest_path).read_text())
-        source_c = DeclarativeSource(manifest=yaml.load(Path(manifest_path).read_text()))
-        ```
+#         source_a = DeclarativeSource(manifest=Path(manifest_path))
+#         source_b = DeclarativeSource(manifest=Path(manifest_path).read_text())
+#         source_c = DeclarativeSource(manifest=yaml.load(Path(manifest_path).read_text()))
+#         ```
 
-        Args:
-            manifest: The manifest for the declarative source. This can be a path to a yaml file, a
-            yaml string, or a dict.
-        """
-        _suppress_cdk_pydantic_deprecation_warnings()
+#         Args:
+#             manifest: The manifest for the declarative source. This can be a path to a yaml file, a
+#             yaml string, or a dict.
+#         """
+#         _suppress_cdk_pydantic_deprecation_warnings()
 
-        # TODO: Conform manifest to a dict or str (TBD)
-        self.manifest = manifest
+#         # TODO: Conform manifest to a dict or str (TBD)
+#         self.manifest = manifest
 
-        # Initialize the source using the base class implementation
-        super().__init__(
-            name="Declarative",  # TODO: Get name from manifest
-            config={  # TODO: Put 'real' config here
-                "manifest": manifest,
-            },
-            executor=DeclarativeExecutor(manifest),
-        )
+#         # Initialize the source using the base class implementation
+#         super().__init__(
+#             name="Declarative",  # TODO: Get name from manifest
+#             config={  # TODO: Put 'real' config here
+#                 "manifest": manifest,
+#             },
+#             executor=DeclarativeExecutor(manifest),
+#         )
