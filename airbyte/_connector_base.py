@@ -303,7 +303,7 @@ class ConnectorBase(abc.ABC):
             self._last_log_messages = []
             for line in self.executor.execute(args, stdin=stdin):
                 try:
-                    message = AirbyteMessage.parse_raw(line)
+                    message = AirbyteMessage.model_validate_json(line)
                     if message.type is Type.RECORD:
                         pass
                     elif message.type == Type.LOG:

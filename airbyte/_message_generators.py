@@ -66,7 +66,7 @@ class MessageGeneratorFromStrBuffer(AirbyteMessageGenerator):
                 break
             try:
                 # Let Pydantic handle the JSON decoding from the raw string
-                yield AirbyteMessage.parse_raw(next_line)
+                yield AirbyteMessage.model_validate_json(next_line)
             except pydantic.ValidationError:
                 # Handle JSON decoding errors (optional)
                 raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
@@ -118,7 +118,7 @@ class FileBasedMessageGenerator(AirbyteMessageGenerator):
             try:
                 # Let Pydantic handle the JSON decoding from the raw string
                 yield (
-                    AirbyteMessage.parse_raw(next_line),
+                    AirbyteMessage.model_validate_json(next_line),
                     self._current_file,
                 )
             except pydantic.ValidationError:
