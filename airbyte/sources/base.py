@@ -30,6 +30,7 @@ from airbyte._util.telemetry import (
     send_telemetry,
 )
 from airbyte._util.temp_files import as_temp_files
+from airbyte.caches.base import CacheBase
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.destinations.base import ConnectorBase
@@ -636,7 +637,7 @@ class Source(ConnectorBase):
         """Read from the connector and write to the cache.
 
         Args:
-            cache: The cache to write to. If None, a default cache will be used.
+            cache: The cache to write to. If not set, a default cache will be used.
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
@@ -688,10 +689,7 @@ class Source(ConnectorBase):
         if not skip_validation:
             self.validate_config()
 
-        # Set up cache and related resources
-        if cache is None:
-            cache = get_default_cache()
-
+        cache = cache or get_default_cache()
         # Set up state provider if not in full refresh mode
         if force_full_refresh:
             state_provider: StateProviderBase | None = None

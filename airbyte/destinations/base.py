@@ -14,7 +14,6 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
-from airbyte._future_cdk.record_processor import RecordProcessorBase
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._message_generators import (
     AirbyteMessageGenerator,
@@ -29,10 +28,6 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.executors.base import Executor
-
-
-class DestinationProcessor(RecordProcessorBase):
-    """Processor for Destinations."""
 
 
 class Destination(ConnectorBase):
