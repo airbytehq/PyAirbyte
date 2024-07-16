@@ -33,7 +33,14 @@ class JsonlWriter(FileWriterBase):
         file_path: Path,
     ) -> IO[str]:
         """Open a new file for writing."""
-        return cast(IO[str], gzip.open(file_path, "w", encoding="utf-8"))
+        return cast(
+            IO[str],
+            gzip.open(
+                file_path,
+                mode="wt",
+                encoding="utf-8",
+            ),
+        )
 
     @overrides
     def _write_record_dict(

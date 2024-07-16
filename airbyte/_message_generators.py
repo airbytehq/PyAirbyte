@@ -14,8 +14,7 @@ from airbyte_cdk import AirbyteMessage
 
 
 if TYPE_CHECKING:
-    import io
-    from collections.abc import Generator, Iterator
+    from collections.abc import Generator, Iterable, Iterator
     from pathlib import Path
 
 
@@ -51,6 +50,17 @@ class AirbyteMessageGenerator(abc.ABC):
         return next(self).json()
 
 
+class MessageGeneratorFromMessages(AirbyteMessageGenerator):
+    """A message generator that reads messages from STDIN."""
+
+    def __init__(self, messages: Iterable[AirbyteMessage]) -> None:
+        self.messages: Iterable[AirbyteMessage] = messages
+
+    def _generator(self) -> Generator[AirbyteMessage, None, None]:
+        """Yields AirbyteMessage objects read from STDIN."""
+        yield from self.messages
+
+
 class MessageGeneratorFromStrBuffer(AirbyteMessageGenerator):
     """A message generator that reads messages from STDIN."""
 
@@ -72,6 +82,23 @@ class MessageGeneratorFromStrBuffer(AirbyteMessageGenerator):
                 raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
 
 
+class MessageGeneratorFromStrIterable(AirbyteMessageGenerator):
+    """A message generator that reads messages from STDIN."""
+
+    def __init__(self, buffer: Iterable[str]) -> None:
+        self.buffer: Iterable[str] = buffer
+
+    def _generator(self) -> Generator[AirbyteMessage, None, None]:
+        """Yields AirbyteMessage objects read from STDIN."""
+        for line in self.buffer:
+            try:
+                # Let Pydantic handle the JSON decoding from the raw string
+                yield AirbyteMessage.model_validate_json(line)
+            except pydantic.ValidationError:
+                # Handle JSON decoding errors (optional)
+                raise ValueError(f"Invalid JSON format in input string: {line}")  # noqa: B904, TRY003
+
+
 class StdinMessageGenerator(MessageGeneratorFromStrBuffer):
     """A message generator that reads messages from STDIN."""
 
@@ -89,12 +116,12 @@ class FileBasedMessageGenerator(AirbyteMessageGenerator):
     def __init__(
         self,
         file_iterator: Iterator[Path],
-        file_opener: Callable[[Path], io.StringIO],
+        file_opener: Callable[[Path], IO[str]],
     ) -> None:
         self._file_iterator: Iterator[Path] = file_iterator
-        self._file_opener: Callable[[Path], io.StringIO] = file_opener
+        self._file_opener: Callable[[Path], IO[str]] = file_opener
         self._current_file: Path | None = None
-        self._current_file_buffer: io.StringIO | None = None
+        self._current_file_buffer: IO[str] | None = None
         self._generator_instance: Generator[AirbyteMessage, None, None] = self._generator()
 
     def _generator(self) -> Generator[AirbyteMessage, None, None]:

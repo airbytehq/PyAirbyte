@@ -3,27 +3,31 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from pathlib import Path
+from typing import IO, TYPE_CHECKING, Any, cast
 
 from typing_extensions import Literal
 
-from airbyte_protocol.models.airbyte_protocol import AirbyteMessage, ConfiguredAirbyteCatalog
+from airbyte_protocol.models import (
+    Type,
+)
 
+from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.record_processor import RecordProcessorBase
+from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._message_generators import (
     AirbyteMessageGenerator,
     FileBasedMessageGenerator,
-    StdinMessageGenerator,
 )
 from airbyte._util.temp_files import as_temp_files
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from airbyte._executors.base import Executor
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
 
 
@@ -55,75 +59,76 @@ class Destination(ConnectorBase):
             validate=validate,
         )
 
-    # TODO: Delete if not needed:
-    # def _write(
-    #     self,
-    #     source: Source,
-    #     *,
-    #     streams: Literal["*"] | list[str] | None = None,
-    #     write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
-    #     skip_validation: bool = False,
-    #     state_writer: StateWriterBase,
-    #     state_provider: state_providers.StateProviderBase,
-    # ) -> None:
-    #     """Write records to the destination."""
-    #     source.read()
-    #     configured_catalog: ConfiguredAirbyteCatalog = source.get_configured_catalog(
-    #         streams=streams
-    #     )
-
-    #     if not skip_validation:
-    #         source.validate_config()
-    #         self.validate_config()
-
-    #     source_msg_iterator: Iterator[AirbyteMessage] = source._read_with_catalog(
-    #         catalog=configured_catalog,
-    #         state=state_provider,
-    #     )
-    #     str_iterator: Generator[str, None, None] = (str(msg) for msg in source_msg_iterator)
-    #     # Create an IO buffer to store a stringified version of the iterator output
-
-    def _write_stream(
+    def write(
         self,
-        stream_name: str,
-        data_files: list[Path] | None = None,
+        stdin: IO[str] | AirbyteMessageGenerator,
         *,
-        configured_catalog: ConfiguredAirbyteCatalog,
-        state_writer: StateWriterBase,
+        catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase | None = None,
+        skip_validation: bool = False,
     ) -> None:
-        """Write records to the destination."""
-        print(f"Sending `{stream_name}` stream data to destination `{self.name}`...")
-        message_iterator: AirbyteMessageGenerator
-        if data_files:
-            file_iterator: Iterator[Path] = iter(data_files)
-            message_iterator = FileBasedMessageGenerator(
-                file_iterator=file_iterator,
-                file_opener=open,  # TODO: Use explicit utf-8 encoding
-            )
-        else:
-            message_iterator = StdinMessageGenerator()
+        """Read from the connector and write to the cache."""
+        # Run optional validation step
+        if not skip_validation:
+            self.validate_config()
+
+        if state_writer is None:
+            state_writer = StdOutStateWriter()
+
         with as_temp_files(
-            [
+            files_contents=[
                 self._config,
-                configured_catalog.dict(),
+                catalog_provider.configured_catalog.model_dump_json(),
             ]
         ) as [
             config_file,
             catalog_file,
         ]:
-            destination_message: AirbyteMessage
-            for destination_message in self._execute(
-                [
-                    "write",
-                    "--config",
-                    config_file,
-                    "--catalog",
-                    catalog_file,
-                ],
-                stdin=message_iterator,
-            ):
-                if destination_message.type is AirbyteMessage.Type.STATE:
-                    state_writer.write_state(destination_message.state)
+            try:
+                for destination_message in self._execute(
+                    [
+                        "write",
+                        "--config",
+                        config_file,
+                        "--catalog",
+                        catalog_file,
+                    ],
+                    stdin=stdin,
+                ):
+                    if destination_message.type is Type.STATE:
+                        state_writer.write_state(state_message=destination_message.state)
+
+            # TODO: We should catch more specific exceptions here
+            except Exception as ex:
+                raise exc.AirbyteConnectorFailedError(
+                    log_text=self._last_log_messages,
+                ) from ex
+
+    def _write_stream_from_files(
+        self,
+        stream_name: str,
+        data_files: list[Path],
+        *,
+        catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase,
+    ) -> None:
+        """Write records to the destination."""
+        print(f"Sending `{stream_name}` stream data to destination `{self.name}`...")
+        message_iterator: AirbyteMessageGenerator
+        file_iterator: Iterator[Path] = iter(data_files)
+
+        def fn_file_opener(file_path: Path) -> IO[str]:
+            return cast(IO[str], Path.open(file_path, encoding="utf-8"))
+
+        message_iterator = FileBasedMessageGenerator(
+            file_iterator=file_iterator,
+            file_opener=fn_file_opener,
+        )
+        self.write(
+            stdin=message_iterator,
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
+        )
         print(f"Finished processing `{stream_name}` stream data in `{self.name}` destination.")
 
 
