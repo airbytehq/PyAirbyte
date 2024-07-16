@@ -1,3 +1,6 @@
+# Viztracer reports
+viztracer*.json
+
 # Packaged docs
 docs/*.zip
 
