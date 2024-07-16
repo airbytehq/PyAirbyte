@@ -19,7 +19,7 @@ from rich import print
 
 import airbyte as ab
 from airbyte import exceptions as exc
-from airbyte._executors.base import _get_bin_dir
+from airbyte.executors.base import _get_bin_dir
 
 
 def _parse_args() -> argparse.Namespace:

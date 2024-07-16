@@ -47,13 +47,13 @@ if TYPE_CHECKING:
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
-    from airbyte._executors.base import Executor
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._message_generators import AirbyteMessageGenerator
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
+    from airbyte.executors.base import Executor
 
 
 class Source(ConnectorBase):
@@ -639,31 +639,31 @@ class Source(ConnectorBase):
             event_type=EventType.SYNC,
         )
 
-    def read_to_files(
-        self,
-        file_writer: FileWriterBase,
-        *,
-        streams: str | list[str] | None = None,
-        state_provider: StateProviderBase | None = None,
-        state_writer: StateWriterBase | None = None,
-        skip_validation: bool = False,
-    ) -> dict[str, list[Path]]:
-        """Read from the connector and write to the file, returning a dictionary of file paths."""
-        _ = state_provider, state_writer  # TODO: Fix: Should be used.
-        if not skip_validation:
-            self.validate_config()
-            self.check()
+    # def read_to_files(
+    #     self,
+    #     file_writer: FileWriterBase,
+    #     *,
+    #     streams: str | list[str] | None = None,
+    #     state_provider: StateProviderBase | None = None,
+    #     state_writer: StateWriterBase | None = None,
+    #     skip_validation: bool = False,
+    # ) -> dict[str, list[Path]]:
+    #     """Read from the connector and write to the file, returning a dictionary of file paths."""
+    #     _ = state_provider, state_writer  # TODO: Fix: Should be used.
+    #     if not skip_validation:
+    #         self.validate_config()
+    #         self.check()
 
-        if streams:
-            self.select_streams(streams)
+    #     if streams:
+    #         self.select_streams(streams)
 
-        if not self._selected_stream_names:
-            raise exc.PyAirbyteNoStreamsSelectedError(
-                connector_name=self.name,
-                available_streams=self.get_available_streams(),
-            )
+    #     if not self._selected_stream_names:
+    #         raise exc.PyAirbyteNoStreamsSelectedError(
+    #             connector_name=self.name,
+    #             available_streams=self.get_available_streams(),
+    #         )
 
-        return file_writer._completed_batches  # noqa: SLF001  # Non-public API
+    #     return file_writer._completed_batches  # noqa: SLF001  # Non-public API
 
     def read(
         self,

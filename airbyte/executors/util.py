@@ -13,8 +13,8 @@ import yaml
 from rich import print
 
 from airbyte import exceptions as exc
-from airbyte._executors.base import DockerExecutor, Executor, PathExecutor, VenvExecutor
-from airbyte._util.telemetry import EventState, log_install_state
+from airbyte._util.telemetry import EventState, log_install_state  # noqa: PLC2701  # Non-public API
+from airbyte.executors.base import DockerExecutor, Executor, PathExecutor, VenvExecutor
 from airbyte.sources.declarative import DeclarativeExecutor
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
@@ -22,7 +22,7 @@ from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 _LATEST_VERSION = "latest"
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, F811, PLR0915 # Too complex
+def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     name: str,
     *,
     version: str | None = None,

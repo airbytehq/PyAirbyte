@@ -19,11 +19,11 @@ import psycopg2 as psycopg
 import pytest
 import ulid
 from _pytest.nodes import Item
-from airbyte._executors.base import _get_bin_dir
 from airbyte._util.meta import is_windows
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+from airbyte.executors.base import _get_bin_dir
 from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)

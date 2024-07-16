@@ -26,9 +26,9 @@ from airbyte._util.temp_files import as_temp_files
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte._executors.base import Executor
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte.executors.base import Executor
 
 
 class DestinationProcessor(RecordProcessorBase):

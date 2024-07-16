@@ -6,7 +6,7 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING, Any
 
-from airbyte._executors.util import get_connector_executor
+from airbyte.executors.util import get_connector_executor
 from airbyte.sources.base import Source
 
 
@@ -40,7 +40,7 @@ def get_connector(
     )
 
 
-def get_source(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
+def get_source(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
     *,

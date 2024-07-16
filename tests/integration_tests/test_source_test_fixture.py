@@ -16,11 +16,11 @@ import pytest
 import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
-from airbyte._executors.base import _get_bin_dir
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
 from airbyte.caches import PostgresCache, SnowflakeCache
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
+from airbyte.executors.base import _get_bin_dir
 from airbyte.results import ReadResult
 from airbyte.sources import registry
 from airbyte.version import get_version
@@ -157,10 +157,10 @@ def test_invalid_config():
 
 def test_ensure_installation_detection():
     """Assert that install isn't called, since the connector is already installed by the fixture."""
-    with patch("airbyte._executors.VenvExecutor.install") as mock_venv_install, patch(
+    with patch("airbyte.executors.VenvExecutor.install") as mock_venv_install, patch(
         "airbyte.sources.base.Source.install"
     ) as mock_source_install, patch(
-        "airbyte._executors.VenvExecutor.ensure_installation"
+        "airbyte.executors.VenvExecutor.ensure_installation"
     ) as mock_ensure_installed:
         source = ab.get_source(
             "source-test",

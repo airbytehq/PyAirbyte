@@ -32,4 +32,5 @@ __all__ = [
     "motherduck",
     "postgres",
     "snowflake",
+    "base",
 ]
