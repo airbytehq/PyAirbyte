@@ -17,9 +17,9 @@ from rich import print
 from typing_extensions import Literal
 
 from airbyte import exceptions as exc
-from airbyte._message_generators import AirbyteMessageGenerator
-from airbyte._util.meta import is_windows
-from airbyte._util.telemetry import EventState, log_install_state
+from airbyte._message_generators import AirbyteMessageGenerator  # noqa: PLC2701
+from airbyte._util.meta import is_windows  # noqa: PLC2701
+from airbyte._util.telemetry import EventState, log_install_state  # noqa: PLC2701
 from airbyte.sources.registry import ConnectorMetadata
 
 
