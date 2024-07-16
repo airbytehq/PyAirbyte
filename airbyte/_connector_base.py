@@ -258,7 +258,7 @@ class ConnectorBase(abc.ABC):
                             },
                         )
                 raise exc.AirbyteConnectorCheckFailedError(log_text=self._last_log_messages)
-            except exc.AirbyteConnectorReadError as ex:
+            except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorCheckFailedError(
                     message="The connector failed to check the connection.",
                     log_text=ex.log_text,
@@ -282,10 +282,37 @@ class ConnectorBase(abc.ABC):
         if len(self._last_log_messages) > MAX_LOG_LINES:
             self._last_log_messages = self._last_log_messages[-MAX_LOG_LINES:]
 
+    def _peek_airbyte_message(
+        self,
+        message: AirbyteMessage,
+        *,
+        raise_on_error: bool = True,
+    ) -> None:
+        """Process an Airbyte message.
+
+        This method handles reading Airbyte messages and taking action, if needed, based on the
+        message type. For instance, log messages are logged, records are tallied, and errors are
+        raised as exceptions if `raise_on_error` is True.
+
+        Raises:
+            AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
+        """
+        if message.type == Type.LOG:
+            self._add_to_logs(message.log.message)
+            return
+
+        if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
+            self._add_to_logs(message.trace.error.message)
+            if raise_on_error:
+                raise exc.AirbyteConnectorFailedError(
+                    message=message.trace.error.message,
+                    log_text=self._last_log_messages,
+                )
+            return
+
     def _execute(
         self,
         args: list[str],
-        *,
         stdin: IO[str] | AirbyteMessageGenerator | None = None,
     ) -> Iterator[AirbyteMessage]:
         """Execute the connector with the given arguments.
@@ -303,13 +330,8 @@ class ConnectorBase(abc.ABC):
             self._last_log_messages = []
             for line in self.executor.execute(args, stdin=stdin):
                 try:
-                    message = AirbyteMessage.model_validate_json(line)
-                    if message.type is Type.RECORD:
-                        pass
-                    elif message.type == Type.LOG:
-                        self._add_to_logs(message.log.message)
-                    elif message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-                        self._add_to_logs(message.trace.error.message)
+                    message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
+                    self._peek_airbyte_message(message)
                     yield message
 
                 except Exception:

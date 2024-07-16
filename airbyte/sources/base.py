@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import pendulum
 import yaml
@@ -19,7 +19,6 @@ from airbyte_protocol.models import (
     ConfiguredAirbyteStream,
     DestinationSyncMode,
     SyncMode,
-    TraceType,
     Type,
 )
 
@@ -48,7 +47,6 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._message_generators import AirbyteMessageGenerator
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
     from airbyte.executors.base import Executor
@@ -527,41 +525,30 @@ class Source(ConnectorBase):
                 )
             )
 
-    def _execute(
+    def _peek_airbyte_message(
         self,
-        args: list[str],
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
-    ) -> Iterator[AirbyteMessage]:
-        """Execute the connector with the given arguments.
+        message: AirbyteMessage,
+        *,
+        raise_on_error: bool = True,
+    ) -> None:
+        """Process an Airbyte message.
 
-        This involves the following steps:
-        * Locate the right venv. It is called ".venv-<connector_name>"
-        * Spawn a subprocess with .venv-<connector_name>/bin/<connector-name> <args>
-        * Read the output line by line of the subprocess and serialize them AirbyteMessage objects.
-          Drop if not valid.
+        This method handles reading Airbyte messages and taking action, if needed, based on the
+        message type. For instance, log messages are logged, records are tallied, and errors are
+        raised as exceptions if `raise_on_error` is True.
+
+        Raises:
+            AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
-        _ = stdin  # Unused, but kept for compatibility with the base class
-        try:
-            self._last_log_messages = []
-            for line in self.executor.execute(args):
-                try:
-                    message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
-                    if message.type is Type.RECORD:
-                        self._processed_records += 1
-                        if message.record.stream not in self._stream_names_observed:
-                            self._stream_names_observed.add(message.record.stream)
-                            self._log_stream_read_start(message.record.stream)
-                    if message.type == Type.LOG:
-                        self._add_to_logs(message.log.message)
-                    if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-                        self._add_to_logs(message.trace.error.message)
-                    yield message
-                except Exception:
-                    self._add_to_logs(line)
-        except Exception as e:
-            raise exc.AirbyteConnectorReadError(
-                log_text=self._last_log_messages,
-            ) from e
+        if message.type is Type.RECORD:
+            self._processed_records += 1
+            if message.record.stream not in self._stream_names_observed:
+                self._stream_names_observed.add(message.record.stream)
+                self._log_stream_read_start(message.record.stream)
+
+            return
+
+        super()._peek_airbyte_message(message, raise_on_error=raise_on_error)
 
     def _tally_records(
         self,

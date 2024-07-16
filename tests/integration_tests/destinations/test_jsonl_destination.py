@@ -68,7 +68,7 @@ def test_jsonl_destination_write(new_jsonl_destination: Destination) -> None:
         AirbyteMessage(
             type=Type.RECORD,
             record=AirbyteRecordMessage(
-                stream="product",
+                stream="products",
                 emitted_at=1704067200,
                 data=record_dict,
             ),
@@ -79,7 +79,6 @@ def test_jsonl_destination_write(new_jsonl_destination: Destination) -> None:
     new_jsonl_destination.write(
         stdin=message_generator,
         catalog_provider=CatalogProvider(source.configured_catalog),
-        skip_validation=False,
     )
 
     # # Check the output.
