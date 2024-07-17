@@ -161,6 +161,8 @@ class SqlProcessorBase(RecordProcessorBase):
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
+
+        self._known_schemas_list: list[str] = []
         self._ensure_schema_exists()
 
     # Public interface:
@@ -305,6 +307,10 @@ class SqlProcessorBase(RecordProcessorBase):
     ) -> None:
         """Return a new (unique) temporary table name."""
         schema_name = self.sql_config.schema_name
+
+        if self._known_schemas_list and self.sql_config.schema_name in self._known_schemas_list:
+            return  # Already exists
+
         if schema_name in self._get_schemas_list():
             return
 
@@ -372,17 +378,23 @@ class SqlProcessorBase(RecordProcessorBase):
     def _get_schemas_list(
         self,
         database_name: str | None = None,
+        *,
+        force_refresh: bool = False,
     ) -> list[str]:
         """Return a list of all tables in the database."""
+        if not force_refresh and self._known_schemas_list:
+            return self._known_schemas_list
+
         inspector: Inspector = sqlalchemy.inspect(self.get_sql_engine())
         database_name = database_name or self.database_name
         found_schemas = inspector.get_schema_names()
-        return [
+        self._known_schemas_list = [
             found_schema.split(".")[-1].strip('"')
             for found_schema in found_schemas
             if "." not in found_schema
             or (found_schema.split(".")[0].lower().strip('"') == database_name.lower())
         ]
+        return self._known_schemas_list
 
     def _ensure_final_table_exists(
         self,

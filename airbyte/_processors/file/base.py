@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     )
 
 
-DEFAULT_BATCH_SIZE = 10000
+DEFAULT_BATCH_SIZE = 100_000
 
 
 class FileWriterBase(abc.ABC):
