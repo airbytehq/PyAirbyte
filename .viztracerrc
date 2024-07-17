@@ -1,0 +1,8 @@
+; # Default config settomgs for viztracer
+; # https://viztracer.readthedocs.io/en/latest/basic_usage.html#configuration-file
+
+[default]
+max_stack_depth = 20
+unique_output_file = True
+output_file = viztracer_report.json
+tracer_entries = 5_000_000
