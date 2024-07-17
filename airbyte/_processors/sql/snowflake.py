@@ -13,6 +13,7 @@ from pydantic import Field
 from snowflake import connector
 from snowflake.sqlalchemy import URL, VARIANT
 
+from airbyte import exceptions as exc
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
@@ -133,8 +134,10 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
             try:
                 executor.map(upload_file, files)
             except Exception as e:
-                logging.error("Failed to upload files: %s", str(e))
-                raise
+                raise exc.PyAirbyteInternalError(
+                    message="Failed to upload batch files to Snowflake.",
+                    context={"files": [str(f) for f in files]},
+                ) from e
 
         columns_list = [
             self._quote_identifier(c)
