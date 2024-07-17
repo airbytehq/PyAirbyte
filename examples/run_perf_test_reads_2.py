@@ -123,9 +123,7 @@ def main(
             },
         },
     )
-    source.print_config_spec(output_file=Path("./souce_config_spec.json"))
     source.check()
-
     source.read(cache)
 
 
@@ -145,9 +143,7 @@ if __name__ == "__main__":
         "-n",
         type=int,
         help=(
-            "The record count."
-            "Recommended values: 2-3 (500 or 5_000) for read and overhead costs, "
-            " 4-6 (50K or 5MM) for write throughput. "
+            "The number of records to generate in the source. "
             "This is mutually exclusive with -e."
         ),
     )
