@@ -130,7 +130,11 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
 
         # Upload files in parallel
         with ThreadPoolExecutor(max_workers=MAX_UPLOAD_THREADS) as executor:
-            executor.map(upload_file, files)
+            try:
+                executor.map(upload_file, files)
+            except Exception as e:
+                logging.error("Failed to upload files: %s", str(e))
+                raise
 
         columns_list = [
             self._quote_identifier(c)
