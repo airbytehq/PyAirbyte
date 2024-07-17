@@ -81,6 +81,8 @@ def test_jsonl_destination_write(new_jsonl_destination: Destination) -> None:
         catalog_provider=CatalogProvider(source.configured_catalog),
     )
 
+    # Container paths are not accessible from the host.
+
     # # Check the output.
     # assert os.path.exists("/tmp/airbyte/destination-jsonl/users.jsonl")
     # assert os.path.getsize("/tmp/airbyte/destination-jsonl/users.jsonl") > 0
