@@ -13,6 +13,7 @@ from pydantic import Field
 from snowflake import connector
 from snowflake.sqlalchemy import URL, VARIANT
 
+from airbyte import exceptions as exc
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._processors.file.jsonl import JsonlWriter
@@ -124,13 +125,19 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         def path_str(path: Path) -> str:
             return str(path.absolute()).replace("\\", "\\\\")
 
-        def upload_file(file_path: str) -> None:
+        def upload_file(file_path: Path) -> None:
             query = f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};"
             self._execute_sql(query)
 
         # Upload files in parallel
         with ThreadPoolExecutor(max_workers=MAX_UPLOAD_THREADS) as executor:
-            executor.map(upload_file, files)
+            try:
+                executor.map(upload_file, files)
+            except Exception as e:
+                raise exc.PyAirbyteInternalError(
+                    message="Failed to upload batch files to Snowflake.",
+                    context={"files": [str(f) for f in files]},
+                ) from e
 
         columns_list = [
             self._quote_identifier(c)
