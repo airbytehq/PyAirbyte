@@ -124,7 +124,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         def path_str(path: Path) -> str:
             return str(path.absolute()).replace("\\", "\\\\")
 
-        def upload_file(file_path: str) -> None:
+        def upload_file(file_path: Path) -> None:
             query = f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};"
             self._execute_sql(query)
 
