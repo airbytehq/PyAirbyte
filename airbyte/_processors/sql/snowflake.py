@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from textwrap import dedent, indent
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sqlalchemy.engine import Connection
+
+
+MAX_UPLOAD_THREADS = 8
 
 
 class SnowflakeConfig(SqlConfig):
@@ -120,9 +124,13 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         def path_str(path: Path) -> str:
             return str(path.absolute()).replace("\\", "\\\\")
 
-        for file_path in files:
+        def upload_file(file_path: str) -> None:
             query = f"PUT 'file://{path_str(file_path)}' {internal_sf_stage_name};"
             self._execute_sql(query)
+
+        # Upload files in parallel
+        with ThreadPoolExecutor(max_workers=MAX_UPLOAD_THREADS) as executor:
+            executor.map(upload_file, files)
 
         columns_list = [
             self._quote_identifier(c)
