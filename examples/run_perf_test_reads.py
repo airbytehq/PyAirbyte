@@ -33,6 +33,12 @@ poetry run python ./examples/run_perf_test_reads.py -e=3 --cache=snowflake
 poetry run python ./examples/run_perf_test_reads.py -e=3 --cache=bigquery
 ```
 
+Note:
+- For purposes of estimating MB/s throughput, each record of the 'purchases' stream is
+  assumed to be 220 bytes, meaning 4_500 records is approximately 1 MB.
+- With these estimates, 20K records/second is approximately 4.5 MB/s,
+  and 25K records/second is approximately 5.5 MB/s.
+
 """
 
 from __future__ import annotations
