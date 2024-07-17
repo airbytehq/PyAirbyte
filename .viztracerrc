@@ -1,5 +1,5 @@
-; # Default config settomgs for viztracer
-; # https://viztracer.readthedocs.io/en/latest/basic_usage.html#configuration-file
+; Default config settings for viztracer
+; https://viztracer.readthedocs.io/en/latest/basic_usage.html#configuration-file
 
 [default]
 max_stack_depth = 20
