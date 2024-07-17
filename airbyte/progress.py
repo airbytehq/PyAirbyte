@@ -85,7 +85,7 @@ def _to_time_str(timestamp: float) -> str:
     return datetime_obj.strftime("%H:%M:%S")
 
 
-def _get_elapsed_time_str(seconds: int) -> str:
+def _get_elapsed_time_str(seconds: float) -> str:
     """Return duration as a string.
 
     Seconds are included until 10 minutes is exceeded.
@@ -93,12 +93,12 @@ def _get_elapsed_time_str(seconds: int) -> str:
     Hours are always included after 1 hour elapsed.
     """
     if seconds <= 60:  # noqa: PLR2004  # Magic numbers OK here.
-        return f"{seconds} seconds"
+        return f"{seconds:.0f} seconds"
 
     if seconds < 60 * 10:
         minutes = seconds // 60
         seconds %= 60
-        return f"{minutes}min {seconds}s"
+        return f"{minutes}min {seconds:.0f}s"
 
     if seconds < 60 * 60:
         minutes = seconds // 60
@@ -280,12 +280,12 @@ class ReadProgress:
         return time.time() - self.last_update_time
 
     @property
-    def elapsed_read_seconds(self) -> int:
+    def elapsed_read_seconds(self) -> float:
         """Return the number of seconds elapsed since the read operation started."""
         if self.read_end_time is None:
-            return int(time.time() - self.read_start_time)
+            return time.time() - self.read_start_time
 
-        return int(self.read_end_time - self.read_start_time)
+        return self.read_end_time - self.read_start_time
 
     @property
     def elapsed_read_time_string(self) -> str:
@@ -366,7 +366,7 @@ class ReadProgress:
         if (
             not force_refresh
             and self.last_update_time  # if not set, then we definitely need to update
-            and cast(float, self.elapsed_seconds_since_last_update) < 0.5  # noqa: PLR2004
+            and cast(float, self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
         ):
             return
 
@@ -396,7 +396,10 @@ class ReadProgress:
         start_time_str = _to_time_str(self.read_start_time)
         records_per_second: float = 0.0
         if self.elapsed_read_seconds > 0:
-            records_per_second = round(self.total_records_read / self.elapsed_read_seconds, 1)
+            records_per_second = round(
+                float(self.total_records_read) / self.elapsed_read_seconds,
+                ndigits=1,
+            )
         status_message = (
             f"## Read Progress\n\n"
             f"Started reading at {start_time_str}.\n\n"
