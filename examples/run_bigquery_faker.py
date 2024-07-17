@@ -49,7 +49,7 @@ def main() -> None:
 
         cache = BigQueryCache(
             project_name=bigquery_destination_secret["project_id"],
-            dataset_name=bigquery_destination_secret["dataset_id"],
+            dataset_name=bigquery_destination_secret.get("dataset_id", "pyairbyte_integtest"),
             credentials_path=temp.name,
         )
 
