@@ -92,6 +92,10 @@ def _get_elapsed_time_str(seconds: float) -> str:
     Minutes are always included after 1 minute elapsed.
     Hours are always included after 1 hour elapsed.
     """
+    if seconds <= 2:  # noqa: PLR2004  # Magic numbers OK here.
+        # Less than 1 minute elapsed
+        return f"{seconds:.2f} seconds"
+
     if seconds <= 60:  # noqa: PLR2004  # Magic numbers OK here.
         # Less than 1 minute elapsed
         return f"{seconds:.0f} seconds"
@@ -128,6 +132,7 @@ class ReadProgress:
         # Reads
         self.read_start_time = time.time()
         self.read_end_time: float | None = None
+        self.first_record_received_time: float | None = None
         self.total_records_read = 0
 
         # Writes
@@ -245,6 +250,7 @@ class ReadProgress:
 
         # Reads
         self.read_start_time = time.time()
+        self.first_record_received_time = None
         self.read_end_time = None
         self.total_records_read = 0
 
@@ -263,12 +269,22 @@ class ReadProgress:
         self._start_rich_view()
 
     @property
-    def elapsed_seconds(self) -> int:
+    def elapsed_seconds(self) -> float:
         """Return the number of seconds elapsed since the read operation started."""
         if self.finalize_end_time:
-            return int(self.finalize_end_time - self.read_start_time)
+            return self.finalize_end_time - self.read_start_time
 
-        return int(time.time() - self.read_start_time)
+        return time.time() - self.read_start_time
+
+    @property
+    def elapsed_read_time(self) -> float:
+        """Return the number of seconds elapsed since the read operation started."""
+        if self.finalize_start_time:
+            return self.finalize_start_time - (
+                self.first_record_received_time or self.read_start_time
+            )
+
+        return time.time() - (self.first_record_received_time or self.read_start_time)
 
     @property
     def elapsed_time_string(self) -> str:
@@ -297,13 +313,13 @@ class ReadProgress:
         return _get_elapsed_time_str(self.elapsed_read_seconds)
 
     @property
-    def elapsed_finalization_seconds(self) -> int:
+    def elapsed_finalization_seconds(self) -> float:
         """Return the number of seconds elapsed since the read operation started."""
         if self.finalize_start_time is None:
             return 0
         if self.finalize_end_time is None:
-            return int(time.time() - self.finalize_start_time)
-        return int(self.finalize_end_time - self.finalize_start_time)
+            return time.time() - self.finalize_start_time
+        return self.finalize_end_time - self.finalize_start_time
 
     @property
     def elapsed_finalization_time_str(self) -> str:
@@ -312,6 +328,9 @@ class ReadProgress:
 
     def log_records_read(self, new_total_count: int) -> None:
         """Load a number of records read."""
+        if self.first_record_received_time is None:
+            self.first_record_received_time = time.time()
+
         self.total_records_read = new_total_count
 
         # This is some math to make updates adaptive to the scale of records read.
@@ -399,38 +418,40 @@ class ReadProgress:
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
         records_per_second: float = 0.0
-        if self.elapsed_read_seconds > 0:
-            records_per_second = round(
-                float(self.total_records_read) / self.elapsed_read_seconds,
-                ndigits=1,
-            )
+        if self.elapsed_read_time > 0:
+            records_per_second = self.total_records_read / self.elapsed_read_time
+
         status_message = (
-            f"## Read Progress\n\n"
-            f"Started reading at {start_time_str}.\n\n"
-            f"Read **{self.total_records_read:,}** records "
+            f"### Read Progress\n\n"
+            f"**Started reading from source at `{start_time_str}`:**\n\n"
+            f"- Read **{self.total_records_read:,}** records "
             f"over **{self.elapsed_read_time_string}** "
-            f"({records_per_second:,} records / second).\n\n"
+            f"({records_per_second:,.1f} records / second).\n\n"
         )
         if self.total_records_written > 0:
             status_message += (
-                f"Wrote **{self.total_records_written:,}** records "
-                f"over {self.total_batches_written:,} batches.\n\n"
+                f"- Cached **{self.total_records_written:,}** records "
+                f"into {self.total_batches_written:,} local cache file(s).\n\n"
             )
         if self.read_end_time is not None:
             read_end_time_str = _to_time_str(self.read_end_time)
-            status_message += f"Finished reading at {read_end_time_str}.\n\n"
+            status_message += f"- Finished reading from source at `{read_end_time_str}`.\n\n"
         if self.finalize_start_time is not None:
             finalize_start_time_str = _to_time_str(self.finalize_start_time)
-            status_message += f"Started finalizing streams at {finalize_start_time_str}.\n\n"
+            status_message += f"**Started cache processing at `{finalize_start_time_str}`:**\n\n"
             status_message += (
-                f"Finalized **{self.total_batches_finalized}** batches "
-                f"over {self.elapsed_finalization_time_str}.\n\n"
+                f"- Processed **{self.total_batches_finalized}** cache "
+                f"file(s) over **{self.elapsed_finalization_time_str}**.\n\n"
             )
+            if self.finalize_end_time is not None:
+                completion_time_str = _to_time_str(self.finalize_end_time)
+                status_message += f"- Finished cache processing at `{completion_time_str}`.\n\n"
+
         if self.finalized_stream_names:
             status_message += (
-                f"Completed {len(self.finalized_stream_names)} "
+                f"**Completed processing {len(self.finalized_stream_names)} "
                 + (f"out of {self.num_streams_expected} " if self.num_streams_expected else "")
-                + "streams:\n\n"
+                + "streams:**\n\n"
             )
             for stream_name in self.finalized_stream_names:
                 status_message += f"  - {stream_name}\n"
@@ -438,11 +459,7 @@ class ReadProgress:
         status_message += "\n\n"
 
         if self.finalize_end_time is not None:
-            completion_time_str = _to_time_str(self.finalize_end_time)
-            status_message += (
-                f"Completed writing at {completion_time_str}. "
-                f"Total time elapsed: {self.elapsed_time_string}\n\n"
-            )
+            status_message += f"**Total time elapsed: {self.elapsed_time_string}**\n\n"
         status_message += "\n------------------------------------------------\n"
 
         return status_message
