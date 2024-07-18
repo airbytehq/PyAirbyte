@@ -250,7 +250,7 @@ class ReadProgress:
 
         # Reads
         self.read_start_time = time.time()
-        self.first_record_received_time: float | None = None
+        self.first_record_received_time = None
         self.read_end_time = None
         self.total_records_read = 0
 
@@ -277,14 +277,14 @@ class ReadProgress:
         return time.time() - self.read_start_time
 
     @property
-    def elapsed_seconds_since_first_record(self) -> int:
+    def elapsed_read_time(self) -> float:
         """Return the number of seconds elapsed since the read operation started."""
-        if self.finalize_end_time:
-            return int(
-                self.finalize_end_time - (self.first_record_received_time or self.read_start_time)
+        if self.finalize_start_time:
+            return self.finalize_start_time - (
+                self.first_record_received_time or self.read_start_time
             )
 
-        return int(time.time() - (self.first_record_received_time or self.read_start_time))
+        return time.time() - (self.first_record_received_time or self.read_start_time)
 
     @property
     def elapsed_time_string(self) -> str:
@@ -418,17 +418,15 @@ class ReadProgress:
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
         records_per_second: float = 0.0
-        if self.elapsed_seconds_since_first_record > 0:
-            records_per_second = round(
-                float(self.total_records_read) / self.elapsed_seconds_since_first_record,
-                ndigits=1,
-            )
+        if self.elapsed_read_time > 0:
+            records_per_second = self.total_records_read / self.elapsed_read_time
+
         status_message = (
             f"### Read Progress\n\n"
             f"**Started reading from source at `{start_time_str}`:**\n\n"
             f"- Read **{self.total_records_read:,}** records "
             f"over **{self.elapsed_read_time_string}** "
-            f"({records_per_second:,} records / second).\n\n"
+            f"({records_per_second:,.1f} records / second).\n\n"
         )
         if self.total_records_written > 0:
             status_message += (
