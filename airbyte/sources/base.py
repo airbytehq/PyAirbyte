@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional
 
 import jsonschema
 import pendulum
@@ -39,7 +39,7 @@ from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import progress
-from airbyte.records import StreamRecord
+from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
 from airbyte.warnings import PyAirbyteDataLossWarning
@@ -447,21 +447,23 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             ) from KeyError(stream)
 
         configured_stream = configured_catalog.streams[0]
-        all_properties = cast(
-            list[str], list(configured_stream.stream.json_schema["properties"].keys())
-        )
 
         def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
             self._log_sync_start(cache=None)
             yield from records
             self._log_sync_success(cache=None)
 
+        stream_record_handler = StreamRecordHandler(
+            json_schema=self.get_stream_json_schema(stream),
+            normalize_keys=False,
+            prune_extra_fields=True,
+        )
+
         iterator: Iterator[dict[str, Any]] = _with_logging(
             records=(  # Generator comprehension yields StreamRecord objects for each record
                 StreamRecord.from_record_message(
                     record_message=record.record,
-                    expected_keys=all_properties,
-                    prune_extra_fields=True,
+                    stream_record_handler=stream_record_handler,
                 )
                 for record in self._read_with_catalog(configured_catalog)
                 if record.record

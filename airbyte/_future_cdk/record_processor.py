@@ -157,7 +157,7 @@ class RecordProcessorBase(abc.ABC):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-        stream_schema: dict,
+        stream_record_handler: StreamRecordHandler,
     ) -> None:
         """Write a record.
 
@@ -199,7 +199,7 @@ class RecordProcessorBase(abc.ABC):
 
                 self.process_record_message(
                     record_msg,
-                    stream_schema=stream_schemas[stream_name],
+                    stream_record_handler=stream_record_handlers[stream_name],
                 )
 
             elif message.type is Type.STATE:

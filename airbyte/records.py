@@ -74,7 +74,7 @@ from typing import TYPE_CHECKING, Any
 import pytz
 from uuid_extensions import uuid7str
 
-from airbyte._util.name_normalizers import LowerCaseNormalizer, NameNormalizerBase
+from airbyte._util.name_normalizers import NameNormalizerBase
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
     AB_INTERNAL_COLUMNS,
@@ -157,7 +157,9 @@ class StreamRecordHandler:
             return self.quick_lookup[key]
         except KeyError:
             result = (
-                self._normalizer.normalize(key) if self._normalize_keys else self._display_case(key)
+                self._normalizer.normalize(key)
+                if self._normalize_keys
+                else self.to_display_case(key)
             )
             self.quick_lookup[key] = result
             return result
@@ -227,47 +229,43 @@ class StreamRecord(dict[str, Any]):
     ) -> StreamRecord:
         """Return a StreamRecord from a RecordMessage."""
         data_dict: dict[str, Any] = record_message.data.copy()
-        data_dict[AB_RAW_ID_COLUMN] = uuid7str()
-        data_dict[AB_EXTRACTED_AT_COLUMN] = datetime.fromtimestamp(
-            record_message.emitted_at / 1000, tz=pytz.utc
+        data_dict.update(
+            {
+                AB_RAW_ID_COLUMN: uuid7str(),
+                AB_EXTRACTED_AT_COLUMN: datetime.fromtimestamp(
+                    record_message.emitted_at / 1000, tz=pytz.utc
+                ),
+                AB_META_COLUMN: {},
+            }
         )
-        data_dict[AB_META_COLUMN] = {}
-
         return cls(
             from_dict=data_dict,
-            prune_extra_fields=prune_extra_fields,
-            normalize_keys=normalize_keys,
-            normalizer=normalizer,
-            expected_keys=expected_keys,
+            stream_record_handler=stream_record_handler,
         )
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
         try:
             return super().__getitem__(key)
         except KeyError:
-            return super().__getitem__(self._index_case(key))
+            return super().__getitem__(self._stream_handler.to_index_case(key))
 
     def __setitem__(self, key: str, value: Any) -> None:  # noqa: ANN401
-        if super().__contains__(key):
-            super().__setitem__(key, value)
+        index_case_key = self._stream_handler.to_index_case(key)
+        if (
+            self._stream_handler.prune_extra_fields
+            and index_case_key not in self._stream_handler.index_keys
+        ):
             return
 
-        if super().__contains__(self._index_case(key)):
-            super().__setitem__(self._index_case(key), value)
-            return
-
-        # Store the pretty cased (originally cased) key:
-        self._pretty_case_lookup[self._normalizer.normalize(key)] = key
-
-        # Store the data with the normalized key:
-        super().__setitem__(self._index_case(key), value)
+        super().__setitem__(index_case_key, value)
 
     def __delitem__(self, key: str) -> None:
         try:
             super().__delitem__(key)
         except KeyError:
-            if super().__contains__(self._index_case(key)):
-                super().__delitem__(self._index_case(key))
+            index_case_key = self._stream_handler.to_index_case(key)
+            if super().__contains__(index_case_key):
+                super().__delitem__(index_case_key)
                 return
         else:
             # No failure. Key was deleted.
@@ -277,7 +275,9 @@ class StreamRecord(dict[str, Any]):
 
     def __contains__(self, key: object) -> bool:
         assert isinstance(key, str), "Key must be a string."
-        return super().__contains__(key) or super().__contains__(self._index_case(key))
+        return super().__contains__(key) or super().__contains__(
+            self._stream_handler.to_index_case(key)
+        )
 
     def __iter__(self) -> Any:  # noqa: ANN401
         return iter(super().__iter__())
