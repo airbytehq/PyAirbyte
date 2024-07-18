@@ -93,18 +93,22 @@ def _get_elapsed_time_str(seconds: float) -> str:
     Hours are always included after 1 hour elapsed.
     """
     if seconds <= 60:  # noqa: PLR2004  # Magic numbers OK here.
+        # Less than 1 minute elapsed
         return f"{seconds:.0f} seconds"
 
     if seconds < 60 * 10:
+        # Less than 10 minutes elapsed
         minutes = seconds // 60
         seconds %= 60
-        return f"{minutes}min {seconds:.0f}s"
+        return f"{minutes:.0f}min {seconds:.0f}s"
 
     if seconds < 60 * 60:
+        # Less than 1 hour elapsed
         minutes = seconds // 60
         seconds %= 60
         return f"{minutes}min"
 
+    # Greater than 1 hour elapsed
     hours = seconds // (60 * 60)
     minutes = (seconds % (60 * 60)) // 60
     return f"{hours}hr {minutes}min"
