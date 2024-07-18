@@ -23,6 +23,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte.records import StreamRecordHandler
 from airbyte.strategies import WriteStrategy
 
 
@@ -180,7 +181,7 @@ class RecordProcessorBase(abc.ABC):
                 context={"write_strategy": write_strategy},
             )
 
-        stream_schemas: dict[str, dict] = {}
+        stream_record_handlers: dict[str, StreamRecordHandler] = {}
 
         # Process messages, writing to batches as we go
         for message in messages:
@@ -188,9 +189,12 @@ class RecordProcessorBase(abc.ABC):
                 record_msg = cast(AirbyteRecordMessage, message.record)
                 stream_name = record_msg.stream
 
-                if stream_name not in stream_schemas:
-                    stream_schemas[stream_name] = self.catalog_provider.get_stream_json_schema(
-                        stream_name=stream_name
+                if stream_name not in stream_record_handlers:
+                    stream_record_handlers[stream_name] = StreamRecordHandler(
+                        json_schema=self.catalog_provider.get_stream_json_schema(
+                            stream_name=stream_name,
+                        ),
+                        prune_extra_fields=False,
                     )
 
                 self.process_record_message(
