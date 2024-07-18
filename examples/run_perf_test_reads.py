@@ -33,16 +33,27 @@ poetry run python ./examples/run_perf_test_reads.py -e=3 --cache=snowflake
 poetry run python ./examples/run_perf_test_reads.py -e=3 --cache=bigquery
 ```
 
+Note:
+- The Faker stream ('purchases') is assumed to be 220 bytes, meaning 4_500 records is
+  approximately 1 MB. Based on this: 25K records/second is approximately 5.5 MB/s.
+- The E2E stream is assumed to be 180 bytes, meaning 5_500 records is
+  approximately 1 MB. Based on this: 40K records/second is approximately 7.2 MB/s.
+
 """
 
 from __future__ import annotations
 
 import argparse
 import tempfile
+from typing import TYPE_CHECKING
 
 import airbyte as ab
 from airbyte.caches import BigQueryCache, CacheBase, SnowflakeCache
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+
+
+if TYPE_CHECKING:
+    from airbyte.sources.base import Source
 
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
@@ -60,22 +71,15 @@ def get_gsm_secret_json(secret_name: str) -> dict:
     return secret.parse_json()
 
 
-def main(
-    e: int = 4,
-    cache_type: str = "duckdb",
-) -> None:
-    e = e or 4
-    cache_type = cache_type or "duckdb"
-
-    cache: CacheBase
+def get_cache(cache_type: str) -> CacheBase:
     if cache_type == "duckdb":
-        cache = ab.new_local_cache()
+        return ab.new_local_cache()
 
-    elif cache_type == "snowflake":
+    if cache_type == "snowflake":
         secret_config = get_gsm_secret_json(
             secret_name="AIRBYTE_LIB_SNOWFLAKE_CREDS",
         )
-        cache = SnowflakeCache(
+        return SnowflakeCache(
             account=secret_config["account"],
             username=secret_config["username"],
             password=secret_config["password"],
@@ -84,7 +88,7 @@ def main(
             role=secret_config["role"],
         )
 
-    elif cache_type == "bigquery":
+    if cache_type == "bigquery":
         temp = tempfile.NamedTemporaryFile(mode="w+", delete=False, encoding="utf-8")
         secret_config = get_gsm_secret_json(
             secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS",
@@ -96,20 +100,62 @@ def main(
         finally:
             temp.close()
 
-        cache = BigQueryCache(
+        return BigQueryCache(
             project_name=secret_config["project_id"],
             dataset_name=secret_config.get("dataset_id", "pyairbyte_integtest"),
             credentials_path=temp.name,
         )
 
-    source = ab.get_source(
-        "source-faker",
-        config={"count": 5 * (10**e)},
-        install_if_missing=False,
-        streams=["purchases"],
+    raise ValueError(f"Unknown cache type: {cache_type}")  # noqa: TRY003
+
+
+def get_source(
+    source_alias: str,
+    num_records: int,
+) -> Source:
+    if source_alias == "faker":
+        return ab.get_source(
+            "source-faker",
+            config={"count": num_records},
+            install_if_missing=False,
+            streams=["purchases"],
+        )
+
+    if source_alias == "e2e":
+        return ab.get_source(
+            "source-e2e",
+            docker_image="airbyte/source-e2e-test:cg10",
+            streams="*",
+            config={
+                "type": "BENCHMARK",
+                "schema": "FIVE_STRING_COLUMNS",
+                "terminationCondition": {
+                    "type": "MAX_RECORDS",
+                    "max": num_records,
+                },
+            },
+        )
+
+    raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
+
+
+def main(
+    e: int | None = None,
+    n: int | None = None,
+    cache_type: str = "duckdb",
+    source_alias: str = "e2e",
+) -> None:
+    num_records: int = n or 5 * (10 ** (e or 3))
+    cache_type = cache_type or "duckdb"
+
+    cache: CacheBase = get_cache(
+        cache_type=cache_type,
+    )
+    source: Source = get_source(
+        source_alias=source_alias,
+        num_records=num_records,
     )
     source.check()
-
     source.read(cache)
 
 
@@ -119,9 +165,18 @@ if __name__ == "__main__":
         "-e",
         type=int,
         help=(
-            "The scale, as a power of 10. "
+            "The scale, as a power of 10."
             "Recommended values: 2-3 (500 or 5_000) for read and overhead costs, "
-            " 4-6 (50K or 5MM) for write throughput."
+            " 4-6 (50K or 5MM) for write throughput. "
+            "This is mutually exclusive with -n."
+        ),
+    )
+    parser.add_argument(
+        "-n",
+        type=int,
+        help=(
+            "The number of records to generate in the source. "
+            "This is mutually exclusive with -e."
         ),
     )
     parser.add_argument(
@@ -131,6 +186,21 @@ if __name__ == "__main__":
         choices=["duckdb", "snowflake", "bigquery"],
         default="duckdb",
     )
+    parser.add_argument(
+        "--source",
+        type=str,
+        help=(
+            "The cache type to use. The `e2e` source is recommended when Docker is available, "
+            "while the `faker` source runs natively in Python."
+        ),
+        choices=["faker", "e2e"],
+        default="e2e",
+    )
     args = parser.parse_args()
 
-    main(e=args.e, cache_type=args.cache)
+    main(
+        e=args.e,
+        n=args.n,
+        cache_type=args.cache,
+        source_alias=args.source,
+    )
