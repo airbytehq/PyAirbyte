@@ -132,6 +132,7 @@ class ReadProgress:
         # Reads
         self.read_start_time = time.time()
         self.read_end_time: float | None = None
+        self.first_record_received_time: float | None = None
         self.total_records_read = 0
 
         # Writes
