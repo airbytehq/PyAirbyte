@@ -62,6 +62,7 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
+    from airbyte.records import StreamRecordHandler
     from airbyte.secrets.base import SecretString
 
 
@@ -227,7 +228,7 @@ class SqlProcessorBase(RecordProcessorBase):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-        stream_schema: dict,
+        stream_record_handler: StreamRecordHandler,
     ) -> None:
         """Write a record to the cache.
 
@@ -238,7 +239,7 @@ class SqlProcessorBase(RecordProcessorBase):
         """
         self.file_writer.process_record_message(
             record_msg,
-            stream_schema=stream_schema,
+            stream_record_handler=stream_record_handler,
         )
 
     # Protected members (non-public interface):
