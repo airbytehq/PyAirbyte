@@ -74,7 +74,7 @@ from typing import TYPE_CHECKING, Any
 import pytz
 from uuid_extensions import uuid7str
 
-from airbyte._util.name_normalizers import NameNormalizerBase
+from airbyte._util.name_normalizers import LowerCaseNormalizer, NameNormalizerBase
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
     AB_INTERNAL_COLUMNS,
@@ -84,6 +84,8 @@ from airbyte.constants import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
     )
@@ -100,8 +102,8 @@ class StreamRecordHandler:
         self,
         *,
         json_schema: dict,
-        normalizer: type[NameNormalizerBase] = NameNormalizerBase,
-        normalize_keys: bool = True,
+        normalizer: type[NameNormalizerBase] = LowerCaseNormalizer,
+        normalize_keys: bool = False,
         prune_extra_fields: bool,
     ) -> None:
         """Initialize the dictionary with the given data.
@@ -140,6 +142,8 @@ class StreamRecordHandler:
         # version.
         self.quick_lookup = {
             key: self._normalizer.normalize(key)
+            if self._normalize_keys
+            else self.to_display_case(key)
             for key in set(self._expected_keys) | set(self._pretty_case_lookup.values())
         }
 
@@ -196,6 +200,8 @@ class StreamRecord(dict[str, Any]):
         from_dict: dict,
         *,
         stream_record_handler: StreamRecordHandler,
+        with_internal_columns: bool = True,
+        extracted_at: datetime | None = None,
     ) -> None:
         """Initialize the dictionary with the given data.
 
@@ -206,7 +212,7 @@ class StreamRecord(dict[str, Any]):
         self._stream_handler: StreamRecordHandler = stream_record_handler
 
         # Start by initializing all values to None
-        self.update(dict.fromkeys(stream_record_handler.normalized_keys))
+        self.update(dict.fromkeys(stream_record_handler.index_keys))
 
         # Update the dictionary with the given data
         if self._stream_handler.prune_extra_fields:
@@ -220,6 +226,15 @@ class StreamRecord(dict[str, Any]):
         else:
             self.update({self._stream_handler.to_index_case(k): v for k, v in from_dict.items()})
 
+        if with_internal_columns:
+            self.update(
+                {
+                    AB_RAW_ID_COLUMN: uuid7str(),
+                    AB_EXTRACTED_AT_COLUMN: extracted_at or datetime.now(pytz.utc),
+                    AB_META_COLUMN: {},
+                }
+            )
+
     @classmethod
     def from_record_message(
         cls,
@@ -229,18 +244,11 @@ class StreamRecord(dict[str, Any]):
     ) -> StreamRecord:
         """Return a StreamRecord from a RecordMessage."""
         data_dict: dict[str, Any] = record_message.data.copy()
-        data_dict.update(
-            {
-                AB_RAW_ID_COLUMN: uuid7str(),
-                AB_EXTRACTED_AT_COLUMN: datetime.fromtimestamp(
-                    record_message.emitted_at / 1000, tz=pytz.utc
-                ),
-                AB_META_COLUMN: {},
-            }
-        )
         return cls(
             from_dict=data_dict,
             stream_record_handler=stream_record_handler,
+            with_internal_columns=True,
+            extracted_at=datetime.fromtimestamp(record_message.emitted_at / 1000, tz=pytz.utc),
         )
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
@@ -279,7 +287,7 @@ class StreamRecord(dict[str, Any]):
             self._stream_handler.to_index_case(key)
         )
 
-    def __iter__(self) -> Any:  # noqa: ANN401
+    def __iter__(self) -> Iterator[str]:
         return iter(super().__iter__())
 
     def __len__(self) -> int:

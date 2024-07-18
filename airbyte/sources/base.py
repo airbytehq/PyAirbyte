@@ -455,8 +455,8 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         stream_record_handler = StreamRecordHandler(
             json_schema=self.get_stream_json_schema(stream),
-            normalize_keys=False,
             prune_extra_fields=True,
+            normalize_keys=False,
         )
 
         iterator: Iterator[dict[str, Any]] = _with_logging(

@@ -194,6 +194,7 @@ class RecordProcessorBase(abc.ABC):
                         json_schema=self.catalog_provider.get_stream_json_schema(
                             stream_name=stream_name,
                         ),
+                        normalize_keys=True,
                         prune_extra_fields=False,
                     )
 

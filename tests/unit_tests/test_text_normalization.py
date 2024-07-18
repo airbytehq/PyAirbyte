@@ -2,14 +2,65 @@ import pytest
 from airbyte import exceptions as exc
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import AB_INTERNAL_COLUMNS
-from airbyte.records import StreamRecord
+from airbyte.records import StreamRecord, StreamRecordHandler
 
 
-def test_case_insensitive_dict() -> None:
+@pytest.fixture
+def stream_json_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "Upper": {"type": "integer"},
+            "lower": {"type": "integer"},
+        },
+        "required": ["Upper", "lower"],
+    }
+
+
+def test_record_columns_list(
+    stream_json_schema: dict,
+) -> None:
+    stream_record_handler = StreamRecordHandler(
+        json_schema=stream_json_schema,
+        prune_extra_fields=False,
+    )
     # Initialize a StreamRecord
     cid = StreamRecord(
         {"Upper": 1, "lower": 2},
+        stream_record_handler=stream_record_handler,
+    )
+    keys = list(cid.keys())
+    assert {"Upper", "lower"} <= set(keys)
+    for internal_column in AB_INTERNAL_COLUMNS:
+        assert internal_column in cid
+        assert internal_column in keys
+        cid.pop(internal_column)
+
+    # Initialize a StreamRecord
+    cid = StreamRecord(
+        {"Upper": 1, "lower": 2},
+        stream_record_handler=stream_record_handler,
+        with_internal_columns=True,
+    )
+    keys = list(cid.keys())
+    assert {"Upper", "lower"} <= set(keys)
+    for internal_column in AB_INTERNAL_COLUMNS:
+        assert internal_column in cid
+        assert internal_column in keys
+        cid.pop(internal_column)
+
+
+def test_case_insensitive_dict(
+    stream_json_schema: dict,
+) -> None:
+    stream_record_handler = StreamRecordHandler(
+        json_schema=stream_json_schema,
         prune_extra_fields=True,
+        normalize_keys=True,
+    )
+    cid = StreamRecord(
+        {"Upper": 1, "lower": 2},
+        stream_record_handler=stream_record_handler,
     )
     for internal_column in AB_INTERNAL_COLUMNS:
         assert internal_column in cid
@@ -65,12 +116,20 @@ def test_case_insensitive_dict() -> None:
     assert len(cid) == 0
 
 
-def test_case_insensitive_dict_w() -> None:
+def test_case_insensitive_dict_w(
+    stream_json_schema: dict,
+) -> None:
+    stream_json_schema = stream_json_schema.copy()
+    stream_json_schema["properties"]["other"] = {"type": "integer"}
+    stream_record_handler = StreamRecordHandler(
+        json_schema=stream_json_schema,
+        prune_extra_fields=True,
+        normalize_keys=True,
+    )
     # Initialize a StreamRecord
     cid = StreamRecord(
         {"Upper": 1, "lower": 2},
-        expected_keys=["Upper", "lower", "other"],
-        prune_extra_fields=True,
+        stream_record_handler=stream_record_handler,
     )
     for internal_column in AB_INTERNAL_COLUMNS:
         assert internal_column in cid
@@ -92,13 +151,20 @@ def test_case_insensitive_dict_w() -> None:
     assert cid == {"upper": 1, "lower": 2, "other": None}
 
 
-def test_case_insensitive_w_pretty_keys() -> None:
+def test_case_insensitive_w_pretty_keys(
+    stream_json_schema: dict,
+) -> None:
+    stream_json_schema = stream_json_schema.copy()
+    stream_json_schema["properties"]["other"] = {"type": "integer"}
+    stream_record_handler = StreamRecordHandler(
+        json_schema=stream_json_schema,
+        prune_extra_fields=True,
+        normalize_keys=False,
+    )
     # Initialize a StreamRecord
     cid = StreamRecord(
         {"Upper": 1, "lower": 2},
-        expected_keys=["Upper", "lower", "other"],
-        normalize_keys=False,
-        prune_extra_fields=True,
+        stream_record_handler=stream_record_handler,
     )
     for internal_column in AB_INTERNAL_COLUMNS:
         assert internal_column in cid
@@ -147,7 +213,11 @@ def test_case_insensitive_w_pretty_keys() -> None:
         ("!@$", "", True),
     ],
 )
-def test_lower_case_normalizer(raw_value, expected_result, should_raise):
+def test_lower_case_normalizer(
+    raw_value,
+    expected_result,
+    should_raise,
+):
     normalizer = LowerCaseNormalizer()
 
     if should_raise:
