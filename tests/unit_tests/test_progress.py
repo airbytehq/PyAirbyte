@@ -105,7 +105,9 @@ def _assert_lines(expected_lines, actual_lines: list[str] | str):
     if isinstance(actual_lines, list):
         actual_lines = "\n".join(actual_lines)
     for line in expected_lines:
-        assert line in actual_lines, f"Missing line: {line}"
+        assert (
+            line in actual_lines
+        ), f"Missing line:\n{line}\n\nIn lines:\n\n{actual_lines}"
 
 
 def test_get_status_message_after_finalizing_records():
@@ -113,16 +115,19 @@ def test_get_status_message_after_finalizing_records():
     with freeze_time("2022-01-01 00:00:00"):
         progress = ReadProgress()
         expected_lines = [
-            "Started reading at 00:00:00.",
-            "Read **0** records over **0 seconds** (0.0 records / second).",
+            "Started reading from source at `00:00:00`",
+            "Read **0** records over **0.00 seconds** (0.0 records / second).",
         ]
         _assert_lines(expected_lines, progress._get_status_message())
+
+        # We need to read one record to start the "time since first record" timer
+        progress.log_records_read(1)
 
     # Test after reading some records
     with freeze_time("2022-01-01 00:01:00"):
         progress.log_records_read(100)
         expected_lines = [
-            "Started reading at 00:00:00.",
+            "Started reading from source at `00:00:00`",
             "Read **100** records over **60 seconds** (1.7 records / second).",
         ]
         _assert_lines(expected_lines, progress._get_status_message())
@@ -132,10 +137,13 @@ def test_get_status_message_after_finalizing_records():
         progress = ReadProgress()
         progress.reset(1)
         expected_lines = [
-            "Started reading at 00:00:00.",
-            "Read **0** records over **0 seconds** (0.0 records / second).",
+            "Started reading from source at `00:00:00`",
+            "Read **0** records over **0.00 seconds** (0.0 records / second).",
         ]
         _assert_lines(expected_lines, progress._get_status_message())
+
+        # We need to read one record to start the "time since first record" timer
+        progress.log_records_read(1)
 
     # Test after writing some records and starting to finalize
     with freeze_time("2022-01-02 00:01:00"):
@@ -144,11 +152,11 @@ def test_get_status_message_after_finalizing_records():
         progress.log_batches_finalizing("stream1", 1)
         expected_lines = [
             "## Read Progress",
-            "Started reading at 00:00:00.",
+            "Started reading from source at `00:00:00`",
             "Read **100** records over **60 seconds** (1.7 records / second).",
-            "Wrote **50** records over 1 batches.",
-            "Finished reading at 00:01:00.",
-            "Started finalizing streams at 00:01:00.",
+            "Cached **50** records into 1 local cache file(s).",
+            "Finished reading from source at `00:01:00`",
+            "Started cache processing at `00:01:00`",
         ]
         _assert_lines(expected_lines, progress._get_status_message())
 
@@ -157,12 +165,12 @@ def test_get_status_message_after_finalizing_records():
         progress.log_batches_finalized("stream1", 1)
         expected_lines = [
             "## Read Progress",
-            "Started reading at 00:00:00.",
+            "Started reading from source at `00:00:00`",
             "Read **100** records over **60 seconds** (1.7 records / second).",
-            "Wrote **50** records over 1 batches.",
-            "Finished reading at 00:01:00.",
-            "Started finalizing streams at 00:01:00.",
-            "Finalized **1** batches over 60 seconds.",
+            "Cached **50** records into 1 local cache file(s).",
+            "Finished reading from source at `00:01:00`",
+            "Started cache processing at `00:01:00`",
+            "Processed **1** cache file(s) over **60 seconds**",
         ]
         _assert_lines(expected_lines, progress._get_status_message())
 
@@ -172,13 +180,13 @@ def test_get_status_message_after_finalizing_records():
         message = progress._get_status_message()
         expected_lines = [
             "## Read Progress",
-            "Started reading at 00:00:00.",
+            "Started reading from source at `00:00:00`",
             "Read **100** records over **60 seconds** (1.7 records / second).",
-            "Wrote **50** records over 1 batches.",
-            "Finished reading at 00:01:00.",
-            "Started finalizing streams at 00:01:00.",
-            "Finalized **1** batches over 60 seconds.",
-            "Completed 1 out of 1 streams:",
+            "Cached **50** records into 1 local cache file(s).",
+            "Finished reading from source at `00:01:00`",
+            "Started cache processing at `00:01:00`",
+            "Processed **1** cache file(s) over **60 seconds",
+            "Completed processing 1 out of 1 streams",
             "- stream1",
             "Total time elapsed: 2min 0s",
         ]

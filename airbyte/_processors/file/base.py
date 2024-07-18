@@ -12,9 +12,8 @@ import ulid
 
 from airbyte import exceptions as exc
 from airbyte._batch_handles import BatchHandle
-from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.progress import progress
-from airbyte.records import StreamRecord
+from airbyte.records import StreamRecord, StreamRecordHandler
 
 
 if TYPE_CHECKING:
@@ -142,7 +141,7 @@ class FileWriterBase(abc.ABC):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-        stream_schema: dict,
+        stream_record_handler: StreamRecordHandler,
     ) -> None:
         """Write a record to the cache.
 
@@ -167,9 +166,7 @@ class FileWriterBase(abc.ABC):
         self._write_record_dict(
             record_dict=StreamRecord.from_record_message(
                 record_message=record_msg,
-                expected_keys=stream_schema["properties"].keys(),
-                normalizer=LowerCaseNormalizer,
-                prune_extra_fields=self.prune_extra_fields,
+                stream_record_handler=stream_record_handler,
             ),
             open_file_writer=batch_handle.open_file_writer,
         )
