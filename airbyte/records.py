@@ -72,7 +72,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import pytz
-import ulid
+from uuid_extensions import uuid7str
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer, NameNormalizerBase
 from airbyte.constants import (
@@ -142,7 +142,7 @@ class StreamRecord(dict[str, Any]):
     ) -> StreamRecord:
         """Return a StreamRecord from a RecordMessage."""
         data_dict: dict[str, Any] = record_message.data.copy()
-        data_dict[AB_RAW_ID_COLUMN] = str(ulid.ULID())
+        data_dict[AB_RAW_ID_COLUMN] = uuid7str()
         data_dict[AB_EXTRACTED_AT_COLUMN] = datetime.fromtimestamp(
             record_message.emitted_at / 1000, tz=pytz.utc
         )
