@@ -295,14 +295,18 @@ class ConnectorBase(abc.ABC):
 
         folder = Path("./logs") / self.name
         folder.mkdir(parents=True, exist_ok=True)
-
-        # Add a file handler
-        logger.addHandler(
-            logging.FileHandler(
-                filename=folder / f"{ulid.ULID()!s}-run-log.txt",
-                encoding="utf-8",
-            )
+        # Add formatter
+        formatter = logging.Formatter(
+            fmt="%(asctime)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
+        handler = logging.FileHandler(
+            filename=folder / f"{ulid.ULID()!s}-run-log.txt",
+            encoding="utf-8",
+        )
+        handler.setFormatter(formatter)
+        # Add a file handler
+        logger.addHandler(handler)
         return logger
 
     def _new_log_file(self, verb: str = "run") -> Path:
