@@ -8,6 +8,7 @@ import pytest
 from airbyte import get_source
 from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._message_generators import MessageGeneratorFromMessages
+from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.executors.base import Executor
 from airbyte.executors.util import get_connector_executor
@@ -17,38 +18,41 @@ from airbyte_cdk import AirbyteMessage, AirbyteRecordMessage, Type
 
 
 @pytest.fixture
-def new_jsonl_destination_executor() -> Executor:
+def new_duckdb_destination_executor() -> Executor:
     """Return a new JSONL destination executor."""
     return get_connector_executor(
-        name="destination-local-json",
-        docker_image="airbyte/destination-local-json",
-        use_host_network=False,
+        name="destination-duckdb",
+        docker_image="airbyte/destination-duckdb:latest",
+        # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
     )
 
 
 @pytest.fixture
-def new_jsonl_destination(new_jsonl_destination_executor: Destination) -> Destination:
+def new_duckdb_destination(new_duckdb_destination_executor: Destination) -> Destination:
     """Return a new JSONL destination."""
     return Destination(
-        name="destination-local-json",
+        name="destination-duckdb",
         config={
-            "destination_path": "/tmp/airbyte/destination-local-json/",
+            # This path is relative to the container:
+            "destination_path": "/local/temp/db.duckdb",
         },
-        executor=new_jsonl_destination_executor,
+        executor=new_duckdb_destination_executor,
     )
 
 
-def test_jsonl_destination_spec(new_jsonl_destination: Destination) -> None:
+def test_duckdb_destination_spec(new_duckdb_destination: Destination) -> None:
     """Test the JSONL destination."""
-    new_jsonl_destination.print_config_spec()
+    new_duckdb_destination.print_config_spec()
 
 
-def test_jsonl_destination_check(new_jsonl_destination: Destination) -> None:
+def test_duckdb_destination_check(new_duckdb_destination: Destination) -> None:
     """Test the JSONL destination."""
-    new_jsonl_destination.check()
+    new_duckdb_destination.check()
 
 
-def test_jsonl_destination_write(new_jsonl_destination: Destination) -> None:
+def test_duckdb_destination_write_components(
+    new_duckdb_destination: Destination,
+) -> None:
     """Test the JSONL destination."""
     # Get a source-faker instance.
     source: Source = get_source(
@@ -75,18 +79,27 @@ def test_jsonl_destination_write(new_jsonl_destination: Destination) -> None:
         )
         for record_dict in read_result["products"]
     )
-    new_jsonl_destination.write(
+    new_duckdb_destination.write(
         stdin=MessageGeneratorFromMessages(airbyte_messages),
         catalog_provider=CatalogProvider(source.configured_catalog),
     )
 
-    # Container paths are not accessible from the host.
 
-    # # Check the output.
-    # assert os.path.exists("/tmp/airbyte/destination-jsonl/users.jsonl")
-    # assert os.path.getsize("/tmp/airbyte/destination-jsonl/users.jsonl") > 0
-    # assert os.path.isfile("/tmp/airbyte/destination-jsonl/users.jsonl")
-
-    # # Clean up.
-    # os.remove("/tmp/airbyte/destination-jsonl/users.jsonl")
-    # os.rmdir("/tmp/airbyte/destination-jsonl")
+def test_duckdb_destination_write(new_duckdb_destination: Destination) -> None:
+    """Test the JSONL destination."""
+    # Get a source-faker instance.
+    source: Source = get_source(
+        "source-faker",
+        local_executable="source-faker",
+        config={
+            "count": 100,
+            "seed": 1234,
+            "parallelism": 16,
+        },
+        install_if_missing=False,
+        streams=["products"],
+    )
+    read_result: ReadResult = source.read(
+        cache=new_local_cache(),
+        destination=new_duckdb_destination,
+    )

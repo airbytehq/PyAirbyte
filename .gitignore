@@ -1,3 +1,10 @@
+# temp files
+temp
+.temp
+
+# logs
+logs/
+
 # Viztracer log files
 viztracer_report.json
 

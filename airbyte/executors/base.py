@@ -12,6 +12,7 @@ from shutil import rmtree
 from threading import Thread
 from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
 
+import ulid
 from overrides import overrides
 from rich import print
 from typing_extensions import Literal
@@ -41,9 +42,8 @@ def _get_bin_dir(venv_path: Path, /) -> Path:
 def _pump_input(pipe: IO[str], messages: AirbyteMessageGenerator) -> None:
     """Pump lines into a pipe."""
     with pipe:
-        for message in messages:
-            pipe.write(message.model_dump_json())
-            pipe.flush()  # Ensure data is sent immediately
+        pipe.writelines(message.model_dump_json() + "\n" for message in messages)
+        pipe.flush()  # Ensure data is sent immediately
 
 
 def _stream_from_file(file: IO[str]) -> Generator[str, Any, None]:
@@ -60,26 +60,32 @@ def _stream_from_subprocess(
     args: list[str],
     *,
     stdin: IO[str] | AirbyteMessageGenerator | None = None,
+    log_file: IO[str] | None = None,
 ) -> Generator[Iterable[str], None, None]:
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
+    Path.mkdir(Path.cwd() / "logs", exist_ok=True)
+    process_log_file = Path(f"./logs/process_log_{ulid.ULID()!s}.log")
+    print(f"Logging process output to {process_log_file!s}")
     if isinstance(stdin, AirbyteMessageGenerator):
         process = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=log_file,
             universal_newlines=True,
             encoding="utf-8",
         )
         input_thread = Thread(target=_pump_input, args=(process.stdin, stdin))
         input_thread.start()
+        input_thread.join()  # Ensure the input thread has finished
     else:
+        # stdin is None or a file-like object
         process = subprocess.Popen(
             args,
             stdin=stdin,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=log_file,
             universal_newlines=True,
             encoding="utf-8",
         )
@@ -95,9 +101,6 @@ def _stream_from_subprocess(
 
     try:
         yield _stream_from_file(process.stdout)
-        if input_thread:
-            input_thread.join()
-
         process.wait()
     finally:
         # Close the stdout stream
@@ -152,7 +155,15 @@ class Executor(ABC):
             else:
                 self.target_version = target_version
 
+    @property
     @abstractmethod
+    def _cli(self) -> list[str]:
+        """Get the base args of the CLI executable.
+
+        Args will be appended to this list.
+        """
+        ...
+
     def execute(
         self,
         args: list[str],
@@ -163,7 +174,11 @@ class Executor(ABC):
 
         If stdin is provided, it will be passed to the subprocess as STDIN.
         """
-        pass
+        with _stream_from_subprocess(
+            [*self._cli, *args],
+            stdin=stdin,
+        ) as stream_lines:
+            yield from stream_lines
 
     @abstractmethod
     def ensure_installation(self, *, auto_fix: bool = True) -> None:
@@ -452,19 +467,10 @@ class VenvExecutor(Executor):
                         },
                     )
 
-    def execute(
-        self,
-        args: list[str],
-        *,
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
-    ) -> Iterator[str]:
-        connector_path = self._get_connector_path()
-
-        with _stream_from_subprocess(
-            [str(connector_path), *args],
-            stdin=stdin,
-        ) as stream:
-            yield from stream
+    @property
+    def _cli(self) -> list[str]:
+        """Get the base args of the CLI executable."""
+        return [str(self._get_connector_path())]
 
 
 class PathExecutor(Executor):
@@ -516,17 +522,10 @@ class PathExecutor(Executor):
             connector_name=self.name,
         )
 
-    def execute(
-        self,
-        args: list[str],
-        *,
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
-    ) -> Iterator[str]:
-        with _stream_from_subprocess(
-            [str(self.path), *args],
-            stdin=stdin,
-        ) as stream:
-            yield from stream
+    @property
+    def _cli(self) -> list[str]:
+        """Get the base args of the CLI executable."""
+        return [str(self.path)]
 
 
 class DockerExecutor(Executor):
@@ -576,17 +575,10 @@ class DockerExecutor(Executor):
             connector_name=self.name,
         )
 
-    def execute(
-        self,
-        args: list[str],
-        *,
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
-    ) -> Iterator[str]:
-        with _stream_from_subprocess(
-            [*self.executable, *args],
-            stdin=stdin,
-        ) as stream:
-            yield from stream
+    @property
+    def _cli(self) -> list[str]:
+        """Get the base args of the CLI executable."""
+        return self.executable
 
 
 __all__ = [

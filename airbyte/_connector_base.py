@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import abc
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import jsonschema
+import ulid
 import yaml
 from rich import print
 from rich.syntax import Syntax
@@ -65,6 +67,7 @@ class ConnectorBase(abc.ABC):
         self._last_log_messages: list[str] = []
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
+        self._logger: logging.Logger = self._init_logger()
         if config is not None:
             self.set_config(config, validate=validate)
 
@@ -94,7 +97,8 @@ class ConnectorBase(abc.ABC):
     def _config(self) -> dict[str, Any]:
         if self._config_dict is None:
             raise exc.AirbyteConnectorConfigurationMissingError(
-                guidance="Provide via get_destination() or set_config()"
+                connector_name=self.name,
+                guidance="Provide via get_destination() or set_config()",
             )
         return self._config_dict
 
@@ -113,6 +117,7 @@ class ConnectorBase(abc.ABC):
             )
         except jsonschema.ValidationError as ex:
             validation_ex = exc.AirbyteConnectorValidationFailedError(
+                connector_name=self.name,
                 message="The provided config is not valid.",
                 context={
                     "error_message": ex.message,
@@ -146,6 +151,7 @@ class ConnectorBase(abc.ABC):
             return self._spec
 
         raise exc.AirbyteConnectorMissingSpecError(
+            connector_name=self.name,
             log_text=self._last_log_messages,
         )
 
@@ -252,6 +258,7 @@ class ConnectorBase(abc.ABC):
                             state=EventState.FAILED,
                         )
                         raise exc.AirbyteConnectorCheckFailedError(
+                            connector_name=self.name,
                             help_url=self.docs_url,
                             context={
                                 "failure_reason": msg.connectionStatus.message,
@@ -260,6 +267,7 @@ class ConnectorBase(abc.ABC):
                 raise exc.AirbyteConnectorCheckFailedError(log_text=self._last_log_messages)
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorCheckFailedError(
+                    connector_name=self.name,
                     message="The connector failed to check the connection.",
                     log_text=ex.log_text,
                 ) from ex
@@ -277,10 +285,30 @@ class ConnectorBase(abc.ABC):
         """
         self.executor.uninstall()
 
-    def _add_to_logs(self, message: str) -> None:
-        self._last_log_messages.append(message)
-        if len(self._last_log_messages) > MAX_LOG_LINES:
-            self._last_log_messages = self._last_log_messages[-MAX_LOG_LINES:]
+    def _init_logger(self) -> logging.Logger:
+        """Create a logger from logging module."""
+        logger = logging.getLogger(f"airbyte.{self.name}")
+        logger.setLevel(logging.INFO)
+        # Remove any existing handlers
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
+
+        folder = Path("./logs") / self.name
+        folder.mkdir(parents=True, exist_ok=True)
+
+        # Add a file handler
+        logger.addHandler(
+            logging.FileHandler(
+                filename=folder / f"{ulid.ULID()!s}-run-log.txt",
+                encoding="utf-8",
+            )
+        )
+        return logger
+
+    def _new_log_file(self, verb: str = "run") -> Path:
+        folder = Path("./logs") / self.name
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{ulid.ULID()!s}-{self.name}-{verb}-log.txt"
 
     def _peek_airbyte_message(
         self,
@@ -298,13 +326,14 @@ class ConnectorBase(abc.ABC):
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
         if message.type == Type.LOG:
-            self._add_to_logs(message.log.message)
+            self._logger.info(message.log.message)
             return
 
         if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-            self._add_to_logs(message.trace.error.message)
+            self._logger.error(message.trace.error.message)
             if raise_on_error:
                 raise exc.AirbyteConnectorFailedError(
+                    connector_name=self.name,
                     message=message.trace.error.message,
                     log_text=self._last_log_messages,
                 )
@@ -327,7 +356,6 @@ class ConnectorBase(abc.ABC):
         self.executor.ensure_installation(auto_fix=False)
 
         try:
-            self._last_log_messages = []
             for line in self.executor.execute(args, stdin=stdin):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
@@ -335,10 +363,12 @@ class ConnectorBase(abc.ABC):
                     yield message
 
                 except Exception:
-                    self._add_to_logs(line)
+                    # This is likely a log message, so log it as INFO.
+                    self._logger.info(line)
 
         except Exception as e:
             raise exc.AirbyteConnectorReadError(
+                connector_name=self.name,
                 log_text=self._last_log_messages,
             ) from e
 

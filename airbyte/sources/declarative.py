@@ -66,6 +66,11 @@ class DeclarativeExecutor(Executor):
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
         self.reported_version: str | None = None  # TODO: Consider adding version detection
 
+    @property
+    def _cli(self) -> list[str]:
+        """Not applicable."""
+        return []  # N/A
+
     def execute(
         self,
         args: list[str],

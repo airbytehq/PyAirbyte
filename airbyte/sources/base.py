@@ -24,6 +24,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._future_cdk.catalog_providers import CatalogProvider
+from airbyte._message_generators import MessageGeneratorFromMessages
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -33,7 +34,7 @@ from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.base import CacheBase
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
-from airbyte.destinations.base import ConnectorBase
+from airbyte.destinations.base import ConnectorBase, Destination
 from airbyte.progress import progress
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
@@ -196,7 +197,8 @@ class Source(ConnectorBase):
     def _config(self) -> dict[str, Any]:
         if self._config_dict is None:
             raise exc.AirbyteConnectorConfigurationMissingError(
-                guidance="Provide via get_source() or set_config()"
+                connector_name=self.name,
+                guidance="Provide via get_source() or set_config()",
             )
         return self._config_dict
 
@@ -214,6 +216,7 @@ class Source(ConnectorBase):
                 if msg.type == Type.CATALOG and msg.catalog:
                     return msg.catalog
             raise exc.AirbyteConnectorMissingCatalogError(
+                connector_name=self.name,
                 log_text=self._last_log_messages,
             )
 
@@ -247,6 +250,7 @@ class Source(ConnectorBase):
             return self._spec
 
         raise exc.AirbyteConnectorMissingSpecError(
+            connector_name=self.name,
             log_text=self._last_log_messages,
         )
 
@@ -631,6 +635,7 @@ class Source(ConnectorBase):
         self,
         cache: CacheBase | None = None,
         *,
+        destination: Destination | None = None,
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
@@ -640,6 +645,8 @@ class Source(ConnectorBase):
 
         Args:
             cache: The cache to write to. If not set, a default cache will be used.
+            destination: The destination to write to. If set, records will be sent to the destination
+                instead of the cache and the cache will be used to store state.
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
@@ -713,25 +720,45 @@ class Source(ConnectorBase):
             if incremental_streams:
                 self._log_incremental_streams(incremental_streams=incremental_streams)
 
-        cache_processor = cache.get_record_processor(
-            source_name=self.name,
-            catalog_provider=CatalogProvider(self.configured_catalog),
+        airbyte_message_iterator: Iterator[AirbyteMessage] = self._read_with_catalog(
+            catalog=self.configured_catalog,
+            state=state_provider,
         )
-        try:
-            cache_processor.process_airbyte_messages(
-                self._read_with_catalog(
-                    catalog=self.configured_catalog,
-                    state=state_provider,
-                ),
-                write_strategy=write_strategy,
+        if destination:
+            try:
+                destination.write(
+                    stdin=MessageGeneratorFromMessages(messages=airbyte_message_iterator),
+                    catalog_provider=CatalogProvider(configured_catalog=self.configured_catalog),
+                    state_writer=cache.get_state_writer(
+                        source_name=self.name,
+                        # TODO: Add destination name to state writer API
+                    ),
+                )
+            # TODO: We should catch more specific exceptions here
+            except Exception as ex:
+                self._log_sync_failure(cache=cache, exception=ex)
+                raise exc.AirbyteConnectorFailedError(
+                    connector_name=self.name,
+                    log_text=self._last_log_messages,
+                ) from ex
+        else:
+            cache_processor = cache.get_record_processor(
+                source_name=self.name,
+                catalog_provider=CatalogProvider(self.configured_catalog),
             )
+            try:
+                cache_processor.process_airbyte_messages(
+                    messages=airbyte_message_iterator,
+                    write_strategy=write_strategy,
+                )
 
-        # TODO: We should catch more specific exceptions here
-        except Exception as ex:
-            self._log_sync_failure(cache=cache, exception=ex)
-            raise exc.AirbyteConnectorFailedError(
-                log_text=self._last_log_messages,
-            ) from ex
+            # TODO: We should catch more specific exceptions here
+            except Exception as ex:
+                self._log_sync_failure(cache=cache, exception=ex)
+                raise exc.AirbyteConnectorFailedError(
+                    connector_name=self.name,
+                    log_text=self._last_log_messages,
+                ) from ex
 
         self._log_sync_success(cache=cache)
         return ReadResult(

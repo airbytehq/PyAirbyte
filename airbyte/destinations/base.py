@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 class Destination(ConnectorBase):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination", "source"]
+    connector_type: Literal["destination"] = "destination"
 
     def __init__(
         self,
@@ -96,6 +96,7 @@ class Destination(ConnectorBase):
             # TODO: We should catch more specific exceptions here
             except Exception as ex:
                 raise exc.AirbyteConnectorFailedError(
+                    connector_name=self.name,
                     log_text=self._last_log_messages,
                 ) from ex
 

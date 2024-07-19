@@ -99,6 +99,8 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
+    # CDK has these refs:
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
 ]
 
 [tool.ruff]

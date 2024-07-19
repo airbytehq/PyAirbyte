@@ -38,6 +38,7 @@ In addition, the following principles are applied for exception class design:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
@@ -258,6 +259,15 @@ class AirbyteConnectorError(PyAirbyteError):
     """Error when running the connector."""
 
     connector_name: str | None = None
+
+    def __post_init__(self) -> None:
+        """Log the error message when the exception is raised."""
+        if self.connector_name:
+            logger = logging.getLogger(f"airbyte.{self.connector_name}")
+            if self.connector_name:
+                logger.error(str(self))
+            else:
+                logger.error(str(self))
 
 
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):

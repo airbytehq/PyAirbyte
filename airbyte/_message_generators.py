@@ -47,7 +47,7 @@ class AirbyteMessageGenerator(abc.ABC):
     @final
     def read(self) -> str:
         """Read the next message from the generator."""
-        return next(self).json()
+        return next(self).model_dump_json()
 
 
 class MessageGeneratorFromMessages(AirbyteMessageGenerator):

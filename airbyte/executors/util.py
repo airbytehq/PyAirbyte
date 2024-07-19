@@ -10,6 +10,7 @@ from typing import cast
 
 import requests
 import yaml
+from pendulum import local
 from rich import print
 
 from airbyte import exceptions as exc
@@ -115,12 +116,16 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             docker_image = f"{docker_image}:{version or 'latest'}"
 
         temp_dir = tempfile.gettempdir()
+        local_mount_dir = Path().absolute() / name
+        local_mount_dir.mkdir(exist_ok=True)
 
         docker_cmd = [
             "docker",
             "run",
             "--rm",
             "-i",
+            "--volume",
+            f"{local_mount_dir}:/local/",
             "--volume",
             f"{temp_dir}:{temp_dir}",
         ]
