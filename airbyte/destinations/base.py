@@ -54,7 +54,7 @@ class Destination(ConnectorBase):
             validate=validate,
         )
 
-    def write(
+    def _write(
         self,
         stdin: IO[str] | AirbyteMessageGenerator,
         *,

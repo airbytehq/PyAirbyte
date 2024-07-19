@@ -153,6 +153,11 @@ class ReadProgress:
 
         self.reset_progress_style(style)
 
+    def log_read_complete(self) -> None:
+        """Log that reading is complete."""
+        self.read_end_time = time.time()
+        self.update_display(force_refresh=True)
+
     def reset_progress_style(
         self,
         style: ProgressStyle = ProgressStyle.AUTO,

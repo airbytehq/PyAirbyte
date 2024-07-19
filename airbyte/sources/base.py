@@ -531,6 +531,7 @@ class Source(ConnectorBase):
                     ],
                 )
             )
+        progress.log_read_complete()
 
     def _peek_airbyte_message(
         self,
@@ -726,7 +727,7 @@ class Source(ConnectorBase):
         )
         if destination:
             try:
-                destination.write(
+                destination._write(  # noqa: SLF001  # Non-public API
                     stdin=MessageGeneratorFromMessages(messages=airbyte_message_iterator),
                     catalog_provider=CatalogProvider(configured_catalog=self.configured_catalog),
                     state_writer=cache.get_state_writer(
