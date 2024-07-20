@@ -7,13 +7,14 @@ from __future__ import annotations
 import pytest
 from airbyte import get_source
 from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._message_generators import MessageGeneratorFromMessages
+from airbyte._message_generators import AirbyteMessageGenerator
 from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.executors.base import Executor
 from airbyte.executors.util import get_connector_executor
-from airbyte.results import ReadResult
+from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
+from airbyte.strategies import WriteStrategy
 from airbyte_cdk import AirbyteMessage, AirbyteRecordMessage, Type
 
 
@@ -40,6 +41,20 @@ def new_duckdb_destination(new_duckdb_destination_executor: Destination) -> Dest
     )
 
 
+def new_source_faker() -> Source:
+    source: Source = get_source(
+        "source-faker",
+        local_executable="source-faker",
+        config={
+            "count": 100,
+            "seed": 1234,
+            "parallelism": 16,
+        },
+        install_if_missing=False,
+        streams=["products"],
+    )
+
+
 def test_duckdb_destination_spec(new_duckdb_destination: Destination) -> None:
     """Test the JSONL destination."""
     new_duckdb_destination.print_config_spec()
@@ -52,21 +67,10 @@ def test_duckdb_destination_check(new_duckdb_destination: Destination) -> None:
 
 def test_duckdb_destination_write_components(
     new_duckdb_destination: Destination,
+    new_source_faker: Source,
 ) -> None:
     """Test the JSONL destination."""
-    # Get a source-faker instance.
-    source: Source = get_source(
-        "source-faker",
-        local_executable="source-faker",
-        config={
-            "count": 100,
-            "seed": 1234,
-            "parallelism": 16,
-        },
-        install_if_missing=False,
-        streams=["products"],
-    )
-    read_result: ReadResult = source.read()
+    read_result: ReadResult = new_source_faker.read()
     # Read from the source and write to the destination.
     airbyte_messages = (
         AirbyteMessage(
@@ -80,26 +84,68 @@ def test_duckdb_destination_write_components(
         for record_dict in read_result["products"]
     )
     new_duckdb_destination.write(
-        stdin=MessageGeneratorFromMessages(airbyte_messages),
-        catalog_provider=CatalogProvider(source.configured_catalog),
+        stdin=AirbyteMessageGenerator.from_messages(airbyte_messages),
+        catalog_provider=CatalogProvider(new_source_faker.configured_catalog),
     )
 
 
-def test_duckdb_destination_write(new_duckdb_destination: Destination) -> None:
+def test_destination_write_from_source_with_cache(
+    new_duckdb_destination: Destination,
+    new_source_faker: Source,
+) -> None:
     """Test the JSONL destination."""
-    # Get a source-faker instance.
-    source: Source = get_source(
-        "source-faker",
-        local_executable="source-faker",
-        config={
-            "count": 100,
-            "seed": 1234,
-            "parallelism": 16,
-        },
-        install_if_missing=False,
-        streams=["products"],
-    )
-    read_result: ReadResult = source.read(
+    write_result: WriteResult = new_duckdb_destination.write(
+        data=new_source_faker,
+        streams="*",
+        write_strategy=WriteStrategy.AUTO,
         cache=new_local_cache(),
         destination=new_duckdb_destination,
     )
+    assert write_result
+
+
+def test_destination_write_from_source_without_cache(
+    new_duckdb_destination: Destination,
+    new_source_faker: Source,
+) -> None:
+    """Test the JSONL destination."""
+    write_result: WriteResult = new_duckdb_destination.write(
+        data=new_source_faker,
+        streams="*",
+        write_strategy=WriteStrategy.AUTO,
+        cache=False,
+        destination=new_duckdb_destination,
+    )
+    assert write_result
+
+
+def test_destination_write_from_cache(
+    new_duckdb_destination: Destination,
+    new_source_faker: Source,
+) -> None:
+    """Test the JSONL destination."""
+    cache = new_local_cache()
+    new_source_faker.read(cache=cache)
+    write_result: WriteResult = new_duckdb_destination.write(
+        data=cache,
+        streams="*",
+        write_strategy=WriteStrategy.AUTO,
+        force_full_refresh=False,
+    )
+    assert write_result
+
+
+def test_destination_write_from_read_result(
+    new_duckdb_destination: Destination,
+    new_source_faker: Source,
+) -> None:
+    """Test the JSONL destination."""
+    cache = new_local_cache()
+    read_result = new_source_faker.read(cache=cache)
+    write_result: WriteResult = new_duckdb_destination.write(
+        data=read_result,
+        streams="*",
+        write_strategy=WriteStrategy.AUTO,
+        force_full_refresh=False,
+    )
+    assert write_result

@@ -39,7 +39,6 @@ from airbyte.constants import (
     AB_RAW_ID_COLUMN,
     DEBUG_MODE,
 )
-from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
 from airbyte.types import SQLTypeConverter
 
@@ -62,6 +61,7 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
+    from airbyte.progress import ReadProgress
     from airbyte.records import StreamRecordHandler
     from airbyte.secrets.base import SecretString
 
@@ -229,6 +229,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         record_msg: AirbyteRecordMessage,
         stream_record_handler: StreamRecordHandler,
+        progress_tracker: ReadProgress,
     ) -> None:
         """Write a record to the cache.
 
@@ -240,6 +241,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self.file_writer.process_record_message(
             record_msg,
             stream_record_handler=stream_record_handler,
+            progress_tracker=progress_tracker,
         )
 
     # Protected members (non-public interface):
@@ -481,6 +483,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
+        progress_tracker: ReadProgress,
     ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
 
@@ -493,9 +496,14 @@ class SqlProcessorBase(RecordProcessorBase):
               although this is a fairly rare edge case we can ignore in V1.
         """
         # Flush any pending writes
-        self.file_writer.flush_active_batches()
+        self.file_writer.flush_active_batches(
+            progress_tracker=progress_tracker,
+        )
 
-        with self.finalizing_batches(stream_name) as batches_to_finalize:
+        with self.finalizing_batches(
+            stream_name=stream_name,
+            progress_tracker=progress_tracker,
+        ) as batches_to_finalize:
             # Make sure the target schema and target table exist.
             self._ensure_schema_exists()
             final_table_name = self._ensure_final_table_exists(
@@ -529,7 +537,7 @@ class SqlProcessorBase(RecordProcessorBase):
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
 
-        progress.log_stream_finalized(stream_name)
+        progress_tracker.log_stream_finalized(stream_name)
 
         # Return the batch handles as measure of work completed.
         return batches_to_finalize
@@ -546,6 +554,7 @@ class SqlProcessorBase(RecordProcessorBase):
     def finalizing_batches(
         self,
         stream_name: str,
+        progress_tracker: ReadProgress,
     ) -> Generator[list[BatchHandle], str, None]:
         """Context manager to use for finalizing batches, if applicable.
 
@@ -557,10 +566,10 @@ class SqlProcessorBase(RecordProcessorBase):
         ].copy()
         self._pending_state_messages[stream_name].clear()
 
-        progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
+        progress_tracker.log_batches_finalizing(stream_name, len(batches_to_finalize))
         yield batches_to_finalize
         self._finalize_state_messages(state_messages_to_finalize)
-        progress.log_batches_finalized(stream_name, len(batches_to_finalize))
+        progress_tracker.log_batches_finalized(stream_name, len(batches_to_finalize))
 
         for batch_handle in batches_to_finalize:
             batch_handle.finalized = True

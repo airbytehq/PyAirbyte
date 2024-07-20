@@ -23,19 +23,17 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._message_generators import MessageGeneratorFromMessages
 from airbyte._util.telemetry import (
     EventState,
     EventType,
     send_telemetry,
 )
 from airbyte._util.temp_files import as_temp_files
-from airbyte.caches.base import CacheBase
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
-from airbyte.destinations.base import ConnectorBase, Destination
-from airbyte.progress import progress
+from airbyte.progress import ProgressStyle, ReadProgress
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
@@ -453,13 +451,19 @@ class Source(ConnectorBase):
             normalize_keys=False,
         )
 
+        # This method is non-blocking, so we use "PLAIN" to avoid a live progress display
+        progress_tracker = ReadProgress(ProgressStyle.PLAIN)
+
         iterator: Iterator[dict[str, Any]] = _with_logging(
             records=(  # Generator comprehension yields StreamRecord objects for each record
                 StreamRecord.from_record_message(
                     record_message=record.record,
                     stream_record_handler=stream_record_handler,
                 )
-                for record in self._read_with_catalog(configured_catalog)
+                for record in self._read_with_catalog(
+                    catalog=configured_catalog,
+                    progress_tracker=progress_tracker,
+                )
                 if record.record
             )
         )
@@ -495,6 +499,7 @@ class Source(ConnectorBase):
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
+        progress_tracker: ReadProgress,
         state: StateProviderBase | None = None,
     ) -> Iterator[AirbyteMessage]:
         """Call read on the connector.
@@ -518,8 +523,9 @@ class Source(ConnectorBase):
             catalog_file,
             state_file,
         ]:
-            yield from self._tally_records(
-                self._execute(
+            yield from self._tally_records(  # TODO: Move tally_records into the progress tracker
+                progress_tracker=progress_tracker,
+                messages=self._execute(
                     [
                         "read",
                         "--config",
@@ -529,9 +535,9 @@ class Source(ConnectorBase):
                         "--state",
                         state_file,
                     ],
-                )
+                ),
             )
-        progress.log_read_complete()
+        progress_tracker.log_read_complete()
 
     def _peek_airbyte_message(
         self,
@@ -561,14 +567,15 @@ class Source(ConnectorBase):
     def _tally_records(
         self,
         messages: Iterable[AirbyteMessage],
+        progress_tracker: ReadProgress,
     ) -> Generator[AirbyteMessage, Any, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         self._processed_records = 0  # Reset the counter before we start
-        progress.reset(num_streams_expected=len(self._selected_stream_names or []))
+        progress_tracker.reset(num_streams_expected=len(self._selected_stream_names or []))
 
         for message in messages:
             yield message
-            progress.log_records_read(new_total_count=self._processed_records)
+            progress_tracker.log_records_read(new_total_count=self._processed_records)
 
     def _log_sync_start(
         self,
@@ -636,7 +643,6 @@ class Source(ConnectorBase):
         self,
         cache: CacheBase | None = None,
         *,
-        destination: Destination | None = None,
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
@@ -646,8 +652,6 @@ class Source(ConnectorBase):
 
         Args:
             cache: The cache to write to. If not set, a default cache will be used.
-            destination: The destination to write to. If set, records will be sent to the destination
-                instead of the cache and the cache will be used to store state.
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
@@ -708,6 +712,7 @@ class Source(ConnectorBase):
                 source_name=self.name,
             )
 
+        progress_tracker = ReadProgress()
         self._log_sync_start(cache=cache)
 
         # Log incremental stream if incremental streams are known
@@ -724,45 +729,30 @@ class Source(ConnectorBase):
         airbyte_message_iterator: Iterator[AirbyteMessage] = self._read_with_catalog(
             catalog=self.configured_catalog,
             state=state_provider,
+            progress_tracker=progress_tracker,
         )
-        if destination:
-            try:
-                destination._write(  # noqa: SLF001  # Non-public API
-                    stdin=MessageGeneratorFromMessages(messages=airbyte_message_iterator),
-                    catalog_provider=CatalogProvider(configured_catalog=self.configured_catalog),
-                    state_writer=cache.get_state_writer(
-                        source_name=self.name,
-                        # TODO: Add destination name to state writer API
-                    ),
-                )
-            # TODO: We should catch more specific exceptions here
-            except Exception as ex:
-                self._log_sync_failure(cache=cache, exception=ex)
-                raise exc.AirbyteConnectorFailedError(
-                    connector_name=self.name,
-                    log_text=self._last_log_messages,
-                ) from ex
-        else:
-            cache_processor = cache.get_record_processor(
-                source_name=self.name,
-                catalog_provider=CatalogProvider(self.configured_catalog),
+        cache_processor = cache.get_record_processor(
+            source_name=self.name,
+            catalog_provider=CatalogProvider(self.configured_catalog),
+        )
+        try:
+            cache_processor.process_airbyte_messages(
+                messages=airbyte_message_iterator,
+                write_strategy=write_strategy,
+                progress_tracker=progress_tracker,
             )
-            try:
-                cache_processor.process_airbyte_messages(
-                    messages=airbyte_message_iterator,
-                    write_strategy=write_strategy,
-                )
 
-            # TODO: We should catch more specific exceptions here
-            except Exception as ex:
-                self._log_sync_failure(cache=cache, exception=ex)
-                raise exc.AirbyteConnectorFailedError(
-                    connector_name=self.name,
-                    log_text=self._last_log_messages,
-                ) from ex
+        # TODO: We should catch more specific exceptions here
+        except Exception as ex:
+            self._log_sync_failure(cache=cache, exception=ex)
+            raise exc.AirbyteConnectorFailedError(
+                connector_name=self.name,
+                log_text=self._last_log_messages,
+            ) from ex
 
         self._log_sync_success(cache=cache)
         return ReadResult(
+            source_name=self.name,
             processed_records=self._processed_records,
             cache=cache,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],

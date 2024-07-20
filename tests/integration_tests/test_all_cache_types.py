@@ -15,8 +15,8 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 from airbyte import get_source
-from airbyte.executors.base import _get_bin_dir
-from airbyte.progress import ReadProgress, progress
+from airbyte._util.venv_util import get_bin_dir
+from airbyte.progress import ReadProgress
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -36,11 +36,16 @@ FAKER_SCALE_B = 300
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
+    venv_bin_path = str(get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
     monkeypatch.setenv("PATH", new_path)
+
+
+@pytest.fixture
+def progress() -> ReadProgress:
+    return ReadProgress()
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
@@ -113,6 +118,7 @@ def test_pokeapi_read(
 @pytest.fixture(scope="function")
 def progress_mock(
     mocker: pytest.MockerFixture,
+    progress: ReadProgress,
 ) -> ReadProgress:
     """Fixture to return a mocked version of progress.progress."""
     # Mock the progress object.

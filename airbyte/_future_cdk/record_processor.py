@@ -24,7 +24,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._future_cdk.state_writers import StdOutStateWriter
-from airbyte._message_generators import MessageGeneratorFromStrBuffer
+from airbyte._message_generators import AirbyteMessageGenerator
 from airbyte.records import StreamRecordHandler
 from airbyte.strategies import WriteStrategy
 
@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte.progress import ReadProgress
 
 
 class AirbyteMessageParsingError(Exception):
@@ -119,6 +120,7 @@ class RecordProcessorBase(abc.ABC):
         self,
         *,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
+        progress_tracker: ReadProgress,
     ) -> None:
         """Process the input stream from stdin.
 
@@ -128,6 +130,7 @@ class RecordProcessorBase(abc.ABC):
         self.process_input_stream(
             input_stream,
             write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
         )
 
     @final
@@ -144,15 +147,17 @@ class RecordProcessorBase(abc.ABC):
         input_stream: IO[str],
         *,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
+        progress_tracker: ReadProgress,
     ) -> None:
         """Parse the input stream and process data in batches.
 
         Return a list of summaries for testing.
         """
-        messages = MessageGeneratorFromStrBuffer(input_stream)
+        messages = AirbyteMessageGenerator.from_str_buffer(input_stream)
         self.process_airbyte_messages(
             messages,
             write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
         )
 
     @abc.abstractmethod
@@ -160,6 +165,7 @@ class RecordProcessorBase(abc.ABC):
         self,
         record_msg: AirbyteRecordMessage,
         stream_record_handler: StreamRecordHandler,
+        progress_tracker: ReadProgress,
     ) -> None:
         """Write a record.
 
@@ -175,6 +181,7 @@ class RecordProcessorBase(abc.ABC):
         messages: Iterable[AirbyteMessage],
         *,
         write_strategy: WriteStrategy,
+        progress_tracker: ReadProgress,
     ) -> None:
         """Process a stream of Airbyte messages."""
         if not isinstance(write_strategy, WriteStrategy):
@@ -203,6 +210,7 @@ class RecordProcessorBase(abc.ABC):
                 self.process_record_message(
                     record_msg,
                     stream_record_handler=stream_record_handlers[stream_name],
+                    progress_tracker=progress_tracker,
                 )
 
             elif message.type is Type.STATE:
@@ -222,6 +230,7 @@ class RecordProcessorBase(abc.ABC):
                     self.write_stream_data(
                         stream_name=trace_msg.stream_status.stream_descriptor.name,
                         write_strategy=write_strategy,
+                        progress_tracker=progress_tracker,
                     )
 
             else:
@@ -233,16 +242,22 @@ class RecordProcessorBase(abc.ABC):
         # Finalize all received records and state messages:
         self.write_all_stream_data(
             write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
         )
 
         self.cleanup_all()
 
-    def write_all_stream_data(self, write_strategy: WriteStrategy) -> None:
+    def write_all_stream_data(
+        self,
+        write_strategy: WriteStrategy,
+        progress_tracker: ReadProgress,
+    ) -> None:
         """Finalize any pending writes."""
         for stream_name in self.catalog_provider.stream_names:
             self.write_stream_data(
                 stream_name,
                 write_strategy=write_strategy,
+                progress_tracker=progress_tracker,
             )
 
     @abc.abstractmethod
@@ -250,6 +265,7 @@ class RecordProcessorBase(abc.ABC):
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
+        progress_tracker: ReadProgress,
     ) -> list[BatchHandle]:
         """Write pending stream data to the cache."""
         ...

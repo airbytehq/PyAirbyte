@@ -50,6 +50,9 @@ class StreamState(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     source_name = Column(String)
     """The source name."""
 
+    destination_name = Column(String, default="self")
+    """The destination name, or 'self' if the cache is the destination."""
+
     stream_name = Column(String)
     """The stream name."""
 
@@ -132,6 +135,8 @@ class SqlStateBackend(StateBackendBase):
         """Ensure the internal tables exist in the SQL database."""
         engine = self._engine
         SqlAlchemyModel.metadata.create_all(engine)
+        # TODO: Add a migration to handle the case where the table exists but the
+        # 'destination_name' column is missing.
 
     def get_state_provider(
         self,
@@ -140,6 +145,7 @@ class SqlStateBackend(StateBackendBase):
         streams_filter: list[str] | None = None,
         *,
         refresh: bool = True,
+        destination_name: str | None = None,
     ) -> StateProviderBase:
         """Return the state provider.
 
@@ -155,6 +161,10 @@ class SqlStateBackend(StateBackendBase):
                 and (
                     StreamState.table_name.startswith(table_prefix)
                     or StreamState.stream_name.in_(GLOBAL_STATE_STREAM_NAMES)
+                )
+                and (
+                    (destination_name is None and StreamState.destination_name.is_(None))
+                    or StreamState.destination_name == destination_name
                 )
             )
             if streams_filter:

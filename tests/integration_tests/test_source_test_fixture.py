@@ -17,10 +17,10 @@ import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
-from airbyte.executors.base import _get_bin_dir
 from airbyte.results import ReadResult
 from airbyte.sources import registry
 from airbyte.version import get_version
@@ -817,7 +817,7 @@ def test_failing_path_connector():
 
 
 def test_succeeding_path_connector(monkeypatch):
-    venv_bin_path = str(_get_bin_dir(Path(".venv-source-test")))
+    venv_bin_path = str(get_bin_dir(Path(".venv-source-test")))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
@@ -859,11 +859,11 @@ def test_install_uninstall():
         source.install()
 
         assert os.path.exists(install_root / ".venv-source-test")
-        assert os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
+        assert os.path.exists(get_bin_dir(install_root / ".venv-source-test"))
 
         source.check()
 
         source.uninstall()
 
         assert not os.path.exists(install_root / ".venv-source-test")
-        assert not os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
+        assert not os.path.exists(get_bin_dir(install_root / ".venv-source-test"))

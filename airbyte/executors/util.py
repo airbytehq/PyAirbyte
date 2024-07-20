@@ -6,21 +6,23 @@ import sys
 import tempfile
 from json import JSONDecodeError
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import requests
 import yaml
-from pendulum import local
 from rich import print
 
 from airbyte import exceptions as exc
 from airbyte._util.telemetry import EventState, log_install_state  # noqa: PLC2701  # Non-public API
-from airbyte.executors.base import DockerExecutor, Executor, PathExecutor, VenvExecutor
-from airbyte.sources.declarative import DeclarativeExecutor
+from airbyte.executors.declarative import DeclarativeExecutor
+from airbyte.executors.docker import DockerExecutor
+from airbyte.executors.local import PathExecutor
+from airbyte.executors.python import VenvExecutor
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
-_LATEST_VERSION = "latest"
+if TYPE_CHECKING:
+    from airbyte.executors.base import Executor
 
 
 def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex

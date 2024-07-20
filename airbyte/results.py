@@ -13,15 +13,26 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
     from airbyte.caches import CacheBase
+    from airbyte.progress import WriteProgress
 
 
 class ReadResult(Mapping[str, CachedDataset]):
+    """The result of a read operation.
+
+    This class is used to return information about the read operation, such as the number of
+    records read. It should not be created directly, but instead returned by the write method
+    of a destination.
+    """
+
     def __init__(
         self,
+        *,
+        source_name: str,
         processed_records: int,
-        cache: CacheBase,
         processed_streams: list[str],
+        cache: CacheBase,
     ) -> None:
+        self.source_name = source_name
         self.processed_records = processed_records
         self._cache = cache
         self._processed_streams = processed_streams
@@ -57,3 +68,22 @@ class ReadResult(Mapping[str, CachedDataset]):
     @property
     def cache(self) -> CacheBase:
         return self._cache
+
+
+class WriteResult:
+    """The result of a write operation.
+
+    This class is used to return information about the write operation, such as the number of
+    records written. It should not be created directly, but instead returned by the write method
+    of a destination.
+    """
+
+    def __init__(
+        self,
+        progress_tracker: WriteProgress,
+    ) -> None:
+        self._progress_tracker: WriteProgress = progress_tracker
+
+    @classmethod
+    def from_progress_tracker(cls, progress_tracker: WriteProgress) -> WriteResult:
+        return cls(progress_tracker)

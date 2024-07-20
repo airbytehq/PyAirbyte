@@ -95,6 +95,14 @@ class CacheBase(SqlConfig):
             temp_file_cleanup=self.cleanup,
         )
 
+    @property
+    def name(self) -> str:
+        """Return the name of the cache.
+
+        By default, this is the class name.
+        """
+        return type(self).__name__
+
     @final
     @property
     def processor(self) -> SqlProcessorBase:
@@ -198,12 +206,14 @@ class CacheBase(SqlConfig):
         source_name: str,
         *,
         refresh: bool = True,
+        destination_name: str | None = None,
     ) -> StateProviderBase:
         """Return a state provider for the specified source name."""
         return self._state_backend.get_state_provider(
             source_name=source_name,
             table_prefix=self.table_prefix or "",
             refresh=refresh,
+            destination_name=destination_name,
         )
 
     def get_state_writer(

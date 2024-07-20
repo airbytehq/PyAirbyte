@@ -37,6 +37,7 @@ class StateBackendBase(abc.ABC):
         table_prefix: str,
         *,
         refresh: bool = True,
+        destination_name: str | None = None,
     ) -> StateProviderBase:
         """Return the state provider."""
         ...

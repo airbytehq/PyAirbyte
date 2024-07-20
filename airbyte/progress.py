@@ -28,6 +28,7 @@ from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
 from airbyte._util import meta
+from airbyte.results import WriteResult
 
 
 if TYPE_CHECKING:
@@ -470,4 +471,20 @@ class ReadProgress:
         return status_message
 
 
-progress = ReadProgress()
+class WriteProgress(
+    ReadProgress,
+):
+    """A simple progress bar for the command line and IPython notebooks."""
+
+    def __init__(
+        self,
+        style: ProgressStyle = ProgressStyle.AUTO,
+    ) -> None:
+        """Initialize the progress tracker."""
+        super().__init__(style=style)
+
+    def get_result(
+        self,
+    ) -> WriteResult:
+        """Return the final result."""
+        return WriteResult(progress_tracker=self)

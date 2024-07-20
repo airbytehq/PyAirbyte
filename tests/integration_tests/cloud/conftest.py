@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 from airbyte._util.api_util import CLOUD_API_ROOT
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
-from airbyte.executors.base import _get_bin_dir
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
@@ -25,7 +25,7 @@ AIRBYTE_CLOUD_API_KEY_SECRET_NAME = "PYAIRBYTE_CLOUD_INTEROP_API_KEY"
 def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Patch the PATH to include the virtual environment's bin directory."""
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
+    venv_bin_path = str(get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"

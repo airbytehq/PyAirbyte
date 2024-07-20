@@ -22,11 +22,11 @@ import pytest_mock
 import ulid
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte._processors.sql.postgres import PostgresSqlProcessor
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.util import new_local_cache
-from airbyte.executors.base import _get_bin_dir
 from airbyte.strategies import WriteStrategy
 from duckdb_engine import DuckDBEngineWarning
 
@@ -48,7 +48,7 @@ FAKER_SCALE_B = 300
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
+    venv_bin_path = str(get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
