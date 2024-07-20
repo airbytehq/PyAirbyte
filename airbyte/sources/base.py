@@ -25,6 +25,7 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
+from airbyte._message_generators import AirbyteMessageGenerator
 from airbyte._util.telemetry import (
     EventState,
     EventType,
@@ -37,7 +38,6 @@ from airbyte.progress import ProgressStyle, ReadProgress
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
-from airbyte.warnings import PyAirbyteDataLossWarning
 
 
 if TYPE_CHECKING:
@@ -496,6 +496,23 @@ class Source(ConnectorBase):
             render_metadata=render_metadata,
         )
 
+    def _get_airbyte_message_generator(
+        self,
+        *,
+        streams: Literal["*"] | list[str] | None = None,
+        state_provider: StateProviderBase | None = None,
+        progress_tracker: ReadProgress,
+        force_full_refresh: bool = False,
+    ) -> AirbyteMessageGenerator:
+        """Get an AirbyteMessageGenerator for this source."""
+        return AirbyteMessageGenerator.from_messages(
+            messages=self._read_with_catalog(
+                catalog=self.get_configured_catalog(streams=streams),
+                progress_tracker=progress_tracker,
+                state=state_provider if not force_full_refresh else None,
+            )
+        )
+
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
@@ -675,7 +692,7 @@ class Source(ConnectorBase):
                     'warnings.filterwarnings("ignore", '
                     'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
                 ),
-                category=PyAirbyteDataLossWarning,
+                category=exc.PyAirbyteDataLossWarning,
                 stacklevel=1,
             )
         if isinstance(write_strategy, str):

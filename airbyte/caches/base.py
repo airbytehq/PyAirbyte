@@ -219,9 +219,17 @@ class CacheBase(SqlConfig):
     def get_state_writer(
         self,
         source_name: str,
+        destination_name: str | None = None,
     ) -> StateWriterBase:
-        """Return a state writer for the specified source name."""
-        return self._state_backend.get_state_writer(source_name=source_name)
+        """Return a state writer for the specified source name.
+
+        If syncing to the cache, `destination_name` should be `None`.
+        If syncing to a destination, `destination_name` should be the destination name.
+        """
+        return self._state_backend.get_state_writer(
+            source_name=source_name,
+            destination_name=destination_name,
+        )
 
     def register_source(
         self,

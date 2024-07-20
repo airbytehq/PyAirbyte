@@ -431,3 +431,18 @@ class AirbyteMultipleResourcesError(AirbyteError):
 
 class AirbyteExperimentalFeatureWarning(FutureWarning):
     """Warning whenever using experimental features in PyAirbyte."""
+
+
+# PyAirbyte Warnings
+
+
+class PyAirbyteWarning(Warning):
+    """General warnings from PyAirbyte."""
+
+
+class PyAirbyteDataLossWarning(PyAirbyteWarning):
+    """Warning for potential data loss.
+
+    Users can ignore this warning by running:
+    > warnings.filterwarnings("ignore", category="airbyte.exceptions.PyAirbyteDataLossWarning")
+    """

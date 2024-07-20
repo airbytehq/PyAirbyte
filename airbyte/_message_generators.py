@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import datetime
 import sys
-from typing import IO, TYPE_CHECKING, Callable
+from typing import IO, TYPE_CHECKING, Callable, cast
 
 import pydantic
 from typing_extensions import final
@@ -12,18 +13,20 @@ from typing_extensions import final
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
-    AirbyteStateMessage,
-    AirbyteStateType,
+    Type,
 )
 
 from airbyte.constants import AB_EXTRACTED_AT_COLUMN
+from airbyte.progress import ProgressStyle, ReadProgress
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
     from pathlib import Path
 
+    from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte.results import ReadResult
+    from airbyte.sources.base import Source
 
 
 class AirbyteMessageGenerator:
@@ -59,38 +62,41 @@ class AirbyteMessageGenerator:
     def from_read_result(cls, read_result: ReadResult) -> AirbyteMessageGenerator:
         """Create a generator from a `ReadResult` object."""
 
+        state_provider = read_result.cache.get_state_provider(
+            source_name=read_result.source_name,
+        )
+
         def generator() -> Generator[AirbyteMessage, None, None]:
             for stream_name, dataset in read_result.items():
                 for record in dataset:
                     yield AirbyteMessage(
-                        type=AirbyteMessage.Type.RECORD,
+                        type=Type.RECORD,
                         record=AirbyteRecordMessage(
                             stream=stream_name,
                             data=record,
-                            emitted_at=record.get(AB_EXTRACTED_AT_COLUMN),
+                            emitted_at=int(
+                                cast(
+                                    datetime.datetime, record.get(AB_EXTRACTED_AT_COLUMN)
+                                ).timestamp()
+                            ),
                             # `meta` and `namespace` are not handled:
                             meta=None,
                             namespace=None,
                         ),
                     )
+
+                # Send the latest state message from the source.
                 yield AirbyteMessage(
-                    type=AirbyteMessage.Type.STATE,
-                    state=AirbyteStateMessage(
-                        type=AirbyteStateType.STATE,
-                        stream=stream_name,
-                        data=read_result.cache.get_state_provider(stream_name),
-                        # `sourceStats` and `destinationStats` are not handled:
-                        sourceStats=None,
-                        destinationStats=None,
-                    ),
+                    type=Type.STATE,
+                    state=state_provider.get_state_message_artifact(stream_name=stream_name),
                 )
 
         return cls(generator())
 
     @classmethod
-    def from_messages(cls, messages: Iterable[AirbyteMessage]) -> None:
+    def from_messages(cls, messages: Iterable[AirbyteMessage]) -> AirbyteMessageGenerator:
         """Create a generator from an iterable of messages."""
-        cls(iter(messages))
+        return cls(iter(messages))
 
     @classmethod
     def from_str_buffer(cls, buffer: IO[str]) -> AirbyteMessageGenerator:
@@ -170,3 +176,27 @@ class AirbyteMessageGenerator:
                     raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
 
         return cls(generator())
+
+    @classmethod
+    def from_source(
+        cls,
+        source: Source,
+        *,
+        streams: list[str] | None = None,
+        progress_tracker: ReadProgress | None = None,
+        force_full_refresh: bool = False,
+        state_provider: StateProviderBase | None = None,
+    ) -> AirbyteMessageGenerator:
+        """Create a generator that reads messages from a source.
+
+        Only the `source` parameter is required. The other parameters are optional.
+
+        If a `progress_tracker` is not provided, a silent progress tracker will be used.
+        """
+        progress_tracker = progress_tracker or ReadProgress(ProgressStyle.NONE)
+        return source._get_airbyte_message_generator(  # noqa: SLF001
+            streams=streams,
+            progress_tracker=progress_tracker,
+            force_full_refresh=force_full_refresh,
+            state_provider=state_provider,
+        )

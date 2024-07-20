@@ -112,7 +112,7 @@ class CatalogProvider:
         """Create a catalog provider from a `ReadResult` object."""
         return cls(
             ConfiguredAirbyteCatalog(
-                [
+                streams=[
                     dataset._stream_metadata  # noqa: SLF001  # Non-public API
                     for dataset in read_result.values()
                 ]

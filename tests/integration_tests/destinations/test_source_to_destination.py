@@ -87,7 +87,9 @@ def test_duckdb_destination_write_components(
     )
     new_duckdb_destination._write_airbyte_message_stream(
         stdin=AirbyteMessageGenerator.from_messages(airbyte_messages),
-        catalog_provider=CatalogProvider(new_source_faker.configured_catalog),
+        catalog_provider=CatalogProvider(
+            configured_catalog=new_source_faker.configured_catalog
+        ),
         progress_tracker=WriteProgress(),
     )
 
@@ -100,9 +102,8 @@ def test_destination_write_from_source_with_cache(
     write_result: WriteResult = new_duckdb_destination.write(
         data=new_source_faker,
         streams="*",
-        write_strategy=WriteStrategy.AUTO,
         cache=new_local_cache(),
-        destination=new_duckdb_destination,
+        write_strategy=WriteStrategy.AUTO,
     )
     assert write_result
 
@@ -115,25 +116,8 @@ def test_destination_write_from_source_without_cache(
     write_result: WriteResult = new_duckdb_destination.write(
         data=new_source_faker,
         streams="*",
-        write_strategy=WriteStrategy.AUTO,
         cache=False,
-        destination=new_duckdb_destination,
-    )
-    assert write_result
-
-
-def test_destination_write_from_cache(
-    new_duckdb_destination: Destination,
-    new_source_faker: Source,
-) -> None:
-    """Test the JSONL destination."""
-    cache = new_local_cache()
-    new_source_faker.read(cache=cache)
-    write_result: WriteResult = new_duckdb_destination.write(
-        data=cache,
-        streams="*",
         write_strategy=WriteStrategy.AUTO,
-        force_full_refresh=False,
     )
     assert write_result
 

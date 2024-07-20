@@ -86,6 +86,27 @@ class StateProviderBase(abc.ABC):  # noqa: B024
             + "]"
         )
 
+    def get_state_message_artifact(
+        self,
+        stream_name: str,
+    ) -> AirbyteStateMessage:
+        """Return the state message for the specified stream name."""
+        for state_message in self.state_message_artifacts:
+            if state_message.stream.stream_descriptor.name == stream_name:
+                return state_message
+
+        raise exc.PyAirbyteInternalError(
+            message="State message not found.",
+            context={"stream_name": stream_name},
+        )
+
+    def get_stream_state_artifact(
+        self,
+        stream_name: str,
+    ) -> AirbyteStreamState:
+        """Return the state artifact for the specified stream name."""
+        return self.get_state_message_artifact(stream_name).stream
+
 
 class StaticInputState(StateProviderBase):
     """A state manager that uses a static catalog state as input."""

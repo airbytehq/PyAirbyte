@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import IO, TYPE_CHECKING, Any
+import warnings
+from typing import IO, TYPE_CHECKING, Any, cast
 
 from typing_extensions import Literal
 
@@ -14,9 +15,10 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte._future_cdk.state_writers import NoOpStateWriter, StateWriterBase, StdOutStateWriter
 from airbyte._message_generators import AirbyteMessageGenerator
 from airbyte._util.temp_files import as_temp_files
+from airbyte.caches.util import get_default_cache
 from airbyte.progress import WriteProgress
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
@@ -57,17 +59,17 @@ class Destination(ConnectorBase):
         self,
         data: Source | ReadResult,
         *,
-        streams: list[str] | str | None = None,
+        streams: list[str] | Literal["*"] | None = None,
         cache: CacheBase | None | Literal[False] = None,
+        state_cache: CacheBase | None | Literal[False] = None,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
-        state_backend: CacheBase | None | Literal[False] = None,
         force_full_refresh: bool = False,
     ) -> WriteResult:
         """Write data to the destination.
 
         Args:
-            data: The data to write to the destination. Can be a `Source`, a `ReadResult`, or a
-                `Dataset` object.
+            data: The data to write to the destination. Can be a `Source`, a `Cache`, or a
+                `ReadResult` object.
             streams: The streams to write to the destination. If omitted or if "*" is provided,
                 all streams will be written. If `data` is a source, then streams must be selected
                 here or on the source. If both are specified, this setting will override the stream
@@ -75,45 +77,106 @@ class Destination(ConnectorBase):
             cache: The cache to use for reading data. If `None`, no cache will be used. If False,
                 the cache will be disabled. This must be `None` if `data` is already a `Cache`
                 object.
-            write_strategy: The strategy to use for writing data. If `AUTO`, the connector will
-                decide the best strategy to use.
-            state_backend: A cache to use for storing incremental state. You do not need to set this
+            state_cache: A cache to use for storing incremental state. You do not need to set this
                 if `cache` is specified or if `data` is a `Cache` object. Set to `False` to disable
                 state management.
+            write_strategy: The strategy to use for writing data. If `AUTO`, the connector will
+                decide the best strategy to use.
             force_full_refresh: Whether to force a full refresh of the data. If `True`, any existing
                 state will be ignored and all data will be re-read.
         """
-        source: Source | None = None
-        read_result: ReadResult | None = None
-        if isinstance(data, Source) and cache is not False:
-            source = data
-            read_result = source.read(
-                cache=cache,
-                streams=streams,
-                write_strategy=write_strategy,
-                force_full_refresh=force_full_refresh,
-                skip_validation=False,
-            )
-        elif isinstance(data, ReadResult):
-            read_result = data
-            cache = cache or read_result.cache
-
-        else:
-            raise exc.PyAirbyteInputError(
-                message="Invalid input type for `data`.",
-                context={"data_type_provided": type(data).__name__},
-            )
-
-        if state_backend:
-            state_cache = state_backend
-
         progress_tracker = WriteProgress()
 
-        # Write the data
+        if not isinstance(data, (ReadResult, Source)):
+            raise TypeError(f"Invalid data type: {type(data)}")  # noqa: TRY003
+
+        # Resolve `read_result`, `source`, and `source_name`
+        read_result: ReadResult | None = data if isinstance(data, ReadResult) else None
+        source: Source | None = data if isinstance(data, Source) else None
+        source_name: str = source.name if source else cast(ReadResult, read_result).source_name
+
+        # Resolve `cache`
+        if cache is not False:
+            if isinstance(data, ReadResult):
+                cache = data.cache
+
+            cache = cache or get_default_cache()
+
+        # Resolve `state_cache`
+        if state_cache is not False:
+            state_cache = state_cache or get_default_cache()
+
+        # Resolve `state_provider` and `state_writer`
+        if state_cache:
+            state_provider = (
+                None
+                if force_full_refresh
+                else state_cache.get_state_provider(
+                    source_name=source_name,
+                    destination_name=self.name,
+                )
+            )
+            state_writer: StateWriterBase = state_cache.get_state_writer(
+                source_name=source_name,
+                destination_name=self.name,
+            )
+        elif state_cache is False:
+            state_writer = NoOpStateWriter()
+            state_provider = None
+        else:
+            warnings.warn(
+                "No state backend or cache provided. State will not be tracked."
+                "To track state, provide a cache or state backend."
+                "To silence this warning, set `state_cache=False` explicitly.",
+                category=exc.PyAirbyteWarning,
+                stacklevel=2,
+            )
+            state_writer = NoOpStateWriter()
+            state_provider = None
+
+        # Resolve `catalog_provider`
+        if source:
+            catalog_provider = CatalogProvider(
+                configured_catalog=source.get_configured_catalog(
+                    streams=streams,
+                )
+            )
+        elif read_result:
+            catalog_provider = CatalogProvider.from_read_result(read_result)
+
+        # Get message generator for source (caching disabled)
+        if source:
+            if cache is False:
+                message_generator = source._get_airbyte_message_generator(  # noqa: SLF001 # Non-public API
+                    streams=streams,
+                    state_provider=state_provider,
+                    progress_tracker=progress_tracker,
+                    force_full_refresh=force_full_refresh,
+                )
+            else:
+                # Caching enabled and we are reading from a source.
+                # Read the data to cache if caching is enabled.
+                read_result = source.read(
+                    cache=cache,
+                    streams=streams,
+                    write_strategy=write_strategy,
+                    force_full_refresh=force_full_refresh,
+                    skip_validation=False,
+                )
+                message_generator = AirbyteMessageGenerator.from_read_result(
+                    read_result=read_result,
+                )
+        else:  # Else we are reading from a read result
+            assert read_result is not None
+            message_generator = AirbyteMessageGenerator.from_read_result(
+                read_result=read_result,
+            )
+
+        # Write the data to the destination
         self._write_airbyte_message_stream(
-            stdin=AirbyteMessageGenerator.from_read_result(read_result),
-            catalog_provider=CatalogProvider.from_read_result(read_result),
-            state_writer=state_cache.get_state_writer(read_result.source_name),
+            stdin=message_generator,
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
             skip_validation=False,
             progress_tracker=progress_tracker,
         )

@@ -37,3 +37,19 @@ class StdOutStateWriter(StateWriterBase):
     ) -> None:
         """Save or 'write' a state artifact."""
         print(state_message.model_dump_json())
+
+
+class NoOpStateWriter(StateWriterBase):
+    """A state writer that writes state artifacts to stdout.
+
+    This is required when we are functioning as a "Destination" in the Airbyte protocol, and
+    an orchestrator is responsible for saving those state artifacts.
+    """
+
+    def write_state(
+        self,
+        state_message: AirbyteStateMessage,
+    ) -> None:
+        """Save or 'write' a state artifact."""
+        _ = state_message
+        pass

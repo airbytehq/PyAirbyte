@@ -46,6 +46,7 @@ class StateBackendBase(abc.ABC):
     def get_state_writer(
         self,
         source_name: str,
+        destination_name: str | None = None,
     ) -> StateWriterBase:
         """Return a state writer for a named source.
 
