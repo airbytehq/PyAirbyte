@@ -12,6 +12,7 @@ from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.executors.base import Executor
 from airbyte.executors.util import get_connector_executor
+from airbyte.progress import WriteProgress
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
@@ -41,8 +42,9 @@ def new_duckdb_destination(new_duckdb_destination_executor: Destination) -> Dest
     )
 
 
+@pytest.fixture
 def new_source_faker() -> Source:
-    source: Source = get_source(
+    return get_source(
         "source-faker",
         local_executable="source-faker",
         config={
@@ -83,9 +85,10 @@ def test_duckdb_destination_write_components(
         )
         for record_dict in read_result["products"]
     )
-    new_duckdb_destination.write(
+    new_duckdb_destination._write_airbyte_message_stream(
         stdin=AirbyteMessageGenerator.from_messages(airbyte_messages),
         catalog_provider=CatalogProvider(new_source_faker.configured_catalog),
+        progress_tracker=WriteProgress(),
     )
 
 

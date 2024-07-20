@@ -84,5 +84,6 @@
       "githubIssueLabel": "source-source-non-published",
       "license": "MIT"
     }
-  ]
+  ],
+  "destinations": []
 }

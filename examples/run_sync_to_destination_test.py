@@ -53,9 +53,8 @@ def main() -> None:
 
     read_result: ReadResult = source.read(
         cache=new_local_cache(),
-        destination=my_destination,
     )
-    for stream_name, dataset in read_result.items():
+    for stream_name in read_result:
         print(f"Stream read: {stream_name}")
 
 
