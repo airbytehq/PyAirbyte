@@ -30,6 +30,7 @@ from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor 
 
 # from airbyte._util.google_secrets import get_gcp_secret_json
 from airbyte.caches import SnowflakeCache
+from airbyte.progress import ReadProgress
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.strategies import WriteStrategy
 
@@ -169,4 +170,5 @@ processor = SnowflakeCortexSqlProcessor(
 processor.process_airbyte_messages(
     messages=messages,
     write_strategy=WriteStrategy.MERGE,
+    progress_tracker=ReadProgress(),
 )
