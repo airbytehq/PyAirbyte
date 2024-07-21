@@ -4,7 +4,7 @@
 
 Usage:
 ```
-poetry run python examples/run_sync_to_destination_test.py
+poetry run python examples/run_sync_to_destination_w_cache.py
 ```
 """
 
@@ -37,7 +37,7 @@ def main() -> None:
         install_if_missing=False,
         streams=["purchases"],
     )
-    my_destination = Destination(
+    destination = Destination(
         name="destination-duckdb",
         config={
             # This path is relative to the container:
@@ -49,13 +49,12 @@ def main() -> None:
             # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
         ),
     )
-    my_destination.check()
+    destination.check()
 
     read_result: ReadResult = source.read(
         cache=new_local_cache(),
     )
-    for stream_name in read_result:
-        print(f"Stream read: {stream_name}")
+    destination.write(read_result)
 
 
 if __name__ == "__main__":

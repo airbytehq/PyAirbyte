@@ -8,6 +8,7 @@ and available on PATH for the poetry-managed venv.
 
 from __future__ import annotations
 
+import datetime
 import os
 import sys
 from pathlib import Path
@@ -16,7 +17,6 @@ import airbyte as ab
 import pytest
 from airbyte import get_source
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.progress import ReadProgress
 from viztracer import VizTracer
 
 # Product count is always the same, regardless of faker scale.
@@ -37,10 +37,13 @@ FAKER_SCALE_B = 300
 # Fixture to dynamically generate output_dir based on the test name
 @pytest.fixture
 def tracer(request):
+    # Get date in yyyy-mm-dd format
+    timestamp: str = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
+
     # Format the directory path to include the parameterized test name
     output_dir = (
         f"./logs/viztracer/{request.node.name.replace('[', '/').replace(']', '')}"
-        f"/viztracer-{request.node.name.replace('[', '-').replace(']', '')}.html"
+        f"/viztracer-{timestamp}-{request.node.name.replace('[', '-').replace(']', '')}.json"
     )
     tracer = VizTracer(output_file=output_dir)
     yield tracer
