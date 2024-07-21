@@ -195,8 +195,6 @@ class SqlStateBackend(StateBackendBase):
         """Ensure the internal tables exist in the SQL database."""
         engine = self._engine
         SqlAlchemyModel.metadata.create_all(engine)
-        # TODO: Add a migration to handle the case where the table exists but the
-        # 'destination_name' column is missing.
 
     def get_state_provider(
         self,
