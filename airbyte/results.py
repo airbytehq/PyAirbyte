@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
     from airbyte.caches import CacheBase
-    from airbyte.progress import WriteProgress
+    from airbyte.progress import ReadProgress, WriteProgress
 
 
 class ReadResult(Mapping[str, CachedDataset]):
@@ -31,9 +31,11 @@ class ReadResult(Mapping[str, CachedDataset]):
         processed_records: int,
         processed_streams: list[str],
         cache: CacheBase,
+        progress_tracker: ReadProgress,
     ) -> None:
         self.source_name = source_name
         self.processed_records = processed_records
+        self._progress_tracker = progress_tracker
         self._cache = cache
         self._processed_streams = processed_streams
 

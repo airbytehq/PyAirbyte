@@ -770,9 +770,10 @@ class Source(ConnectorBase):
         self._log_sync_success(cache=cache)
         return ReadResult(
             source_name=self.name,
+            progress_tracker=progress_tracker,
             processed_records=self._processed_records,
-            cache=cache,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
+            cache=cache,
         )
 
 
