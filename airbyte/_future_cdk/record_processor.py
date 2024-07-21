@@ -204,7 +204,7 @@ class RecordProcessorBase(abc.ABC):
                             stream_name=stream_name,
                         ),
                         normalize_keys=True,
-                        prune_extra_fields=False,
+                        prune_extra_fields=True,
                     )
 
                 self.process_record_message(
