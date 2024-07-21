@@ -17,6 +17,7 @@ import pytest
 from airbyte import get_source
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.progress import ReadProgress
+from viztracer import VizTracer
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -31,6 +32,19 @@ FAKER_SCALE_B = 300
 
 
 # Patch PATH to include the source-faker executable.
+
+
+# Fixture to dynamically generate output_dir based on the test name
+@pytest.fixture
+def tracer(request):
+    # Format the directory path to include the parameterized test name
+    output_dir = (
+        f"./logs/viztracer/{request.node.name.replace('[', '/').replace(']', '')}"
+        f"/viztracer-{request.node.name.replace('[', '-').replace(']', '')}.html"
+    )
+    tracer = VizTracer(output_file=output_dir)
+    yield tracer
+    tracer.stop()
 
 
 @pytest.fixture(autouse=True)
@@ -134,45 +148,40 @@ def progress_mock(
 
 # Uncomment this line if you want to see performance trace logs.
 # You can render perf traces using the viztracer CLI or the VS Code VizTracer Extension.
-# @viztracer.trace_and_save(output_dir=".pytest_cache/snowflake_trace/")
 @pytest.mark.requires_creds
 @pytest.mark.slow
 def test_faker_read(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
-    progress_mock: ReadProgress,
+    tracer: VizTracer,
 ) -> None:
     """Test that the append strategy works as expected."""
-    result = source_faker_seed_a.read(
-        new_generic_cache, write_strategy="replace", force_full_refresh=True
-    )
+    with tracer:
+        read_result = source_faker_seed_a.read(
+            new_generic_cache, write_strategy="replace", force_full_refresh=True
+        )
     configured_count = source_faker_seed_a._config["count"]
 
+    # Check row counts match:
+    assert len(list(read_result.cache.streams["users"])) == FAKER_SCALE_A
+
+    progress = read_result._progress_tracker
+
     # These numbers expect only 'users' stream selected:
+    assert progress.total_records_read == configured_count
+    assert progress.total_records_written == configured_count
+    assert progress.total_batches_written == 1
+    assert progress.total_batches_finalized == 1
+    assert progress.finalized_stream_names == {"users"}
 
-    assert progress_mock.total_records_read == configured_count
-    assert progress_mock.total_records_written == configured_count
-    assert progress_mock.log_records_read.call_count >= configured_count
-    assert progress_mock.reset.call_count == 1
-    assert progress_mock.log_batch_written.call_count == 1
-    assert progress_mock.total_batches_written == 1
-    assert progress_mock.log_batches_finalizing.call_count == 1
-    assert progress_mock.log_batches_finalized.call_count == 1
-    assert progress_mock.total_batches_finalized == 1
-    assert progress_mock.finalized_stream_names == {"users"}
-    assert progress_mock.log_stream_finalized.call_count == 1
-    assert progress_mock.log_success.call_count == 1
-
-    status_msg: str = progress_mock._get_status_message()
+    status_msg: str = progress._get_status_message()
     assert "Read **0** records" not in status_msg
     assert f"Read **{configured_count}** records" in status_msg
-
-    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
 
     if "bigquery" not in new_generic_cache.get_sql_alchemy_url():
         # BigQuery doesn't support to_arrow
         # https://github.com/airbytehq/PyAirbyte/issues/165
-        arrow_dataset = result["users"].to_arrow(max_chunk_size=10)
+        arrow_dataset = read_result["users"].to_arrow(max_chunk_size=10)
         assert arrow_dataset.count_rows() == FAKER_SCALE_A
         assert sum(1 for _ in arrow_dataset.to_batches()) == FAKER_SCALE_A / 10
 
