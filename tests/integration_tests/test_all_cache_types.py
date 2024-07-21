@@ -57,11 +57,6 @@ def add_venv_bin_to_path(monkeypatch):
     monkeypatch.setenv("PATH", new_path)
 
 
-@pytest.fixture
-def progress() -> ReadProgress:
-    return ReadProgress()
-
-
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
@@ -127,23 +122,6 @@ def test_pokeapi_read(
         new_generic_cache, write_strategy="replace", force_full_refresh=True
     )
     assert len(list(result.cache.streams["pokemon"])) == 1
-
-
-@pytest.fixture(scope="function")
-def progress_mock(
-    mocker: pytest.MockerFixture,
-    progress: ReadProgress,
-) -> ReadProgress:
-    """Fixture to return a mocked version of progress.progress."""
-    # Mock the progress object.
-    mocker.spy(progress, "reset")
-    mocker.spy(progress, "log_records_read")
-    mocker.spy(progress, "log_batch_written")
-    mocker.spy(progress, "log_batches_finalizing")
-    mocker.spy(progress, "log_batches_finalized")
-    mocker.spy(progress, "log_stream_finalized")
-    mocker.spy(progress, "log_success")
-    return progress
 
 
 # Uncomment this line if you want to see performance trace logs.
