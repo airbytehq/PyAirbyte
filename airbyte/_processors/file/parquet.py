@@ -22,44 +22,15 @@ if TYPE_CHECKING:
     from airbyte.records import StreamRecord
 
 
-def _get_state_file_path(cache_dir: Path, stream_name: str) -> Path:
-    """Return the state file path for the given stream."""
-    return cache_dir / f"{stream_name}_state.parquet"
-
-
-def _get_records_file_path(cache_dir: Path, stream_name: str, batch_id: str) -> Path:
-    """Return the records file path for the given stream and batch."""
-    return cache_dir / f"{stream_name}_{batch_id}.parquet"
-
-
-class IcebergStateWriter(StateWriterBase):
-    """An Iceberg state writer implementation."""
-
-    def __init__(self, cache_dir: Path) -> None:
-        """Initialize the Iceberg state writer."""
-        self._cache_dir = cache_dir
-
-    @overrides
-    def write_state(self, state_message: dict) -> None:
-        """Write the state for the given stream."""
-        stream_name = state_message["stream"]
-        state_file_path = Path(
-            _get_state_file_path(
-                cache_dir=self._cache_dir,
-                stream_name=stream_name,
-            )
-        )
-        state_file_path.write_text(json.dumps(state_message))
-
-
-class IcebergWriter(FileWriterBase):
+class LocalIcebergWriter(FileWriterBase):
     """An Iceberg file writer implementation."""
 
     default_cache_file_suffix = ".parquet"
     prune_extra_fields = True
 
-    def get_state_writer(self) -> IcebergStateWriter:
-        return IcebergStateWriter(self._cache_dir)
+    def _get_records_file_path(self, cache_dir: Path, stream_name: str, batch_id: str) -> Path:
+        """Return the records file path for the given stream and batch."""
+        return cache_dir / f"{stream_name}_{batch_id}.parquet"
 
     @overrides
     def _open_new_file(
