@@ -15,7 +15,7 @@ from typing_extensions import Literal
 
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
-from airbyte._processors.file import JsonlWriter
+from airbyte._processors.file import IcebergWriter
 from airbyte.secrets.base import SecretString
 
 
@@ -88,15 +88,10 @@ class DuckDBConfig(SqlConfig):
 
 
 class DuckDBSqlProcessor(SqlProcessorBase):
-    """A DuckDB implementation of the cache.
-
-    Jsonl is used for local file storage before bulk loading.
-    Unlike the Snowflake implementation, we can't use the COPY command to load data
-    so we insert as values instead.
-    """
+    """A DuckDB implementation of the cache."""
 
     supports_merge_insert = False
-    file_writer_class = JsonlWriter
+    file_writer_class = IcebergWriter
     sql_config: DuckDBConfig
 
     @overrides
