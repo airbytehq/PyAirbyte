@@ -264,7 +264,11 @@ class ConnectorBase(abc.ABC):
                                 "failure_reason": msg.connectionStatus.message,
                             },
                         )
-                raise exc.AirbyteConnectorCheckFailedError(log_text=self._last_log_messages)
+                raise exc.AirbyteConnectorCheckFailedError(
+                    connector_name=self.name,
+                    message="The connector `check` operation did not return a status.",
+                    log_text=self._last_log_messages,
+                )
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorCheckFailedError(
                     connector_name=self.name,
@@ -355,6 +359,9 @@ class ConnectorBase(abc.ABC):
         * Spawn a subprocess with .venv-<connector_name>/bin/<connector-name> <args>
         * Read the output line by line of the subprocess and serialize them AirbyteMessage objects.
           Drop if not valid.
+
+        Raises:
+            AirbyteConnectorFailedError: If the process returns a failure status (non-zero).
         """
         # Fail early if the connector is not installed.
         self.executor.ensure_installation(auto_fix=False)
@@ -371,7 +378,7 @@ class ConnectorBase(abc.ABC):
                     self._logger.info(line)
 
         except Exception as e:
-            raise exc.AirbyteConnectorReadError(
+            raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,
             ) from e

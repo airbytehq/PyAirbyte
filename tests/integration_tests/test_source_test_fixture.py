@@ -147,7 +147,7 @@ def test_list_streams(expected_test_stream_data: dict[str, list[dict[str, str | 
     assert source.get_available_streams() == list(expected_test_stream_data.keys())
 
 
-def test_invalid_config():
+def test_invalid_config() -> None:
     source = ab.get_source(
         "source-test", config={"apiKey": 1234}, install_if_missing=False
     )
@@ -157,10 +157,12 @@ def test_invalid_config():
 
 def test_ensure_installation_detection():
     """Assert that install isn't called, since the connector is already installed by the fixture."""
-    with patch("airbyte.executors.VenvExecutor.install") as mock_venv_install, patch(
+    with patch(
+        "airbyte.executors.python.VenvExecutor.install"
+    ) as mock_venv_install, patch(
         "airbyte.sources.base.Source.install"
     ) as mock_source_install, patch(
-        "airbyte.executors.VenvExecutor.ensure_installation"
+        "airbyte.executors.python.VenvExecutor.ensure_installation"
     ) as mock_ensure_installed:
         source = ab.get_source(
             "source-test",
