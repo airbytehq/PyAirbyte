@@ -88,7 +88,12 @@ class Destination(ConnectorBase):
         progress_tracker = WriteProgress()
 
         if not isinstance(data, (ReadResult, Source)):
-            raise TypeError(f"Invalid data type: {type(data)}")  # noqa: TRY003
+            raise exc.PyAirbyteInputError(
+                message="Invalid data type for `data` arg.",
+                context={
+                    "data_type_provided": type(data).__name__,
+                },
+            )
 
         # Resolve `read_result`, `source`, and `source_name`
         read_result: ReadResult | None = data if isinstance(data, ReadResult) else None
