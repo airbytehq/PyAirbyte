@@ -19,13 +19,16 @@ import os
 import sys
 import time
 import warnings
+from collections import defaultdict
 from contextlib import suppress
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
+
+from airbyte_protocol.models import Type
 
 from airbyte._util import meta
 
@@ -121,7 +124,7 @@ def _get_elapsed_time_str(seconds: float) -> str:
     return f"{hours}hr {minutes}min"
 
 
-class ProgressTracker:
+class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     """A simple progress bar for the command line and IPython notebooks."""
 
     def __init__(
@@ -138,20 +141,29 @@ class ProgressTracker:
         self.first_record_received_time: float | None = None
         self.total_records_read = 0
 
-        # Writes
+        # Stream reads
+        self.stream_read_counts: dict[str, int] = defaultdict(int)
+        self.stream_read_start_times: dict[str, float] = {}
+        self.stream_read_end_times: dict[str, float] = {}
+
+        # Cache Writes
         self.total_records_written = 0
         self.total_batches_written = 0
         self.written_stream_names: set[str] = set()
 
-        # Finalization
+        # Cache Finalization
         self.finalize_start_time: float | None = None
         self.finalize_end_time: float | None = None
         self.total_records_finalized = 0
         self.total_batches_finalized = 0
         self.finalized_stream_names: set[str] = set()
 
-        self.last_update_time: float | None = None
+        # Destination stream writes
+        self.destination_stream_records_delivered: dict[str, int] = defaultdict(int)
+        self.destination_stream_records_confirmed: dict[str, int] = defaultdict(int)
 
+        # Progress bar properties
+        self.last_update_time: float | None = None
         self._rich_view: RichLive | None = None
 
         self.reset_progress_style(style)
@@ -169,9 +181,13 @@ class ProgressTracker:
         update_period = 1  # Reset the update period to 1 before start.
 
         for count, message in enumerate(messages, start=1):
+            # Yield the message immediately.
             yield message
+
+            # Tally the record.
             self.total_records_read = count
 
+            # Bail if we're not due for a progress update.
             if count % update_period != 0:
                 continue
 
@@ -461,3 +477,82 @@ class ProgressTracker:
         status_message += "\n------------------------------------------------\n"
 
         return status_message
+
+    def tally_pending_writes(
+        self,
+        messages: Iterable[AirbyteMessage] | IO[str],
+    ) -> Generator[AirbyteMessage, None, None]:
+        """This method simply tallies the number of records processed and yields the messages."""
+        # Update the display before we start.
+        self._update_display()
+        self._start_rich_view()
+
+        update_period = 1  # Reset the update period to 1 before start.
+
+        for count, message in enumerate(messages, start=1):
+            yield message  # Yield the message immediately.
+            if isinstance(message, str):
+                # This is a string message, not an AirbyteMessage.
+                # For now at least, we don't need to pay the cost of parsing it.
+                continue
+
+            if message.record and message.record.stream:
+                self.destination_stream_records_delivered[
+                    message.state.stream.stream_descriptor.name
+                ] += 1
+
+            if count % update_period != 0:
+                continue
+
+            # If this is the first record, set the start time.
+            if self.first_record_received_time is None:
+                self.first_record_received_time = time.time()
+
+            # Update the update period to the latest scale of data.
+            update_period = self._get_update_period(count)
+
+            # Update the display.
+            self._update_display()
+
+    def tally_confirmed_writes(
+        self,
+        messages: Iterable[AirbyteMessage],
+    ) -> Generator[AirbyteMessage, Any, None]:
+        """This method watches for state messages and tally records that are confirmed written.
+
+        The original messages are passed through unchanged.
+        """
+        self._start_rich_view()  # Start Rich's live view if not already running.
+        for message in messages:
+            if message.type is Type.STATE:
+                # This is a state message from the destination. Tally the records written.
+                if message.state.stream:
+                    stream_name = message.state.stream.stream_descriptor.name
+                    if message.state.destinationStats:
+                        self.destination_stream_records_confirmed[stream_name] += (
+                            message.state.destinationStats.recordCount
+                        )
+                    self.destination_stream_records_confirmed[stream_name] += (
+                        message.state.data.get("records_written", 0)
+                    )
+                self._update_display()
+
+            yield message
+
+        self._update_display()
+
+    @property
+    def total_destination_records_delivered(self) -> int:
+        """Return the total number of records delivered to the destination."""
+        if not self.destination_stream_records_delivered:
+            return 0
+
+        return sum(self.destination_stream_records_delivered.values())
+
+    @property
+    def total_destination_records_confirmed(self) -> int:
+        """Return the total number of records confirmed by the destination."""
+        if not self.destination_stream_records_confirmed:
+            return 0
+
+        return sum(self.destination_stream_records_confirmed.values())

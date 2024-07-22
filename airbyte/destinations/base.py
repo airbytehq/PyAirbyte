@@ -95,11 +95,11 @@ class Destination(ConnectorBase):
                 },
             )
 
-        # Resolve `read_result`, `source`, and `source_name`
+        # Resolve `source`, `read_result`, and `source_name`
+        source: Source | None = source_data if isinstance(source_data, Source) else None
         read_result: ReadResult | None = (
             source_data if isinstance(source_data, ReadResult) else None
         )
-        source: Source | None = source_data if isinstance(source_data, Source) else None
         source_name: str = source.name if source else cast(ReadResult, read_result).source_name
 
         # Resolve `cache`
@@ -228,15 +228,20 @@ class Destination(ConnectorBase):
             catalog_file,
         ]:
             try:
-                for destination_message in self._execute(
-                    [
-                        "write",
-                        "--config",
-                        config_file,
-                        "--catalog",
-                        catalog_file,
-                    ],
-                    stdin=stdin,
+                # We call the connector to write the data, tallying the inputs and outputs
+                for destination_message in progress_tracker.tally_confirmed_writes(
+                    messages=self._execute(
+                        args=[
+                            "write",
+                            "--config",
+                            config_file,
+                            "--catalog",
+                            catalog_file,
+                        ],
+                        stdin=progress_tracker.tally_pending_writes(
+                            messages=stdin,
+                        ),
+                    )
                 ):
                     if destination_message.type is Type.STATE:
                         state_writer.write_state(state_message=destination_message.state)
