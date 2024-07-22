@@ -293,23 +293,29 @@ class ConnectorBase(abc.ABC):
         """Create a logger from logging module."""
         logger = logging.getLogger(f"airbyte.{self.name}")
         logger.setLevel(logging.INFO)
+
+        # Prevent logging to stderr by stopping propagation to the root logger
+        logger.propagate = False
+
         # Remove any existing handlers
         for handler in logger.handlers:
             logger.removeHandler(handler)
 
         folder = Path("./logs") / self.name
         folder.mkdir(parents=True, exist_ok=True)
-        # Add formatter
-        formatter = logging.Formatter(
-            fmt="%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+
+        # Create and configure file handler
         handler = logging.FileHandler(
             filename=folder / f"{ulid.ULID()!s}-run-log.txt",
             encoding="utf-8",
         )
-        handler.setFormatter(formatter)
-        # Add a file handler
+        handler.setFormatter(
+            logging.Formatter(
+                fmt="%(asctime)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+
         logger.addHandler(handler)
         return logger
 
