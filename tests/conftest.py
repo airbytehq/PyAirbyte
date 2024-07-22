@@ -87,7 +87,7 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
             or "source_docker_faker_seed_b" in item.fixturenames
             or "new_duckdb_destination_executor" in item.fixturenames
         ):
-            if True or not is_docker_available():
+            if not is_docker_available():
                 item.add_marker(
                     pytest.mark.skip(reason="Skipping tests (Docker not available)")
                 )
