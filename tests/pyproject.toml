@@ -1,6 +1,9 @@
 # This file defines lint exceptions for pytest tests and examples.
 # The 'tests' and 'examples' directories can both share this same exception list.
 
+[tool.ruff]
+preview = true
+
 [tool.ruff.lint]
 extend-ignore = [
     "ANN201",  # Type annotations not required for test functions
