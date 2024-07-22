@@ -6,7 +6,7 @@ import time
 
 from airbyte.progress import (
     ProgressStyle,
-    ReadProgress,
+    ProgressTracker,
     _get_elapsed_time_str,
     _to_time_str,
 )
@@ -20,7 +20,7 @@ tz_offset_hrs = int(datetime.datetime.now(tzlocal()).utcoffset().total_seconds()
 
 @freeze_time("2022-01-01")
 def test_read_progress_initialization():
-    progress = ReadProgress()
+    progress = ProgressTracker()
     assert progress.num_streams_expected == 0
     assert progress.read_start_time == 1640995200.0  # Unix timestamp for 2022-01-01
     assert progress.total_records_read == 0
@@ -36,32 +36,17 @@ def test_read_progress_initialization():
 
 
 @freeze_time("2022-01-01")
-def test_read_progress_reset():
-    progress = ReadProgress()
-    progress.reset(5)
-    assert progress.num_streams_expected == 5
-    assert progress.read_start_time == 1640995200.0
-    assert progress.total_records_read == 0
-    assert progress.total_records_written == 0
-    assert progress.total_batches_written == 0
-    assert progress.written_stream_names == set()
-    assert progress.finalize_start_time is None
-    assert progress.finalize_end_time is None
-    assert progress.total_records_finalized == 0
-    assert progress.total_batches_finalized == 0
-    assert progress.finalized_stream_names == set()
-
-
-@freeze_time("2022-01-01")
 def test_read_progress_log_records_read():
-    progress = ReadProgress()
-    progress.log_records_read(100)
+    progress = ProgressTracker()
+    fake_iterator = (m for m in range(100))
+    for m in progress.tally_records_read(fake_iterator):
+        _ = m
     assert progress.total_records_read == 100
 
 
 @freeze_time("2022-01-01")
 def test_read_progress_log_batch_written():
-    progress = ReadProgress()
+    progress = ProgressTracker()
     progress.log_batch_written("stream1", 50)
     assert progress.total_records_written == 50
     assert progress.total_batches_written == 1
@@ -70,21 +55,21 @@ def test_read_progress_log_batch_written():
 
 @freeze_time("2022-01-01")
 def test_read_progress_log_batches_finalizing():
-    progress = ReadProgress()
+    progress = ProgressTracker()
     progress.log_batches_finalizing("stream1", 1)
     assert progress.finalize_start_time == 1640995200.0
 
 
 @freeze_time("2022-01-01")
 def test_read_progress_log_batches_finalized():
-    progress = ReadProgress()
+    progress = ProgressTracker()
     progress.log_batches_finalized("stream1", 1)
     assert progress.total_batches_finalized == 1
 
 
 @freeze_time("2022-01-01")
 def test_read_progress_log_stream_finalized():
-    progress = ReadProgress()
+    progress = ProgressTracker()
     progress.log_stream_finalized("stream1")
     assert progress.finalized_stream_names == {"stream1"}
 
@@ -113,7 +98,7 @@ def _assert_lines(expected_lines, actual_lines: list[str] | str):
 def test_get_status_message_after_finalizing_records():
     # Test that we can render the initial status message before starting to read
     with freeze_time("2022-01-01 00:00:00"):
-        progress = ReadProgress()
+        progress = ProgressTracker()
         expected_lines = [
             "Started reading from source at `00:00:00`",
             "Read **0** records over **0.00 seconds** (0.0 records / second).",
@@ -134,7 +119,7 @@ def test_get_status_message_after_finalizing_records():
 
     # Advance the day and reset the progress
     with freeze_time("2022-01-02 00:00:00"):
-        progress = ReadProgress()
+        progress = ProgressTracker()
         progress.reset(1)
         expected_lines = [
             "Started reading from source at `00:00:00`",
@@ -198,7 +183,7 @@ def test_default_progress_style(monkeypatch):
     monkeypatch.delenv("CI", raising=False)
     monkeypatch.delenv("NO_LIVE_PROGRESS", raising=False)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
-    progress = ReadProgress()
+    progress = ProgressTracker()
     assert progress.style == ProgressStyle.RICH
 
 
@@ -206,21 +191,21 @@ def test_no_live_progress(monkeypatch):
     """Test the style when NO_LIVE_PROGRESS is set."""
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     monkeypatch.setenv("NO_LIVE_PROGRESS", "1")
-    progress = ReadProgress()
+    progress = ProgressTracker()
     assert progress.style == ProgressStyle.PLAIN
 
 
 def test_ci_environment_a_progress_style(monkeypatch):
     """Test the style in a CI environment."""
     monkeypatch.setattr("airbyte._util.meta.is_ci", lambda: True)
-    progress = ReadProgress()
+    progress = ProgressTracker()
     assert progress.style == ProgressStyle.PLAIN
 
 
 def test_ci_environment_b_progress_style(monkeypatch):
     """Test the style in a CI environment."""
     monkeypatch.setenv("CI", "1")
-    progress = ReadProgress()
+    progress = ProgressTracker()
     assert progress.style == ProgressStyle.PLAIN
 
 
@@ -231,5 +216,5 @@ def test_rich_unavailable_progress_style(monkeypatch):
         lambda self: (_ for _ in ()).throw(LiveError("Live view not available")),
     )
     monkeypatch.setattr("rich.live.Live.stop", lambda self: None)
-    progress = ReadProgress()
+    progress = ProgressTracker()
     assert progress.style == ProgressStyle.PLAIN

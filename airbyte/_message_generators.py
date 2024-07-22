@@ -17,7 +17,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte.constants import AB_EXTRACTED_AT_COLUMN
-from airbyte.progress import ProgressStyle, ReadProgress
+from airbyte.progress import ProgressStyle, ProgressTracker
 
 
 if TYPE_CHECKING:
@@ -183,7 +183,7 @@ class AirbyteMessageGenerator:
         source: Source,
         *,
         streams: list[str] | None = None,
-        progress_tracker: ReadProgress | None = None,
+        progress_tracker: ProgressTracker | None = None,
         force_full_refresh: bool = False,
         state_provider: StateProviderBase | None = None,
     ) -> AirbyteMessageGenerator:
@@ -193,7 +193,7 @@ class AirbyteMessageGenerator:
 
         If a `progress_tracker` is not provided, a silent progress tracker will be used.
         """
-        progress_tracker = progress_tracker or ReadProgress(ProgressStyle.NONE)
+        progress_tracker = progress_tracker or ProgressTracker(ProgressStyle.NONE)
         return source._get_airbyte_message_generator(  # noqa: SLF001
             streams=streams,
             progress_tracker=progress_tracker,

@@ -21,18 +21,20 @@ import time
 import warnings
 from contextlib import suppress
 from enum import Enum, auto
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
 from airbyte._util import meta
-from airbyte.results import WriteResult
 
 
 if TYPE_CHECKING:
+    from collections.abc import Generator, Iterable
     from types import ModuleType
+
+    from airbyte_protocol.models import AirbyteMessage
 
 
 DEFAULT_REFRESHES_PER_SECOND = 2
@@ -69,7 +71,7 @@ class ProgressStyle(Enum):
     """Skip progress prints."""
 
 
-MAX_UPDATE_FREQUENCY = 1000
+MAX_UPDATE_FREQUENCY = 5_000
 """The max number of records to read before updating the progress bar."""
 
 
@@ -119,7 +121,7 @@ def _get_elapsed_time_str(seconds: float) -> str:
     return f"{hours}hr {minutes}min"
 
 
-class ReadProgress:
+class ProgressTracker:
     """A simple progress bar for the command line and IPython notebooks."""
 
     def __init__(
@@ -154,10 +156,39 @@ class ReadProgress:
 
         self.reset_progress_style(style)
 
+    def tally_records_read(
+        self,
+        messages: Iterable[AirbyteMessage],
+    ) -> Generator[AirbyteMessage, Any, None]:
+        """This method simply tallies the number of records processed and yields the messages."""
+        # Update the display before we start.
+        self.total_records_read = 0
+        self._update_display()
+        self._start_rich_view()
+
+        update_period = 1  # Reset the update period to 1 before start.
+
+        for count, message in enumerate(messages, start=1):
+            yield message
+            self.total_records_read = count
+
+            if count % update_period != 0:
+                continue
+
+            # If this is the first record, set the start time.
+            if self.first_record_received_time is None:
+                self.first_record_received_time = time.time()
+
+            # Update the update period to the latest scale of data.
+            update_period = self._get_update_period(count)
+
+            # Update the display.
+            self._update_display()
+
     def log_read_complete(self) -> None:
         """Log that reading is complete."""
         self.read_end_time = time.time()
-        self.update_display(force_refresh=True)
+        self._update_display(force_refresh=True)
 
     def reset_progress_style(
         self,
@@ -246,44 +277,19 @@ class ReadProgress:
 
             self.finalize_end_time = time.time()
 
-            self.update_display(force_refresh=True)
+            self._update_display(force_refresh=True)
             self._stop_rich_view()
-
-    def reset(self, num_streams_expected: int) -> None:
-        """Reset the progress tracker."""
-        # Streams expected (for progress bar)
-        self.num_streams_expected = num_streams_expected
-
-        # Reads
-        self.read_start_time = time.time()
-        self.first_record_received_time = None
-        self.read_end_time = None
-        self.total_records_read = 0
-
-        # Writes
-        self.total_records_written = 0
-        self.total_batches_written = 0
-        self.written_stream_names = set()
-
-        # Finalization
-        self.finalize_start_time = None
-        self.finalize_end_time = None
-        self.total_records_finalized = 0
-        self.total_batches_finalized = 0
-        self.finalized_stream_names = set()
-
-        self._start_rich_view()
 
     @property
     def elapsed_seconds(self) -> float:
-        """Return the number of seconds elapsed since the read operation started."""
+        """Return the number of seconds elapsed since the operation started."""
         if self.finalize_end_time:
             return self.finalize_end_time - self.read_start_time
 
         return time.time() - self.read_start_time
 
     @property
-    def elapsed_read_time(self) -> float:
+    def elapsed_read_seconds(self) -> float:
         """Return the number of seconds elapsed since the read operation started."""
         if self.finalize_start_time:
             return self.finalize_start_time - (
@@ -306,14 +312,6 @@ class ReadProgress:
         return time.time() - self.last_update_time
 
     @property
-    def elapsed_read_seconds(self) -> float:
-        """Return the number of seconds elapsed since the read operation started."""
-        if self.read_end_time is None:
-            return time.time() - self.read_start_time
-
-        return self.read_end_time - self.read_start_time
-
-    @property
     def elapsed_read_time_string(self) -> str:
         """Return duration as a string."""
         return _get_elapsed_time_str(self.elapsed_read_seconds)
@@ -332,23 +330,17 @@ class ReadProgress:
         """Return duration as a string."""
         return _get_elapsed_time_str(self.elapsed_finalization_seconds)
 
-    def log_records_read(self, new_total_count: int) -> None:
-        """Load a number of records read."""
-        if self.first_record_received_time is None:
-            self.first_record_received_time = time.time()
+    @staticmethod
+    def _get_update_period(
+        current_count: int,
+    ) -> int:
+        """Return the number of records to read before updating the progress bar.
 
-        self.total_records_read = new_total_count
-
-        # This is some math to make updates adaptive to the scale of records read.
-        # We want to update the display more often when the count is low, and less
-        # often when the count is high.
-        updated_period = min(
-            MAX_UPDATE_FREQUENCY, 10 ** math.floor(math.log10(max(self.total_records_read, 1)) / 4)
-        )
-        if self.total_records_read % updated_period != 0:
-            return
-
-        self.update_display()
+        This is some math to make updates adaptive to the scale of records read.
+        We want to update the display more often when the count is low, and less
+        often when the count is high.
+        """
+        return min(MAX_UPDATE_FREQUENCY, 10 ** math.floor(math.log10(max(current_count, 1)) / 4))
 
     def log_batch_written(self, stream_name: str, batch_size: int) -> None:
         """Log that a batch has been written.
@@ -360,7 +352,7 @@ class ReadProgress:
         self.total_records_written += batch_size
         self.total_batches_written += 1
         self.written_stream_names.add(stream_name)
-        self.update_display()
+        self._update_display()
 
     def log_batches_finalizing(self, stream_name: str, num_batches: int) -> None:
         """Log that batch are ready to be finalized.
@@ -374,22 +366,22 @@ class ReadProgress:
             self.read_end_time = time.time()
             self.finalize_start_time = self.read_end_time
 
-        self.update_display(force_refresh=True)
+        self._update_display(force_refresh=True)
 
     def log_batches_finalized(self, stream_name: str, num_batches: int) -> None:
         """Log that a batch has been finalized."""
         _ = stream_name  # unused for now
         self.total_batches_finalized += num_batches
-        self.update_display(force_refresh=True)
+        self._update_display(force_refresh=True)
 
     def log_stream_finalized(self, stream_name: str) -> None:
         """Log that a stream has been finalized."""
         self.finalized_stream_names.add(stream_name)
-        self.update_display(force_refresh=True)
+        self._update_display(force_refresh=True)
         if len(self.finalized_stream_names) == self.num_streams_expected:
             self.log_success()
 
-    def update_display(self, *, force_refresh: bool = False) -> None:
+    def _update_display(self, *, force_refresh: bool = False) -> None:
         """Update the display."""
         # Don't update more than twice per second unless force_refresh is True.
         if (
@@ -424,8 +416,8 @@ class ReadProgress:
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
         records_per_second: float = 0.0
-        if self.elapsed_read_time > 0:
-            records_per_second = self.total_records_read / self.elapsed_read_time
+        if self.elapsed_read_seconds > 0:
+            records_per_second = self.total_records_read / self.elapsed_read_seconds
 
         status_message = (
             f"### Read Progress\n\n"
@@ -469,22 +461,3 @@ class ReadProgress:
         status_message += "\n------------------------------------------------\n"
 
         return status_message
-
-
-class WriteProgress(
-    ReadProgress,
-):
-    """A simple progress bar for the command line and IPython notebooks."""
-
-    def __init__(
-        self,
-        style: ProgressStyle = ProgressStyle.AUTO,
-    ) -> None:
-        """Initialize the progress tracker."""
-        super().__init__(style=style)
-
-    def get_result(
-        self,
-    ) -> WriteResult:
-        """Return the final result."""
-        return WriteResult(progress_tracker=self)

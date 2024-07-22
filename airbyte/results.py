@@ -12,8 +12,12 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Engine
 
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
-    from airbyte.progress import ReadProgress, WriteProgress
+    from airbyte.destinations.base import Destination
+    from airbyte.progress import ProgressTracker
+    from airbyte.sources.base import Source
 
 
 class ReadResult(Mapping[str, CachedDataset]):
@@ -31,7 +35,7 @@ class ReadResult(Mapping[str, CachedDataset]):
         processed_records: int,
         processed_streams: list[str],
         cache: CacheBase,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
     ) -> None:
         self.source_name = source_name
         self.processed_records = processed_records
@@ -82,10 +86,15 @@ class WriteResult:
 
     def __init__(
         self,
-        progress_tracker: WriteProgress,
+        *,
+        destination: Destination,
+        source_data: Source | ReadResult,
+        catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase,
+        progress_tracker: ProgressTracker,
     ) -> None:
-        self._progress_tracker: WriteProgress = progress_tracker
-
-    @classmethod
-    def from_progress_tracker(cls, progress_tracker: WriteProgress) -> WriteResult:
-        return cls(progress_tracker)
+        self._destination: Destination = destination
+        self._source_data: Source | ReadResult = source_data
+        self._catalog_provider: CatalogProvider = catalog_provider
+        self._state_writer: StateWriterBase = state_writer
+        self._progress_tracker: ProgressTracker = progress_tracker

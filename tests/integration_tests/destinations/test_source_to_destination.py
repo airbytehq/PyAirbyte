@@ -12,7 +12,7 @@ from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.executors.base import Executor
 from airbyte.executors.util import get_connector_executor
-from airbyte.progress import WriteProgress
+from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
@@ -90,7 +90,7 @@ def test_duckdb_destination_write_components(
         catalog_provider=CatalogProvider(
             configured_catalog=new_source_faker.configured_catalog
         ),
-        progress_tracker=WriteProgress(),
+        progress_tracker=ProgressTracker(),
     )
 
 

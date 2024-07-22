@@ -19,7 +19,7 @@ from airbyte._future_cdk.state_writers import NoOpStateWriter, StateWriterBase, 
 from airbyte._message_generators import AirbyteMessageGenerator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
-from airbyte.progress import WriteProgress
+from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
@@ -57,7 +57,7 @@ class Destination(ConnectorBase):
 
     def write(
         self,
-        data: Source | ReadResult,
+        source_data: Source | ReadResult,
         *,
         streams: list[str] | Literal["*"] | None = None,
         cache: CacheBase | None | Literal[False] = None,
@@ -68,42 +68,44 @@ class Destination(ConnectorBase):
         """Write data to the destination.
 
         Args:
-            data: The data to write to the destination. Can be a `Source`, a `Cache`, or a
-                `ReadResult` object.
+            source_data: The source data to write to the destination. Can be a `Source`, a `Cache`,
+                or a `ReadResult` object.
             streams: The streams to write to the destination. If omitted or if "*" is provided,
-                all streams will be written. If `data` is a source, then streams must be selected
-                here or on the source. If both are specified, this setting will override the stream
-                selection on the source.
-            cache: The cache to use for reading data. If `None`, no cache will be used. If False,
-                the cache will be disabled. This must be `None` if `data` is already a `Cache`
-                object.
+                all streams will be written. If `source_data` is a source, then streams must be
+                selected here or on the source. If both are specified, this setting will override
+                the stream selection on the source.
+            cache: The cache to use for reading source_data. If `None`, no cache will be used. If
+                False, the cache will be disabled. This must be `None` if `source_data` is already
+                a `Cache` object.
             state_cache: A cache to use for storing incremental state. You do not need to set this
-                if `cache` is specified or if `data` is a `Cache` object. Set to `False` to disable
-                state management.
-            write_strategy: The strategy to use for writing data. If `AUTO`, the connector will
-                decide the best strategy to use.
-            force_full_refresh: Whether to force a full refresh of the data. If `True`, any existing
-                state will be ignored and all data will be re-read.
+                if `cache` is specified or if `source_data` is a `Cache` object. Set to `False` to
+                disable state management.
+            write_strategy: The strategy to use for writing source_data. If `AUTO`, the connector
+                will decide the best strategy to use.
+            force_full_refresh: Whether to force a full refresh of the source_data. If `True`, any
+                existing state will be ignored and all source data will be reloaded.
         """
-        progress_tracker = WriteProgress()
+        progress_tracker = ProgressTracker()
 
-        if not isinstance(data, (ReadResult, Source)):
+        if not isinstance(source_data, (ReadResult, Source)):
             raise exc.PyAirbyteInputError(
-                message="Invalid data type for `data` arg.",
+                message="Invalid source_data type for `source_data` arg.",
                 context={
-                    "data_type_provided": type(data).__name__,
+                    "source_data_type_provided": type(source_data).__name__,
                 },
             )
 
         # Resolve `read_result`, `source`, and `source_name`
-        read_result: ReadResult | None = data if isinstance(data, ReadResult) else None
-        source: Source | None = data if isinstance(data, Source) else None
+        read_result: ReadResult | None = (
+            source_data if isinstance(source_data, ReadResult) else None
+        )
+        source: Source | None = source_data if isinstance(source_data, Source) else None
         source_name: str = source.name if source else cast(ReadResult, read_result).source_name
 
         # Resolve `cache`
         if cache is not False:
-            if isinstance(data, ReadResult):
-                cache = data.cache
+            if isinstance(source_data, ReadResult):
+                cache = source_data.cache
 
             cache = cache or get_default_cache()
 
@@ -148,6 +150,10 @@ class Destination(ConnectorBase):
             )
         elif read_result:
             catalog_provider = CatalogProvider.from_read_result(read_result)
+        else:
+            raise exc.PyAirbyteInternalError(
+                message="`source_data` must be a `Source` or `ReadResult` object.",
+            )
 
         # Get message generator for source (caching disabled)
         if source:
@@ -185,7 +191,13 @@ class Destination(ConnectorBase):
             skip_validation=False,
             progress_tracker=progress_tracker,
         )
-        return WriteResult.from_progress_tracker(progress_tracker)
+        return WriteResult(
+            destination=self,
+            source_data=source_data,
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
+            progress_tracker=progress_tracker,
+        )
 
     def _write_airbyte_message_stream(
         self,
@@ -194,7 +206,7 @@ class Destination(ConnectorBase):
         catalog_provider: CatalogProvider,
         state_writer: StateWriterBase | None = None,
         skip_validation: bool = False,
-        progress_tracker: WriteProgress,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Read from the connector and write to the cache."""
         _ = progress_tracker  # TODO: Implement progress tracking

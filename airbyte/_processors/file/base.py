@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         AirbyteRecordMessage,
     )
 
-    from airbyte.progress import ReadProgress
+    from airbyte.progress import ProgressTracker
 
 
 DEFAULT_BATCH_SIZE = 100_000
@@ -68,7 +68,7 @@ class FileWriterBase(abc.ABC):
     def _flush_active_batch(
         self,
         stream_name: str,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Flush the active batch for the given stream.
 
@@ -91,7 +91,7 @@ class FileWriterBase(abc.ABC):
     def _new_batch(
         self,
         stream_name: str,
-        progress_tracker: progress.ReadProgress,
+        progress_tracker: progress.ProgressTracker,
     ) -> BatchHandle:
         """Create and return a new batch handle.
 
@@ -149,7 +149,7 @@ class FileWriterBase(abc.ABC):
         self,
         record_msg: AirbyteRecordMessage,
         stream_record_handler: StreamRecordHandler,
-        progress_tracker: progress.ReadProgress,
+        progress_tracker: progress.ProgressTracker,
     ) -> None:
         """Write a record to the cache.
 
@@ -188,7 +188,7 @@ class FileWriterBase(abc.ABC):
 
     def flush_active_batches(
         self,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Flush active batches for all streams."""
         streams = list(self._active_batches.keys())

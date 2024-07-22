@@ -34,14 +34,14 @@ from airbyte._util.telemetry import (
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
-from airbyte.progress import ProgressStyle, ReadProgress
+from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Iterable, Iterator
 
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
@@ -452,7 +452,7 @@ class Source(ConnectorBase):
         )
 
         # This method is non-blocking, so we use "PLAIN" to avoid a live progress display
-        progress_tracker = ReadProgress(ProgressStyle.PLAIN)
+        progress_tracker = ProgressTracker(ProgressStyle.PLAIN)
 
         iterator: Iterator[dict[str, Any]] = _with_logging(
             records=(  # Generator comprehension yields StreamRecord objects for each record
@@ -501,7 +501,7 @@ class Source(ConnectorBase):
         *,
         streams: Literal["*"] | list[str] | None = None,
         state_provider: StateProviderBase | None = None,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
         force_full_refresh: bool = False,
     ) -> AirbyteMessageGenerator:
         """Get an AirbyteMessageGenerator for this source."""
@@ -516,7 +516,7 @@ class Source(ConnectorBase):
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
         state: StateProviderBase | None = None,
     ) -> Iterator[AirbyteMessage]:
         """Call read on the connector.
@@ -540,8 +540,7 @@ class Source(ConnectorBase):
             catalog_file,
             state_file,
         ]:
-            yield from self._tally_records(  # TODO: Move tally_records into the progress tracker
-                progress_tracker=progress_tracker,
+            yield from progress_tracker.tally_records_read(
                 messages=self._execute(
                     [
                         "read",
@@ -580,19 +579,6 @@ class Source(ConnectorBase):
             return
 
         super()._peek_airbyte_message(message, raise_on_error=raise_on_error)
-
-    def _tally_records(
-        self,
-        messages: Iterable[AirbyteMessage],
-        progress_tracker: ReadProgress,
-    ) -> Generator[AirbyteMessage, Any, None]:
-        """This method simply tallies the number of records processed and yields the messages."""
-        self._processed_records = 0  # Reset the counter before we start
-        progress_tracker.reset(num_streams_expected=len(self._selected_stream_names or []))
-
-        for message in messages:
-            yield message
-            progress_tracker.log_records_read(new_total_count=self._processed_records)
 
     def _log_sync_start(
         self,
@@ -729,7 +715,7 @@ class Source(ConnectorBase):
                 source_name=self.name,
             )
 
-        progress_tracker = ReadProgress()
+        progress_tracker = ProgressTracker()
         self._log_sync_start(cache=cache)
 
         # Log incremental stream if incremental streams are known
@@ -759,8 +745,7 @@ class Source(ConnectorBase):
                 progress_tracker=progress_tracker,
             )
 
-        # TODO: We should catch more specific exceptions here
-        except Exception as ex:
+        except exc.PyAirbyteInternalError as ex:
             self._log_sync_failure(cache=cache, exception=ex)
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,

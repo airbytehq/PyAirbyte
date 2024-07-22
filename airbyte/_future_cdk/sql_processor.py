@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
-    from airbyte.progress import ReadProgress
+    from airbyte.progress import ProgressTracker
     from airbyte.records import StreamRecordHandler
     from airbyte.secrets.base import SecretString
 
@@ -229,7 +229,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         record_msg: AirbyteRecordMessage,
         stream_record_handler: StreamRecordHandler,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Write a record to the cache.
 
@@ -483,7 +483,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
     ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
 
@@ -554,7 +554,7 @@ class SqlProcessorBase(RecordProcessorBase):
     def finalizing_batches(
         self,
         stream_name: str,
-        progress_tracker: ReadProgress,
+        progress_tracker: ProgressTracker,
     ) -> Generator[list[BatchHandle], str, None]:
         """Context manager to use for finalizing batches, if applicable.
 
