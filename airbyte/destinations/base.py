@@ -242,8 +242,8 @@ class Destination(ConnectorBase):
                         state_writer.write_state(state_message=destination_message.state)
 
             # TODO: We should catch more specific exceptions here
-            except Exception as ex:
-                raise exc.AirbyteConnectorFailedError(
+            except exc.AirbyteConnectorFailedError as ex:
+                raise exc.AirbyteConnectorWriteError(
                     connector_name=self.name,
                     log_text=self._last_log_messages,
                 ) from ex

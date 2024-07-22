@@ -282,6 +282,10 @@ class AirbyteConnectorReadError(AirbyteConnectorError):
     """Error when reading from the connector."""
 
 
+class AirbyteConnectorWriteError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
 class AirbyteNoDataFromConnectorError(AirbyteConnectorError):
     """No data was provided from the connector."""
 
