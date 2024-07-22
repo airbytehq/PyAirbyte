@@ -8,6 +8,7 @@ import abc
 from typing import TYPE_CHECKING
 
 from airbyte_protocol.models import (
+    AirbyteStateMessage,
     AirbyteStateType,
 )
 from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
@@ -16,21 +17,25 @@ from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from airbyte_protocol.models import (
         AirbyteStateMessage,
         AirbyteStreamState,
     )
 
 
-class StateProviderBase(abc.ABC):  # noqa: B024
+class StateProviderBase(abc.ABC):
     """A class to provide state artifacts."""
 
-    def __init__(self) -> None:
-        """Initialize the state manager with a static catalog state.
+    @property
+    @abc.abstractmethod
+    def _state_message_artifacts(self) -> Iterable[AirbyteStateMessage]:
+        """Generic internal interface to return all state artifacts.
 
-        This constructor may be overridden by subclasses to initialize the state artifacts.
+        Subclasses should implement this property.
         """
-        self._state_message_artifacts: list[AirbyteStateMessage] | None = None
+        ...
 
     @property
     def stream_state_artifacts(
@@ -53,15 +58,16 @@ class StateProviderBase(abc.ABC):  # noqa: B024
     @property
     def state_message_artifacts(
         self,
-    ) -> list[AirbyteStreamState]:
+    ) -> Iterable[AirbyteStreamState]:
         """Return all state artifacts.
 
         This is just a type guard around the private variable `_state_message_artifacts`.
         """
-        if self._state_message_artifacts is None:
+        result = self._state_message_artifacts
+        if result is None:
             raise exc.PyAirbyteInternalError(message="No state artifacts were declared.")
 
-        return self._state_message_artifacts
+        return result
 
     @property
     def known_stream_names(
@@ -113,7 +119,11 @@ class StaticInputState(StateProviderBase):
 
     def __init__(
         self,
-        from_state_messages: list[AirbyteStateMessage] | None = None,
+        from_state_messages: list[AirbyteStateMessage],
     ) -> None:
         """Initialize the state manager with a static catalog state."""
-        self._state_message_artifacts: list[AirbyteStateMessage] | None = from_state_messages
+        self._state_messages: list[AirbyteStateMessage] = from_state_messages
+
+    @property
+    def _state_message_artifacts(self) -> Iterable[AirbyteStateMessage]:
+        return self._state_messages
