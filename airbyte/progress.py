@@ -310,7 +310,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if self.read_end_time:
             return self.read_end_time - (self.first_record_received_time or self.read_start_time)
 
-        return time.time() - (self.first_record_received_time or self. read_start_time)
+        return time.time() - (self.first_record_received_time or self.read_start_time)
 
     @property
     def elapsed_time_string(self) -> str:
