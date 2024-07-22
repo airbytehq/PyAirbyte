@@ -8,9 +8,6 @@ from pathlib import Path
 from threading import Thread
 from typing import IO, TYPE_CHECKING, Any, cast
 
-import ulid
-from rich import print
-
 from airbyte import exceptions as exc
 from airbyte._message_generators import AirbyteMessageGenerator  # noqa: PLC2701
 from airbyte.sources.registry import ConnectorMetadata
@@ -49,8 +46,6 @@ def _stream_from_subprocess(
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
     Path.mkdir(Path.cwd() / "logs", exist_ok=True)
-    process_log_file = Path(f"./logs/process_log_{ulid.ULID()!s}.log")
-    print(f"Logging process output to {process_log_file!s}")
     if isinstance(stdin, AirbyteMessageGenerator):
         process = subprocess.Popen(
             args,
