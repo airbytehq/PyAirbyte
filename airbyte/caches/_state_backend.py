@@ -116,8 +116,9 @@ class SqlStateWriter(StateWriterBase):
         self._state_backend: SqlStateBackend = backend
         self.source_name: str = source_name
         self.destination_name: str | None = destination_name
+        super().__init__()
 
-    def write_state(
+    def _write_state(
         self,
         state_message: AirbyteStateMessage,
     ) -> None:
