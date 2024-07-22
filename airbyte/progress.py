@@ -307,12 +307,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     @property
     def elapsed_read_seconds(self) -> float:
         """Return the number of seconds elapsed since the read operation started."""
-        if self.finalize_start_time:
-            return self.finalize_start_time - (
-                self.first_record_received_time or self.read_start_time
-            )
-
-        return time.time() - (self.first_record_received_time or self.read_start_time)
+        if self.read_end_time is None:
+            return time.time() - self.read_start_time
+        return self.read_end_time - self.read_start_time
 
     @property
     def elapsed_time_string(self) -> str:
