@@ -100,7 +100,7 @@ def test_destination_write_from_source_with_cache(
 ) -> None:
     """Test the JSONL destination."""
     write_result: WriteResult = new_duckdb_destination.write(
-        data=new_source_faker,
+        source_data=new_source_faker,
         streams="*",
         cache=new_local_cache(),
         write_strategy=WriteStrategy.AUTO,
@@ -114,7 +114,7 @@ def test_destination_write_from_source_without_cache(
 ) -> None:
     """Test the JSONL destination."""
     write_result: WriteResult = new_duckdb_destination.write(
-        data=new_source_faker,
+        source_data=new_source_faker,
         streams="*",
         cache=False,
         write_strategy=WriteStrategy.AUTO,
@@ -130,7 +130,7 @@ def test_destination_write_from_read_result(
     cache = new_local_cache()
     read_result = new_source_faker.read(cache=cache)
     write_result: WriteResult = new_duckdb_destination.write(
-        data=read_result,
+        source_data=read_result,
         streams="*",
         write_strategy=WriteStrategy.AUTO,
         force_full_refresh=False,

@@ -10,6 +10,7 @@ poetry run python examples/run_sync_to_destination_w_cache.py
 
 from __future__ import annotations
 
+import datetime
 from typing import TYPE_CHECKING
 
 from airbyte import get_source
@@ -54,7 +55,18 @@ def main() -> None:
     read_result: ReadResult = source.read(
         cache=new_local_cache(),
     )
-    destination.write(read_result)
+    print(
+        "Completed reading from source at "
+        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. "
+        "Writing to destination..."
+    )
+    destination.write(
+        source_data=read_result,
+    )
+    print(
+        "Completed writing to destination at "
+        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
+    )
 
 
 if __name__ == "__main__":
