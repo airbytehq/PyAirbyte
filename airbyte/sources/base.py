@@ -71,6 +71,8 @@ class Source(ConnectorBase):
         If config is provided, it will be validated against the spec if validate is True.
         """
         self._to_be_selected_streams: list[str] | str = []
+        """Used to hold selection criteria before catalog is known."""
+
         super().__init__(
             executor=executor,
             name=name,
