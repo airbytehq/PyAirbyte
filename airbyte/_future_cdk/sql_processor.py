@@ -798,12 +798,8 @@ class SqlProcessorBase(RecordProcessorBase):
         if not pks:
             return []
 
-        normalized_pks = []
-        for pk in pks:
-            internal_list = []
-            for k in pk:
-                internal_list.append(self.normalizer.normalize(k))
-            normalized_pks.append(internal_list)
+        # Normalize the primary keys to match the normalized column names
+        normalized_pks = [[self.normalizer.normalize(c) for c in pk] for pk in pks]
 
         joined_pks = [".".join(pk) for pk in normalized_pks]
         for pk in joined_pks:
