@@ -798,7 +798,14 @@ class SqlProcessorBase(RecordProcessorBase):
         if not pks:
             return []
 
-        joined_pks = [".".join(pk) for pk in pks]
+        normalized_pks = []
+        for pk in pks:
+            internal_list = []
+            for k in pk:
+                internal_list.append(self.normalizer.normalize(k))
+            normalized_pks.append(internal_list)
+
+        joined_pks = [".".join(pk) for pk in normalized_pks]
         for pk in joined_pks:
             if "." in pk:
                 msg = f"Nested primary keys are not yet supported. Found: {pk}"
