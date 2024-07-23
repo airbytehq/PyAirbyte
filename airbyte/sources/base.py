@@ -24,7 +24,7 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._message_generators import AirbyteMessageGenerator
+from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
@@ -35,7 +35,7 @@ from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Generator, Iterable, Iterator
 
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
@@ -491,20 +491,20 @@ class Source(ConnectorBase):
             render_metadata=render_metadata,
         )
 
-    def _get_airbyte_message_generator(
+    def _get_airbyte_message_iterator(
         self,
         *,
         streams: Literal["*"] | list[str] | None = None,
         state_provider: StateProviderBase | None = None,
         progress_tracker: ProgressTracker,
         force_full_refresh: bool = False,
-    ) -> AirbyteMessageGenerator:
-        """Get an AirbyteMessageGenerator for this source."""
-        return AirbyteMessageGenerator.from_messages(
-            messages=self._read_with_catalog(
+    ) -> AirbyteMessageIterator:
+        """Get an AirbyteMessageIterator for this source."""
+        return AirbyteMessageIterator.from_messages(
+            self._read_with_catalog(
                 catalog=self.get_configured_catalog(streams=streams),
-                progress_tracker=progress_tracker,
                 state=state_provider if not force_full_refresh else None,
+                progress_tracker=progress_tracker,
             )
         )
 
@@ -513,7 +513,7 @@ class Source(ConnectorBase):
         catalog: ConfiguredAirbyteCatalog,
         progress_tracker: ProgressTracker,
         state: StateProviderBase | None = None,
-    ) -> Iterator[AirbyteMessage]:
+    ) -> Generator[AirbyteMessage, None, None]:
         """Call read on the connector.
 
         This involves the following steps:
@@ -534,19 +534,18 @@ class Source(ConnectorBase):
             catalog_file,
             state_file,
         ]:
-            yield from progress_tracker.tally_records_read(
-                messages=self._execute(
-                    [
-                        "read",
-                        "--config",
-                        config_file,
-                        "--catalog",
-                        catalog_file,
-                        "--state",
-                        state_file,
-                    ],
-                ),
+            message_generator = self._execute(
+                [
+                    "read",
+                    "--config",
+                    config_file,
+                    "--catalog",
+                    catalog_file,
+                    "--state",
+                    state_file,
+                ],
             )
+            yield from progress_tracker.tally_records_read(message_generator)
         progress_tracker.log_read_complete()
 
     def _peek_airbyte_message(

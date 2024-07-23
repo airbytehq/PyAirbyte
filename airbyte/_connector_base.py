@@ -34,10 +34,10 @@ from airbyte._util.temp_files import as_temp_files
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Generator
     from typing import IO
 
-    from airbyte._message_generators import AirbyteMessageGenerator
+    from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.executors.base import Executor
 
 
@@ -355,8 +355,8 @@ class ConnectorBase(abc.ABC):
     def _execute(
         self,
         args: list[str],
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
-    ) -> Iterator[AirbyteMessage]:
+        stdin: IO[str] | AirbyteMessageIterator | None = None,
+    ) -> Generator[AirbyteMessage, None, None]:
         """Execute the connector with the given arguments.
 
         This involves the following steps:

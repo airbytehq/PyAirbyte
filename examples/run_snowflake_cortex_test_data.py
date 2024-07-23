@@ -9,6 +9,19 @@ from __future__ import annotations
 
 from typing import Any
 
+import airbyte as ab
+from airbyte._future_cdk.catalog_providers import (
+    CatalogProvider,  # noqa: PLC2701  # Allow private
+)
+from airbyte._processors.sql.snowflakecortex import (
+    SnowflakeCortexSqlProcessor,  # noqa: PLC2701
+)
+
+# from airbyte._util.google_secrets import get_gcp_secret_json
+from airbyte.caches import SnowflakeCache
+from airbyte.progress import ProgressTracker
+from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+from airbyte.strategies import WriteStrategy
 from airbyte_cdk.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
@@ -23,17 +36,6 @@ from airbyte_cdk.models import (
     SyncMode,
     Type,
 )
-
-import airbyte as ab
-from airbyte._future_cdk.catalog_providers import CatalogProvider  # noqa: PLC2701  # Allow private
-from airbyte._processors.sql.snowflakecortex import SnowflakeCortexSqlProcessor  # noqa: PLC2701
-
-# from airbyte._util.google_secrets import get_gcp_secret_json
-from airbyte.caches import SnowflakeCache
-from airbyte.progress import ProgressTracker
-from airbyte.secrets.google_gsm import GoogleGSMSecretManager
-from airbyte.strategies import WriteStrategy
-
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 secret_mgr = GoogleGSMSecretManager(
@@ -150,7 +152,9 @@ def _state(data: dict[str, Any]) -> AirbyteMessage:
     )
     return AirbyteMessage(
         type=Type.STATE,
-        state=AirbyteStateMessage(type=AirbyteStateType.STREAM, stream=stream, data=data),
+        state=AirbyteStateMessage(
+            type=AirbyteStateType.STREAM, stream=stream, data=data
+        ),
     )
 
 
@@ -170,5 +174,9 @@ processor = SnowflakeCortexSqlProcessor(
 processor.process_airbyte_messages(
     messages=messages,
     write_strategy=WriteStrategy.MERGE,
-    progress_tracker=ProgressTracker(),
+    progress_tracker=ProgressTracker(
+        source=None,
+        cache=None,
+        destination=None,
+    ),
 )

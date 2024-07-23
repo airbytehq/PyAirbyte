@@ -11,7 +11,7 @@ from airbyte.executors.base import Executor
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte._message_generators import AirbyteMessageGenerator
+    from airbyte._message_iterators import AirbyteMessageIterator
 
 
 class EmulatedSourceExecutor(Executor):
@@ -22,7 +22,7 @@ class EmulatedSourceExecutor(Executor):
     """
 
     def execute(
-        self, args: list[str], *, stdin: IO[str] | AirbyteMessageGenerator | None = None
+        self, args: list[str], *, stdin: IO[str] | AirbyteMessageIterator | None = None
     ) -> Iterator[str]:
         raise NotImplementedError(
             "The emulated executor does not support calling execute() directly."

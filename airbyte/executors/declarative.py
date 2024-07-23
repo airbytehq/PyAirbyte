@@ -20,7 +20,7 @@ from airbyte.executors.base import Executor
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte._message_generators import AirbyteMessageGenerator
+    from airbyte._message_iterators import AirbyteMessageIterator
 
 
 def _suppress_cdk_pydantic_deprecation_warnings() -> None:
@@ -75,7 +75,7 @@ class DeclarativeExecutor(Executor):
         self,
         args: list[str],
         *,
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
+        stdin: IO[str] | AirbyteMessageIterator | None = None,
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin  # Not used

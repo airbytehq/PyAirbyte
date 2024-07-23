@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
     from airbyte_protocol.models import AirbyteMessage
 
-    from airbyte._message_generators import AirbyteMessageGenerator
+    from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
@@ -562,7 +562,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
     def tally_pending_writes(
         self,
-        messages: IO[str] | AirbyteMessageGenerator,
+        messages: IO[str] | AirbyteMessageIterator,
     ) -> Generator[AirbyteMessage, None, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         # Update the display before we start.

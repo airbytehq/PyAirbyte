@@ -24,7 +24,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._future_cdk.state_writers import StdOutStateWriter
-from airbyte._message_generators import AirbyteMessageGenerator
+from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte.records import StreamRecordHandler
 from airbyte.strategies import WriteStrategy
 
@@ -153,7 +153,7 @@ class RecordProcessorBase(abc.ABC):
 
         Return a list of summaries for testing.
         """
-        messages = AirbyteMessageGenerator.from_str_buffer(input_stream)
+        messages = AirbyteMessageIterator.from_str_buffer(input_stream)
         self.process_airbyte_messages(
             messages,
             write_strategy=write_strategy,

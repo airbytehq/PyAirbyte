@@ -32,13 +32,11 @@ class ReadResult(Mapping[str, CachedDataset]):
         self,
         *,
         source_name: str,
-        processed_records: int,
         processed_streams: list[str],
         cache: CacheBase,
         progress_tracker: ProgressTracker,
     ) -> None:
         self.source_name = source_name
-        self.processed_records = processed_records
         self._progress_tracker = progress_tracker
         self._cache = cache
         self._processed_streams = processed_streams
@@ -63,6 +61,10 @@ class ReadResult(Mapping[str, CachedDataset]):
 
     def get_sql_engine(self) -> Engine:
         return self._cache.get_sql_engine()
+
+    @property
+    def processed_records(self) -> int:
+        return self._progress_tracker.total_records_read
 
     @property
     def streams(self) -> Mapping[str, CachedDataset]:

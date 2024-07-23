@@ -7,7 +7,7 @@ from __future__ import annotations
 import pytest
 from airbyte import get_source
 from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._message_generators import AirbyteMessageGenerator
+from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.executors.base import Executor
@@ -86,11 +86,15 @@ def test_duckdb_destination_write_components(
         for record_dict in read_result["products"]
     )
     new_duckdb_destination._write_airbyte_message_stream(
-        stdin=AirbyteMessageGenerator.from_messages(airbyte_messages),
+        stdin=AirbyteMessageIterator.from_messages(airbyte_messages),
         catalog_provider=CatalogProvider(
             configured_catalog=new_source_faker.configured_catalog
         ),
-        progress_tracker=ProgressTracker(),
+        progress_tracker=ProgressTracker(
+            source=None,
+            cache=None,
+            destination=new_duckdb_destination,
+        ),
     )
 
 

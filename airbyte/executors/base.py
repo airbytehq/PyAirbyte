@@ -3,24 +3,25 @@ from __future__ import annotations
 
 import subprocess
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Thread
 from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
-from airbyte._message_generators import AirbyteMessageGenerator  # noqa: PLC2701
+from airbyte._message_iterators import AirbyteMessageIterator  # noqa: PLC2701
 from airbyte.sources.registry import ConnectorMetadata
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Iterable, Iterator
 
 
 _LATEST_VERSION = "latest"
 
 
-def _pump_input(pipe: IO[str], messages: AirbyteMessageGenerator) -> None:
+def _pump_input(pipe: IO[str], messages: AirbyteMessageIterator) -> None:
     """Pump lines into a pipe."""
     with pipe:
         pipe.writelines(message.model_dump_json() + "\n" for message in messages)
@@ -40,13 +41,13 @@ def _stream_from_file(file: IO[str]) -> Generator[str, Any, None]:
 def _stream_from_subprocess(
     args: list[str],
     *,
-    stdin: IO[str] | AirbyteMessageGenerator | None = None,
+    stdin: IO[str] | AirbyteMessageIterator | None = None,
     log_file: IO[str] | None = None,
 ) -> Generator[Iterable[str], None, None]:
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
     Path.mkdir(Path.cwd() / "logs", exist_ok=True)
-    if isinstance(stdin, AirbyteMessageGenerator):
+    if isinstance(stdin, (AirbyteMessageIterator, Generator)):
         process = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -147,7 +148,7 @@ class Executor(ABC):
         self,
         args: list[str],
         *,
-        stdin: IO[str] | AirbyteMessageGenerator | None = None,
+        stdin: IO[str] | AirbyteMessageIterator | None = None,
     ) -> Iterator[str]:
         """Execute a command and return an iterator of STDOUT lines.
 

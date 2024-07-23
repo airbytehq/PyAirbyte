@@ -32,7 +32,7 @@ def test_read_progress_initialization():
     assert progress.total_records_finalized == 0
     assert progress.total_batches_finalized == 0
     assert progress.finalized_stream_names == set()
-    assert progress.last_update_time is None
+    assert progress._last_update_time is None
 
 
 @freeze_time("2022-01-01")

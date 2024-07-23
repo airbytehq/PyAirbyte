@@ -16,7 +16,7 @@ from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._future_cdk.state_writers import NoOpStateWriter, StateWriterBase, StdOutStateWriter
-from airbyte._message_generators import AirbyteMessageGenerator
+from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
@@ -159,10 +159,10 @@ class Destination(ConnectorBase):
                 message="`source_data` must be a `Source` or `ReadResult` object.",
             )
 
-        # Get message generator for source (caching disabled)
+        # Get message iterator for source (caching disabled)
         if source:
             if cache is False:
-                message_generator = source._get_airbyte_message_generator(  # noqa: SLF001 # Non-public API
+                message_iterator: AirbyteMessageIterator = source._get_airbyte_message_iterator(  # noqa: SLF001 # Non-public API
                     streams=streams,
                     state_provider=state_provider,
                     progress_tracker=progress_tracker,
@@ -178,18 +178,18 @@ class Destination(ConnectorBase):
                     force_full_refresh=force_full_refresh,
                     skip_validation=False,
                 )
-                message_generator = AirbyteMessageGenerator.from_read_result(
+                message_iterator = AirbyteMessageIterator.from_read_result(
                     read_result=read_result,
                 )
         else:  # Else we are reading from a read result
             assert read_result is not None
-            message_generator = AirbyteMessageGenerator.from_read_result(
+            message_iterator = AirbyteMessageIterator.from_read_result(
                 read_result=read_result,
             )
 
         # Write the data to the destination
         self._write_airbyte_message_stream(
-            stdin=message_generator,
+            stdin=message_iterator,
             catalog_provider=catalog_provider,
             state_writer=state_writer,
             skip_validation=False,
@@ -205,7 +205,7 @@ class Destination(ConnectorBase):
 
     def _write_airbyte_message_stream(
         self,
-        stdin: IO[str] | AirbyteMessageGenerator,
+        stdin: IO[str] | AirbyteMessageIterator,
         *,
         catalog_provider: CatalogProvider,
         state_writer: StateWriterBase | None = None,
