@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """An emulated executor for running Airbyte sources and destinations in-process."""
+# TODO: Delete this class if not needed.
 
 from __future__ import annotations
 
