@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
 
@@ -268,6 +269,12 @@ class AirbyteConnectorError(PyAirbyteError):
                 logger.error(str(self))
             else:
                 logger.error(str(self))
+            for handler in logger.handlers:
+                log_paths: list[Path] = []
+                if isinstance(handler, logging.FileHandler):
+                    log_paths.append(Path(handler.baseFilename).absolute())
+            if log_paths:
+                print(f"Connector logs: {', '.join(str(path) for path in log_paths)}")
 
 
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):
