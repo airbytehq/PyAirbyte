@@ -28,7 +28,7 @@ from airbyte import exceptions as exc
 from airbyte._util.telemetry import (
     EventState,
     log_config_validation_result,
-    log_source_check_result,
+    log_connector_check_result,
 )
 from airbyte._util.temp_files import as_temp_files
 
@@ -247,13 +247,13 @@ class ConnectorBase(abc.ABC):
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             print(f"Connection check succeeded for `{self.name}`.")
-                            log_source_check_result(
+                            log_connector_check_result(
                                 name=self.name,
                                 state=EventState.SUCCEEDED,
                             )
                             return
 
-                        log_source_check_result(
+                        log_connector_check_result(
                             name=self.name,
                             state=EventState.FAILED,
                         )
@@ -272,7 +272,6 @@ class ConnectorBase(abc.ABC):
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorCheckFailedError(
                     connector_name=self.name,
-                    message="The connector failed to check the connection.",
                     log_text=ex.log_text,
                 ) from ex
 
