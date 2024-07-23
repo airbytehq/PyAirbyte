@@ -18,10 +18,12 @@ from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.executors.util import get_connector_executor
 
-
 if TYPE_CHECKING:
     from airbyte.results import ReadResult
     from airbyte.sources.base import Source
+
+
+SCALE = 500_000
 
 
 def main() -> None:
@@ -31,7 +33,7 @@ def main() -> None:
         "source-faker",
         local_executable="source-faker",
         config={
-            "count": 100_000,
+            "count": SCALE,
             "seed": 1234,
             "parallelism": 16,
         },

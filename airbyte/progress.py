@@ -29,7 +29,7 @@ from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
-from airbyte_protocol.models import Type
+from airbyte_protocol.models import AirbyteStreamStatus, Type
 
 from airbyte._util import meta
 from airbyte._util.telemetry import EventState, EventType, send_telemetry
@@ -190,8 +190,6 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     ) -> Generator[AirbyteMessage, Any, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         # Update the display before we start.
-        self.total_records_read = 0
-
         self._log_sync_start()
         self._start_rich_view()
         self._update_display()
@@ -202,12 +200,24 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             # Yield the message immediately.
             yield message
 
-            if message.record and message.record.stream not in self.stream_read_start_times:
-                self.stream_read_start_times[message.record.stream] = time.time()
-                self._log_stream_read_start(message.record.stream)
-
+            if message.record:
                 # Tally the record.
                 self.total_records_read += 1
+
+                if message.record.stream:
+                    self.stream_read_counts[message.record.stream] += 1
+
+                    if self.stream_read_start_times:
+                        self._log_stream_read_start(stream_name=message.record.stream)
+
+                if (
+                    message.trace
+                    and message.trace.stream_status
+                    and message.trace.stream_status.status is AirbyteStreamStatus.COMPLETE
+                ):
+                    self._log_stream_read_end(
+                        stream_name=message.trace.stream_status.stream_descriptor.name
+                    )
 
             # Bail if we're not due for a progress update.
             if count % update_period != 0:
@@ -253,8 +263,15 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             event_type=EventType.SYNC,
         )
 
-    def _log_stream_read_start(self, stream: str) -> None:
-        print(f"Read started on stream `{stream}` at `{pendulum.now().format('HH:mm:ss')}`...")
+    def _log_stream_read_start(self, stream_name: str) -> None:
+        print(f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`...")
+        self.stream_read_start_times[stream_name] = time.time()
+
+    def _log_stream_read_end(self, stream_name: str) -> None:
+        print(
+            f"Read completed on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
+        )
+        self.stream_read_end_times[stream_name] = time.time()
 
     def _log_sync_success(
         self,

@@ -16,19 +16,21 @@ from airbyte import get_source
 from airbyte.destinations.base import Destination
 from airbyte.executors.util import get_connector_executor
 
-
 if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
+SCALE = 500_000
+
+
 def main() -> None:
-    """Test the JSONL destination."""
+    """Test the destination."""
     # Get a source-faker instance.
     source: Source = get_source(
         "source-faker",
         local_executable="source-faker",
         config={
-            "count": 100_000,
+            "count": SCALE,
             "seed": 1234,
             "parallelism": 16,
         },
