@@ -85,8 +85,6 @@ class Destination(ConnectorBase):
             force_full_refresh: Whether to force a full refresh of the source_data. If `True`, any
                 existing state will be ignored and all source data will be reloaded.
         """
-        progress_tracker = ProgressTracker()
-
         if not isinstance(source_data, (ReadResult, Source)):
             raise exc.PyAirbyteInputError(
                 message="Invalid source_data type for `source_data` arg.",
@@ -108,6 +106,12 @@ class Destination(ConnectorBase):
                 cache = source_data.cache
 
             cache = cache or get_default_cache()
+
+        progress_tracker = ProgressTracker(
+            source=source if isinstance(source_data, Source) else None,
+            cache=cache or None,
+            destination=self,
+        )
 
         # Resolve `state_cache`
         if state_cache is not False:
@@ -239,14 +243,13 @@ class Destination(ConnectorBase):
                             catalog_file,
                         ],
                         stdin=progress_tracker.tally_pending_writes(
-                            messages=stdin,
+                            stdin,  # type: ignore [arg-type]  # ignore mypy false-positive
                         ),
                     )
                 ):
                     if destination_message.type is Type.STATE:
                         state_writer.write_state(state_message=destination_message.state)
 
-            # TODO: We should catch more specific exceptions here
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorWriteError(
                     connector_name=self.name,

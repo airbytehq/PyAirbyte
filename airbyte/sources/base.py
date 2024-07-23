@@ -4,9 +4,8 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
-import pendulum
 import yaml
 from rich import print
 from rich.syntax import Syntax
@@ -26,11 +25,6 @@ from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._message_generators import AirbyteMessageGenerator
-from airbyte._util.telemetry import (
-    EventState,
-    EventType,
-    send_telemetry,
-)
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
@@ -79,8 +73,6 @@ class Source(ConnectorBase):
             config=config,
             validate=validate,
         )
-        self._processed_records = 0
-        self._stream_names_observed: set[str] = set()
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
@@ -443,9 +435,7 @@ class Source(ConnectorBase):
         configured_stream = configured_catalog.streams[0]
 
         def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-            self._log_sync_start(cache=None)
             yield from records
-            self._log_sync_success(cache=None)
 
         stream_record_handler = StreamRecordHandler(
             json_schema=self.get_stream_json_schema(stream),
@@ -454,20 +444,23 @@ class Source(ConnectorBase):
         )
 
         # This method is non-blocking, so we use "PLAIN" to avoid a live progress display
-        progress_tracker = ProgressTracker(ProgressStyle.PLAIN)
+        progress_tracker = ProgressTracker(
+            ProgressStyle.PLAIN,
+            source=self,
+            cache=None,
+            destination=None,
+        )
 
-        iterator: Iterator[dict[str, Any]] = _with_logging(
-            records=(  # Generator comprehension yields StreamRecord objects for each record
-                StreamRecord.from_record_message(
-                    record_message=record.record,
-                    stream_record_handler=stream_record_handler,
-                )
-                for record in self._read_with_catalog(
-                    catalog=configured_catalog,
-                    progress_tracker=progress_tracker,
-                )
-                if record.record
+        iterator: Iterator[dict[str, Any]] = (
+            StreamRecord.from_record_message(
+                record_message=record.record,
+                stream_record_handler=stream_record_handler,
             )
+            for record in self._read_with_catalog(
+                catalog=configured_catalog,
+                progress_tracker=progress_tracker,
+            )
+            if record.record
         )
         return LazyDataset(
             iterator,
@@ -530,7 +523,6 @@ class Source(ConnectorBase):
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        self._processed_records = 0  # Reset the counter before we start
         with as_temp_files(
             [
                 self._config,
@@ -572,34 +564,12 @@ class Source(ConnectorBase):
         Raises:
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
-        if message.type is Type.RECORD:
-            self._processed_records += 1
-            if message.record.stream not in self._stream_names_observed:
-                self._stream_names_observed.add(message.record.stream)
-                self._log_stream_read_start(message.record.stream)
-
-            return
-
         super()._peek_airbyte_message(message, raise_on_error=raise_on_error)
-
-    def _log_sync_start(
-        self,
-        *,
-        cache: CacheBase | None,
-    ) -> None:
-        """Log the start of a sync operation."""
-        print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
-        send_telemetry(
-            source=self,
-            cache=cache,
-            state=EventState.STARTED,
-            event_type=EventType.SYNC,
-        )
 
     def _log_incremental_streams(
         self,
         *,
-        incremental_streams: Optional[set[str]] = None,
+        incremental_streams: set[str] | None = None,
     ) -> None:
         """Log the streams which are using incremental sync mode."""
         log_message = (
@@ -608,41 +578,6 @@ class Source(ConnectorBase):
             "To perform a full refresh, set 'force_full_refresh=True' in 'airbyte.read()' method."
         )
         print(log_message)
-
-    def _log_stream_read_start(self, stream: str) -> None:
-        print(f"Read started on stream: {stream} at {pendulum.now().format('HH:mm:ss')}...")
-
-    def _log_sync_success(
-        self,
-        *,
-        cache: CacheBase | None,
-    ) -> None:
-        """Log the success of a sync operation."""
-        print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
-        send_telemetry(
-            source=self,
-            cache=cache,
-            state=EventState.SUCCEEDED,
-            number_of_records=self._processed_records,
-            event_type=EventType.SYNC,
-        )
-
-    def _log_sync_failure(
-        self,
-        *,
-        cache: CacheBase | None,
-        exception: Exception,
-    ) -> None:
-        """Log the failure of a sync operation."""
-        print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
-        send_telemetry(
-            state=EventState.FAILED,
-            source=self,
-            cache=cache,
-            number_of_records=self._processed_records,
-            exception=exception,
-            event_type=EventType.SYNC,
-        )
 
     def read(
         self,
@@ -717,8 +652,11 @@ class Source(ConnectorBase):
                 source_name=self.name,
             )
 
-        progress_tracker = ProgressTracker()
-        self._log_sync_start(cache=cache)
+        progress_tracker = ProgressTracker(
+            source=self,
+            cache=cache,
+            destination=None,
+        )
 
         # Log incremental stream if incremental streams are known
         if state_provider and state_provider.known_stream_names:
@@ -748,17 +686,16 @@ class Source(ConnectorBase):
             )
 
         except exc.PyAirbyteInternalError as ex:
-            self._log_sync_failure(cache=cache, exception=ex)
+            progress_tracker._log_sync_failure(exception=ex)  # noqa: SLF001
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,
             ) from ex
 
-        self._log_sync_success(cache=cache)
+        progress_tracker._log_sync_success()  # noqa: SLF001
         return ReadResult(
             source_name=self.name,
             progress_tracker=progress_tracker,
-            processed_records=self._processed_records,
             processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
             cache=cache,
         )

@@ -193,7 +193,12 @@ class AirbyteMessageGenerator:
 
         If a `progress_tracker` is not provided, a silent progress tracker will be used.
         """
-        progress_tracker = progress_tracker or ProgressTracker(ProgressStyle.NONE)
+        progress_tracker = progress_tracker or ProgressTracker(
+            ProgressStyle.NONE,
+            source=source,
+            destination=None,
+            cache=None,
+        )
         return source._get_airbyte_message_generator(  # noqa: SLF001
             streams=streams,
             progress_tracker=progress_tracker,

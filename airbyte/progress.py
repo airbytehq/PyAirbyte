@@ -24,6 +24,7 @@ from contextlib import suppress
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, cast
 
+import pendulum
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
@@ -31,6 +32,7 @@ from rich.markdown import Markdown as RichMarkdown
 from airbyte_protocol.models import Type
 
 from airbyte._util import meta
+from airbyte._util.telemetry import EventState, EventType, send_telemetry
 
 
 if TYPE_CHECKING:
@@ -38,6 +40,11 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from airbyte_protocol.models import AirbyteMessage
+
+    from airbyte._message_generators import AirbyteMessageGenerator
+    from airbyte.caches.base import CacheBase
+    from airbyte.destinations.base import Destination
+    from airbyte.sources.base import Source
 
 
 DEFAULT_REFRESHES_PER_SECOND = 2
@@ -130,8 +137,17 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def __init__(
         self,
         style: ProgressStyle = ProgressStyle.AUTO,
+        *,
+        source: Source | None,
+        cache: CacheBase | None,
+        destination: Destination | None,
     ) -> None:
         """Initialize the progress tracker."""
+        # Components
+        self._source = source
+        self._cache = cache
+        self._destination = destination
+
         # Streams expected (for progress bar)
         self.num_streams_expected = 0
 
@@ -163,7 +179,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self.destination_stream_records_confirmed: dict[str, int] = defaultdict(int)
 
         # Progress bar properties
-        self.last_update_time: float | None = None
+        self._last_update_time: float | None = None
         self._rich_view: RichLive | None = None
 
         self.reset_progress_style(style)
@@ -175,8 +191,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """This method simply tallies the number of records processed and yields the messages."""
         # Update the display before we start.
         self.total_records_read = 0
-        self._update_display()
+
+        self._log_sync_start()
         self._start_rich_view()
+        self._update_display()
 
         update_period = 1  # Reset the update period to 1 before start.
 
@@ -184,8 +202,12 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             # Yield the message immediately.
             yield message
 
-            # Tally the record.
-            self.total_records_read = count
+            if message.record and message.record.stream not in self.stream_read_start_times:
+                self.stream_read_start_times[message.record.stream] = time.time()
+                self._log_stream_read_start(message.record.stream)
+
+                # Tally the record.
+                self.total_records_read += 1
 
             # Bail if we're not due for a progress update.
             if count % update_period != 0:
@@ -200,6 +222,68 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
             # Update the display.
             self._update_display()
+
+        self._log_sync_success()
+
+    # Logging methods
+
+    def job_description(self) -> str:
+        """Return a description of the job, combining source, destination, and cache inputs."""
+        steps: list[str] = []
+        if self._source is not None:
+            steps.append(self._source.name)
+
+        if self._cache is not None:
+            steps.append(self._cache.__class__.__name__)
+
+        if self._destination is not None:
+            steps.append(self._destination.__class__.__name__)
+
+        return " -> ".join(steps)
+
+    def _log_sync_start(self) -> None:
+        """Log the start of a sync operation."""
+        print(f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`...")
+        send_telemetry(
+            source=self._source,
+            cache=self._cache,
+            destination=self._destination,
+            state=EventState.STARTED,
+            event_type=EventType.SYNC,
+        )
+
+    def _log_stream_read_start(self, stream: str) -> None:
+        print(f"Read started on stream `{stream}` at `{pendulum.now().format('HH:mm:ss')}`...")
+
+    def _log_sync_success(
+        self,
+    ) -> None:
+        """Log the success of a sync operation."""
+        print(f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
+        send_telemetry(
+            source=self._source,
+            cache=self._cache,
+            destination=self._destination,
+            state=EventState.SUCCEEDED,
+            number_of_records=self.total_records_read,
+            event_type=EventType.SYNC,
+        )
+
+    def _log_sync_failure(
+        self,
+        exception: Exception,
+    ) -> None:
+        """Log the failure of a sync operation."""
+        print(f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
+        send_telemetry(
+            state=EventState.FAILED,
+            source=self._source,
+            cache=self._cache,
+            destination=self._destination,
+            number_of_records=self.total_records_read,
+            exception=exception,
+            event_type=EventType.SYNC,
+        )
 
     def log_read_complete(self) -> None:
         """Log that reading is complete."""
@@ -320,10 +404,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     @property
     def elapsed_seconds_since_last_update(self) -> float | None:
         """Return the number of seconds elapsed since the last update."""
-        if self.last_update_time is None:
+        if self._last_update_time is None:
             return None
 
-        return time.time() - self.last_update_time
+        return time.time() - self._last_update_time
 
     @property
     def elapsed_read_time_string(self) -> str:
@@ -400,7 +484,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         # Don't update more than twice per second unless force_refresh is True.
         if (
             not force_refresh
-            and self.last_update_time  # if not set, then we definitely need to update
+            and self._last_update_time  # if not set, then we definitely need to update
             and cast(float, self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
         ):
             return
@@ -423,7 +507,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         elif self.style == ProgressStyle.NONE:
             pass
 
-        self.last_update_time = time.time()
+        self._last_update_time = time.time()
 
     def _get_status_message(self) -> str:
         """Compile and return a status message."""
@@ -478,7 +562,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
     def tally_pending_writes(
         self,
-        messages: Iterable[AirbyteMessage] | IO[str],
+        messages: IO[str] | AirbyteMessageGenerator,
     ) -> Generator[AirbyteMessage, None, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         # Update the display before we start.
@@ -494,7 +578,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 # For now at least, we don't need to pay the cost of parsing it.
                 continue
 
-            if message.record and message.record.stream:
+            if message.state and message.state.stream:
                 self.destination_stream_records_delivered[
                     message.state.stream.stream_descriptor.name
                 ] += 1
@@ -524,14 +608,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         for message in messages:
             if message.type is Type.STATE:
                 # This is a state message from the destination. Tally the records written.
-                if message.state.stream:
+                if message.state.stream and message.state.destinationStats:
                     stream_name = message.state.stream.stream_descriptor.name
-                    if message.state.destinationStats:
-                        self.destination_stream_records_confirmed[stream_name] += (
-                            message.state.destinationStats.recordCount
-                        )
                     self.destination_stream_records_confirmed[stream_name] += (
-                        message.state.data.get("records_written", 0)
+                        message.state.destinationStats.recordCount
                     )
                 self._update_display()
 
