@@ -227,6 +227,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
     # Logging methods
 
+    @property
     def job_description(self) -> str:
         """Return a description of the job, combining source, destination, and cache inputs."""
         steps: list[str] = []
@@ -259,6 +260,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self,
     ) -> None:
         """Log the success of a sync operation."""
+        if self.finalize_end_time is None:
+            # If we haven't already finalized, do so now.
+
+            self.finalize_end_time = time.time()
+
+        self._update_display(force_refresh=True)
+        self._stop_rich_view()
         print(f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
         send_telemetry(
             source=self._source,
@@ -274,6 +282,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         exception: Exception,
     ) -> None:
         """Log the failure of a sync operation."""
+        self._update_display(force_refresh=True)
+        self._stop_rich_view()
         print(f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
         send_telemetry(
             state=EventState.FAILED,
@@ -369,16 +379,6 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def __del__(self) -> None:
         """Close the Rich view."""
         self._stop_rich_view()
-
-    def log_success(self) -> None:
-        """Log success and stop tracking progress."""
-        if self.finalize_end_time is None:
-            # If we haven't already finalized, do so now.
-
-            self.finalize_end_time = time.time()
-
-            self._update_display(force_refresh=True)
-            self._stop_rich_view()
 
     @property
     def elapsed_seconds(self) -> float:
@@ -476,8 +476,6 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """Log that a stream has been finalized."""
         self.finalized_stream_names.add(stream_name)
         self._update_display(force_refresh=True)
-        if len(self.finalized_stream_names) == self.num_streams_expected:
-            self.log_success()
 
     def _update_display(self, *, force_refresh: bool = False) -> None:
         """Update the display."""
@@ -518,7 +516,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             records_per_second = self.total_records_read / self.elapsed_read_seconds
 
         status_message = (
-            f"### Read Progress\n\n"
+            f"### Progress: `{self.job_description}`\n\n"
             f"**Started reading from source at `{start_time_str}`:**\n\n"
             f"- Read **{self.total_records_read:,}** records "
             f"over **{self.elapsed_read_time_string}** "

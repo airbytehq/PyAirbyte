@@ -691,7 +691,6 @@ class Source(ConnectorBase):
                 log_text=self._last_log_messages,
             ) from ex
 
-        progress_tracker._log_sync_success()  # noqa: SLF001
         return ReadResult(
             source_name=self.name,
             progress_tracker=progress_tracker,
