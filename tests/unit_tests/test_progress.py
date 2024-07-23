@@ -95,10 +95,15 @@ def _assert_lines(expected_lines, actual_lines: list[str] | str):
         ), f"Missing line:\n{line}\n\nIn lines:\n\n{actual_lines}"
 
 
+# TODO: Fix or remove this test that is now broken:
 def test_get_status_message_after_finalizing_records():
     # Test that we can render the initial status message before starting to read
     with freeze_time("2022-01-01 00:00:00"):
-        progress = ProgressTracker()
+        progress = ProgressTracker(
+            source=None,
+            cache=None,
+            destination=None,
+        )
         expected_lines = [
             "Started reading from source at `00:00:00`",
             "Read **0** records over **0.00 seconds** (0.0 records / second).",
