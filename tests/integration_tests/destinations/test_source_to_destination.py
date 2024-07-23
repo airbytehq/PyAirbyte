@@ -94,6 +94,7 @@ def test_duckdb_destination_write_components(
             source=None,
             cache=None,
             destination=new_duckdb_destination,
+            expected_streams=["products"],
         ),
     )
 

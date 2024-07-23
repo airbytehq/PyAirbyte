@@ -18,16 +18,13 @@ from airbyte_protocol.models import (
 )
 
 from airbyte.constants import AB_EXTRACTED_AT_COLUMN
-from airbyte.progress import ProgressStyle, ProgressTracker
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
     from pathlib import Path
 
-    from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte.results import ReadResult
-    from airbyte.sources.base import Source
 
 
 class AirbyteMessageIterator:
@@ -65,6 +62,7 @@ class AirbyteMessageIterator:
 
         state_provider = read_result.cache.get_state_provider(
             source_name=read_result.source_name,
+            refresh=True,
         )
 
         def generator() -> Generator[AirbyteMessage, None, None]:
@@ -177,32 +175,3 @@ class AirbyteMessageIterator:
                     raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
 
         return cls(generator())
-
-    @classmethod
-    def from_source(
-        cls,
-        source: Source,
-        *,
-        streams: list[str] | None = None,
-        progress_tracker: ProgressTracker | None = None,
-        force_full_refresh: bool = False,
-        state_provider: StateProviderBase | None = None,
-    ) -> AirbyteMessageIterator:
-        """Create an iterator that reads messages from a source.
-
-        Only the `source` parameter is required. The other parameters are optional.
-
-        If a `progress_tracker` is not provided, a silent progress tracker will be used.
-        """
-        progress_tracker = progress_tracker or ProgressTracker(
-            ProgressStyle.NONE,
-            source=source,
-            destination=None,
-            cache=None,
-        )
-        return source._get_airbyte_message_iterator(  # noqa: SLF001
-            streams=streams,
-            progress_tracker=progress_tracker,
-            force_full_refresh=force_full_refresh,
-            state_provider=state_provider,
-        )

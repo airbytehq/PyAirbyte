@@ -19,11 +19,10 @@ from airbyte.destinations.base import Destination
 from airbyte.executors.util import get_connector_executor
 
 if TYPE_CHECKING:
-    from airbyte.results import ReadResult
     from airbyte.sources.base import Source
 
 
-SCALE = 500_000
+SCALE = 200_000
 
 
 def main() -> None:
@@ -53,17 +52,9 @@ def main() -> None:
         ),
     )
     destination.check()
-
-    read_result: ReadResult = source.read(
-        cache=new_local_cache(),
-    )
-    print(
-        "Completed reading from source at "
-        f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. "
-        "Writing to destination..."
-    )
     destination.write(
-        source_data=read_result,
+        source_data=source,
+        cache=new_local_cache(),
     )
     print(
         "Completed writing to destination at "

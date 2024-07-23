@@ -103,7 +103,10 @@ class StateProviderBase(abc.ABC):
 
         raise exc.PyAirbyteInternalError(
             message="State message not found.",
-            context={"stream_name": stream_name},
+            context={
+                "stream_name": stream_name,
+                "known_stream_names": list(self.known_stream_names),
+            },
         )
 
     def get_stream_state_artifact(

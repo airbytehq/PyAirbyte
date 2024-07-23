@@ -55,7 +55,7 @@ class Destination(ConnectorBase):
             validate=validate,
         )
 
-    def write(
+    def write(  # noqa: PLR0912  # Too many arguments
         self,
         source_data: Source | ReadResult,
         *,
@@ -107,15 +107,9 @@ class Destination(ConnectorBase):
 
             cache = cache or get_default_cache()
 
-        progress_tracker = ProgressTracker(
-            source=source if isinstance(source_data, Source) else None,
-            cache=cache or None,
-            destination=self,
-        )
-
         # Resolve `state_cache`
         if state_cache is not False:
-            state_cache = state_cache or get_default_cache()
+            state_cache = state_cache or cache or get_default_cache()
 
         # Resolve `state_provider` and `state_writer`
         if state_cache:
@@ -129,7 +123,9 @@ class Destination(ConnectorBase):
             )
             state_writer: StateWriterBase = state_cache.get_state_writer(
                 source_name=source_name,
-                destination_name=self.name,
+                # Use a destination-specific state writer ONLY if caching is disabled.
+                # TODO: This is a temporary workaround until we have a better solution.
+                destination_name=self.name if cache is False else None,
             )
         elif state_cache is False:
             state_writer = NoOpStateWriter()
@@ -159,6 +155,13 @@ class Destination(ConnectorBase):
                 message="`source_data` must be a `Source` or `ReadResult` object.",
             )
 
+        progress_tracker = ProgressTracker(
+            source=source if isinstance(source_data, Source) else None,
+            cache=cache or None,
+            destination=self,
+            expected_streams=catalog_provider.stream_names,
+        )
+
         # Get message iterator for source (caching disabled)
         if source:
             if cache is False:
@@ -171,12 +174,16 @@ class Destination(ConnectorBase):
             else:
                 # Caching enabled and we are reading from a source.
                 # Read the data to cache if caching is enabled.
-                read_result = source.read(
+                read_result = source._read_to_cache(  # noqa: SLF001  # Non-public API
                     cache=cache,
-                    streams=streams,
+                    state_provider=state_provider,
+                    state_writer=state_writer,
+                    catalog_provider=catalog_provider,
+                    stream_names=catalog_provider.stream_names,
                     write_strategy=write_strategy,
                     force_full_refresh=force_full_refresh,
                     skip_validation=False,
+                    progress_tracker=progress_tracker,
                 )
                 message_iterator = AirbyteMessageIterator.from_read_result(
                     read_result=read_result,
@@ -188,13 +195,21 @@ class Destination(ConnectorBase):
             )
 
         # Write the data to the destination
-        self._write_airbyte_message_stream(
-            stdin=message_iterator,
-            catalog_provider=catalog_provider,
-            state_writer=state_writer,
-            skip_validation=False,
-            progress_tracker=progress_tracker,
-        )
+        try:
+            self._write_airbyte_message_stream(
+                stdin=message_iterator,
+                catalog_provider=catalog_provider,
+                state_writer=state_writer,
+                skip_validation=False,
+                progress_tracker=progress_tracker,
+            )
+        except Exception as ex:
+            progress_tracker.log_failure(exception=ex)
+            raise
+        else:
+            # No exceptions were raised, so log success
+            progress_tracker.log_success()
+
         return WriteResult(
             destination=self,
             source_data=source_data,

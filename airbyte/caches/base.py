@@ -113,6 +113,7 @@ class CacheBase(SqlConfig):
         self,
         source_name: str,
         catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase | None = None,
     ) -> SqlProcessorBase:
         """Return a record processor for the specified source name and catalog.
 
@@ -134,7 +135,7 @@ class CacheBase(SqlConfig):
         return self._sql_processor_class(
             sql_config=self,
             catalog_provider=catalog_provider,
-            state_writer=self.get_state_writer(source_name=source_name),
+            state_writer=state_writer or self.get_state_writer(source_name=source_name),
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )

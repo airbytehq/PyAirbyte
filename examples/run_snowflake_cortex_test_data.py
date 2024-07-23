@@ -178,5 +178,6 @@ processor.process_airbyte_messages(
         source=None,
         cache=None,
         destination=None,
+        expected_streams=["myteststream"],
     ),
 )

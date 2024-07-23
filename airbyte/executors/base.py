@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
-from threading import Thread
+from threading import Event, Thread
 from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
@@ -21,11 +21,31 @@ if TYPE_CHECKING:
 _LATEST_VERSION = "latest"
 
 
-def _pump_input(pipe: IO[str], messages: AirbyteMessageIterator) -> None:
+class ExceptionHolder:
+    def __init__(self) -> None:
+        self.exception: Exception | None = None
+        self.event = Event()
+
+    def set_exception(
+        self,
+        ex: Exception,
+    ) -> None:
+        self.exception = ex
+        self.event.set()  # Signal that an exception has occurred
+
+
+def _pump_input(
+    pipe: IO[str],
+    messages: AirbyteMessageIterator,
+    exception_holder: ExceptionHolder,
+) -> None:
     """Pump lines into a pipe."""
     with pipe:
-        pipe.writelines(message.model_dump_json() + "\n" for message in messages)
-        pipe.flush()  # Ensure data is sent immediately
+        try:
+            pipe.writelines(message.model_dump_json() + "\n" for message in messages)
+            pipe.flush()  # Ensure data is sent immediately
+        except Exception as ex:
+            exception_holder.set_exception(ex)
 
 
 def _stream_from_file(file: IO[str]) -> Generator[str, Any, None]:
@@ -46,6 +66,7 @@ def _stream_from_subprocess(
 ) -> Generator[Iterable[str], None, None]:
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
+    exception_holder = ExceptionHolder()
     Path.mkdir(Path.cwd() / "logs", exist_ok=True)
     if isinstance(stdin, (AirbyteMessageIterator, Generator)):
         process = subprocess.Popen(
@@ -56,9 +77,19 @@ def _stream_from_subprocess(
             universal_newlines=True,
             encoding="utf-8",
         )
-        input_thread = Thread(target=_pump_input, args=(process.stdin, stdin))
+        input_thread = Thread(
+            target=_pump_input,
+            args=(
+                process.stdin,
+                stdin,
+                exception_holder,
+            ),
+        )
         input_thread.start()
         input_thread.join()  # Ensure the input thread has finished
+        if exception_holder.exception:
+            raise exception_holder.exception
+
     else:
         # stdin is None or a file-like object
         process = subprocess.Popen(

@@ -49,6 +49,7 @@ if TYPE_CHECKING:
 
 DEFAULT_REFRESHES_PER_SECOND = 2
 IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case we can use Rich.
+HORIZONTAL_LINE = "------------------------------------------------\n"
 
 ipy_display: ModuleType | None
 try:
@@ -141,6 +142,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         source: Source | None,
         cache: CacheBase | None,
         destination: Destination | None,
+        expected_streams: list[str] | None = None,
     ) -> None:
         """Initialize the progress tracker."""
         # Components
@@ -149,12 +151,17 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._destination = destination
 
         # Streams expected (for progress bar)
-        self.num_streams_expected = 0
+        self.num_streams_expected = len(expected_streams) if expected_streams else 0
+
+        # Overall job status
+        self.start_time = time.time()
+        self.end_time: float | None = None
 
         # Reads
         self.read_start_time = time.time()
         self.read_end_time: float | None = None
         self.first_record_received_time: float | None = None
+        self.first_destination_record_sent_time: float | None = None
         self.total_records_read = 0
 
         # Stream reads
@@ -233,7 +240,62 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             # Update the display.
             self._update_display()
 
-        self._log_sync_success()
+    def tally_pending_writes(
+        self,
+        messages: IO[str] | AirbyteMessageIterator,
+    ) -> Generator[AirbyteMessage, None, None]:
+        """This method simply tallies the number of records processed and yields the messages."""
+        # Update the display before we start.
+        self._update_display()
+        self._start_rich_view()
+
+        update_period = 1  # Reset the update period to 1 before start.
+
+        for count, message in enumerate(messages, start=1):
+            yield message  # Yield the message immediately.
+            if isinstance(message, str):
+                # This is a string message, not an AirbyteMessage.
+                # For now at least, we don't need to pay the cost of parsing it.
+                continue
+
+            if message.record and message.record.stream:
+                self.destination_stream_records_delivered[message.record.stream] += 1
+
+            if count % update_period != 0:
+                continue
+
+            # If this is the first record, set the start time.
+            if self.first_destination_record_sent_time is None:
+                self.first_destination_record_sent_time = time.time()
+
+            # Update the update period to the latest scale of data.
+            update_period = self._get_update_period(count)
+
+            # Update the display.
+            self._update_display()
+
+    def tally_confirmed_writes(
+        self,
+        messages: Iterable[AirbyteMessage],
+    ) -> Generator[AirbyteMessage, Any, None]:
+        """This method watches for state messages and tally records that are confirmed written.
+
+        The original messages are passed through unchanged.
+        """
+        self._start_rich_view()  # Start Rich's live view if not already running.
+        for message in messages:
+            if message.type is Type.STATE:
+                # This is a state message from the destination. Tally the records written.
+                if message.state.stream and message.state.destinationStats:
+                    stream_name = message.state.stream.stream_descriptor.name
+                    self.destination_stream_records_confirmed[stream_name] += (
+                        message.state.destinationStats.recordCount
+                    )
+                self._update_display()
+
+            yield message
+
+        self._update_display(force_refresh=True)
 
     # Logging methods
 
@@ -248,7 +310,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             steps.append(self._cache.__class__.__name__)
 
         if self._destination is not None:
-            steps.append(self._destination.__class__.__name__)
+            steps.append(self._destination.name)
 
         return " -> ".join(steps)
 
@@ -273,14 +335,14 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
         self.stream_read_end_times[stream_name] = time.time()
 
-    def _log_sync_success(
+    def log_success(
         self,
     ) -> None:
         """Log the success of a sync operation."""
-        if self.finalize_end_time is None:
+        if self.end_time is None:
             # If we haven't already finalized, do so now.
 
-            self.finalize_end_time = time.time()
+            self.end_time = time.time()
 
         self._update_display(force_refresh=True)
         self._stop_rich_view()
@@ -294,7 +356,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             event_type=EventType.SYNC,
         )
 
-    def _log_sync_failure(
+    def log_failure(
         self,
         exception: Exception,
     ) -> None:
@@ -400,8 +462,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     @property
     def elapsed_seconds(self) -> float:
         """Return the number of seconds elapsed since the operation started."""
-        if self.finalize_end_time:
-            return self.finalize_end_time - self.read_start_time
+        if self.end_time:
+            return self.end_time - self.read_start_time
 
         return time.time() - self.read_start_time
 
@@ -489,6 +551,11 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self.total_batches_finalized += num_batches
         self._update_display(force_refresh=True)
 
+    def log_cache_processing_complete(self) -> None:
+        """Log that cache processing is complete."""
+        self.finalize_end_time = time.time()
+        self._update_display(force_refresh=True)
+
     def log_stream_finalized(self, stream_name: str) -> None:
         """Log that a stream has been finalized."""
         self.finalized_stream_names.add(stream_name)
@@ -532,107 +599,117 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if self.elapsed_read_seconds > 0:
             records_per_second = self.total_records_read / self.elapsed_read_seconds
 
-        status_message = (
-            f"### Progress: `{self.job_description}`\n\n"
-            f"**Started reading from source at `{start_time_str}`:**\n\n"
-            f"- Read **{self.total_records_read:,}** records "
-            f"over **{self.elapsed_read_time_string}** "
-            f"({records_per_second:,.1f} records / second).\n\n"
-        )
+        status_message = HORIZONTAL_LINE + f"\n### Sync Progress: `{self.job_description}`\n\n"
+
+        # Source read progress:
+        if self.first_record_received_time:
+            status_message += (
+                f"**Started reading from source at `{start_time_str}`:**\n\n"
+                f"- Read **{self.total_records_read:,}** records "
+                f"over **{self.elapsed_read_time_string}** "
+                f"({records_per_second:,.1f} records / second).\n\n"
+            )
+
+        # Source cache writes
         if self.total_records_written > 0:
             status_message += (
                 f"- Cached **{self.total_records_written:,}** records "
                 f"into {self.total_batches_written:,} local cache file(s).\n\n"
             )
+
+        # Source read completed
         if self.read_end_time is not None:
             read_end_time_str = _to_time_str(self.read_end_time)
             status_message += f"- Finished reading from source at `{read_end_time_str}`.\n\n"
+
+        # Cache processing progress
         if self.finalize_start_time is not None:
             finalize_start_time_str = _to_time_str(self.finalize_start_time)
             status_message += f"**Started cache processing at `{finalize_start_time_str}`:**\n\n"
             status_message += (
-                f"- Processed **{self.total_batches_finalized}** cache "
-                f"file(s) over **{self.elapsed_finalization_time_str}**.\n\n"
+                f"- Processed **{self.total_batches_finalized}** "
+                f"cache file(s) over **{self.elapsed_finalization_time_str}**.\n\n"
             )
+
+            # Cache processing completion (per stream)
+            if self.finalized_stream_names:
+                status_message += (
+                    f"- Completed cache processing for {len(self.finalized_stream_names)} "
+                    + (f"out of {self.num_streams_expected} " if self.num_streams_expected else "")
+                    + "streams:\n\n"
+                )
+                for stream_name in self.finalized_stream_names:
+                    status_message += f"  - {stream_name}\n"
+
             if self.finalize_end_time is not None:
                 completion_time_str = _to_time_str(self.finalize_end_time)
                 status_message += f"- Finished cache processing at `{completion_time_str}`.\n\n"
 
-        if self.finalized_stream_names:
-            status_message += (
-                f"**Completed processing {len(self.finalized_stream_names)} "
-                + (f"out of {self.num_streams_expected} " if self.num_streams_expected else "")
-                + "streams:**\n\n"
-            )
-            for stream_name in self.finalized_stream_names:
-                status_message += f"  - {stream_name}\n"
-
         status_message += "\n\n"
 
-        if self.finalize_end_time is not None:
-            status_message += f"**Total time elapsed: {self.elapsed_time_string}**\n\n"
-        status_message += "\n------------------------------------------------\n"
+        if self.first_destination_record_sent_time:
+            status_message += (
+                f"**Started writing to destination at "
+                f"`{_to_time_str(self.first_destination_record_sent_time)}`:**\n\n"
+            )
+            if self.destination_stream_records_delivered:
+                status_message += (
+                    f"- Sent **{self.total_destination_records_delivered:,} records** "
+                    f"to destination over **{self.total_destination_write_time_str}** "
+                    f"({self.destination_records_delivered_per_second:,.1f} records per second)."
+                    "\n\n"
+                )
+                status_message += "- Stream records delivered:\n\n"
+                for stream_name, record_count in self.destination_stream_records_delivered.items():
+                    status_message += f"  - {stream_name}: {record_count:,} records\n"
+
+        status_message += "\n"
+
+        if self.end_time is not None:
+            status_message += f"\n\n**Total time elapsed: {self.total_time_elapsed_str}**\n\n"
+
+        status_message += HORIZONTAL_LINE
 
         return status_message
 
-    def tally_pending_writes(
-        self,
-        messages: IO[str] | AirbyteMessageIterator,
-    ) -> Generator[AirbyteMessage, None, None]:
-        """This method simply tallies the number of records processed and yields the messages."""
-        # Update the display before we start.
-        self._update_display()
-        self._start_rich_view()
+    @property
+    def total_time_elapsed_seconds(self) -> float:
+        """Return the total time elapsed in seconds."""
+        if self.end_time is None:
+            return time.time() - self.start_time
 
-        update_period = 1  # Reset the update period to 1 before start.
+        return self.end_time - self.start_time
 
-        for count, message in enumerate(messages, start=1):
-            yield message  # Yield the message immediately.
-            if isinstance(message, str):
-                # This is a string message, not an AirbyteMessage.
-                # For now at least, we don't need to pay the cost of parsing it.
-                continue
+    @property
+    def total_destination_write_time_seconds(self) -> float:
+        """Return the total time elapsed in seconds."""
+        if self.first_destination_record_sent_time is None:
+            return 0
 
-            if message.state and message.state.stream:
-                self.destination_stream_records_delivered[
-                    message.state.stream.stream_descriptor.name
-                ] += 1
+        if self.end_time is None:
+            return time.time() - self.first_destination_record_sent_time
 
-            if count % update_period != 0:
-                continue
+        return self.end_time - self.first_destination_record_sent_time
 
-            # If this is the first record, set the start time.
-            if self.first_record_received_time is None:
-                self.first_record_received_time = time.time()
+    @property
+    def destination_records_delivered_per_second(self) -> float:
+        """Return the number of records delivered per second."""
+        if self.total_destination_write_time_seconds > 0:
+            return (
+                self.total_destination_records_delivered / self.total_destination_write_time_seconds
+            )
 
-            # Update the update period to the latest scale of data.
-            update_period = self._get_update_period(count)
+        return 0
 
-            # Update the display.
-            self._update_display()
+    @property
+    def total_destination_write_time_str(self) -> str:
+        """Return the total time elapsed as a string."""
+        return _get_elapsed_time_str(self.total_destination_write_time_seconds)
 
-    def tally_confirmed_writes(
-        self,
-        messages: Iterable[AirbyteMessage],
-    ) -> Generator[AirbyteMessage, Any, None]:
-        """This method watches for state messages and tally records that are confirmed written.
-
-        The original messages are passed through unchanged.
-        """
-        self._start_rich_view()  # Start Rich's live view if not already running.
-        for message in messages:
-            if message.type is Type.STATE:
-                # This is a state message from the destination. Tally the records written.
-                if message.state.stream and message.state.destinationStats:
-                    stream_name = message.state.stream.stream_descriptor.name
-                    self.destination_stream_records_confirmed[stream_name] += (
-                        message.state.destinationStats.recordCount
-                    )
-                self._update_display()
-
-            yield message
-
-        self._update_display()
+    @property
+    def total_time_elapsed_str(self) -> str:
+        """Return the total time elapsed as a string."""
+        return _get_elapsed_time_str(self.total_time_elapsed_seconds)
 
     @property
     def total_destination_records_delivered(self) -> int:

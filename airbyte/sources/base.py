@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._future_cdk.state_providers import StateProviderBase
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
     from airbyte.executors.base import Executor
@@ -449,6 +450,7 @@ class Source(ConnectorBase):
             source=self,
             cache=None,
             destination=None,
+            expected_streams=[stream],
         )
 
         iterator: Iterator[dict[str, Any]] = (
@@ -462,6 +464,7 @@ class Source(ConnectorBase):
             )
             if record.record
         )
+        progress_tracker.log_success()
         return LazyDataset(
             iterator,
             stream_metadata=configured_stream,
@@ -605,6 +608,71 @@ class Source(ConnectorBase):
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
         """
+        cache = cache or get_default_cache()
+        progress_tracker = ProgressTracker(
+            source=self,
+            cache=cache,
+            destination=None,
+            expected_streams=None,  # Will be set later
+        )
+
+        # Set up state provider if not in full refresh mode
+        if force_full_refresh:
+            state_provider: StateProviderBase | None = None
+        else:
+            state_provider = cache.get_state_provider(
+                source_name=self.name,
+            )
+        state_writer = cache.get_state_writer(source_name=self.name)
+
+        if streams:
+            self.select_streams(streams)
+
+        if not self._selected_stream_names:
+            raise exc.PyAirbyteNoStreamsSelectedError(
+                connector_name=self.name,
+                available_streams=self.get_available_streams(),
+            )
+
+        try:
+            result = self._read_to_cache(
+                cache=cache,
+                catalog_provider=CatalogProvider(self.configured_catalog),
+                stream_names=self._selected_stream_names,
+                state_provider=state_provider,
+                state_writer=state_writer,
+                write_strategy=write_strategy,
+                force_full_refresh=force_full_refresh,
+                skip_validation=skip_validation,
+                progress_tracker=progress_tracker,
+            )
+        except exc.PyAirbyteInternalError as ex:
+            progress_tracker.log_failure(exception=ex)
+            raise exc.AirbyteConnectorFailedError(
+                connector_name=self.name,
+                log_text=self._last_log_messages,
+            ) from ex
+        except Exception as ex:
+            progress_tracker.log_failure(exception=ex)
+            raise
+
+        progress_tracker.log_success()
+        return result
+
+    def _read_to_cache(  # noqa: PLR0913  # Too many arguments
+        self,
+        cache: CacheBase,
+        *,
+        catalog_provider: CatalogProvider,
+        stream_names: list[str],
+        state_provider: StateProviderBase | None,
+        state_writer: StateWriterBase | None,
+        write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
+        force_full_refresh: bool = False,
+        skip_validation: bool = False,
+        progress_tracker: ProgressTracker,
+    ) -> ReadResult:
+        """Internal read method."""
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(
                 message=(
@@ -629,33 +697,9 @@ class Source(ConnectorBase):
                     },
                 ) from None
 
-        if streams:
-            self.select_streams(streams)
-
-        if not self._selected_stream_names:
-            raise exc.PyAirbyteNoStreamsSelectedError(
-                connector_name=self.name,
-                available_streams=self.get_available_streams(),
-            )
-
         # Run optional validation step
         if not skip_validation:
             self.validate_config()
-
-        cache = cache or get_default_cache()
-        # Set up state provider if not in full refresh mode
-        if force_full_refresh:
-            state_provider: StateProviderBase | None = None
-        else:
-            state_provider = cache.get_state_provider(
-                source_name=self.name,
-            )
-
-        progress_tracker = ProgressTracker(
-            source=self,
-            cache=cache,
-            destination=None,
-        )
 
         # Log incremental stream if incremental streams are known
         if state_provider and state_provider.known_stream_names:
@@ -669,32 +713,26 @@ class Source(ConnectorBase):
                 self._log_incremental_streams(incremental_streams=incremental_streams)
 
         airbyte_message_iterator: Iterator[AirbyteMessage] = self._read_with_catalog(
-            catalog=self.configured_catalog,
+            catalog=catalog_provider.configured_catalog,
             state=state_provider,
             progress_tracker=progress_tracker,
         )
         cache_processor = cache.get_record_processor(
             source_name=self.name,
-            catalog_provider=CatalogProvider(self.configured_catalog),
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
         )
-        try:
-            cache_processor.process_airbyte_messages(
-                messages=airbyte_message_iterator,
-                write_strategy=write_strategy,
-                progress_tracker=progress_tracker,
-            )
-
-        except exc.PyAirbyteInternalError as ex:
-            progress_tracker._log_sync_failure(exception=ex)  # noqa: SLF001
-            raise exc.AirbyteConnectorFailedError(
-                connector_name=self.name,
-                log_text=self._last_log_messages,
-            ) from ex
+        cache_processor.process_airbyte_messages(
+            messages=airbyte_message_iterator,
+            write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
+        )
+        progress_tracker.log_cache_processing_complete()
 
         return ReadResult(
             source_name=self.name,
             progress_tracker=progress_tracker,
-            processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
+            processed_streams=stream_names,
             cache=cache,
         )
 
