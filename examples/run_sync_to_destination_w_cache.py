@@ -35,7 +35,7 @@ def get_my_source() -> Source:
             "parallelism": 16,
         },
         install_if_missing=False,
-        streams=["purchases"],
+        streams="*",
     )
 
 def get_my_destination() -> Destination:
