@@ -609,7 +609,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         status_message = HORIZONTAL_LINE + f"\n### Sync Progress: `{self.job_description}`\n\n"
 
-        def join_streams_strings(streams_list: Iterable[str]) -> str:
+        def join_streams_strings(streams_list: list[str]) -> str:
             separator: Literal["\n  - ", ", "] = (
                 "\n  - " if len(streams_list) <= MAX_ITEMIZED_STREAMS else ", "
             )
