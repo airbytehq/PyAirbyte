@@ -80,7 +80,7 @@ def postgres_cache(new_postgres_cache) -> Generator[PostgresCache, None, None]:
     return
 
 
-@pytest.fixture
+@pytest.fixture(scope="function")
 def all_cache_types(
     duckdb_cache: DuckDBCache,
     postgres_cache: PostgresCache,
