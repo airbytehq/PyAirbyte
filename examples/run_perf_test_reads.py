@@ -33,6 +33,13 @@ poetry run python ./examples/run_perf_test_reads.py -e=3 --cache=snowflake
 poetry run python ./examples/run_perf_test_reads.py -e=3 --cache=bigquery
 ```
 
+You can also use this script to test destination load performance:
+
+```bash
+# Load 5_000 records to BigQuery
+poetry run python ./examples/run_perf_test_reads.py -e=5 --destination=e2e
+```
+
 Note:
 - The Faker stream ('purchases') is assumed to be 220 bytes, meaning 4_500 records is
   approximately 1 MB. Based on this: 25K records/second is approximately 5.5 MB/s.
@@ -49,8 +56,9 @@ from typing import TYPE_CHECKING
 
 import airbyte as ab
 from airbyte.caches import BigQueryCache, CacheBase, SnowflakeCache
+from airbyte.destinations.base import Destination
+from airbyte.executors.util import get_connector_executor
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
-
 
 if TYPE_CHECKING:
     from airbyte.sources.base import Source
@@ -124,7 +132,7 @@ def get_source(
     if source_alias == "e2e":
         return ab.get_source(
             "source-e2e",
-            docker_image="airbyte/source-e2e-test:cg10",
+            docker_image="airbyte/source-e2e-test:latest",
             streams="*",
             config={
                 "type": "BENCHMARK",
@@ -139,11 +147,34 @@ def get_source(
     raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
 
 
+def get_destination(destination_type: str) -> ab.Destination:
+    if destination_type == "e2e":
+        return Destination(
+            name="destination-e2e-test",
+            config={
+                "test_destination": {
+                    "test_destination_type": "LOGGING",
+                    "logging_config": {
+                        "logging_type": "FirstN",
+                        "max_entry_count": 100,
+                    },
+                }
+            },
+            executor=get_connector_executor(
+                name="destination-e2e-test",
+                docker_image="airbyte/destination-e2e-test:latest",
+            ),
+        )
+
+    raise ValueError(f"Unknown destination type: {destination_type}")  # noqa: TRY003
+
+
 def main(
     e: int | None = None,
     n: int | None = None,
     cache_type: str = "duckdb",
     source_alias: str = "e2e",
+    destination_type: str | None = None,
 ) -> None:
     num_records: int = n or 5 * (10 ** (e or 3))
     cache_type = cache_type or "duckdb"
@@ -156,7 +187,10 @@ def main(
         num_records=num_records,
     )
     source.check()
-    source.read(cache)
+    read_result = source.read(cache)
+    if destination_type:
+        destination = get_destination(destination_type=destination_type)
+        destination.write(read_result)
 
 
 if __name__ == "__main__":
@@ -196,6 +230,13 @@ if __name__ == "__main__":
         choices=["faker", "e2e"],
         default="e2e",
     )
+    parser.add_argument(
+        "--destination",
+        type=str,
+        help=("The destination to use (optional)."),
+        choices=["e2e"],
+        default=None,
+    )
     args = parser.parse_args()
 
     main(
@@ -203,4 +244,5 @@ if __name__ == "__main__":
         n=args.n,
         cache_type=args.cache,
         source_alias=args.source,
+        destination_type=args.destination,
     )
