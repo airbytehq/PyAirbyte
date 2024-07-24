@@ -29,7 +29,7 @@ from airbyte.datasets import CachedDataset
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import get_destination
 from airbyte.records import StreamRecord
-from airbyte.results import ReadResult
+from airbyte.results import ReadResult, WriteResult
 from airbyte.secrets import SecretSourceEnum, get_secret
 from airbyte.sources import registry
 from airbyte.sources.base import Source
@@ -67,6 +67,7 @@ __all__ = [
     "SecretSourceEnum",
     "Source",
     "StreamRecord",
+    "WriteResult",
 ]
 
 __docformat__ = "google"
