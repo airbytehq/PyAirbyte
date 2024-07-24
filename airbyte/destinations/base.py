@@ -257,8 +257,10 @@ class Destination(ConnectorBase):
                             "--catalog",
                             catalog_file,
                         ],
-                        stdin=progress_tracker.tally_pending_writes(
-                            stdin,  # type: ignore [arg-type]  # ignore mypy false-positive
+                        stdin=AirbyteMessageIterator(
+                            progress_tracker.tally_pending_writes(
+                                stdin,  # type: ignore [arg-type]  # ignore mypy false-positive
+                            )
                         ),
                     )
                 ):
