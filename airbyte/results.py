@@ -100,3 +100,7 @@ class WriteResult:
         self._catalog_provider: CatalogProvider = catalog_provider
         self._state_writer: StateWriterBase = state_writer
         self._progress_tracker: ProgressTracker = progress_tracker
+
+    @property
+    def processed_records(self) -> int:
+        return self._progress_tracker.total_destination_records_delivered
