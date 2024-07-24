@@ -13,8 +13,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte import get_source
+from airbyte._executors.util import get_connector_executor
 from airbyte.destinations.base import Destination
-from airbyte.executors.util import get_connector_executor
 
 if TYPE_CHECKING:
     from airbyte.sources.base import Source
@@ -36,6 +36,7 @@ def get_my_source() -> Source:
         streams=["purchases"],
     )
 
+
 def get_my_destination() -> Destination:
     return Destination(
         name="destination-duckdb",
@@ -49,6 +50,7 @@ def get_my_destination() -> Destination:
             # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
         ),
     )
+
 
 def main() -> None:
     """Test writing from the source to the destination."""

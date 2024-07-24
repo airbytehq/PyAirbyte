@@ -3,19 +3,18 @@ from __future__ import annotations
 
 import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Event, Thread
 from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
-from airbyte._message_iterators import AirbyteMessageIterator  # noqa: PLC2701
+from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte.sources.registry import ConnectorMetadata
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Generator, Iterable, Iterator
 
 
 _LATEST_VERSION = "latest"

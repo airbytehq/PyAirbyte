@@ -5,7 +5,7 @@ import shutil
 from typing import NoReturn
 
 from airbyte import exceptions as exc
-from airbyte.executors.base import Executor
+from airbyte._executors.base import Executor
 
 
 class DockerExecutor(Executor):

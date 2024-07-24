@@ -6,12 +6,12 @@ from __future__ import annotations
 
 import pytest
 from airbyte import get_source
+from airbyte._executors.base import Executor
+from airbyte._executors.util import get_connector_executor
 from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
-from airbyte.executors.base import Executor
-from airbyte.executors.util import get_connector_executor
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source

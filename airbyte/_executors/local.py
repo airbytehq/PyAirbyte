@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, NoReturn
 
 from airbyte import exceptions as exc
-from airbyte.executors.base import Executor
+from airbyte._executors.base import Executor
 
 
 if TYPE_CHECKING:

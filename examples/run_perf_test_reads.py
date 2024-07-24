@@ -56,9 +56,9 @@ import tempfile
 from typing import TYPE_CHECKING
 
 import airbyte as ab
+from airbyte._executors.util import get_connector_executor
 from airbyte.caches import BigQueryCache, CacheBase, SnowflakeCache
 from airbyte.destinations.base import Destination
-from airbyte.executors.util import get_connector_executor
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 if TYPE_CHECKING:
@@ -150,7 +150,7 @@ def get_source(
 
 def get_destination(destination_type: str) -> ab.Destination:
     if destination_type == "e2e":
-        return Destination(
+        return get_destination(
             name="destination-e2e-test",
             config={
                 "test_destination": {
@@ -161,10 +161,7 @@ def get_destination(destination_type: str) -> ab.Destination:
                     },
                 }
             },
-            executor=get_connector_executor(
-                name="destination-e2e-test",
-                docker_image="airbyte/destination-e2e-test:latest",
-            ),
+            docker_image="airbyte/destination-e2e-test:latest",
         )
 
     raise ValueError(f"Unknown destination type: {destination_type}")  # noqa: TRY003

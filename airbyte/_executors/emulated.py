@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import IO, TYPE_CHECKING
 
-from airbyte.executors.base import Executor
+from airbyte._executors.base import Executor
 
 
 if TYPE_CHECKING:

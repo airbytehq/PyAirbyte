@@ -14,10 +14,10 @@ from rich import print
 from typing_extensions import Literal
 
 from airbyte import exceptions as exc
-from airbyte._util.meta import is_windows  # noqa: PLC2701
-from airbyte._util.telemetry import EventState, log_install_state  # noqa: PLC2701
-from airbyte._util.venv_util import get_bin_dir  # noqa: PLC2701
-from airbyte.executors.base import Executor
+from airbyte._executors.base import Executor
+from airbyte._util.meta import is_windows
+from airbyte._util.telemetry import EventState, log_install_state
+from airbyte._util.venv_util import get_bin_dir
 
 
 if TYPE_CHECKING:

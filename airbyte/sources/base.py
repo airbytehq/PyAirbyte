@@ -40,11 +40,11 @@ if TYPE_CHECKING:
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
+    from airbyte._executors.base import Executor
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
-    from airbyte.executors.base import Executor
 
 
 class Source(ConnectorBase):

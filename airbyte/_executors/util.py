@@ -13,16 +13,16 @@ import yaml
 from rich import print
 
 from airbyte import exceptions as exc
-from airbyte._util.telemetry import EventState, log_install_state  # noqa: PLC2701  # Non-public API
-from airbyte.executors.declarative import DeclarativeExecutor
-from airbyte.executors.docker import DockerExecutor
-from airbyte.executors.local import PathExecutor
-from airbyte.executors.python import VenvExecutor
+from airbyte._executors.declarative import DeclarativeExecutor
+from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.local import PathExecutor
+from airbyte._executors.python import VenvExecutor
+from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 
 if TYPE_CHECKING:
-    from airbyte.executors.base import Executor
+    from airbyte._executors.base import Executor
 
 
 def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex

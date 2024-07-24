@@ -13,6 +13,7 @@ from airbyte import (
     caches,
     cloud,
     datasets,
+    destinations,
     documents,
     exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
     experimental,
@@ -25,6 +26,8 @@ from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
+from airbyte.destinations.base import Destination
+from airbyte.destinations.util import get_destination
 from airbyte.records import StreamRecord
 from airbyte.results import ReadResult
 from airbyte.secrets import SecretSourceEnum, get_secret
@@ -39,6 +42,7 @@ __all__ = [
     "cloud",
     "caches",
     "datasets",
+    "destinations",
     "documents",
     "exceptions",
     "experimental",
@@ -50,12 +54,14 @@ __all__ = [
     # Factories
     "get_available_connectors",
     "get_default_cache",
+    "get_destination",
     "get_secret",
     "get_source",
     "new_local_cache",
     # Classes
     "BigQueryCache",
     "CachedDataset",
+    "Destination",
     "DuckDBCache",
     "ReadResult",
     "SecretSourceEnum",

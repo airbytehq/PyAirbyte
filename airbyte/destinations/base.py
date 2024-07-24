@@ -26,9 +26,9 @@ from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
+    from airbyte._executors.base import Executor
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches.base import CacheBase
-    from airbyte.executors.base import Executor
 
 
 class Destination(ConnectorBase):
@@ -259,7 +259,7 @@ class Destination(ConnectorBase):
                         ],
                         stdin=AirbyteMessageIterator(
                             progress_tracker.tally_pending_writes(
-                                stdin,  # type: ignore [arg-type]  # ignore mypy false-positive
+                                stdin,
                             )
                         ),
                     )

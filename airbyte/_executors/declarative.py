@@ -13,8 +13,8 @@ import pydantic
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
+from airbyte._executors.base import Executor
 from airbyte.exceptions import PyAirbyteInternalError
-from airbyte.executors.base import Executor
 
 
 if TYPE_CHECKING:

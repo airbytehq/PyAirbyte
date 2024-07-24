@@ -37,8 +37,8 @@ if TYPE_CHECKING:
     from collections.abc import Generator
     from typing import IO
 
+    from airbyte._executors.base import Executor
     from airbyte._message_iterators import AirbyteMessageIterator
-    from airbyte.executors.base import Executor
 
 
 MAX_LOG_LINES = 20
