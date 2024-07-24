@@ -67,6 +67,7 @@ def test_read_progress_initialization(progress: ProgressTracker) -> None:
     assert progress.finalized_stream_names == set()
     assert progress._last_update_time is None
 
+
 def fake_airbyte_record_message() -> AirbyteMessage:
     return AirbyteMessage(
         type=Type.RECORD,
