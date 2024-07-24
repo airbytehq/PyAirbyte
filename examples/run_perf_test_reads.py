@@ -44,7 +44,8 @@ Note:
 - The Faker stream ('purchases') is assumed to be 220 bytes, meaning 4_500 records is
   approximately 1 MB. Based on this: 25K records/second is approximately 5.5 MB/s.
 - The E2E stream is assumed to be 180 bytes, meaning 5_500 records is
-  approximately 1 MB. Based on this: 40K records/second is approximately 7.2 MB/s.
+  approximately 1 MB. Based on this: 40K records/second is approximately 7.2 MB/s
+  and 61K records/second is approximately 11 MB/s.
 
 """
 
