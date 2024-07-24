@@ -10,6 +10,8 @@ poetry run python examples/run_sync_to_destination_wo_cache.py
 
 from __future__ import annotations
 
+import datetime
+
 import airbyte as ab
 
 SCALE = 200_000
