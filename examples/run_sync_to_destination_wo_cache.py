@@ -23,10 +23,8 @@ if TYPE_CHECKING:
 SCALE = 200_000
 
 
-def main() -> None:
-    """Test the destination."""
-    # Get a source-faker instance.
-    source: Source = get_source(
+def get_my_source() -> Source:
+    return get_source(
         "source-faker",
         local_executable="source-faker",
         config={
@@ -37,7 +35,9 @@ def main() -> None:
         install_if_missing=False,
         streams=["purchases"],
     )
-    destination = Destination(
+
+def get_my_destination() -> Destination:
+    return Destination(
         name="destination-duckdb",
         config={
             # This path is relative to the container:
@@ -49,6 +49,12 @@ def main() -> None:
             # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
         ),
     )
+
+def main() -> None:
+    """Test writing from the source to the destination."""
+    source = get_my_source()
+    source.check()
+    destination = get_my_destination()
     destination.check()
     destination.write(
         source,
