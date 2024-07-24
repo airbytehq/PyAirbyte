@@ -10,21 +10,13 @@ poetry run python examples/run_sync_to_destination_wo_cache.py
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from airbyte import get_source
-from airbyte._executors.util import get_connector_executor
-from airbyte.destinations.base import Destination
-
-if TYPE_CHECKING:
-    from airbyte.sources.base import Source
-
+import airbyte as ab
 
 SCALE = 200_000
 
 
-def get_my_source() -> Source:
-    return get_source(
+def get_my_source() -> ab.Source:
+    return ab.get_source(
         "source-faker",
         local_executable="source-faker",
         config={
@@ -37,18 +29,16 @@ def get_my_source() -> Source:
     )
 
 
-def get_my_destination() -> Destination:
-    return Destination(
+def get_my_destination() -> ab.Destination:
+    return ab.get_destination(
         name="destination-duckdb",
         config={
             # This path is relative to the container:
             "destination_path": "/local/temp/db.duckdb",
         },
-        executor=get_connector_executor(
-            name="destination-duckdb",
-            docker_image="airbyte/destination-duckdb:latest",
-            # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
-        ),
+        docker_image="airbyte/destination-duckdb:latest",
+        # OR:
+        # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
     )
 
 
@@ -58,9 +48,13 @@ def main() -> None:
     source.check()
     destination = get_my_destination()
     destination.check()
-    destination.write(
+    write_result: ab.WriteResult = destination.write(
         source,
         cache=False,
+    )
+    print(
+        f"Completed writing {write_result.processed_records:,} records "
+        f"to destination at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     )
 
 
