@@ -28,6 +28,7 @@ import pendulum
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
+from typing_extensions import Literal
 
 from airbyte_protocol.models import AirbyteStreamStatus, Type
 
@@ -52,7 +53,7 @@ HORIZONTAL_LINE = "------------------------------------------------\n"
 DEFAULT_REFRESHES_PER_SECOND = 1.3
 """The default number of times per second to refresh the progress view."""
 
-MAX_ITEMIZED_STREAMS = 5
+MAX_ITEMIZED_STREAMS = 3
 """The maximum number of streams to itemize in the progress view."""
 
 ipy_display: ModuleType | None
@@ -608,6 +609,12 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         status_message = HORIZONTAL_LINE + f"\n### Sync Progress: `{self.job_description}`\n\n"
 
+        def join_streams_strings(streams_list: Iterable[str]) -> str:
+            separator: Literal["\n  - ", ", "] = (
+                "\n  - " if len(streams_list) <= MAX_ITEMIZED_STREAMS else ", "
+            )
+            return separator.join(streams_list)
+
         # Source read progress:
         if self.first_record_received_time:
             status_message += (
@@ -625,18 +632,15 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                     if self.num_streams_expected
                     else ""
                 )
-                + " streams:\n\n"
-            )
-            if len(self.stream_read_counts) <= MAX_ITEMIZED_STREAMS:  # noqa: PLR2004  # Magic numbers OK here.
-                for stream_name in self.stream_read_counts:
-                    status_message += (
-                        f"  - {self.stream_read_counts[stream_name]:,} {stream_name}\n"
-                    )
-            else:
-                status_message += "  - " + ", ".join(
-                    f"{self.stream_read_counts[stream_name]:,} {stream_name}"
-                    for stream_name in self.stream_read_counts
+                + " streams:\n  - "
+                + join_streams_strings(
+                    [
+                        f"{self.stream_read_counts[stream_name]:,} {stream_name}"
+                        for stream_name in self.stream_read_counts
+                    ]
                 )
+                + "\n\n"
+            )
 
         # Source cache writes
         if self.total_records_written > 0:
@@ -664,8 +668,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 status_message += (
                     f"- Completed cache processing for {len(self.finalized_stream_names)} "
                     + (f"out of {self.num_streams_expected} " if self.num_streams_expected else "")
-                    + "streams: "
-                    + ", ".join(self.finalized_stream_names)
+                    + "streams:\n  - "
+                    + join_streams_strings(self.finalized_stream_names)
                     + "\n\n"
                 )
 
@@ -687,9 +691,16 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                     f"({self.destination_records_delivered_per_second:,.1f} records per second)."
                     "\n\n"
                 )
-                status_message += "- Stream records delivered:\n\n"
-                for stream_name, record_count in self.destination_stream_records_delivered.items():
-                    status_message += f"  - {record_count:,} {stream_name}\n"
+                status_message += (
+                    "- Stream records delivered:\n  - "
+                    + join_streams_strings(
+                        [
+                            f"{count:,} {stream}"
+                            for stream, count in self.destination_stream_records_delivered.items()
+                        ]
+                    )
+                    + "\n\n"
+                )
 
         status_message += "\n"
 
