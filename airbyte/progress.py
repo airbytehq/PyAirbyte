@@ -93,9 +93,7 @@ def _to_time_str(timestamp: float) -> str:
     return a local time string.
     """
     datetime_obj = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
-    # TODO: Uncomment this line when we can get tests to properly account for local timezones.
-    #       For now, we'll just use UTC to avoid breaking tests.
-    # datetime_obj = datetime_obj.astimezone()
+    datetime_obj = datetime_obj.astimezone()
     return datetime_obj.strftime("%H:%M:%S")
 
 
