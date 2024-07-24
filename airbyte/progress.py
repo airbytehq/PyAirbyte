@@ -46,10 +46,14 @@ if TYPE_CHECKING:
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
-
-DEFAULT_REFRESHES_PER_SECOND = 2
 IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case we can use Rich.
 HORIZONTAL_LINE = "------------------------------------------------\n"
+
+DEFAULT_REFRESHES_PER_SECOND = 1.3
+"""The default number of times per second to refresh the progress view."""
+
+MAX_ITEMIZED_STREAMS = 5
+"""The maximum number of streams to itemize in the progress view."""
 
 ipy_display: ModuleType | None
 try:
@@ -107,6 +111,10 @@ def _get_elapsed_time_str(seconds: float) -> str:
     if seconds <= 2:  # noqa: PLR2004  # Magic numbers OK here.
         # Less than 1 minute elapsed
         return f"{seconds:.2f} seconds"
+
+    if seconds < 10:  # noqa: PLR2004  # Magic numbers OK here.
+        # Less than 10 seconds elapsed
+        return f"{seconds:.1f} seconds"
 
     if seconds <= 60:  # noqa: PLR2004  # Magic numbers OK here.
         # Less than 1 minute elapsed
@@ -607,6 +615,24 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 f"over **{self.elapsed_read_time_string}** "
                 f"({records_per_second:,.1f} records / second).\n\n"
             )
+
+        if self.stream_read_counts:
+            status_message += (
+                f"- Received records for {len(self.stream_read_counts)}"
+                + (
+                    f" out of {self.num_streams_expected} expected"
+                    if self.num_streams_expected
+                    else ""
+                )
+                + " streams:\n\n"
+            )
+            if len(self.stream_read_counts) <= MAX_ITEMIZED_STREAMS:  # noqa: PLR2004  # Magic numbers OK here.
+                for stream_name in self.stream_read_counts:
+                    status_message += (
+                        f"  - {stream_name}: {self.stream_read_counts[stream_name]:,} records\n"
+                    )
+            else:
+                status_message += f"  - {', '.join(self.stream_read_counts.keys())}\n"
 
         # Source cache writes
         if self.total_records_written > 0:
