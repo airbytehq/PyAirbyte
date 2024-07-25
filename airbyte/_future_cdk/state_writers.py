@@ -68,8 +68,7 @@ class StateWriterBase(StateProviderBase, abc.ABC):
 class StdOutStateWriter(StateWriterBase):
     """A state writer that writes state artifacts to stdout.
 
-    This is required when we are functioning as a "Destination" in the Airbyte protocol, and
-    an orchestrator is responsible for saving those state artifacts.
+    This is useful when we want PyAirbyte to behave like a "Destination" in the Airbyte protocol.
     """
 
     def _write_state(
@@ -81,10 +80,11 @@ class StdOutStateWriter(StateWriterBase):
 
 
 class NoOpStateWriter(StateWriterBase):
-    """A state writer that writes state artifacts to stdout.
+    """A state writer that does not write state artifacts.
 
-    This is required when we are functioning as a "Destination" in the Airbyte protocol, and
-    an orchestrator is responsible for saving those state artifacts.
+    Even though state messages are not sent anywhere, they are still stored in memory and
+    can be accessed using the `state_message_artifacts` property and other methods inherited
+    from the `StateProviderBase` class
     """
 
     def _write_state(
