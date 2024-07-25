@@ -798,7 +798,10 @@ class SqlProcessorBase(RecordProcessorBase):
         if not pks:
             return []
 
-        joined_pks = [".".join(pk) for pk in pks]
+        # Normalize the primary keys to match the normalized column names
+        normalized_pks = [[self.normalizer.normalize(c) for c in pk] for pk in pks]
+
+        joined_pks = [".".join(pk) for pk in normalized_pks]
         for pk in joined_pks:
             if "." in pk:
                 msg = f"Nested primary keys are not yet supported. Found: {pk}"
