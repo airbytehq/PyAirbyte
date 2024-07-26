@@ -13,7 +13,6 @@ import pytest
 import ulid
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.util import new_local_cache
 
 # Product count is always the same, regardless of faker scale.
