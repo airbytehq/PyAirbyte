@@ -713,27 +713,19 @@ def test_sync_with_merge_to_postgres(
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
     the merge was successful.
-
-    # TODO: Add a check with a primary key to ensure that the merge strategy works as expected.
     """
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
     # Read twice to test merge strategy
-    result: ReadResult = source.read(new_postgres_cache)
-    result: ReadResult = source.read(new_postgres_cache)
+    result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
+    result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
 
     assert result.processed_records == 3
-    for stream_name, expected_data in expected_test_stream_data.items():
-        if len(new_postgres_cache[stream_name]) > 0:
-            pd.testing.assert_frame_equal(
-                result[stream_name].to_pandas(),
-                pd.DataFrame(expected_data),
-                check_dtype=False,
-            )
-        else:
-            # stream is empty
-            assert len(expected_test_stream_data[stream_name]) == 0
+    assert_data_matches_cache(
+        expected_test_stream_data=expected_test_stream_data,
+        cache=new_postgres_cache,
+    )
 
 
 def test_airbyte_version() -> None:
