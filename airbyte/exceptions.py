@@ -269,10 +269,13 @@ class AirbyteConnectorError(PyAirbyteError):
                 logger.error(str(self))
             else:
                 logger.error(str(self))
-            for handler in logger.handlers:
-                log_paths: list[Path] = []
-                if isinstance(handler, logging.FileHandler):
-                    log_paths.append(Path(handler.baseFilename).absolute())
+
+            log_paths: list[Path] = [
+                Path(handler.baseFilename).absolute()
+                for handler in logger.handlers
+                if isinstance(handler, logging.FileHandler)
+            ]
+
             if log_paths:
                 print(f"Connector logs: {', '.join(str(path) for path in log_paths)}")
 

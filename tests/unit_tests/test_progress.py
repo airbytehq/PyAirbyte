@@ -64,7 +64,7 @@ def test_read_progress_initialization(progress: ProgressTracker) -> None:
     assert progress.finalize_end_time is None
     assert progress.total_records_finalized == 0
     assert progress.total_batches_finalized == 0
-    assert progress.finalized_stream_names == set()
+    assert progress.finalized_stream_names == []
     assert progress._last_update_time is None
 
 
@@ -110,7 +110,7 @@ def test_read_progress_log_batches_finalized(progress: ProgressTracker) -> None:
 @freeze_time("2022-01-01")
 def test_read_progress_log_stream_finalized(progress: ProgressTracker) -> None:
     progress.log_stream_finalized("stream1")
-    assert progress.finalized_stream_names == {"stream1"}
+    assert progress.finalized_stream_names == ["stream1"]
 
 
 def test_get_elapsed_time_str():
