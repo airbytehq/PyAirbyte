@@ -158,11 +158,11 @@ def test_invalid_config() -> None:
 def test_ensure_installation_detection():
     """Assert that install isn't called, since the connector is already installed by the fixture."""
     with patch(
-        "airbyte.executors.python.VenvExecutor.install"
+        "airbyte._executors.python.VenvExecutor.install"
     ) as mock_venv_install, patch(
         "airbyte.sources.base.Source.install"
     ) as mock_source_install, patch(
-        "airbyte.executors.python.VenvExecutor.ensure_installation"
+        "airbyte._executors.python.VenvExecutor.ensure_installation"
     ) as mock_ensure_installed:
         source = ab.get_source(
             "source-test",
