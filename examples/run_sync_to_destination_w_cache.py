@@ -38,7 +38,7 @@ def get_my_destination() -> ab.Destination:
             # This path is relative to the container:
             "destination_path": "/local/temp/db.duckdb",
         },
-        docker_image="airbyte/destination-duckdb:latest",
+        docker_image=True,
         # OR:
         # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
     )

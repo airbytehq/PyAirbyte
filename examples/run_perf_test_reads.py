@@ -56,9 +56,7 @@ import tempfile
 from typing import TYPE_CHECKING
 
 import airbyte as ab
-from airbyte._executors.util import get_connector_executor
 from airbyte.caches import BigQueryCache, CacheBase, SnowflakeCache
-from airbyte.destinations.base import Destination
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 if TYPE_CHECKING:
@@ -150,7 +148,7 @@ def get_source(
 
 def get_destination(destination_type: str) -> ab.Destination:
     if destination_type == "e2e":
-        return get_destination(
+        return ab.get_destination(
             name="destination-e2e-test",
             config={
                 "test_destination": {
