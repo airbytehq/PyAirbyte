@@ -153,7 +153,7 @@ def test_faker_read(
     assert progress.total_records_written == configured_count
     assert progress.total_batches_written == 1
     assert progress.total_batches_finalized == 1
-    assert progress.finalized_stream_names == {"users"}
+    assert progress.finalized_stream_names == ["users"]
 
     status_msg: str = progress._get_status_message()
     assert "Read **0** records" not in status_msg
