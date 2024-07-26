@@ -172,6 +172,20 @@ def test_faker_read(
 
 @pytest.mark.requires_creds
 @pytest.mark.slow
+def test_append_strategy(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the append strategy works as expected."""
+    for _ in range(2):
+        result = source_faker_seed_a.read(
+            new_generic_cache, write_strategy="append", force_full_refresh=True
+        )
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A * 2
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
     new_generic_cache: ab.caches.CacheBase,
