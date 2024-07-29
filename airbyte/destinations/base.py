@@ -15,6 +15,11 @@ from airbyte_protocol.models import (
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
+from airbyte._future_cdk.state_providers import (
+    JoinedStateProvider,
+    StateProviderBase,
+    StaticInputState,
+)
 from airbyte._future_cdk.state_writers import NoOpStateWriter, StateWriterBase, StdOutStateWriter
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
@@ -84,6 +89,11 @@ class Destination(ConnectorBase):
                 will decide the best strategy to use.
             force_full_refresh: Whether to force a full refresh of the source_data. If `True`, any
                 existing state will be ignored and all source data will be reloaded.
+
+        For incremental syncs, `cache` or `state_cache` will be checked for matching state values.
+        If the cache has tracked state, this will be used for the sync. Otherwise, if there is
+        a known destination state, the destination-specific state will be used. If neither are
+        available, a full refresh will be performed.
         """
         if not isinstance(source_data, (ReadResult, Source)):
             raise exc.PyAirbyteInputError(
@@ -100,37 +110,48 @@ class Destination(ConnectorBase):
         )
         source_name: str = source.name if source else cast(ReadResult, read_result).source_name
 
-        # Resolve `cache`
+        # State providers and writers default to no-op, unless overridden below.
+        cache_state_provider: StateProviderBase = StaticInputState([])
+        """Provides the state of the cache's data."""
+        cache_state_writer: StateWriterBase = NoOpStateWriter()
+        """Writes updates for the state of the cache's data."""
+        destination_state_provider: StateProviderBase = StaticInputState([])
+        """Provides the state of the destination's data, from `cache` or `state_cache`."""
+        destination_state_writer: StateWriterBase = NoOpStateWriter()
+        """Writes updates for the state of the destination's data, to `cache` or `state_cache`."""
+
+        # If caching not explicitly disabled
         if cache is not False:
+            # Resolve `cache`, `cache_state_provider`, and `cache_state_writer`
             if isinstance(source_data, ReadResult):
                 cache = source_data.cache
 
             cache = cache or get_default_cache()
+            cache_state_provider = cache.get_state_provider(
+                source_name=source_name,
+                destination_name=None,  # This will just track the cache state
+            )
+            cache_state_writer = cache.get_state_writer(
+                source_name=source_name,
+                destination_name=None,  # This will just track the cache state
+            )
 
         # Resolve `state_cache`
-        if state_cache is not False:
-            state_cache = state_cache or cache or get_default_cache()
+        if state_cache is None:
+            state_cache = cache or get_default_cache()
 
-        # Resolve `state_provider` and `state_writer`
+        # Resolve `destination_state_writer` and `destination_state_provider`
         if state_cache:
-            state_provider = (
-                None
-                if force_full_refresh
-                else state_cache.get_state_provider(
+            destination_state_writer = state_cache.get_state_writer(
+                source_name=source_name,
+                destination_name=self.name,
+            )
+            if not force_full_refresh:
+                destination_state_provider = state_cache.get_state_provider(
                     source_name=source_name,
                     destination_name=self.name,
                 )
-            )
-            state_writer: StateWriterBase = state_cache.get_state_writer(
-                source_name=source_name,
-                # Use a destination-specific state writer ONLY if caching is disabled.
-                # TODO: This is a temporary workaround until we have a better solution.
-                destination_name=self.name if cache is False else None,
-            )
-        elif state_cache is False:
-            state_writer = NoOpStateWriter()
-            state_provider = None
-        else:
+        elif state_cache is not False:
             warnings.warn(
                 "No state backend or cache provided. State will not be tracked."
                 "To track state, provide a cache or state backend."
@@ -138,8 +159,6 @@ class Destination(ConnectorBase):
                 category=exc.PyAirbyteWarning,
                 stacklevel=2,
             )
-            state_writer = NoOpStateWriter()
-            state_provider = None
 
         # Resolve `catalog_provider`
         if source:
@@ -162,12 +181,18 @@ class Destination(ConnectorBase):
             expected_streams=catalog_provider.stream_names,
         )
 
-        # Get message iterator for source (caching disabled)
+        source_state_provider: StateProviderBase
+        source_state_provider = JoinedStateProvider(
+            primary=cache_state_provider,
+            secondary=destination_state_provider,
+        )
+
         if source:
             if cache is False:
+                # Get message iterator for source (caching disabled)
                 message_iterator: AirbyteMessageIterator = source._get_airbyte_message_iterator(  # noqa: SLF001 # Non-public API
                     streams=streams,
-                    state_provider=state_provider,
+                    state_provider=source_state_provider,
                     progress_tracker=progress_tracker,
                     force_full_refresh=force_full_refresh,
                 )
@@ -176,8 +201,8 @@ class Destination(ConnectorBase):
                 # Read the data to cache if caching is enabled.
                 read_result = source._read_to_cache(  # noqa: SLF001  # Non-public API
                     cache=cache,
-                    state_provider=state_provider,
-                    state_writer=state_writer,
+                    state_provider=source_state_provider,
+                    state_writer=cache_state_writer,
                     catalog_provider=catalog_provider,
                     stream_names=catalog_provider.stream_names,
                     write_strategy=write_strategy,
@@ -199,7 +224,7 @@ class Destination(ConnectorBase):
             self._write_airbyte_message_stream(
                 stdin=message_iterator,
                 catalog_provider=catalog_provider,
-                state_writer=state_writer,
+                state_writer=destination_state_writer,
                 skip_validation=False,
                 progress_tracker=progress_tracker,
             )
@@ -214,7 +239,7 @@ class Destination(ConnectorBase):
             destination=self,
             source_data=source_data,
             catalog_provider=catalog_provider,
-            state_writer=state_writer,
+            state_writer=destination_state_writer,
             progress_tracker=progress_tracker,
         )
 
@@ -265,7 +290,10 @@ class Destination(ConnectorBase):
                     )
                 ):
                     if destination_message.type is Type.STATE:
+                        tmp = state_writer.known_stream_names
                         state_writer.write_state(state_message=destination_message.state)
+                        # TODO: DELETEME
+                        assert tmp.issubset(state_writer.known_stream_names)
 
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorWriteError(

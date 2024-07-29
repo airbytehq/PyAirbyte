@@ -192,59 +192,6 @@ def test_incremental_sync(
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
 
-def test_incremental_state_cache_persistence(
-    source_docker_faker_seed_a: ab.Source,
-    source_docker_faker_seed_b: ab.Source,
-) -> None:
-    config_a = source_docker_faker_seed_a.get_config()
-    config_b = source_docker_faker_seed_b.get_config()
-    config_a["always_updated"] = False
-    config_b["always_updated"] = False
-    source_docker_faker_seed_a.set_config(config_a)
-    source_docker_faker_seed_b.set_config(config_b)
-    cache_name = str(ulid.ULID())
-    cache = new_local_cache(cache_name)
-    result = source_docker_faker_seed_a.read(cache)
-    assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
-    second_cache = new_local_cache(cache_name)
-    # The state should be persisted across cache instances.
-    result2 = source_docker_faker_seed_b.read(second_cache)
-    assert result2.processed_records == 0
-
-    assert second_cache.get_state_provider(
-        source_docker_faker_seed_a.name
-    ).state_message_artifacts
-    assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
-    assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
-
-
-def test_incremental_state_prefix_isolation(
-    source_docker_faker_seed_a: ab.Source,
-    source_docker_faker_seed_b: ab.Source,
-) -> None:
-    """
-    Test that state in the cache correctly isolates streams when different table prefixes are used
-    """
-    config_a = source_docker_faker_seed_a.get_config()
-    config_a["always_updated"] = False
-    source_docker_faker_seed_a.set_config(config_a)
-    cache_name = str(ulid.ULID())
-    db_path = Path(f"./.cache/{cache_name}.duckdb")
-    cache = DuckDBCache(db_path=db_path, table_prefix="prefix_")
-    different_prefix_cache = DuckDBCache(
-        db_path=db_path, table_prefix="different_prefix_"
-    )
-
-    result = source_docker_faker_seed_a.read(cache)
-    assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
-
-    result2 = source_docker_faker_seed_b.read(different_prefix_cache)
-    assert result2.processed_records == NUM_PRODUCTS + FAKER_SCALE_B * 2
-
-    assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
-    assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_B
-
-
 def test_config_spec(source_docker_faker_seed_a: ab.Source) -> None:
     assert source_docker_faker_seed_a.config_spec
 

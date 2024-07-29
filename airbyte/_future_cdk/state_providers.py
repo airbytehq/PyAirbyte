@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from airbyte_protocol.models import (
     AirbyteStateMessage,
@@ -92,29 +92,25 @@ class StateProviderBase(abc.ABC):
             + "]"
         )
 
-    def get_state_message_artifact(
+    def get_stream_state(
         self,
+        /,
         stream_name: str,
+        not_found: None | AirbyteStateMessage | Literal["raise"] = "raise",
     ) -> AirbyteStateMessage:
         """Return the state message for the specified stream name."""
         for state_message in self.state_message_artifacts:
             if state_message.stream.stream_descriptor.name == stream_name:
                 return state_message
 
-        raise exc.PyAirbyteInternalError(
-            message="State message not found.",
-            context={
-                "stream_name": stream_name,
-                "known_stream_names": list(self.known_stream_names),
-            },
-        )
+        if not_found != "raise":
+            return not_found
 
-    def get_stream_state_artifact(
-        self,
-        stream_name: str,
-    ) -> AirbyteStreamState:
-        """Return the state artifact for the specified stream name."""
-        return self.get_state_message_artifact(stream_name).stream
+        raise exc.AirbyteStateNotFoundError(
+            message="State message not found.",
+            stream_name=stream_name,
+            available_streams=list(self.known_stream_names),
+        )
 
 
 class StaticInputState(StateProviderBase):
@@ -130,3 +126,41 @@ class StaticInputState(StateProviderBase):
     @property
     def _state_message_artifacts(self) -> Iterable[AirbyteStateMessage]:
         return self._state_messages
+
+
+class JoinedStateProvider(StateProviderBase):
+    """A state provider that joins two state providers."""
+
+    def __init__(
+        self,
+        /,
+        primary: StateProviderBase,
+        secondary: StateProviderBase,
+    ) -> None:
+        """Initialize the state provider with two state providers."""
+        self._primary_state_provider = primary
+        self._secondary_state_provider = secondary
+
+    @property
+    def known_stream_names(
+        self,
+    ) -> set[str]:
+        """Return the unique set of all stream names with stored state."""
+        return (
+            self._primary_state_provider.known_stream_names
+            | self._secondary_state_provider.known_stream_names
+        )
+
+    @property
+    def _state_message_artifacts(self) -> Iterable[AirbyteStateMessage]:
+        """Return all state artifacts."""
+        for stream_name in self.known_stream_names:
+            state: AirbyteStateMessage = self._primary_state_provider.get_stream_state(
+                stream_name,
+                self._secondary_state_provider.get_stream_state(
+                    stream_name,
+                    None,
+                ),
+            )
+            if state:
+                yield state

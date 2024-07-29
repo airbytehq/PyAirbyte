@@ -296,6 +296,14 @@ class AirbyteConnectorWriteError(AirbyteConnectorError):
     """Error when reading from the connector."""
 
 
+class AirbyteConnectorSpecFailedError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorDiscoverFailedError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
 class AirbyteNoDataFromConnectorError(AirbyteConnectorError):
     """No data was provided from the connector."""
 
@@ -334,6 +342,13 @@ class AirbyteConnectorFailedError(AirbyteConnectorError):
 @dataclass
 class AirbyteStreamNotFoundError(AirbyteConnectorError):
     """Connector stream not found."""
+
+    stream_name: str | None = None
+    available_streams: list[str] | None = None
+
+@dataclass
+class AirbyteStateNotFoundError(AirbyteConnectorError, KeyError):
+    """State entry not found."""
 
     stream_name: str | None = None
     available_streams: list[str] | None = None

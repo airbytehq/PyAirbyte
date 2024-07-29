@@ -140,12 +140,23 @@ class ConnectorBase(abc.ABC):
         * execute the connector with spec
         * Listen to the messages and return the first AirbyteCatalog that comes along.
         * Make sure the subprocess is killed when the function returns.
+
+        Raises:
+            AirbyteConnectorSpecFailedError: If the spec operation fails.
+            AirbyteConnectorMissingSpecError: If the spec operation does not return a spec.
         """
         if force_refresh or self._spec is None:
-            for msg in self._execute(["spec"]):
-                if msg.type == Type.SPEC and msg.spec:
-                    self._spec = msg.spec
-                    break
+            try:
+                for msg in self._execute(["spec"]):
+                    if msg.type == Type.SPEC and msg.spec:
+                        self._spec = msg.spec
+                        break
+
+            except exc.AirbyteSubprocessError as ex:
+                raise exc.AirbyteConnectorSpecFailedError(
+                    connector_name=self.name,
+                    log_text=ex.log_text,
+                ) from ex
 
         if self._spec:
             return self._spec

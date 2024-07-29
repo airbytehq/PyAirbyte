@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
     from airbyte._future_cdk.catalog_providers import CatalogProvider
+    from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
     from airbyte.destinations.base import Destination
@@ -104,3 +105,13 @@ class WriteResult:
     @property
     def processed_records(self) -> int:
         return self._progress_tracker.total_destination_records_delivered
+
+    def get_state_provider(self) -> StateProviderBase:
+        """Return the state writer as a state provider.
+
+        As a public interface, we only expose the state writer as a state provider. This is because
+        the state writer itself is only intended for internal use. As a state provider, the state
+        writer can be used to read the state artifacts that were written. This can be useful for
+        testing or debugging.
+        """
+        return self._state_writer

@@ -88,7 +88,7 @@ class AirbyteMessageIterator:
                 if stream_name in state_provider.known_stream_names:
                     yield AirbyteMessage(
                         type=Type.STATE,
-                        state=state_provider.get_state_message_artifact(stream_name=stream_name),
+                        state=state_provider.get_stream_state(stream_name),
                     )
 
         return cls(generator())

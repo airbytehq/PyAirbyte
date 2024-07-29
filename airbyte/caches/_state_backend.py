@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from pytz import utc
-from sqlalchemy import Column, DateTime, String
+from sqlalchemy import Column, DateTime, PrimaryKeyConstraint, String, and_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
@@ -76,14 +76,15 @@ class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,m
     """
 
     __tablename__ = DESTINATION_STATE_TABLE_NAME
+    __table_args__ = (PrimaryKeyConstraint("destination_name", "source_name", "stream_name"),)
 
-    destination_name = Column(String, primary_key=True)
+    destination_name = Column(String, nullable=False)
     """The destination name."""
 
-    source_name = Column(String, primary_key=True)
+    source_name = Column(String, nullable=False)
     """The source name."""
 
-    stream_name = Column(String, primary_key=True)
+    stream_name = Column(String, nullable=False)
     """The stream name."""
 
     state_json = Column(String)
@@ -144,14 +145,14 @@ class SqlStateWriter(StateWriterBase):
                 destination_name=self.destination_name,
                 source_name=self.source_name,
                 stream_name=stream_name,
-                state_json=state_message.json(),
+                state_json=state_message.model_dump_json(),
             )
             if self.destination_name
             else CacheStreamStateModel(
                 source_name=self.source_name,
                 stream_name=stream_name,
                 table_name=table_prefix + stream_name,
-                state_json=state_message.json(),
+                state_json=state_message.model_dump_json(),
             )
         )
 
@@ -160,8 +161,11 @@ class SqlStateWriter(StateWriterBase):
             # First, delete the existing state for the stream.
             if self.destination_name:
                 session.query(DestinationStreamStateModel).filter(
-                    DestinationStreamStateModel.destination_name == self.destination_name
-                    and DestinationStreamStateModel.stream_name == stream_name
+                    and_(
+                        (DestinationStreamStateModel.destination_name == self.destination_name),
+                        (DestinationStreamStateModel.source_name == self.source_name),
+                        (DestinationStreamStateModel.stream_name == stream_name),
+                    )
                 ).delete()
             else:
                 session.query(CacheStreamStateModel).filter(
@@ -212,7 +216,7 @@ class SqlStateBackend(StateBackendBase):
                 message="Both 'destination_name' and 'table_prefix' cannot be set at the same time."
             )
 
-        _ = refresh  # Always refresh the state
+        _ = refresh  # Always refresh the state (for now)
         self._ensure_internal_tables()
 
         if destination_name:
