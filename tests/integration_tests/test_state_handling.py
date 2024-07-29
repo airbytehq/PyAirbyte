@@ -26,18 +26,6 @@ FAKER_SCALE_A = 200
 FAKER_SCALE_B = 300
 
 
-# Patch PATH to include the source-faker executable.
-
-
-# @pytest.fixture(autouse=True)
-# def add_venv_bin_to_path(monkeypatch):
-#     # Get the path to the bin directory of the virtual environment
-#     venv_bin_path = str(get_bin_dir(Path(sys.prefix)))
-
-#     # Add the bin directory to the PATH
-#     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-#     monkeypatch.setenv("PATH", new_path)
-
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_faker_seed_a() -> ab.Source:
@@ -230,12 +218,3 @@ def test_destination_state(
     )
     assert destination_users_states
     assert cache_users_states == destination_users_states
-    # write_result_state_provider = write_result.get_state_provider(
-    #     source_name="source-faker",
-    #     destination_name="destination-e2e-test",
-    # )
-    # write_result_users_states = write_result_state_provider.get_stream_state(
-    #     "users"
-    # )
-
-    # assert cache_users_states == write_result_users_states
