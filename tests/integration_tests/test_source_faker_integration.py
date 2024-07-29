@@ -19,7 +19,6 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 import pytest_mock
-import ulid
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte._processors.sql.postgres import PostgresSqlProcessor
 from airbyte._util.venv_util import get_bin_dir

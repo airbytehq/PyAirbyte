@@ -346,6 +346,7 @@ class AirbyteStreamNotFoundError(AirbyteConnectorError):
     stream_name: str | None = None
     available_streams: list[str] | None = None
 
+
 @dataclass
 class AirbyteStateNotFoundError(AirbyteConnectorError, KeyError):
     """State entry not found."""

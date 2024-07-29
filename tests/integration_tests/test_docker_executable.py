@@ -10,7 +10,6 @@ from pathlib import Path
 
 import airbyte as ab
 import pytest
-import ulid
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache

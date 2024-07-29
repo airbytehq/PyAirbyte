@@ -60,7 +60,7 @@ class Destination(ConnectorBase):
             validate=validate,
         )
 
-    def write(  # noqa: PLR0912  # Too many arguments
+    def write(  # noqa: PLR0912, PLR0915 # Too many arguments/statements
         self,
         source_data: Source | ReadResult,
         *,

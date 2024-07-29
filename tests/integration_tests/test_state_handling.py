@@ -26,7 +26,6 @@ FAKER_SCALE_A = 200
 FAKER_SCALE_B = 300
 
 
-
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
