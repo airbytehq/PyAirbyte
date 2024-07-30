@@ -154,10 +154,11 @@ def is_docker_available():
 
 
 @pytest.fixture(scope="session")
-def new_postgres_cache():
-    """Fixture to return a fresh Postgres cache.
+def new_postgres_db():
+    """Fixture to start a new PostgreSQL container for testing.
 
-    Each test that uses this fixture will get a unique table prefix.
+    This fixture will start a new PostgreSQL container before the tests run and stop it after the
+    tests are done. The host of the PostgreSQL database will be returned to the tests.
     """
     client = docker.from_env()
     try:
@@ -212,8 +213,21 @@ def new_postgres_cache():
     if final_host is None:
         raise Exception(f"Failed to connect to the PostgreSQL database on host {host}.")
 
+    yield final_host
+
+    # Stop and remove the container after the tests are done
+    postgres.stop()
+    postgres.remove()
+
+
+@pytest.fixture(scope="function")
+def new_postgres_cache(new_postgres_db: str):
+    """Fixture to return a fresh Postgres cache.
+
+    Each test that uses this fixture will get a unique table prefix.
+    """
     config = PostgresCache(
-        host=final_host,
+        host=new_postgres_db,
         port=PYTEST_POSTGRES_PORT,
         username="postgres",
         password="postgres",
@@ -223,10 +237,6 @@ def new_postgres_cache():
         table_prefix=f"test{str(ulid.ULID())[-6:]}_",
     )
     yield config
-
-    # Stop and remove the container after the tests are done
-    postgres.stop()
-    postgres.remove()
 
 
 @pytest.fixture(autouse=False)
