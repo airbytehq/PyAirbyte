@@ -44,6 +44,7 @@ class Document(BaseModel):
     last_modified: Optional[datetime.datetime] = Field(default=None)
 
     def __str__(self) -> str:
+        """Return a string representation of the document."""
         return self.content
 
     @property

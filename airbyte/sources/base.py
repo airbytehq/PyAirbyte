@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Base class implementation for sources."""
+
 from __future__ import annotations
 
 import json
@@ -126,7 +128,7 @@ class Source(ConnectorBase):
         """Select the stream names that should be read from the connector.
 
         Args:
-        - streams: A list of stream names to select. If set to "*", all streams will be selected.
+            streams: A list of stream names to select. If set to "*", all streams will be selected.
 
         Currently, if this is not set, all streams will be read.
         """
@@ -268,9 +270,9 @@ class Source(ConnectorBase):
         """Print the configuration spec for this connector.
 
         Args:
-        - format: The format to print the spec in. Must be "yaml" or "json".
-        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
-          it will be printed to the console.
+            format: The format to print the spec in. Must be "yaml" or "json".
+            output_file: Optional. If set, the spec will be written to the given file path.
+                Otherwise, it will be printed to the console.
         """
         if format not in {"yaml", "json"}:
             raise exc.PyAirbyteInputError(
@@ -349,6 +351,13 @@ class Source(ConnectorBase):
         self,
         streams: Literal["*"] | list[str] | None = None,
     ) -> ConfiguredAirbyteCatalog:
+        """Get a configured catalog for the given streams.
+
+        If no streams are provided, the selected streams will be used. If no streams are selected,
+        all available streams will be used.
+
+        If '*' is provided, all available streams will be used.
+        """
         selected_streams: list[str] = []
         if streams is None:
             selected_streams = self._selected_stream_names or self.get_available_streams()

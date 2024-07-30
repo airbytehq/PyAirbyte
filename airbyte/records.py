@@ -208,6 +208,9 @@ class StreamRecord(dict[str, Any]):
         Args:
             from_dict: The dictionary to initialize the StreamRecord with.
             stream_record_handler: The StreamRecordHandler to use for processing the record.
+            with_internal_columns: If `True`, the internal columns will be added to the record.
+            extracted_at: The time the record was extracted. If not provided, the current time will
+                be used.
         """
         self._stream_handler: StreamRecordHandler = stream_record_handler
 
@@ -252,12 +255,14 @@ class StreamRecord(dict[str, Any]):
         )
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
+        """Return the item with the given key."""
         try:
             return super().__getitem__(key)
         except KeyError:
             return super().__getitem__(self._stream_handler.to_index_case(key))
 
     def __setitem__(self, key: str, value: Any) -> None:  # noqa: ANN401
+        """Set the item with the given key to the given value."""
         index_case_key = self._stream_handler.to_index_case(key)
         if (
             self._stream_handler.prune_extra_fields
@@ -268,6 +273,7 @@ class StreamRecord(dict[str, Any]):
         super().__setitem__(index_case_key, value)
 
     def __delitem__(self, key: str) -> None:
+        """Delete the item with the given key."""
         try:
             super().__delitem__(key)
         except KeyError:
@@ -282,18 +288,22 @@ class StreamRecord(dict[str, Any]):
         raise KeyError(key)
 
     def __contains__(self, key: object) -> bool:
+        """Return whether the dictionary contains the given key."""
         assert isinstance(key, str), "Key must be a string."
         return super().__contains__(key) or super().__contains__(
             self._stream_handler.to_index_case(key)
         )
 
     def __iter__(self) -> Iterator[str]:
+        """Return an iterator over the keys of the dictionary."""
         return iter(super().__iter__())
 
     def __len__(self) -> int:
+        """Return the number of items in the dictionary."""
         return super().__len__()
 
     def __eq__(self, other: object) -> bool:
+        """Return whether the StreamRecord is equal to the given dict or StreamRecord object."""
         if isinstance(other, StreamRecord):
             return dict(self) == dict(other)
 
