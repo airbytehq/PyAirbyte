@@ -94,11 +94,6 @@ class AirbyteMessageIterator:
         return cls(generator())
 
     @classmethod
-    def from_messages(cls, messages: Iterable[AirbyteMessage]) -> AirbyteMessageIterator:
-        """Create a iterator from an iterable of messages."""
-        return cls(iter(messages))
-
-    @classmethod
     def from_str_buffer(cls, buffer: IO[str]) -> AirbyteMessageIterator:
         """Create a iterator that reads messages from a buffer."""
 

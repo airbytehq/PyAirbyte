@@ -86,7 +86,7 @@ def test_duckdb_destination_write_components(
         for record_dict in read_result["products"]
     )
     new_duckdb_destination._write_airbyte_message_stream(
-        stdin=AirbyteMessageIterator.from_messages(airbyte_messages),
+        stdin=AirbyteMessageIterator(airbyte_messages),
         catalog_provider=CatalogProvider(
             configured_catalog=new_source_faker.configured_catalog
         ),
