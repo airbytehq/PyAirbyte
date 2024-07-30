@@ -16,8 +16,10 @@ Regular documentation lives in the `/docs` folder. Based on the doc strings of p
 To generate the documentation, run:
 
 ```console
-poetry run generate-docs
+poe generate-docs
 ```
+
+or `poetry run poe generate-docs` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
 
 The `generate-docs` CLI command is mapped to the `run()` function of `docs/generate.py`.
 

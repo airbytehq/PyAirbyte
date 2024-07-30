@@ -322,6 +322,8 @@ coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && mypy . && pytest --collect-only -qq" }
 
+docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, shell = "generate-docs && open docs/generated/index.html" }
+
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
 fix-and-check = { shell = "poe fix && poe check" }
