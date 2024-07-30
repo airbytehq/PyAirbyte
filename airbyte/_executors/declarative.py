@@ -40,7 +40,7 @@ class DeclarativeExecutor(Executor):
 
     def __init__(
         self,
-        manifest: str | dict | Path,
+        manifest: dict | Path,
     ) -> None:
         """Initialize a declarative executor.
 
@@ -52,10 +52,6 @@ class DeclarativeExecutor(Executor):
         self._manifest_dict: dict
         if isinstance(manifest, Path):
             self._manifest_dict = cast(dict, json.loads(manifest.read_text()))
-
-        elif isinstance(manifest, str):
-            # TODO: Implement HTTP path parsing
-            raise NotImplementedError("HTTP path parsing is not yet implemented.")
 
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
