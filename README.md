@@ -25,7 +25,7 @@ To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contribu
 ## Frequently asked Questions
 
 **1. Does PyAirbyte replace Airbyte?**
-No. PyAirbyte is a Python library that allows you to use Airbyte connectors in Python but it does not have orchestration
+No. PyAirbyte is a Python library that allows you to use Airbyte connectors in Python, but it does not have orchestration
 or scheduling capabilities, nor does is provide logging, alerting, or other features for managing pipelines in
 production. Airbyte is a full-fledged data integration platform that provides connectors, orchestration, and scheduling capabilities.
 
