@@ -47,3 +47,10 @@ class BigQueryCache(BigQueryConfig, CacheBase):
             "BigQuery doesn't currently support to_arrow"
             "Please consider using a different cache implementation for these functionalities."
         )
+
+
+# Expose the Cache class and also the Config class.
+__all__ = [
+    "BigQueryCache",
+    "BigQueryConfig",
+]
