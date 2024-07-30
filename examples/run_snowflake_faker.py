@@ -12,6 +12,9 @@ from airbyte.caches import SnowflakeCache
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
+SCALE = 10_000
+
+
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 secret_mgr = GoogleGSMSecretManager(
     project=AIRBYTE_INTERNAL_GCP_PROJECT,
@@ -36,12 +39,14 @@ cache = SnowflakeCache(
 
 source = ab.get_source(
     "source-faker",
-    config={"count": 10000, "seed": 0, "parallelism": 1, "always_updated": False},
+    config={
+        "count": SCALE,
+    },
     install_if_missing=True,
+    streams="*",
 )
 source.check()
 
-source.select_streams(["products"])
 result = source.read(cache)
 
 for name in ["products"]:

@@ -30,6 +30,7 @@ def test_telemetry_track(monkeypatch, source_test_registry):
 
     telemetry.send_telemetry(
         source=source_test,
+        destination=None,
         cache=cache,
         state=telemetry.EventState.STARTED,
         number_of_records=0,
@@ -89,6 +90,7 @@ def test_do_not_track(
 
     telemetry.send_telemetry(
         source=source_test,
+        destination=None,
         cache=cache,
         state=telemetry.EventState.STARTED,
         number_of_records=0,

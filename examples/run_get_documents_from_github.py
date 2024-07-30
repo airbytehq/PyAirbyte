@@ -3,9 +3,8 @@
 
 from __future__ import annotations
 
-import rich
-
 import airbyte as ab
+import rich
 
 
 def main() -> None:
@@ -13,7 +12,9 @@ def main() -> None:
         "source-github",
         config={
             "repositories": ["airbytehq/quickstarts"],
-            "credentials": {"personal_access_token": ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")},
+            "credentials": {
+                "personal_access_token": ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")
+            },
         },
         streams=["issues"],
     ).read()

@@ -19,7 +19,7 @@ class BatchHandle:
         stream_name: str,
         batch_id: str,
         files: list[Path],
-        file_opener: Callable[[Path], IO[bytes]],
+        file_opener: Callable[[Path], IO[str]],
     ) -> None:
         """Initialize the batch handle."""
         self._stream_name = stream_name
@@ -27,7 +27,7 @@ class BatchHandle:
         self._files = files
         self._record_count = 0
         assert self._files, "A batch must have at least one file."
-        self._open_file_writer: IO[bytes] = file_opener(self._files[0])
+        self._open_file_writer: IO[str] = file_opener(self._files[0])
 
         # Marker for whether the batch has been finalized.
         self.finalized: bool = False
@@ -57,7 +57,7 @@ class BatchHandle:
         self._record_count += 1
 
     @property
-    def open_file_writer(self) -> IO[bytes] | None:
+    def open_file_writer(self) -> IO[str] | None:
         """Return the open file writer, if any, or None."""
         return self._open_file_writer
 

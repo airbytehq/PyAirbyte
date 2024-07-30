@@ -36,7 +36,8 @@ def test_nocode_connectors_setup(connector_name: str) -> None:
         )
     except Exception as ex:
         raise AssertionError(
-            f"Expected '{connector_name}' init success but got '{type(ex).__name__}': {ex}"
+            f"Expected '{connector_name}' init success but got '{type(ex).__name__}'."
+            f"You may need to update the `_LOWCODE_CONNECTORS_NEEDING_PYTHON` declaration. \n{ex}"
         )
 
 

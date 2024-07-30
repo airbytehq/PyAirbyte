@@ -38,7 +38,9 @@ In addition, the following principles are applied for exception class design:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
 
@@ -259,6 +261,24 @@ class AirbyteConnectorError(PyAirbyteError):
 
     connector_name: str | None = None
 
+    def __post_init__(self) -> None:
+        """Log the error message when the exception is raised."""
+        if self.connector_name:
+            logger = logging.getLogger(f"airbyte.{self.connector_name}")
+            if self.connector_name:
+                logger.error(str(self))
+            else:
+                logger.error(str(self))
+
+            log_paths: list[Path] = [
+                Path(handler.baseFilename).absolute()
+                for handler in logger.handlers
+                if isinstance(handler, logging.FileHandler)
+            ]
+
+            if log_paths:
+                print(f"Connector logs: {', '.join(str(path) for path in log_paths)}")
+
 
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):
     """Connector executable not found."""
@@ -269,6 +289,18 @@ class AirbyteConnectorInstallationError(AirbyteConnectorError):
 
 
 class AirbyteConnectorReadError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorWriteError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorSpecFailedError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorDiscoverFailedError(AirbyteConnectorError):
     """Error when reading from the connector."""
 
 
@@ -310,6 +342,14 @@ class AirbyteConnectorFailedError(AirbyteConnectorError):
 @dataclass
 class AirbyteStreamNotFoundError(AirbyteConnectorError):
     """Connector stream not found."""
+
+    stream_name: str | None = None
+    available_streams: list[str] | None = None
+
+
+@dataclass
+class AirbyteStateNotFoundError(AirbyteConnectorError, KeyError):
+    """State entry not found."""
 
     stream_name: str | None = None
     available_streams: list[str] | None = None
@@ -421,3 +461,18 @@ class AirbyteMultipleResourcesError(AirbyteError):
 
 class AirbyteExperimentalFeatureWarning(FutureWarning):
     """Warning whenever using experimental features in PyAirbyte."""
+
+
+# PyAirbyte Warnings
+
+
+class PyAirbyteWarning(Warning):
+    """General warnings from PyAirbyte."""
+
+
+class PyAirbyteDataLossWarning(PyAirbyteWarning):
+    """Warning for potential data loss.
+
+    Users can ignore this warning by running:
+    > warnings.filterwarnings("ignore", category="airbyte.exceptions.PyAirbyteDataLossWarning")
+    """

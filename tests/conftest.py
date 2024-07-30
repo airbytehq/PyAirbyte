@@ -19,8 +19,8 @@ import psycopg2 as psycopg
 import pytest
 import ulid
 from _pytest.nodes import Item
-from airbyte._executor import _get_bin_dir
 from airbyte._util.meta import is_windows
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
@@ -79,14 +79,28 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     items.sort(key=test_priority)
 
     for item in items:
+        # TODO: Remove this 'skip' once Cloud Workspace issue is resolved.
+        #       (Test user apparently deleted.)
+        if (
+            "cloud_workspace_id" in item.fixturenames
+            or "cloud_workspace_id" in item.fixturenames
+        ):
+            item.add_marker(
+                pytest.mark.skip(
+                    reason="Skipping cloud tests. (FIXME: test user deleted.)"
+                )
+            )
+
         # Skip tests that require Docker if Docker is not available (including on Windows).
         if (
             "new_postgres_cache" in item.fixturenames
             or "postgres_cache" in item.fixturenames
             or "source_docker_faker_seed_a" in item.fixturenames
             or "source_docker_faker_seed_b" in item.fixturenames
+            or "new_duckdb_destination_executor" in item.fixturenames
+            or "e2e_test_destination" in item.fixturenames
         ):
-            if True or not is_docker_available():
+            if not is_docker_available():
                 item.add_marker(
                     pytest.mark.skip(reason="Skipping tests (Docker not available)")
                 )
@@ -153,10 +167,11 @@ def is_docker_available():
 
 
 @pytest.fixture(scope="session")
-def new_postgres_cache():
-    """Fixture to return a fresh Postgres cache.
+def new_postgres_db():
+    """Fixture to start a new PostgreSQL container for testing.
 
-    Each test that uses this fixture will get a unique table prefix.
+    This fixture will start a new PostgreSQL container before the tests run and stop it after the
+    tests are done. The host of the PostgreSQL database will be returned to the tests.
     """
     client = docker.from_env()
     try:
@@ -211,8 +226,21 @@ def new_postgres_cache():
     if final_host is None:
         raise Exception(f"Failed to connect to the PostgreSQL database on host {host}.")
 
+    yield final_host
+
+    # Stop and remove the container after the tests are done
+    postgres.stop()
+    postgres.remove()
+
+
+@pytest.fixture(scope="function")
+def new_postgres_cache(new_postgres_db: str):
+    """Fixture to return a fresh Postgres cache.
+
+    Each test that uses this fixture will get a unique table prefix.
+    """
     config = PostgresCache(
-        host=final_host,
+        host=new_postgres_db,
         port=PYTEST_POSTGRES_PORT,
         username="postgres",
         password="postgres",
@@ -222,10 +250,6 @@ def new_postgres_cache():
         table_prefix=f"test{str(ulid.ULID())[-6:]}_",
     )
     yield config
-
-    # Stop and remove the container after the tests are done
-    postgres.stop()
-    postgres.remove()
 
 
 @pytest.fixture(autouse=False)
@@ -278,7 +302,7 @@ def source_test_installation():
         shutil.rmtree(venv_dir)
 
     subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-    pip_path = str(_get_bin_dir(Path(venv_dir)) / "pip")
+    pip_path = str(get_bin_dir(Path(venv_dir)) / "pip")
     subprocess.run(
         [pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"],
         check=True,

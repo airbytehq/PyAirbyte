@@ -2,148 +2,26 @@
 from __future__ import annotations
 
 import shlex
-import shutil
 import subprocess
 import sys
-from abc import ABC, abstractmethod
-from contextlib import contextmanager, suppress
+from contextlib import suppress
 from pathlib import Path
 from shutil import rmtree
-from typing import IO, TYPE_CHECKING, Any, NoReturn, cast
+from typing import TYPE_CHECKING
 
 from overrides import overrides
 from rich import print
 from typing_extensions import Literal
 
 from airbyte import exceptions as exc
+from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
-from airbyte.sources.registry import ConnectorMetadata
+from airbyte._util.venv_util import get_bin_dir
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
-
-
-_LATEST_VERSION = "latest"
-
-
-def _get_bin_dir(venv_path: Path, /) -> Path:
-    """Get the directory where executables are installed."""
-    if is_windows():
-        return venv_path / "Scripts"
-
-    return venv_path / "bin"
-
-
-class Executor(ABC):
-    def __init__(
-        self,
-        *,
-        name: str | None = None,
-        metadata: ConnectorMetadata | None = None,
-        target_version: str | None = None,
-    ) -> None:
-        """Initialize a connector executor.
-
-        The 'name' param is required if 'metadata' is None.
-        """
-        if not name and not metadata:
-            raise exc.PyAirbyteInternalError(message="Either name or metadata must be provided.")
-
-        self.name: str = name or cast(ConnectorMetadata, metadata).name  # metadata is not None here
-        self.metadata: ConnectorMetadata | None = metadata
-        self.enforce_version: bool = target_version is not None
-
-        self.reported_version: str | None = None
-        self.target_version: str | None = None
-        if target_version:
-            if metadata and target_version == _LATEST_VERSION:
-                self.target_version = metadata.latest_available_version
-            else:
-                self.target_version = target_version
-
-    @abstractmethod
-    def execute(self, args: list[str]) -> Iterator[str]:
-        pass
-
-    @abstractmethod
-    def ensure_installation(self, *, auto_fix: bool = True) -> None:
-        _ = auto_fix
-        pass
-
-    @abstractmethod
-    def install(self) -> None:
-        pass
-
-    @abstractmethod
-    def uninstall(self) -> None:
-        pass
-
-    def get_installed_version(
-        self,
-        *,
-        raise_on_error: bool = False,
-        recheck: bool = False,
-    ) -> str | None:
-        """Detect the version of the connector installed."""
-        _ = raise_on_error, recheck  # Unused
-        raise NotImplementedError(
-            f"'{type(self).__name__}' class cannot yet detect connector versions."
-        )
-
-
-@contextmanager
-def _stream_from_subprocess(args: list[str]) -> Generator[Iterable[str], None, None]:
-    process = subprocess.Popen(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        universal_newlines=True,
-        encoding="utf-8",
-    )
-
-    def _stream_from_file(file: IO[str]) -> Generator[str, Any, None]:
-        while True:
-            line = file.readline()
-            if not line:
-                break
-            yield line
-
-    if process.stdout is None:
-        raise exc.AirbyteSubprocessError(
-            message="Subprocess did not return a stdout stream.",
-            context={
-                "args": args,
-                "returncode": process.returncode,
-            },
-        )
-    try:
-        yield _stream_from_file(process.stdout)
-    finally:
-        # Close the stdout stream
-        if process.stdout:
-            process.stdout.close()
-
-        # Terminate the process if it is still running
-        if process.poll() is None:  # Check if the process is still running
-            process.terminate()
-            try:
-                # Wait for a short period to allow process to terminate gracefully
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                # If the process does not terminate within the timeout, force kill it
-                process.kill()
-
-        # Now, the process is either terminated or killed. Check the exit code.
-        exit_code = process.wait()
-
-        # If the exit code is not 0 or -15 (SIGTERM), raise an exception
-        if exit_code not in {0, -15}:
-            raise exc.AirbyteSubprocessFailedError(
-                run_args=args,
-                exit_code=exit_code,
-            )
+    from airbyte.sources.registry import ConnectorMetadata
 
 
 class VenvExecutor(Executor):
@@ -191,12 +69,12 @@ class VenvExecutor(Executor):
 
     def _get_connector_path(self) -> Path:
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
-        return _get_bin_dir(self._get_venv_path()) / (self.name + suffix)
+        return get_bin_dir(self._get_venv_path()) / (self.name + suffix)
 
     @property
     def interpreter_path(self) -> Path:
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
-        return _get_bin_dir(self._get_venv_path()) / ("python" + suffix)
+        return get_bin_dir(self._get_venv_path()) / ("python" + suffix)
 
     def _run_subprocess_and_raise_on_failure(self, args: list[str]) -> None:
         result = subprocess.run(
@@ -234,7 +112,7 @@ class VenvExecutor(Executor):
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
         )
 
-        pip_path = str(_get_bin_dir(self._get_venv_path()) / "pip")
+        pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
         print(
             f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
             f"Running 'pip install {self.pip_url}'...\n"
@@ -407,114 +285,7 @@ class VenvExecutor(Executor):
                         },
                     )
 
-    def execute(self, args: list[str]) -> Iterator[str]:
-        connector_path = self._get_connector_path()
-
-        with _stream_from_subprocess([str(connector_path), *args]) as stream:
-            yield from stream
-
-
-class PathExecutor(Executor):
-    def __init__(
-        self,
-        name: str | None = None,
-        *,
-        path: Path,
-        target_version: str | None = None,
-    ) -> None:
-        """Initialize a connector executor that runs a connector from a local path.
-
-        If path is simply the name of the connector, it will be expected to exist in the current
-        PATH or in the current working directory.
-        """
-        self.path: Path = path
-        name = name or path.name
-        super().__init__(name=name, target_version=target_version)
-
-    def ensure_installation(
-        self,
-        *,
-        auto_fix: bool = True,
-    ) -> None:
-        """Ensure that the connector executable can be found.
-
-        The auto_fix parameter is ignored for this executor type.
-        """
-        _ = auto_fix
-        try:
-            self.execute(["spec"])
-        except Exception as e:
-            # TODO: Improve error handling. We should try to distinguish between
-            #       a connector that is not installed and a connector that is not
-            #       working properly.
-            raise exc.AirbyteConnectorExecutableNotFoundError(
-                connector_name=self.name,
-            ) from e
-
-    def install(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be installed because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
-
-    def uninstall(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be uninstalled because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
-
-    def execute(self, args: list[str]) -> Iterator[str]:
-        with _stream_from_subprocess([str(self.path), *args]) as stream:
-            yield from stream
-
-
-class DockerExecutor(Executor):
-    def __init__(
-        self,
-        name: str | None = None,
-        *,
-        executable: list[str],
-        target_version: str | None = None,
-    ) -> None:
-        self.executable: list[str] = executable
-        name = name or executable[0]
-        super().__init__(name=name, target_version=target_version)
-
-    def ensure_installation(
-        self,
-        *,
-        auto_fix: bool = True,
-    ) -> None:
-        """Ensure that the connector executable can be found.
-
-        The auto_fix parameter is ignored for this executor type.
-        """
-        _ = auto_fix
-        try:
-            assert (
-                shutil.which("docker") is not None
-            ), "Docker couldn't be found on your system. Please Install it."
-            self.execute(["spec"])
-        except Exception as e:
-            # TODO: Improve error handling. We should try to distinguish between
-            #       a connector that is not installed and a connector that is not
-            #       working properly.
-            raise exc.AirbyteConnectorExecutableNotFoundError(
-                connector_name=self.name,
-            ) from e
-
-    def install(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be installed because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
-
-    def uninstall(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be uninstalled because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
-
-    def execute(self, args: list[str]) -> Iterator[str]:
-        with _stream_from_subprocess([*self.executable, *args]) as stream:
-            yield from stream
+    @property
+    def _cli(self) -> list[str]:
+        """Get the base args of the CLI executable."""
+        return [str(self._get_connector_path())]

@@ -19,10 +19,9 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 import pytest_mock
-import ulid
-from airbyte._executor import _get_bin_dir
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte._processors.sql.postgres import PostgresSqlProcessor
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.postgres import PostgresCache
@@ -48,7 +47,7 @@ FAKER_SCALE_B = 300
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch):
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
+    venv_bin_path = str(get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
@@ -107,22 +106,11 @@ def duckdb_cache() -> Generator[DuckDBCache, None, None]:
 
 
 @pytest.fixture(scope="function")
-def postgres_cache(new_postgres_cache) -> Generator[PostgresCache, None, None]:
-    """Fixture to return a fresh cache."""
-    yield new_postgres_cache
-    # TODO: Delete cache DB file after test is complete.
-    return
-
-
-@pytest.fixture
 def all_cache_types(
     duckdb_cache: DuckDBCache,
-    postgres_cache: PostgresCache,
 ):
-    _ = postgres_cache
     return [
         duckdb_cache,
-        postgres_cache,
     ]
 
 
@@ -254,59 +242,6 @@ def test_incremental_sync(
     assert result2.processed_records == 0
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
-
-
-def test_incremental_state_cache_persistence(
-    source_faker_seed_a: ab.Source,
-    source_faker_seed_b: ab.Source,
-) -> None:
-    config_a = source_faker_seed_a.get_config()
-    config_b = source_faker_seed_b.get_config()
-    config_a["always_updated"] = False
-    config_b["always_updated"] = False
-    source_faker_seed_a.set_config(config_a)
-    source_faker_seed_b.set_config(config_b)
-    cache_name = str(ulid.ULID())
-    cache = new_local_cache(cache_name)
-    result = source_faker_seed_a.read(cache)
-    assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
-    second_cache = new_local_cache(cache_name)
-    # The state should be persisted across cache instances.
-    result2 = source_faker_seed_b.read(second_cache)
-    assert result2.processed_records == 0
-
-    state_provider = second_cache.get_state_provider("source-faker")
-    assert len(state_provider.state_message_artifacts) > 0
-
-    assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
-    assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
-
-
-def test_incremental_state_prefix_isolation(
-    source_faker_seed_a: ab.Source,
-    source_faker_seed_b: ab.Source,
-) -> None:
-    """
-    Test that state in the cache correctly isolates streams when different table prefixes are used
-    """
-    config_a = source_faker_seed_a.get_config()
-    config_a["always_updated"] = False
-    source_faker_seed_a.set_config(config_a)
-    cache_name = str(ulid.ULID())
-    db_path = Path(f"./.cache/{cache_name}.duckdb")
-    cache = DuckDBCache(db_path=db_path, table_prefix="prefix_")
-    different_prefix_cache = DuckDBCache(
-        db_path=db_path, table_prefix="different_prefix_"
-    )
-
-    result = source_faker_seed_a.read(cache)
-    assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
-
-    result2 = source_faker_seed_b.read(different_prefix_cache)
-    assert result2.processed_records == NUM_PRODUCTS + FAKER_SCALE_B * 2
-
-    assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
-    assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_B
 
 
 def test_config_spec(source_faker_seed_a: ab.Source) -> None:

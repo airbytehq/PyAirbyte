@@ -16,7 +16,6 @@ from airbyte.caches.bigquery import BigQueryCache
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
-
 warnings.filterwarnings("ignore", message="Cannot create BigQuery Storage client")
 
 
@@ -49,7 +48,9 @@ def main() -> None:
 
         cache = BigQueryCache(
             project_name=bigquery_destination_secret["project_id"],
-            dataset_name=bigquery_destination_secret.get("dataset_id", "pyairbyte_integtest"),
+            dataset_name=bigquery_destination_secret.get(
+                "dataset_id", "pyairbyte_integtest"
+            ),
             credentials_path=temp.name,
         )
 

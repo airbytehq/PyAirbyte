@@ -10,14 +10,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, final
 
+from airbyte_protocol.models import (
+    ConfiguredAirbyteCatalog,
+)
+
 from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
     from airbyte_protocol.models import (
-        ConfiguredAirbyteCatalog,
         ConfiguredAirbyteStream,
     )
+
+    from airbyte.results import ReadResult
 
 
 class CatalogProvider:
@@ -98,3 +103,18 @@ class CatalogProvider:
     ) -> dict[str, dict]:
         """Return the names of the top-level properties for the given stream."""
         return self.get_stream_json_schema(stream_name)["properties"]
+
+    @classmethod
+    def from_read_result(
+        cls,
+        read_result: ReadResult,
+    ) -> CatalogProvider:
+        """Create a catalog provider from a `ReadResult` object."""
+        return cls(
+            ConfiguredAirbyteCatalog(
+                streams=[
+                    dataset._stream_metadata  # noqa: SLF001  # Non-public API
+                    for dataset in read_result.values()
+                ]
+            )
+        )

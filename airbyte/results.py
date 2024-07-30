@@ -12,17 +12,33 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Engine
 
+    from airbyte._future_cdk.catalog_providers import CatalogProvider
+    from airbyte._future_cdk.state_providers import StateProviderBase
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
+    from airbyte.destinations.base import Destination
+    from airbyte.progress import ProgressTracker
+    from airbyte.sources.base import Source
 
 
 class ReadResult(Mapping[str, CachedDataset]):
+    """The result of a read operation.
+
+    This class is used to return information about the read operation, such as the number of
+    records read. It should not be created directly, but instead returned by the write method
+    of a destination.
+    """
+
     def __init__(
         self,
-        processed_records: int,
-        cache: CacheBase,
+        *,
+        source_name: str,
         processed_streams: list[str],
+        cache: CacheBase,
+        progress_tracker: ProgressTracker,
     ) -> None:
-        self.processed_records = processed_records
+        self.source_name = source_name
+        self._progress_tracker = progress_tracker
         self._cache = cache
         self._processed_streams = processed_streams
 
@@ -48,6 +64,10 @@ class ReadResult(Mapping[str, CachedDataset]):
         return self._cache.get_sql_engine()
 
     @property
+    def processed_records(self) -> int:
+        return self._progress_tracker.total_records_read
+
+    @property
     def streams(self) -> Mapping[str, CachedDataset]:
         return {
             stream_name: CachedDataset(self._cache, stream_name)
@@ -57,3 +77,41 @@ class ReadResult(Mapping[str, CachedDataset]):
     @property
     def cache(self) -> CacheBase:
         return self._cache
+
+
+class WriteResult:
+    """The result of a write operation.
+
+    This class is used to return information about the write operation, such as the number of
+    records written. It should not be created directly, but instead returned by the write method
+    of a destination.
+    """
+
+    def __init__(
+        self,
+        *,
+        destination: Destination,
+        source_data: Source | ReadResult,
+        catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase,
+        progress_tracker: ProgressTracker,
+    ) -> None:
+        self._destination: Destination = destination
+        self._source_data: Source | ReadResult = source_data
+        self._catalog_provider: CatalogProvider = catalog_provider
+        self._state_writer: StateWriterBase = state_writer
+        self._progress_tracker: ProgressTracker = progress_tracker
+
+    @property
+    def processed_records(self) -> int:
+        return self._progress_tracker.total_destination_records_delivered
+
+    def get_state_provider(self) -> StateProviderBase:
+        """Return the state writer as a state provider.
+
+        As a public interface, we only expose the state writer as a state provider. This is because
+        the state writer itself is only intended for internal use. As a state provider, the state
+        writer can be used to read the state artifacts that were written. This can be useful for
+        testing or debugging.
+        """
+        return self._state_writer

@@ -8,13 +8,12 @@ These tests are designed to be run against a running instance of the Airbyte API
 from __future__ import annotations
 
 import ulid
-
 from airbyte._util import api_util
-from airbyte_api.models import SourceFaker, DestinationDuckdb
+from airbyte_api.models import DestinationDuckdb, SourceFaker
 
 
 def test_create_and_delete_source(
-    workspace_id: str,
+    cloud_workspace_id: str,
     airbyte_cloud_api_root: str,
     airbyte_cloud_api_key: str,
 ) -> None:
@@ -24,7 +23,7 @@ def test_create_and_delete_source(
         name=new_resource_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
         config=source_config,
     )
     assert source.name == new_resource_name
@@ -35,12 +34,12 @@ def test_create_and_delete_source(
         source_id=source.source_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
     )
 
 
 def test_create_and_delete_destination(
-    workspace_id: str,
+    cloud_workspace_id: str,
     airbyte_cloud_api_root: str,
     airbyte_cloud_api_key: str,
     motherduck_api_key: str,
@@ -55,7 +54,7 @@ def test_create_and_delete_destination(
         name=new_resource_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
         config=destination_config,
     )
     assert destination.name == new_resource_name
@@ -66,12 +65,12 @@ def test_create_and_delete_destination(
         destination_id=destination.destination_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
     )
 
 
 def test_create_and_delete_connection(
-    workspace_id: str,
+    cloud_workspace_id: str,
     airbyte_cloud_api_root: str,
     airbyte_cloud_api_key: str,
     motherduck_api_key: str,
@@ -83,7 +82,7 @@ def test_create_and_delete_connection(
         name=new_source_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
         config=SourceFaker(),
     )
     assert source.name == new_source_name
@@ -94,7 +93,7 @@ def test_create_and_delete_connection(
         name=new_destination_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
         config=DestinationDuckdb(
             destination_path="temp_db",
             motherduck_api_key=motherduck_api_key,
@@ -108,7 +107,7 @@ def test_create_and_delete_connection(
         name=new_connection_name,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
         source_id=source.source_id,
         destination_id=destination.destination_id,
         prefix="",
@@ -122,17 +121,17 @@ def test_create_and_delete_connection(
         connection_id=connection.connection_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
     )
     api_util.delete_source(
         source_id=source.source_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
     )
     api_util.delete_destination(
         destination_id=destination.destination_id,
         api_root=airbyte_cloud_api_root,
         api_key=airbyte_cloud_api_key,
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
     )

@@ -4,10 +4,8 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
-import jsonschema
-import pendulum
 import yaml
 from rich import print
 from rich.syntax import Syntax
@@ -18,46 +16,41 @@ from airbyte_protocol.models import (
     AirbyteMessage,
     ConfiguredAirbyteCatalog,
     ConfiguredAirbyteStream,
-    ConnectorSpecification,
     DestinationSyncMode,
-    Status,
     SyncMode,
-    TraceType,
     Type,
 )
 
 from airbyte import exceptions as exc
+from airbyte._connector_base import ConnectorBase
 from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._util.telemetry import (
-    EventState,
-    EventType,
-    log_config_validation_result,
-    log_source_check_result,
-    send_telemetry,
-)
+from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
-from airbyte.progress import progress
+from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.strategies import WriteStrategy
-from airbyte.warnings import PyAirbyteDataLossWarning
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
+    from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
-    from airbyte._executor import Executor
+    from airbyte._executors.base import Executor
     from airbyte._future_cdk.state_providers import StateProviderBase
+    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
 
 
-class Source:  # noqa: PLR0904  # Ignore max publish methods
+class Source(ConnectorBase):
     """A class representing a source that can be called."""
+
+    connector_type: Literal["source"] = "source"
 
     def __init__(
         self,
@@ -72,16 +65,19 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         If config is provided, it will be validated against the spec if validate is True.
         """
-        self.executor = executor
-        self.name = name
-        self._processed_records = 0
-        self._stream_names_observed: set[str] = set()
+        self._to_be_selected_streams: list[str] | str = []
+        """Used to hold selection criteria before catalog is known."""
+
+        super().__init__(
+            executor=executor,
+            name=name,
+            config=config,
+            validate=validate,
+        )
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
-        self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
-        self._to_be_selected_streams: list[str] | str = []
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -194,7 +190,8 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
     def _config(self) -> dict[str, Any]:
         if self._config_dict is None:
             raise exc.AirbyteConnectorConfigurationMissingError(
-                guidance="Provide via get_source() or set_config()"
+                connector_name=self.name,
+                guidance="Provide via get_source() or set_config()",
             )
         return self._config_dict
 
@@ -212,38 +209,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 if msg.type == Type.CATALOG and msg.catalog:
                     return msg.catalog
             raise exc.AirbyteConnectorMissingCatalogError(
+                connector_name=self.name,
                 log_text=self._last_log_messages,
             )
-
-    def validate_config(self, config: dict[str, Any] | None = None) -> None:
-        """Validate the config against the spec.
-
-        If config is not provided, the already-set config will be validated.
-        """
-        spec = self._get_spec(force_refresh=False)
-        config = self._config if config is None else config
-        try:
-            jsonschema.validate(config, spec.connectionSpecification)
-            log_config_validation_result(
-                name=self.name,
-                state=EventState.SUCCEEDED,
-            )
-        except jsonschema.ValidationError as ex:
-            validation_ex = exc.AirbyteConnectorValidationFailedError(
-                message="The provided config is not valid.",
-                context={
-                    "error_message": ex.message,
-                    "error_path": ex.path,
-                    "error_instance": ex.instance,
-                    "error_schema": ex.schema,
-                },
-            )
-            log_config_validation_result(
-                name=self.name,
-                state=EventState.FAILED,
-                exception=validation_ex,
-            )
-            raise validation_ex from ex
 
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
@@ -275,6 +243,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             return self._spec
 
         raise exc.AirbyteConnectorMissingSpecError(
+            connector_name=self.name,
             log_text=self._last_log_messages,
         )
 
@@ -374,6 +343,24 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
 
         # Filter for selected streams if set, otherwise use all available streams:
         streams_filter: list[str] = self._selected_stream_names or self.get_available_streams()
+        return self.get_configured_catalog(streams=streams_filter)
+
+    def get_configured_catalog(
+        self,
+        streams: Literal["*"] | list[str] | None = None,
+    ) -> ConfiguredAirbyteCatalog:
+        selected_streams: list[str] = []
+        if streams is None:
+            selected_streams = self._selected_stream_names or self.get_available_streams()
+        elif streams == "*":
+            selected_streams = self.get_available_streams()
+        elif isinstance(streams, list):
+            selected_streams = streams
+        else:
+            raise exc.PyAirbyteInputError(
+                message="Invalid streams argument.",
+                input_value=streams,
+            )
 
         return ConfiguredAirbyteCatalog(
             streams=[
@@ -386,7 +373,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     sync_mode=SyncMode.incremental,
                 )
                 for stream in self.discovered_catalog.streams
-                if stream.name in streams_filter
+                if stream.name in selected_streams
             ],
         )
 
@@ -449,9 +436,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         configured_stream = configured_catalog.streams[0]
 
         def _with_logging(records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-            self._log_sync_start(cache=None)
             yield from records
-            self._log_sync_success(cache=None)
 
         stream_record_handler = StreamRecordHandler(
             json_schema=self.get_stream_json_schema(stream),
@@ -459,28 +444,31 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             normalize_keys=False,
         )
 
-        iterator: Iterator[dict[str, Any]] = _with_logging(
-            records=(  # Generator comprehension yields StreamRecord objects for each record
-                StreamRecord.from_record_message(
-                    record_message=record.record,
-                    stream_record_handler=stream_record_handler,
-                )
-                for record in self._read_with_catalog(configured_catalog)
-                if record.record
-            )
+        # This method is non-blocking, so we use "PLAIN" to avoid a live progress display
+        progress_tracker = ProgressTracker(
+            ProgressStyle.PLAIN,
+            source=self,
+            cache=None,
+            destination=None,
+            expected_streams=[stream],
         )
+
+        iterator: Iterator[dict[str, Any]] = (
+            StreamRecord.from_record_message(
+                record_message=record.record,
+                stream_record_handler=stream_record_handler,
+            )
+            for record in self._read_with_catalog(
+                catalog=configured_catalog,
+                progress_tracker=progress_tracker,
+            )
+            if record.record
+        )
+        progress_tracker.log_success()
         return LazyDataset(
             iterator,
             stream_metadata=configured_stream,
         )
-
-    @property
-    def connector_version(self) -> str | None:
-        """Return the version of the connector as reported by the executor.
-
-        Returns None if the version cannot be determined.
-        """
-        return self.executor.get_installed_version()
 
     def get_documents(
         self,
@@ -506,62 +494,29 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             render_metadata=render_metadata,
         )
 
-    def check(self) -> None:
-        """Call check on the connector.
-
-        This involves the following steps:
-        * Write the config to a temporary file
-        * execute the connector with check --config <config_file>
-        * Listen to the messages and return the first AirbyteCatalog that comes along.
-        * Make sure the subprocess is killed when the function returns.
-        """
-        with as_temp_files([self._config]) as [config_file]:
-            try:
-                for msg in self._execute(["check", "--config", config_file]):
-                    if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
-                        if msg.connectionStatus.status != Status.FAILED:
-                            print(f"Connection check succeeded for `{self.name}`.")
-                            log_source_check_result(
-                                name=self.name,
-                                state=EventState.SUCCEEDED,
-                            )
-                            return
-
-                        log_source_check_result(
-                            name=self.name,
-                            state=EventState.FAILED,
-                        )
-                        raise exc.AirbyteConnectorCheckFailedError(
-                            help_url=self.docs_url,
-                            context={
-                                "failure_reason": msg.connectionStatus.message,
-                            },
-                        )
-                raise exc.AirbyteConnectorCheckFailedError(log_text=self._last_log_messages)
-            except exc.AirbyteConnectorReadError as ex:
-                raise exc.AirbyteConnectorCheckFailedError(
-                    message="The connector failed to check the connection.",
-                    log_text=ex.log_text,
-                ) from ex
-
-    def install(self) -> None:
-        """Install the connector if it is not yet installed."""
-        self.executor.install()
-        print("For configuration instructions, see: \n" f"{self.docs_url}#reference\n")
-
-    def uninstall(self) -> None:
-        """Uninstall the connector if it is installed.
-
-        This only works if the use_local_install flag wasn't used and installation is managed by
-        PyAirbyte.
-        """
-        self.executor.uninstall()
+    def _get_airbyte_message_iterator(
+        self,
+        *,
+        streams: Literal["*"] | list[str] | None = None,
+        state_provider: StateProviderBase | None = None,
+        progress_tracker: ProgressTracker,
+        force_full_refresh: bool = False,
+    ) -> AirbyteMessageIterator:
+        """Get an AirbyteMessageIterator for this source."""
+        return AirbyteMessageIterator(
+            self._read_with_catalog(
+                catalog=self.get_configured_catalog(streams=streams),
+                state=state_provider if not force_full_refresh else None,
+                progress_tracker=progress_tracker,
+            )
+        )
 
     def _read_with_catalog(
         self,
         catalog: ConfiguredAirbyteCatalog,
+        progress_tracker: ProgressTracker,
         state: StateProviderBase | None = None,
-    ) -> Iterator[AirbyteMessage]:
+    ) -> Generator[AirbyteMessage, None, None]:
         """Call read on the connector.
 
         This involves the following steps:
@@ -571,7 +526,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        self._processed_records = 0  # Reset the counter before we start
         with as_temp_files(
             [
                 self._config,
@@ -583,88 +537,41 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             catalog_file,
             state_file,
         ]:
-            yield from self._tally_records(
-                self._execute(
-                    [
-                        "read",
-                        "--config",
-                        config_file,
-                        "--catalog",
-                        catalog_file,
-                        "--state",
-                        state_file,
-                    ],
-                )
+            message_generator = self._execute(
+                [
+                    "read",
+                    "--config",
+                    config_file,
+                    "--catalog",
+                    catalog_file,
+                    "--state",
+                    state_file,
+                ],
             )
+            yield from progress_tracker.tally_records_read(message_generator)
+        progress_tracker.log_read_complete()
 
-    def _add_to_logs(self, message: str) -> None:
-        self._last_log_messages.append(message)
-        self._last_log_messages = self._last_log_messages[-10:]
-
-    def _execute(self, args: list[str]) -> Iterator[AirbyteMessage]:
-        """Execute the connector with the given arguments.
-
-        This involves the following steps:
-        * Locate the right venv. It is called ".venv-<connector_name>"
-        * Spawn a subprocess with .venv-<connector_name>/bin/<connector-name> <args>
-        * Read the output line by line of the subprocess and serialize them AirbyteMessage objects.
-          Drop if not valid.
-        """
-        # Fail early if the connector is not installed.
-        self.executor.ensure_installation(auto_fix=False)
-
-        try:
-            self._last_log_messages = []
-            for line in self.executor.execute(args):
-                try:
-                    message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
-                    if message.type is Type.RECORD:
-                        self._processed_records += 1
-                        if message.record.stream not in self._stream_names_observed:
-                            self._stream_names_observed.add(message.record.stream)
-                            self._log_stream_read_start(message.record.stream)
-                    if message.type == Type.LOG:
-                        self._add_to_logs(message.log.message)
-                    if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-                        self._add_to_logs(message.trace.error.message)
-                    yield message
-                except Exception:
-                    self._add_to_logs(line)
-        except Exception as e:
-            raise exc.AirbyteConnectorReadError(
-                log_text=self._last_log_messages,
-            ) from e
-
-    def _tally_records(
+    def _peek_airbyte_message(
         self,
-        messages: Iterable[AirbyteMessage],
-    ) -> Generator[AirbyteMessage, Any, None]:
-        """This method simply tallies the number of records processed and yields the messages."""
-        self._processed_records = 0  # Reset the counter before we start
-        progress.reset(len(self._selected_stream_names or []))
-
-        for message in messages:
-            yield message
-            progress.log_records_read(new_total_count=self._processed_records)
-
-    def _log_sync_start(
-        self,
+        message: AirbyteMessage,
         *,
-        cache: CacheBase | None,
+        raise_on_error: bool = True,
     ) -> None:
-        """Log the start of a sync operation."""
-        print(f"Started `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}...")
-        send_telemetry(
-            source=self,
-            cache=cache,
-            state=EventState.STARTED,
-            event_type=EventType.SYNC,
-        )
+        """Process an Airbyte message.
+
+        This method handles reading Airbyte messages and taking action, if needed, based on the
+        message type. For instance, log messages are logged, records are tallied, and errors are
+        raised as exceptions if `raise_on_error` is True.
+
+        Raises:
+            AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
+        """
+        super()._peek_airbyte_message(message, raise_on_error=raise_on_error)
 
     def _log_incremental_streams(
         self,
         *,
-        incremental_streams: Optional[set[str]] = None,
+        incremental_streams: set[str] | None = None,
     ) -> None:
         """Log the streams which are using incremental sync mode."""
         log_message = (
@@ -673,41 +580,6 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             "To perform a full refresh, set 'force_full_refresh=True' in 'airbyte.read()' method."
         )
         print(log_message)
-
-    def _log_stream_read_start(self, stream: str) -> None:
-        print(f"Read started on stream: {stream} at {pendulum.now().format('HH:mm:ss')}...")
-
-    def _log_sync_success(
-        self,
-        *,
-        cache: CacheBase | None,
-    ) -> None:
-        """Log the success of a sync operation."""
-        print(f"Completed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
-        send_telemetry(
-            source=self,
-            cache=cache,
-            state=EventState.SUCCEEDED,
-            number_of_records=self._processed_records,
-            event_type=EventType.SYNC,
-        )
-
-    def _log_sync_failure(
-        self,
-        *,
-        cache: CacheBase | None,
-        exception: Exception,
-    ) -> None:
-        """Log the failure of a sync operation."""
-        print(f"Failed `{self.name}` read operation at {pendulum.now().format('HH:mm:ss')}.")
-        send_telemetry(
-            state=EventState.FAILED,
-            source=self,
-            cache=cache,
-            number_of_records=self._processed_records,
-            exception=exception,
-            event_type=EventType.SYNC,
-        )
 
     def read(
         self,
@@ -721,7 +593,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
         """Read from the connector and write to the cache.
 
         Args:
-            cache: The cache to write to. If None, a default cache will be used.
+            cache: The cache to write to. If not set, a default cache will be used.
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
@@ -736,6 +608,71 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
         """
+        cache = cache or get_default_cache()
+        progress_tracker = ProgressTracker(
+            source=self,
+            cache=cache,
+            destination=None,
+            expected_streams=None,  # Will be set later
+        )
+
+        # Set up state provider if not in full refresh mode
+        if force_full_refresh:
+            state_provider: StateProviderBase | None = None
+        else:
+            state_provider = cache.get_state_provider(
+                source_name=self.name,
+            )
+        state_writer = cache.get_state_writer(source_name=self.name)
+
+        if streams:
+            self.select_streams(streams)
+
+        if not self._selected_stream_names:
+            raise exc.PyAirbyteNoStreamsSelectedError(
+                connector_name=self.name,
+                available_streams=self.get_available_streams(),
+            )
+
+        try:
+            result = self._read_to_cache(
+                cache=cache,
+                catalog_provider=CatalogProvider(self.configured_catalog),
+                stream_names=self._selected_stream_names,
+                state_provider=state_provider,
+                state_writer=state_writer,
+                write_strategy=write_strategy,
+                force_full_refresh=force_full_refresh,
+                skip_validation=skip_validation,
+                progress_tracker=progress_tracker,
+            )
+        except exc.PyAirbyteInternalError as ex:
+            progress_tracker.log_failure(exception=ex)
+            raise exc.AirbyteConnectorFailedError(
+                connector_name=self.name,
+                log_text=self._last_log_messages,
+            ) from ex
+        except Exception as ex:
+            progress_tracker.log_failure(exception=ex)
+            raise
+
+        progress_tracker.log_success()
+        return result
+
+    def _read_to_cache(  # noqa: PLR0913  # Too many arguments
+        self,
+        cache: CacheBase,
+        *,
+        catalog_provider: CatalogProvider,
+        stream_names: list[str],
+        state_provider: StateProviderBase | None,
+        state_writer: StateWriterBase | None,
+        write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
+        force_full_refresh: bool = False,
+        skip_validation: bool = False,
+        progress_tracker: ProgressTracker,
+    ) -> ReadResult:
+        """Internal read method."""
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(
                 message=(
@@ -745,7 +682,7 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     'warnings.filterwarnings("ignore", '
                     'category="airbyte.warnings.PyAirbyteDataLossWarning")`'
                 ),
-                category=PyAirbyteDataLossWarning,
+                category=exc.PyAirbyteDataLossWarning,
                 stacklevel=1,
             )
         if isinstance(write_strategy, str):
@@ -760,32 +697,9 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
                     },
                 ) from None
 
-        if streams:
-            self.select_streams(streams)
-
-        if not self._selected_stream_names:
-            raise exc.PyAirbyteNoStreamsSelectedError(
-                connector_name=self.name,
-                available_streams=self.get_available_streams(),
-            )
-
         # Run optional validation step
         if not skip_validation:
             self.validate_config()
-
-        # Set up cache and related resources
-        if cache is None:
-            cache = get_default_cache()
-
-        # Set up state provider if not in full refresh mode
-        if force_full_refresh:
-            state_provider: StateProviderBase | None = None
-        else:
-            state_provider = cache.get_state_provider(
-                source_name=self.name,
-            )
-
-        self._log_sync_start(cache=cache)
 
         # Log incremental stream if incremental streams are known
         if state_provider and state_provider.known_stream_names:
@@ -798,31 +712,28 @@ class Source:  # noqa: PLR0904  # Ignore max publish methods
             if incremental_streams:
                 self._log_incremental_streams(incremental_streams=incremental_streams)
 
+        airbyte_message_iterator: Iterator[AirbyteMessage] = self._read_with_catalog(
+            catalog=catalog_provider.configured_catalog,
+            state=state_provider,
+            progress_tracker=progress_tracker,
+        )
         cache_processor = cache.get_record_processor(
             source_name=self.name,
-            catalog_provider=CatalogProvider(self.configured_catalog),
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
         )
-        try:
-            cache_processor.process_airbyte_messages(
-                self._read_with_catalog(
-                    catalog=self.configured_catalog,
-                    state=state_provider,
-                ),
-                write_strategy=write_strategy,
-            )
+        cache_processor.process_airbyte_messages(
+            messages=airbyte_message_iterator,
+            write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
+        )
+        progress_tracker.log_cache_processing_complete()
 
-        # TODO: We should catch more specific exceptions here
-        except Exception as ex:
-            self._log_sync_failure(cache=cache, exception=ex)
-            raise exc.AirbyteConnectorFailedError(
-                log_text=self._last_log_messages,
-            ) from ex
-
-        self._log_sync_success(cache=cache)
         return ReadResult(
-            processed_records=self._processed_records,
+            source_name=self.name,
+            progress_tracker=progress_tracker,
+            processed_streams=stream_names,
             cache=cache,
-            processed_streams=[stream.stream.name for stream in self.configured_catalog.streams],
         )
 
 

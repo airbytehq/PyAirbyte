@@ -11,10 +11,12 @@ from __future__ import annotations
 import airbyte as ab
 from airbyte import get_source
 
-
 yaml_connectors: list[str] = ab.get_available_connectors(install_type="yaml")
 
-print(f"Downloadable yaml sources ({len(yaml_connectors)}): \n- " + "\n- ".join(yaml_connectors))
+print(
+    f"Downloadable yaml sources ({len(yaml_connectors)}): \n- "
+    + "\n- ".join(yaml_connectors)
+)
 
 failed_installs: dict[str, list[str]] = {}
 
