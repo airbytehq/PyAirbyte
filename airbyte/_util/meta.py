@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
@@ -18,6 +19,21 @@ import requests
 
 COLAB_SESSION_URL = "http://172.28.0.12:9000/api/sessions"
 """URL to get the current Google Colab session information."""
+
+
+@lru_cache
+def get_logging_root() -> Path:
+    """Return the root directory for logs.
+
+    This is the directory where logs are stored.
+    """
+    if "AIRBYTE_LOGGING_ROOT" in os.environ:
+        log_root = Path(os.environ["AIRBYTE_LOGGING_ROOT"])
+    else:
+        log_root = Path(tempfile.gettempdir()) / "airbyte" / "logs"
+
+    log_root.mkdir(parents=True, exist_ok=True)
+    return log_root
 
 
 def get_colab_release_version() -> str | None:

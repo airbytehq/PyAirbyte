@@ -66,7 +66,6 @@ def _stream_from_subprocess(
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
     exception_holder = ExceptionHolder()
-    Path.mkdir(Path.cwd() / "logs", exist_ok=True)
     if isinstance(stdin, AirbyteMessageIterator):
         process = subprocess.Popen(
             args,
