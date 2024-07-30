@@ -1,6 +1,9 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Secrets management for PyAirbyte.
 
+PyAirbyte provides a secrets management system that allows you to securely store and retrieve
+sensitive information. This module provides the secrets functionality.
+
 ## Secrets Management
 
 PyAirbyte can auto-import secrets from the following sources:
@@ -46,6 +49,16 @@ The naming convention for secrets is as `{CONNECTOR_NAME}_{PROPERTY_NAME}`, for 
 
 PyAirbyte will also auto-discover secrets for interop with hosted Airbyte: `AIRBYTE_CLOUD_API_URL`,
 `AIRBYTE_CLOUD_API_KEY`, etc.
+
+## Custom Secret Managers
+
+If you need to build your own secret manager, you can subclass the
+`airbyte.secrets.CustomSecretManager` class. This allows you to build a custom secret manager that
+can be used with the `get_secret()` function, securely storing and retrieving secrets as needed.
+
+## API Reference
+
+_Below are the classes and functions available in the `airbyte.secrets` module._
 
 """
 

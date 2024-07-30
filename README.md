@@ -25,7 +25,7 @@ Watch this [Getting Started Loom video](https://www.loom.com/share/3de81ca3ce914
 
 ## Contributing
 
-To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./CONTRIBUTING.md).
+To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./docs/CONTRIBUTING.md).
 
 ## Frequently asked Questions
 

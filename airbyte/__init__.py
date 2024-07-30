@@ -1,8 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """PyAirbyte brings Airbyte ELT to every Python developer.
 
-# PyAirbyte
-
 PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provides a set of
 utilities to use Airbyte connectors in Python.
 
@@ -14,10 +12,12 @@ utilities to use Airbyte connectors in Python.
 [![PyPI - Format](https://img.shields.io/pypi/format/airbyte)](https://pypi.org/project/airbyte/)
 [![Star on GitHub](https://img.shields.io/github/stars/airbytehq/pyairbyte.svg?style=social&label=★%20on%20GitHub)](https://github.com/airbytehq/pyairbyte)
 
+# Getting Started
+
 ## Reading Data
 
-You can connect to hundreds of sources using the `get_source` method. You can then read
-data from sources using `Source.read` method.
+You can connect to any of [hundreds of sources](https://docs.airbyte.com/integrations/sources/)
+using the `get_source` method. You can then read data from sources using `Source.read` method.
 
 ```python
 from airbyte import get_source
@@ -34,7 +34,7 @@ for record in read_result["users"].records:
 
 For more information, see the `airbyte.sources` module.
 
-## Writing Data to SQL Databases Using Caches
+## Writing to SQL Caches
 
 Data can be written to caches using a number of SQL-based cache implementations, including
 Postgres, BigQuery, Snowflake, DuckDB, and MotherDuck. If you do not specify a cache, PyAirbyte
@@ -42,81 +42,82 @@ will automatically use a local DuckDB cache by default.
 
 For more information, see the `airbyte.caches` module.
 
-## Writing Data to Destination Connectors
+## Writing to Destination Connectors
 
 Data can be written to destinations using the `Destination.write` method. You can connect to
 destinations using the `get_destination` method. PyAirbyte supports all Airbyte destinations, but
 Docker is required on your machine in order to run Java-based destinations.
 
-When loading to a SQL database, we recommend using SQL cache (see above) instead of a destination.
-This is because SQL caches are Python-native and therefor more portable when run from different
-Python-based environments. Destinations in PyAirbyte are uniquely suited for loading to non-SQL
-platforms and other reverse ETL-type use cases.
+**Note:** When loading to a SQL database, we recommend using SQL cache (where available,
+[see above](#writing-to-sql-caches)) instead of a destination connector. This is because SQL caches
+are Python-native and therefor more portable when run from different Python-based environments which
+might not have Docker container support. Destinations in PyAirbyte are uniquely suited for loading
+to non-SQL platforms such as vector stores and other reverse ETL-type use cases.
 
-For more information, see the `airbyte.destinations` module.
+For more information, see the `airbyte.destinations` module and the full list of destination
+connectors [here](https://docs.airbyte.com/integrations/destinations/).
 
-## Secrets Management
+# PyAirbyte API
 
-PyAirbyte provides a secrets management system that allows you to securely store and retrieve
-sensitive information.
+## Importing as `ab`
 
-The `get_secret` function retrieves secrets from a variety of sources, including environment
-variables, local `.env` files, Google Colab secrets, and manual entry via `getpass`.
+Most examples in the PyAirbyte documentation use the `import airbyte as ab` convention. The `ab`
+alias is recommended and makes often the code more concise and readable. It also saves you from
+digging in submodules to find the classes and functions you need, since frequently-used
+classes and functions are available at the top level of the `airbyte` module.
 
-If you need to build your own secret manager, you can subclass the
-`airbyte.secrets.CustomSecretManager` class.
+## Navigating the API
 
-For more information, see the `airbyte.secrets` module.
+While many PyAirbyte classes and functions are available at the top level of the `airbyte` module,
+you can also import classes and functions from submodules directly. For example, you can import the
+`Source` class from `airbyte` but you can also import it from the `sources` submodule like this:
 
-## Frequently asked Questions
+```python
+from airbyte.sources import Source
+```
 
-**1. Does PyAirbyte replace Airbyte?**
+For quick reference, top-Level modules are listed in the left sidebar of this page.
 
-No. PyAirbyte is a Python library that allows you to use Airbyte connectors in Python but it does
-not have orchestration or scheduling capabilities, nor does is provide logging, alerting, or other
-features for managing data pipelines in production. Airbyte is a full-fledged data integration
-platform that provides connectors, orchestration, and scheduling capabilities.
+# Other Resources
 
-**2. What is the PyAirbyte cache? Is it a destination?**
+- [PyAirbyte GitHub Readme](https://github.com/airbytehq/pyairbyte)
+- [PyAirbyte Issue Tracker](https://github.com/airbytehq/pyairbyte/issues)
+- [Frequently Asked Questions](https://github.com/airbytehq/PyAirbyte/blob/main/docs/faq.md)
+- [PyAirbyte Contributors Guide](https://github.com/airbytehq/PyAirbyte/blob/main/docs/CONTRIBUTING.md)
+- [GitHub Releases](https://github.com/airbytehq/PyAirbyte/releases)
 
-Yes and no. You can think of it as a built-in destination implementation, but we avoid the word
-"destination" in our docs to prevent confusion with our certified destinations list
-[here](https://docs.airbyte.com/integrations/destinations/).
+----------------------
 
-**3. Does PyAirbyte work with data orchestration frameworks like Airflow, Dagster, and Snowpark,
-etc.?**
+# API Reference
 
-Yes, it should. Please give it a try and report any problems you see. Also, drop us a note if works
-for you!
+Below is a list of all classes, functions, and modules available in the top-level `airbyte`
+module. (This is a long list!) If you are just starting out, we recommend beginning by selecting a
+submodule to navigate to from the left sidebar or from the list below:
 
-**4. Can I use PyAirbyte to develop or test when developing Airbyte sources?**
+Each module
+has its own documentation and code samples related to effectively using the related capabilities.
 
-Yes, you can. PyAirbyte makes it easy to test connectors in Python, and you can use it to develop
-new local connectors as well as existing already-published ones.
+- **`airbyte.cloud`** - Working with Airbyte Cloud, including running jobs remotely.
+- **`airbyte.caches`** - Working with caches, including how to inspect a cache and get data from it.
+- **`airbyte.datasets`** - Working with datasets, including how to read from datasets and convert to
+    other formats, such as Pandas, Arrow, and LLM Document formats.
+- **`airbyte.destinations`** - Working with destinations, including how to write to Airbyte
+    destinations connectors.
+- **`airbyte.documents`** - Working with LLM documents, including how to convert records into
+    document formats, for instance, when working with AI libraries like LangChain.
+- **`airbyte.exceptions`** - Definitions of all exception and warning classes used in PyAirbyte.
+- **`airbyte.experimental`** - Experimental features and utilities that do not yet have a stable
+    API.
+- **`airbyte.records`** - Internal record handling classes.
+- **`airbyte.results`** - Documents the classes returned when working with results from
+    `Source.read` and `Destination.write`
+- **`airbyte.secrets`** - Tools for managing secrets in PyAirbyte.
+- **`airbyte.sources`** - Tools for creating and reading from Airbyte sources. This includes
+    `airbyte.source.get_source` to declare a source, `airbyte.source.Source.read` for reading data,
+    and `airbyte.source.Source.get_records()` to peek at records without caching or writing them
+    directly.
 
-**5. Can I develop traditional ETL pipelines with PyAirbyte?**
-
-Yes. Just pick the cache type matching the destination - like SnowflakeCache for landing data in
-Snowflake.
-
-**6. Can PyAirbyte import a connector from a local directory that has python project files, or does
-
-it have to be pip install**
-
-Yes, PyAirbyte can use any local install that has a CLI - and will automatically find connectors b
-name if they are on PATH.
-
-## Contributing
-
-To learn how you can contribute to PyAirbyte, please see our
-[PyAirbyte Contributors Guide](./CONTRIBUTING.md).
-
-## Changelog and Release Notes
-
-For a version history and list of all changes, please see our
-[GitHub Releases](https://github.com/airbytehq/PyAirbyte/releases) page.
-
-## API Reference
+----------------------
 
 """
 
