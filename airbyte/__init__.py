@@ -59,19 +59,24 @@ connectors [here](https://docs.airbyte.com/integrations/destinations/).
 ## Importing as `ab`
 
 Most examples in the PyAirbyte documentation use the `import airbyte as ab` convention. The `ab`
-alias is recommended and makes often the code more concise and readable. It also saves you from
-digging in submodules to find the classes and functions you need, since frequently-used
-classes and functions are available at the top level of the `airbyte` module.
+alias is recommended, making code more concise and readable. When getting started, this
+also saves you from digging in submodules to find the classes and functions you need, since
+frequently-used classes and functions are available at the top level of the `airbyte` module.
 
 ## Navigating the API
 
 While many PyAirbyte classes and functions are available at the top level of the `airbyte` module,
-you can also import classes and functions from submodules directly. For example, you can import the
-`Source` class from `airbyte` but you can also import it from the `sources` submodule like this:
+you can also import classes and functions from submodules directly. For example, while you can
+import the `Source` class from `airbyte`, you can also import it from the `sources` submodule like
+this:
 
 ```python
 from airbyte.sources import Source
 ```
+
+Whether you import from the top level or from a submodule, the classes and functions are the same.
+We expect that most users will import from the top level when getting started, and then import from
+submodules when they are deploying more complex implementations.
 
 For quick reference, top-Level modules are listed in the left sidebar of this page.
 
