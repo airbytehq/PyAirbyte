@@ -70,6 +70,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-quickbooks",
     "source-railz",
     "source-recharge",
+    "source-recurly",
     "source-retently",
     "source-rss",
     "source-salesloft",
