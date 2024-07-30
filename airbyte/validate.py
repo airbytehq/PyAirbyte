@@ -62,7 +62,6 @@ def full_tests(connector_name: str, sample_config: str) -> None:
     """Run full tests on the connector."""
     print("Creating source and validating spec and version...")
     source = ab.get_source(
-        # TODO: FIXME: noqa: SIM115, PTH123
         connector_name,
         config=json.loads(Path(sample_config).read_text(encoding="utf-8")),  # ,
         install_if_missing=False,
@@ -123,7 +122,6 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     metadata_path = Path(connector_dir) / "metadata.yaml"
     metadata = yaml.safe_load(Path(metadata_path).read_text(encoding="utf-8"))["data"]
 
-    # TODO: Use remoteRegistries.pypi.packageName once set for connectors
     connector_name = metadata["dockerRepository"].replace("airbyte/", "")
 
     # create a venv and install the connector

@@ -51,7 +51,7 @@ if TYPE_CHECKING:
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
-DOCS_URL = "https://docs.airbyte.io/"
+DOCS_URL = "https://airbytehq.github.io/PyAirbyte/airbyte.html"
 
 
 # Base error class
@@ -158,9 +158,8 @@ class PyAirbyteInputError(PyAirbyteError, ValueError):
     ValueError in the PyAirbyte API.
     """
 
-    # TODO: Consider adding a help_url that links to the auto-generated API reference.
-
     guidance = "Please check the provided value and try again."
+    help_url = DOCS_URL
     input_value: str | None = None
 
 

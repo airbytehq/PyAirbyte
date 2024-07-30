@@ -414,7 +414,6 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
             elif meta.is_ci():
                 # Some CI environments support Rich, but Dagger does not.
-                # TODO: Consider updating this to check for Dagger specifically.
                 self.style = ProgressStyle.PLAIN
 
             else:
@@ -590,11 +589,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         elif self.style == ProgressStyle.RICH and self._rich_view is not None:
             self._rich_view.update(RichMarkdown(status_message))
 
-        elif self.style == ProgressStyle.PLAIN:
-            # TODO: Add a plain text progress print option that isn't too noisy.
-            pass
-
-        elif self.style == ProgressStyle.NONE:
+        elif self.style in {ProgressStyle.PLAIN, ProgressStyle.NONE}:
             pass
 
         self._last_update_time = time.time()

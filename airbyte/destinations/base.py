@@ -256,8 +256,6 @@ class Destination(ConnectorBase):
         progress_tracker: ProgressTracker,
     ) -> None:
         """Read from the connector and write to the cache."""
-        _ = progress_tracker  # TODO: Implement progress tracking
-
         # Run optional validation step
         if not skip_validation:
             self.validate_config()
@@ -293,10 +291,7 @@ class Destination(ConnectorBase):
                     )
                 ):
                     if destination_message.type is Type.STATE:
-                        tmp = state_writer.known_stream_names
                         state_writer.write_state(state_message=destination_message.state)
-                        # TODO: DELETEME
-                        assert tmp.issubset(state_writer.known_stream_names)
 
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorWriteError(

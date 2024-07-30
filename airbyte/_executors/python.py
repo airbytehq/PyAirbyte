@@ -98,7 +98,6 @@ class VenvExecutor(Executor):
     @property
     def docs_url(self) -> str:
         """Get the URL to the connector's documentation."""
-        # TODO: Refactor installation so that this can just live in the Source class.
         return "https://docs.airbyte.com/integrations/sources/" + self.name.lower().replace(
             "source-", ""
         )

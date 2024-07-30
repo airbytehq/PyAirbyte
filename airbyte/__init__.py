@@ -1,8 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""PyAirbyte brings Airbyte ELT to every Python developer.
-
-PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provides a set of
-utilities to use Airbyte connectors in Python.
+"""***PyAirbyte brings the power of Airbyte to every Python developer.***
 
 [![PyPI version](https://badge.fury.io/py/airbyte.svg)](https://badge.fury.io/py/airbyte)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/airbyte)](https://pypi.org/project/airbyte/)
@@ -121,7 +118,7 @@ has its own documentation and code samples related to effectively using the rela
 
 ----------------------
 
-"""
+"""  # noqa: D415
 
 from __future__ import annotations
 

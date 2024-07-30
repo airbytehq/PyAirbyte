@@ -41,9 +41,6 @@ class PathExecutor(Executor):
         try:
             self.execute(["spec"])
         except Exception as e:
-            # TODO: Improve error handling. We should try to distinguish between
-            #       a connector that is not installed and a connector that is not
-            #       working properly.
             raise exc.AirbyteConnectorExecutableNotFoundError(
                 connector_name=self.name,
             ) from e

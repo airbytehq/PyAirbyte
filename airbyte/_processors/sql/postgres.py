@@ -48,6 +48,6 @@ class PostgresSqlProcessor(SqlProcessorBase):
     or another import method. (Relatively low priority, since for now it works fine as-is.)
     """
 
-    supports_merge_insert = False  # TODO: Add native implementation for merge insert
+    supports_merge_insert = False
     file_writer_class = JsonlWriter
     sql_config: PostgresConfig
