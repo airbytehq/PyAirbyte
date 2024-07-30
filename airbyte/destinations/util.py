@@ -1,5 +1,8 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Destination utilities."""
+"""Destination utilities.
+
+For usage examples, see the `airbyte.destinations` module documentation.
+"""
 
 from __future__ import annotations
 
