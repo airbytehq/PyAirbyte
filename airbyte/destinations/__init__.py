@@ -60,7 +60,7 @@ use a Docker-based connector, you can set the `docker_image` parameter to `True`
 
 ```python
 my_destination = ab.get_destination(
-    "destination-foo"
+    "destination-foo",
     config={"api_key": "my_api_key"},
     docker_image=True,
 )
