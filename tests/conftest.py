@@ -79,6 +79,18 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     items.sort(key=test_priority)
 
     for item in items:
+        # TODO: Remove this 'skip' once Cloud Workspace issue is resolved.
+        #       (Test user apparently deleted.)
+        if (
+            "cloud_workspace_id" in item.fixturenames
+            or "cloud_workspace_id" in item.fixturenames
+        ):
+            item.add_marker(
+                pytest.mark.skip(
+                    reason="Skipping cloud tests. (FIXME: test user deleted.)"
+                )
+            )
+
         # Skip tests that require Docker if Docker is not available (including on Windows).
         if (
             "new_postgres_cache" in item.fixturenames

@@ -33,7 +33,7 @@ def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def workspace_id() -> str:
+def cloud_workspace_id() -> str:
     return AIRBYTE_CLOUD_WORKSPACE_ID
 
 
@@ -58,12 +58,12 @@ def motherduck_api_key(motherduck_secrets: dict) -> SecretString:
 
 @pytest.fixture
 def cloud_workspace(
-    workspace_id: str,
+    cloud_workspace_id: str,
     airbyte_cloud_api_key: SecretString,
     airbyte_cloud_api_root: str,
 ) -> CloudWorkspace:
     return CloudWorkspace(
-        workspace_id=workspace_id,
+        cloud_workspace_id=cloud_workspace_id,
         api_key=airbyte_cloud_api_key,
         api_root=airbyte_cloud_api_root,
     )
