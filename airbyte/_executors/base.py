@@ -4,7 +4,6 @@ from __future__ import annotations
 import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from pathlib import Path
 from threading import Event, Thread
 from typing import IO, TYPE_CHECKING, Any, cast
 

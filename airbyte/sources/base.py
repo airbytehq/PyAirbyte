@@ -503,7 +503,7 @@ class Source(ConnectorBase):
         force_full_refresh: bool = False,
     ) -> AirbyteMessageIterator:
         """Get an AirbyteMessageIterator for this source."""
-        return AirbyteMessageIterator.from_messages(
+        return AirbyteMessageIterator(
             self._read_with_catalog(
                 catalog=self.get_configured_catalog(streams=streams),
                 state=state_provider if not force_full_refresh else None,
