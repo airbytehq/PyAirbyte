@@ -66,11 +66,11 @@ my_destination = ab.get_destination(
 )
 ```
 
-_Note: Unlike source connectors, most destination connectors are written in Java, and for this
+**Note:** Unlike source connectors, most destination connectors are written in Java, and for this
 reason are only available as Docker-based connectors. If you need to load to a SQL database and your
 runtime does not support docker, you may want to use the `airbyte.caches` module to load data to
 a SQL cache. Caches are mostly identical to destinations in behavior, and are implemented internally
-to PyAirbyte so they can run anywhere that PyAirbyte can run._
+to PyAirbyte so they can run anywhere that PyAirbyte can run.
 """
 
 from __future__ import annotations
