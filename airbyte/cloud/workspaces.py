@@ -68,6 +68,7 @@ class CloudWorkspace:
     # Deploy and delete sources
 
     # TODO: Make this a public API
+    # https://github.com/airbytehq/pyairbyte/issues/228
     def _deploy_source(
         self,
         source: Source,
@@ -123,6 +124,7 @@ class CloudWorkspace:
     # Deploy and delete destinations
 
     # TODO: Make this a public API
+    # https://github.com/airbytehq/pyairbyte/issues/228
     def _deploy_cache_as_destination(
         self,
         cache: CacheBase,
@@ -183,6 +185,7 @@ class CloudWorkspace:
     # Deploy and delete connections
 
     # TODO: Make this a public API
+    # https://github.com/airbytehq/pyairbyte/issues/228
     def _deploy_connection(
         self,
         source: Source | str,

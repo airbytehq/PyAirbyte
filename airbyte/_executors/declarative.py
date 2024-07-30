@@ -60,7 +60,10 @@ class DeclarativeExecutor(Executor):
             raise PyAirbyteInternalError(message="Manifest must be a dict.")
 
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
-        self.reported_version: str | None = None  # TODO: Consider adding version detection
+
+        # TODO: Consider adding version detection
+        # https://github.com/airbytehq/airbyte/issues/318
+        self.reported_version: str | None = None
 
     @property
     def _cli(self) -> list[str]:

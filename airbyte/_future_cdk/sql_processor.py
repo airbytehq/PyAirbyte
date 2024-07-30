@@ -206,9 +206,6 @@ class SqlProcessorBase(RecordProcessorBase):
     ) -> str:
         """Return the name of the SQL table for the given stream."""
         table_prefix = self.sql_config.table_prefix
-
-        # TODO: Add default prefix based on the source name.
-
         return self.normalizer.normalize(
             f"{table_prefix}{stream_name}",
         )
@@ -433,6 +430,7 @@ class SqlProcessorBase(RecordProcessorBase):
         input stream.
         """
         # TODO: Expand this to check for column types and sizes.
+        # https://github.com/airbytehq/pyairbyte/issues/321
         self._add_missing_columns_to_table(
             stream_name=stream_name,
             table_name=table_name,

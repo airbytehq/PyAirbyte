@@ -48,7 +48,8 @@ class MotherDuckConfig(DuckDBConfig):
 
         return SecretString(
             f"duckdb:///md:{self.database}?motherduck_token={self.api_key}"
-            # f"&schema={self.schema_name}"  # TODO: Debug why this doesn't work
+            # Not sure why this doesn't work. We have to override later in the flow.
+            # f"&schema={self.schema_name}"
         )
 
     @overrides

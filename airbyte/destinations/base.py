@@ -256,8 +256,6 @@ class Destination(ConnectorBase):
         progress_tracker: ProgressTracker,
     ) -> None:
         """Read from the connector and write to the cache."""
-        _ = progress_tracker  # TODO: Implement progress tracking
-
         # Run optional validation step
         if not skip_validation:
             self.validate_config()

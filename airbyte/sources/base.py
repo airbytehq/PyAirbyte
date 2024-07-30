@@ -312,7 +312,6 @@ class Source(ConnectorBase):
     @property
     def docs_url(self) -> str:
         """Get the URL to the connector's documentation."""
-        # TODO: Replace with docs URL from metadata when available
         return "https://docs.airbyte.com/integrations/sources/" + self.name.lower().replace(
             "source-", ""
         )
@@ -377,8 +376,6 @@ class Source(ConnectorBase):
                     stream=stream,
                     destination_sync_mode=DestinationSyncMode.overwrite,
                     primary_key=stream.source_defined_primary_key,
-                    # TODO: The below assumes all sources can coalesce from incremental sync to
-                    # full_table as needed. CDK supports this, so it might be safe:
                     sync_mode=SyncMode.incremental,
                 )
                 for stream in self.discovered_catalog.streams

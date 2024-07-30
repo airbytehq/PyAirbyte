@@ -230,7 +230,6 @@ class ConnectorBase(abc.ABC):
     @property
     def docs_url(self) -> str:
         """Get the URL to the connector's documentation."""
-        # TODO: Replace with docs URL from metadata when available
         return (
             f"https://docs.airbyte.com/integrations/{self.connector_type}s/"
             + self.name.lower().replace(f"{self.connector_type}-", "")
