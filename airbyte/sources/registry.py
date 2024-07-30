@@ -93,7 +93,9 @@ _LOWCODE_CONNECTORS_FAILING_VALIDATION = [
     "source-amazon-ads",
 ]
 # Connectors that return 404 or some other misc error.
-_LOWCODE_CONNECTORS_404: list[str] = []
+_LOWCODE_CONNECTORS_404: list[str] = [
+    "source-xkcd",
+]
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
     *_LOWCODE_CONNECTORS_404,
