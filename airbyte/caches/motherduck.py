@@ -61,3 +61,10 @@ class MotherDuckCache(MotherDuckConfig, DuckDBCache):
     """Cache that uses MotherDuck for external persistent storage."""
 
     _sql_processor_class: type[MotherDuckSqlProcessor] = PrivateAttr(default=MotherDuckSqlProcessor)
+
+
+# Expose the Cache class and also the Config class.
+__all__ = [
+    "MotherDuckCache",
+    "MotherDuckConfig",
+]

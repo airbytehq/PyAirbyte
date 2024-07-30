@@ -34,3 +34,10 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
     dedupe_mode: RecordDedupeMode = RecordDedupeMode.APPEND
 
     _sql_processor_class = PrivateAttr(default=SnowflakeSqlProcessor)
+
+
+# Expose the Cache class and also the Config class.
+__all__ = [
+    "SnowflakeCache",
+    "SnowflakeConfig",
+]
