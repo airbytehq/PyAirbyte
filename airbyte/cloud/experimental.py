@@ -41,7 +41,7 @@ warnings.warn(
 )
 
 
-class CloudWorkspace(Stable_CloudWorkspace):
+class CloudWorkspace(Stable_CloudWorkspace):  # noqa: D101  # Docstring inherited from parent.
     __doc__ = (
         f"Experimental implementation of `.CloudWorkspace`.\n\n{Stable_CloudConnection.__doc__}"
     )
@@ -53,7 +53,7 @@ class CloudWorkspace(Stable_CloudWorkspace):
     permanently_delete_destination = Stable_CloudWorkspace._permanently_delete_destination
 
 
-class CloudConnection(Stable_CloudConnection):
+class CloudConnection(Stable_CloudConnection):  # noqa: D101  # Docstring inherited from parent.
     __doc__ = (
         f"Experimental implementation of `.CloudConnection`.\n\n{Stable_CloudConnection.__doc__}"
     )

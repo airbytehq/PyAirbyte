@@ -12,6 +12,7 @@ class ColabSecretManager(SecretManager):
     name = SecretSourceEnum.GOOGLE_COLAB.value
 
     def __init__(self) -> None:
+        """Initialize the Google Colab secret manager."""
         try:
             from google.colab import (  # pyright: ignore[reportMissingImports]  # noqa: PLC0415
                 userdata as colab_userdata,

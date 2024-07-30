@@ -49,10 +49,11 @@ class CachedStream(SqlAlchemyModel):  # type: ignore[valid-type,misc]
 
 
 class CatalogBackendBase(abc.ABC):
-    """
-    A class to manage the stream catalog of data synced to a cache:
-    * What streams exist and to what tables they map
-    * The JSON schema for each stream
+    """A class to manage the stream catalog of data synced to a cache.
+
+    This includes:
+    - What streams exist and to what tables they map
+    - The JSON schema for each stream
     """
 
     # Abstract implementations
@@ -101,10 +102,11 @@ class CatalogBackendBase(abc.ABC):
 
 
 class SqlCatalogBackend(CatalogBackendBase):
-    """
-    A class to manage the stream catalog of data synced to a cache:
+    """A class to manage the stream catalog of data synced to a cache.
+
+    This includes:
     - What streams exist and to what tables they map
-    - The JSON schema for each stream
+    - The JSON schema for each stream.
     """
 
     def __init__(

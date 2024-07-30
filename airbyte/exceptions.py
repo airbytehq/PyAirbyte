@@ -80,6 +80,7 @@ class PyAirbyteError(Exception):
         return self.__doc__.split("\n")[0] if self.__doc__ else ""
 
     def __str__(self) -> str:
+        """Return a string representation of the exception."""
         special_properties = ["message", "guidance", "help_url", "log_text", "context"]
         display_properties = {
             k: v
@@ -109,6 +110,7 @@ class PyAirbyteError(Exception):
         return exception_str
 
     def __repr__(self) -> str:
+        """Return a string representation of the exception."""
         class_name = self.__class__.__name__
         properties_str = ", ".join(
             f"{k}={v!r}" for k, v in self.__dict__.items() if not k.startswith("_")
@@ -383,6 +385,7 @@ class AirbyteError(PyAirbyteError):
 
     @property
     def workspace_url(self) -> str | None:
+        """The URL to the workspace where the error occurred."""
         if self.workspace:
             return self.workspace.workspace_url
 
@@ -404,6 +407,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def connection_url(self) -> str | None:
+        """The URL to the connection where the error occurred."""
         if self.workspace_url and self.connection_id:
             return f"{self.workspace_url}/connections/{self.connection_id}"
 
@@ -411,6 +415,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def job_history_url(self) -> str | None:
+        """The URL to the job history where the error occurred."""
         if self.connection_url:
             return f"{self.connection_url}/job-history"
 
@@ -418,6 +423,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def job_url(self) -> str | None:
+        """The URL to the job where the error occurred."""
         if self.job_history_url and self.job_id:
             return f"{self.job_history_url}#{self.job_id}::0"
 

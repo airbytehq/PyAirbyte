@@ -188,9 +188,9 @@ class ConnectorBase(abc.ABC):
         """Print the configuration spec for this connector.
 
         Args:
-        - format: The format to print the spec in. Must be "yaml" or "json".
-        - output_file: Optional. If set, the spec will be written to the given file path. Otherwise,
-          it will be printed to the console.
+            format: The format to print the spec in. Must be "yaml" or "json".
+            output_file: Optional. If set, the spec will be written to the given file path.
+                Otherwise, it will be printed to the console.
         """
         if format not in {"yaml", "json"}:
             raise exc.PyAirbyteInputError(

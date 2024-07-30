@@ -46,6 +46,7 @@ class CloudWorkspace:
 
     @property
     def workspace_url(self) -> str | None:
+        """The URL of the workspace."""
         return f"{self.api_root}/workspaces/{self.workspace_id}"
 
     # Test connection and creds
@@ -202,6 +203,10 @@ class CloudWorkspace:
                 `cache` or `destination`, but not both.
             destination (str, optional): The destination ID to use. You can provide
                 `cache` or `destination`, but not both.
+            table_prefix (str, optional): The table prefix to use for the cache. If not provided,
+                the cache's table prefix will be used.
+            selected_streams (list[str], optional): The selected stream names to use for the
+                connection. If not provided, the source's selected streams will be used.
         """
         # Resolve source ID
         source_id: str

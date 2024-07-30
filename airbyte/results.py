@@ -1,4 +1,11 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Module which defines the `ReadResult` and `WriteResult` classes.
+
+These classes are used to return information about read and write operations, respectively. They
+contain information such as the number of records read or written, the cache object, and the
+state handlers for a sync.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -37,38 +44,50 @@ class ReadResult(Mapping[str, CachedDataset]):
         cache: CacheBase,
         progress_tracker: ProgressTracker,
     ) -> None:
+        """Initialize a read result.
+
+        This class should not be created directly. Instead, it should be returned by the `read`
+        method of the `Source` class.
+        """
         self.source_name = source_name
         self._progress_tracker = progress_tracker
         self._cache = cache
         self._processed_streams = processed_streams
 
     def __getitem__(self, stream: str) -> CachedDataset:
+        """Return the cached dataset for a given stream name."""
         if stream not in self._processed_streams:
             raise KeyError(stream)
 
         return CachedDataset(self._cache, stream)
 
     def __contains__(self, stream: object) -> bool:
+        """Return whether a given stream name was included in processing."""
         if not isinstance(stream, str):
             return False
 
         return stream in self._processed_streams
 
     def __iter__(self) -> Iterator[str]:
+        """Return an iterator over the stream names that were processed."""
         return self._processed_streams.__iter__()
 
     def __len__(self) -> int:
+        """Return the number of streams that were processed."""
         return len(self._processed_streams)
 
     def get_sql_engine(self) -> Engine:
+        """Return the SQL engine used by the cache."""
         return self._cache.get_sql_engine()
 
     @property
     def processed_records(self) -> int:
+        """The total number of records read from the source."""
         return self._progress_tracker.total_records_read
 
     @property
     def streams(self) -> Mapping[str, CachedDataset]:
+        """Return a mapping of stream names to cached datasets."""
         return {
             stream_name: CachedDataset(self._cache, stream_name)
             for stream_name in self._processed_streams
@@ -76,6 +95,7 @@ class ReadResult(Mapping[str, CachedDataset]):
 
     @property
     def cache(self) -> CacheBase:
+        """Return the cache object."""
         return self._cache
 
 
@@ -96,6 +116,11 @@ class WriteResult:
         state_writer: StateWriterBase,
         progress_tracker: ProgressTracker,
     ) -> None:
+        """Initialize a write result.
+
+        This class should not be created directly. Instead, it should be returned by the `write`
+        method of the `Destination` class.
+        """
         self._destination: Destination = destination
         self._source_data: Source | ReadResult = source_data
         self._catalog_provider: CatalogProvider = catalog_provider
@@ -104,6 +129,7 @@ class WriteResult:
 
     @property
     def processed_records(self) -> int:
+        """The total number of records written to the destination."""
         return self._progress_tracker.total_destination_records_delivered
 
     def get_state_provider(self) -> StateProviderBase:

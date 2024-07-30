@@ -18,6 +18,10 @@ class SecretsPrompt(SecretManager):
         self,
         secret_name: str,
     ) -> SecretString | None:
+        """Prompt the user to enter a secret.
+
+        As a security measure, the secret is not echoed to the terminal when typed.
+        """
         with contextlib.suppress(Exception):
             return SecretString(getpass(f"Enter the value for secret '{secret_name}': "))
 
