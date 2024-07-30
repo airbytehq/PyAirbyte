@@ -59,7 +59,6 @@ class AirbyteMessageIterator:
     @classmethod
     def from_read_result(cls, read_result: ReadResult) -> AirbyteMessageIterator:
         """Create a iterator from a `ReadResult` object."""
-
         state_provider = read_result.cache.get_state_provider(
             source_name=read_result.source_name,
             refresh=True,

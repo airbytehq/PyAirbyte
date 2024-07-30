@@ -346,7 +346,6 @@ class SyncResult:
             return self.parent.get_dataset(stream_name=key)
 
         def __iter__(self) -> Iterator[str]:
-            """TODO"""
             return iter(self.parent.stream_names)
 
         def __len__(self) -> int:

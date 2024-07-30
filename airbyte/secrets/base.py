@@ -55,7 +55,8 @@ class SecretString(str):
     def __bool__(self) -> bool:
         """Override the boolean value of the secret string.
 
-        Always returns `True` without inspecting contents."""
+        Always returns `True` without inspecting contents.
+        """
         return True
 
     def parse_json(self) -> dict:
@@ -102,8 +103,7 @@ class SecretString(str):
     def __get_pydantic_json_schema__(  # noqa: PLW3201  # Pydantic dunder method
         cls, _core_schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
-        """
-        Return a modified JSON schema for the secret string.
+        """Return a modified JSON schema for the secret string.
 
         - `writeOnly=True` is the official way to prevent secrets from being exposed inadvertently.
         - `Format=password` is a popular and readable convention to indicate the field is sensitive.
