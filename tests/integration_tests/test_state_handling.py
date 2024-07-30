@@ -118,23 +118,6 @@ def test_incremental_state_prefix_isolation(
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_B
 
 
-@pytest.fixture(scope="function")
-def destination() -> ab.Destination:
-    return ab.get_destination(
-        name="destination-e2e-test",
-        config={
-            "test_destination": {
-                "test_destination_type": "LOGGING",
-                "logging_config": {
-                    "logging_type": "FirstN",
-                    "max_entry_count": 100,
-                },
-            }
-        },
-        docker_image=True,
-    )
-
-
 def test_destination_state_writer() -> None:
     """Test destination state writer."""
     cache = ab.new_local_cache("aj_test06")
@@ -167,9 +150,26 @@ def test_destination_state_writer() -> None:
     }
 
 
+@pytest.fixture(scope="function")
+def e2e_test_destination() -> ab.Destination:
+    return ab.get_destination(
+        name="destination-e2e-test",
+        config={
+            "test_destination": {
+                "test_destination_type": "LOGGING",
+                "logging_config": {
+                    "logging_type": "FirstN",
+                    "max_entry_count": 100,
+                },
+            }
+        },
+        docker_image=True,
+    )
+
+
 def test_destination_state(
     source_faker_seed_a: ab.Source,
-    destination: ab.Destination,
+    e2e_test_destination: ab.Destination,
 ) -> None:
     """Test destination state handling."""
     # config_a = source_faker_seed_a.get_config()
@@ -191,7 +191,7 @@ def test_destination_state(
     cache_users_states = cache_state_provider.get_stream_state("products")
     assert cache_users_states
 
-    write_result = destination.write(
+    write_result = e2e_test_destination.write(
         read_result,
         state_cache=cache,
     )
@@ -204,7 +204,7 @@ def test_destination_state(
     }
     destination_state_provider = cache.get_state_provider(
         source_name="source-faker",
-        destination_name=destination.name,
+        destination_name=e2e_test_destination.name,
         refresh=True,
     )
     assert destination_state_provider.known_stream_names == {
