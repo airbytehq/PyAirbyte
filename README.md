@@ -5,11 +5,6 @@ PyAirbyte brings the power of Airbyte to every Python developer. PyAirbyte provi
 [![PyPI version](https://badge.fury.io/py/airbyte.svg)](https://badge.fury.io/py/airbyte)
 [![PyPI - Downloads](https://img.shields.io/pypi/dm/airbyte)](https://pypi.org/project/airbyte/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/airbyte)](https://pypi.org/project/airbyte/)
-<!-- [![PyPI - License](https://img.shields.io/pypi/l/airbyte)](https://pypi.org/project/airbyte/) -->
-[![PyPI - Wheel](https://img.shields.io/pypi/wheel/airbyte)](https://pypi.org/project/airbyte/)
-<!-- [![PyPI - Status](https://img.shields.io/pypi/status/airbyte)](https://pypi.org/project/airbyte/) -->
-[![PyPI - Implementation](https://img.shields.io/pypi/implementation/airbyte)](https://pypi.org/project/airbyte/)
-[![PyPI - Format](https://img.shields.io/pypi/format/airbyte)](https://pypi.org/project/airbyte/)
 [![Star on GitHub](https://img.shields.io/github/stars/airbytehq/pyairbyte.svg?style=social&label=★%20on%20GitHub)](https://github.com/airbytehq/pyairbyte)
 
 ## Getting Started
