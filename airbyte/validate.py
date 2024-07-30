@@ -59,6 +59,7 @@ def _run_subprocess_and_raise_on_failure(args: list[str]) -> None:
 
 
 def full_tests(connector_name: str, sample_config: str) -> None:
+    """Run full tests on the connector."""
     print("Creating source and validating spec and version...")
     source = ab.get_source(
         # TODO: FIXME: noqa: SIM115, PTH123
@@ -91,6 +92,7 @@ def full_tests(connector_name: str, sample_config: str) -> None:
 
 
 def install_only_test(connector_name: str) -> None:
+    """Test that the connector can be installed and spec can be printed."""
     print("Creating source and validating spec is returned successfully...")
     source = ab.get_source(connector_name)
     source._get_spec(force_refresh=True)  # noqa: SLF001  # Member is private until we have a public API for it.
@@ -116,6 +118,7 @@ def run() -> None:
 
 
 def validate(connector_dir: str, sample_config: str, *, validate_install_only: bool) -> None:
+    """Validate a connector."""
     # read metadata.yaml
     metadata_path = Path(connector_dir) / "metadata.yaml"
     metadata = yaml.safe_load(Path(metadata_path).read_text(encoding="utf-8"))["data"]

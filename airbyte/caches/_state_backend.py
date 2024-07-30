@@ -179,9 +179,9 @@ class SqlStateWriter(StateWriterBase):
 
 
 class SqlStateBackend(StateBackendBase):
-    """
-    A class to manage the stream catalog of data synced to a cache:
+    """A class to manage the stream catalog of data synced to a cache.
 
+    This includes:
     - What streams exist and to what tables they map
     - The JSON schema for each stream
     """

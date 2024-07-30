@@ -22,6 +22,7 @@ class CustomSecretManager(SecretManager, ABC):
     as_backup = False
 
     def __init__(self) -> None:
+        """Initialize the custom secret manager."""
         super().__init__()
         if self.auto_register:
             self.register()

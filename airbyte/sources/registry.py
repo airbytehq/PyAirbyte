@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Connectivity to the connector catalog registry."""
+
 from __future__ import annotations
 
 import json
@@ -104,6 +106,8 @@ _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
 
 
 class InstallType(str, Enum):
+    """The type of installation for a connector."""
+
     YAML = "yaml"
     PYTHON = "python"
     DOCKER = "docker"
@@ -111,6 +115,8 @@ class InstallType(str, Enum):
 
 
 class Language(str, Enum):
+    """The language of a connector."""
+
     PYTHON = InstallType.PYTHON.value
     JAVA = InstallType.JAVA.value
 

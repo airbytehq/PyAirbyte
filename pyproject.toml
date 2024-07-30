@@ -122,40 +122,40 @@ select = [
     "C90",   # mccabe (complexity)
     "COM",   # flake8-commas
     "CPY",   # missing copyright notice
-    # "D", # pydocstyle # TODO: Re-enable when adding docstrings
-    "DTZ",  # flake8-datetimez
-    "E",    # pycodestyle (errors)
-    "ERA",  # flake8-eradicate (commented out code)
-    "EXE",  # flake8-executable
-    "F",    # Pyflakes
-    "FA",   # flake8-future-annotations
-    "FIX",  # flake8-fixme
-    "FLY",  # flynt
-    "FURB", # Refurb
-    "I",    # isort
-    "ICN",  # flake8-import-conventions
-    "INP",  # flake8-no-pep420
-    "INT",  # flake8-gettext
-    "ISC",  # flake8-implicit-str-concat
-    "ICN",  # flake8-import-conventions
-    "LOG",  # flake8-logging
-    "N",    # pep8-naming
-    "PD",   # pandas-vet
-    "PERF", # Perflint
-    "PIE",  # flake8-pie
-    "PGH",  # pygrep-hooks
-    "PL",   # Pylint
-    "PT",   # flake8-pytest-style
-    "PTH",  # flake8-use-pathlib
-    "PYI",  # flake8-pyi
-    "Q",    # flake8-quotes
-    "RET",  # flake8-return
-    "RSE",  # flake8-raise
-    "RUF",  # Ruff-specific rules
-    "SIM",  # flake8-simplify
-    "SLF",  # flake8-self
-    "SLOT", # flake8-slots
-    "T10",  # debugger calls
+    "D",     # pydocstyle (Docstring conventions)
+    "DTZ",   # flake8-datetimez
+    "E",     # pycodestyle (errors)
+    "ERA",   # flake8-eradicate (commented out code)
+    "EXE",   # flake8-executable
+    "F",     # Pyflakes
+    "FA",    # flake8-future-annotations
+    "FIX",   # flake8-fixme
+    "FLY",   # flynt
+    "FURB",  # Refurb
+    "I",     # isort
+    "ICN",   # flake8-import-conventions
+    "INP",   # flake8-no-pep420
+    "INT",   # flake8-gettext
+    "ISC",   # flake8-implicit-str-concat
+    "ICN",   # flake8-import-conventions
+    "LOG",   # flake8-logging
+    "N",     # pep8-naming
+    "PD",    # pandas-vet
+    "PERF",  # Perflint
+    "PIE",   # flake8-pie
+    "PGH",   # pygrep-hooks
+    "PL",    # Pylint
+    "PT",    # flake8-pytest-style
+    "PTH",   # flake8-use-pathlib
+    "PYI",   # flake8-pyi
+    "Q",     # flake8-quotes
+    "RET",   # flake8-return
+    "RSE",   # flake8-raise
+    "RUF",   # Ruff-specific rules
+    "SIM",   # flake8-simplify
+    "SLF",   # flake8-self
+    "SLOT",  # flake8-slots
+    "T10",   # debugger calls
     # "T20", # flake8-print # TODO: Re-enable once we have logging
     "TCH",    # flake8-type-checking
     "TD",     # flake8-todos

@@ -164,7 +164,7 @@ class SnowflakeCortexSqlProcessor(SnowflakeSqlProcessor):
         stream_name: str,
         table_name: str,
     ) -> None:
-        """Use Snowflake Python connector to add new columns to the table"""
+        """Use Snowflake Python connector to add new columns to the table."""
         columns = self._get_sql_column_definitions(stream_name)
         existing_columns = self._get_column_list_from_table(table_name)
         for column_name, column_type in columns.items():

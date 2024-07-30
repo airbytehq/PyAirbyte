@@ -431,10 +431,8 @@ class SqlProcessorBase(RecordProcessorBase):
 
         Raises an exception if the table schema is not compatible with the schema of the
         input stream.
-
-        TODO:
-        - Expand this to check for column types and sizes.
         """
+        # TODO: Expand this to check for column types and sizes.
         self._add_missing_columns_to_table(
             stream_name=stream_name,
             table_name=table_name,

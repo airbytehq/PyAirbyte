@@ -102,6 +102,7 @@ class SQLTypeConverter:
         self,
         conversion_map: dict | None = None,
     ) -> None:
+        """Initialize the type converter."""
         self.conversion_map = conversion_map or CONVERSION_MAP
 
     @classmethod
