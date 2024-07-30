@@ -1,5 +1,53 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""Secrets management for PyAirbyte."""
+"""Secrets management for PyAirbyte.
+
+## Secrets Management
+
+PyAirbyte can auto-import secrets from the following sources:
+
+1. Environment variables.
+2. Variables defined in a local `.env` ("Dotenv") file.
+3. [Google Colab secrets](https://medium.com/@parthdasawant/how-to-use-secrets-in-google-colab-450c38e3ec75).
+4. Manual entry via [`getpass`](https://docs.python.org/3.9/library/getpass.html).
+
+**Note:** You can also build your own secret manager by subclassing the `CustomSecretManager`
+implementation. For more information, see the `airbyte.secrets.CustomSecretManager` reference docs.
+
+### Retrieving Secrets
+
+To retrieve a secret, use the `get_secret()` function. For example:
+
+```python
+import airbyte as ab
+
+source = ab.get_source("source-github")
+source.set_config(
+   "credentials": {
+      "personal_access_token": ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN"),
+   }
+)
+```
+
+By default, PyAirbyte will search all available secrets sources. The `get_secret()` function also
+accepts an optional `sources` argument of specific source names (`SecretSourceEnum`) and/or secret
+manager objects to check.
+
+By default, PyAirbyte will prompt the user for any requested secrets that are not provided via other
+secret managers. You can disable this prompt by passing `allow_prompt=False` to `get_secret()`.
+
+### Secrets Auto-Discovery
+
+If you have a secret matching an expected name, PyAirbyte will automatically use it. For example, if
+you have a secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, PyAirbyte will automatically use it when
+configuring the GitHub source.
+
+The naming convention for secrets is as `{CONNECTOR_NAME}_{PROPERTY_NAME}`, for instance
+`SNOWFLAKE_PASSWORD` and `BIGQUERY_CREDENTIALS_PATH`.
+
+PyAirbyte will also auto-discover secrets for interop with hosted Airbyte: `AIRBYTE_CLOUD_API_URL`,
+`AIRBYTE_CLOUD_API_KEY`, etc.
+
+"""
 
 from __future__ import annotations
 
