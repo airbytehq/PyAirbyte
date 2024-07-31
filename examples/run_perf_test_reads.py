@@ -189,7 +189,7 @@ def main(
     num_records: int = n or 5 * (10 ** (e or 3))
     cache_type = "duckdb" if cache_type is None else cache_type
 
-    cache: CacheBase | False = get_cache(
+    cache: CacheBase | Literal[False] = get_cache(
         cache_type=cache_type,
     )
     source: Source = get_source(
