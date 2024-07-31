@@ -31,7 +31,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: bool | str = False,
+    docker_image: bool | str | None = False,
     use_host_network: bool = False,
     source_manifest: bool | dict | Path | str = False,
     install_if_missing: bool = True,
