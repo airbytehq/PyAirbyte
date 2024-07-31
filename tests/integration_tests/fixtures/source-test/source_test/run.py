@@ -11,8 +11,9 @@ sample_catalog = {
             {
                 "name": "stream1",
                 "supported_sync_modes": ["full_refresh", "incremental"],
+                "source_defined_primary_key": [["Column1"]],
                 "source_defined_cursor": True,
-                "default_cursor_field": ["column1"],
+                "default_cursor_field": ["Column1"],
                 "json_schema": {
                     "$schema": "http://json-schema.org/draft-07/schema#",
                     "type": "object",
@@ -35,6 +36,7 @@ sample_catalog = {
             {
                 "name": "stream2",
                 "supported_sync_modes": ["full_refresh", "incremental"],
+                "source_defined_primary_key": [["Column1"]],
                 "source_defined_cursor": False,
                 "json_schema": {
                     "$schema": "http://json-schema.org/draft-07/schema#",
@@ -50,8 +52,9 @@ sample_catalog = {
             {
                 "name": "always-empty-stream",
                 "description": "This stream always emits zero records, to test handling of empty datasets.",
-                "supported_sync_modes": ["full_refresh", "incremental"],
+                "source_defined_primary_key": [["Column1"]],
                 "source_defined_cursor": False,
+                "supported_sync_modes": ["full_refresh"],
                 "json_schema": {
                     "$schema": "http://json-schema.org/draft-07/schema#",
                     "type": "object",

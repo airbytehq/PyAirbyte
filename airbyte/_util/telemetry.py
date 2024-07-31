@@ -52,6 +52,7 @@ from airbyte.version import get_version
 
 if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
+    from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
 
@@ -83,6 +84,8 @@ DO_NOT_TRACK = "DO_NOT_TRACK"
 _ENV_ANALYTICS_ID = "AIRBYTE_ANALYTICS_ID"  # Allows user to override the anonymous user ID
 _ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.yml"
 _ANALYTICS_ID: str | bool | None = None
+
+UNKNOWN = "unknown"
 
 
 def _setup_analytics() -> str | bool:
@@ -200,19 +203,41 @@ class SourceTelemetryInfo:
     version: str | None
 
     @classmethod
-    def from_source(cls, source: Source) -> SourceTelemetryInfo:
+    def from_source(cls, source: Source | str) -> SourceTelemetryInfo:
+        if isinstance(source, str):
+            return cls(
+                name=str(source),
+                executor_type=UNKNOWN,
+                version=UNKNOWN,
+            )
+
+        # Else, `source` should be a `Source` object at this point
         return cls(
             name=source.name,
             executor_type=type(source.executor).__name__,
             version=source.executor.reported_version,
         )
 
+
+@dataclass
+class DestinationTelemetryInfo:
+    name: str
+    executor_type: str
+    version: str | None
+
     @classmethod
-    def from_name(cls, name: str) -> SourceTelemetryInfo:
+    def from_destination(cls, destination: Destination | str | None) -> DestinationTelemetryInfo:
+        if not destination:
+            return cls(name=UNKNOWN, executor_type=UNKNOWN, version=UNKNOWN)
+
+        if isinstance(destination, str):
+            return cls(name=destination, executor_type=UNKNOWN, version=UNKNOWN)
+
+        # Else, `destination` should be a `Destination` at this point
         return cls(
-            name=name,
-            executor_type="unknown",
-            version="unknown",
+            name=destination.name,
+            executor_type=type(destination.executor).__name__,
+            version=destination.executor.reported_version,
         )
 
 
@@ -247,7 +272,9 @@ def get_env_flags() -> dict[str, Any]:
 
 
 def send_telemetry(
-    source: Source | str,
+    *,
+    source: Source | str | None,
+    destination: Destination | str | None,
     cache: CacheBase | None,
     state: EventState,
     event_type: EventType,
@@ -261,6 +288,7 @@ def send_telemetry(
     payload_props: dict[str, str | int | dict] = {
         "session_id": PYAIRBYTE_SESSION_ID,
         "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
+        "destination": asdict(DestinationTelemetryInfo.from_destination(destination)),
         "state": state,
         "version": get_version(),
         "python_version": meta.get_python_version(),
@@ -269,9 +297,7 @@ def send_telemetry(
         "flags": get_env_flags(),
     }
 
-    if isinstance(source, str):
-        payload_props["source"] = asdict(SourceTelemetryInfo.from_name(source))
-    else:
+    if source:
         payload_props["source"] = asdict(SourceTelemetryInfo.from_source(source))
 
     if exception:
@@ -303,9 +329,14 @@ def log_config_validation_result(
     state: EventState,
     exception: Exception | None = None,
 ) -> None:
-    """Log a config validation event."""
+    """Log a config validation event.
+
+    If the name starts with "destination-", it is treated as a destination name. Otherwise, it is
+    treated as a source name.
+    """
     send_telemetry(
-        source=name,
+        source=name if not name.startswith("destination-") else None,
+        destination=name if name.startswith("destination-") else None,
         cache=None,
         state=state,
         event_type=EventType.VALIDATE,
@@ -313,14 +344,19 @@ def log_config_validation_result(
     )
 
 
-def log_source_check_result(
+def log_connector_check_result(
     name: str,
     state: EventState,
     exception: Exception | None = None,
 ) -> None:
-    """Log a source `check` result."""
+    """Log a connector `check` result.
+
+    If the name starts with "destination-", it is treated as a destination name. Otherwise, it is
+    treated as a source name.
+    """
     send_telemetry(
-        source=name,
+        source=name if not name.startswith("destination-") else None,
+        destination=name if name.startswith("destination-") else None,
         cache=None,
         state=state,
         event_type=EventType.CHECK,
@@ -336,6 +372,7 @@ def log_install_state(
     """Log an install event."""
     send_telemetry(
         source=name,
+        destination=None,
         cache=None,
         state=state,
         event_type=EventType.INSTALL,

@@ -32,3 +32,10 @@ class PostgresCache(PostgresConfig, CacheBase):
     """
 
     _sql_processor_class = PrivateAttr(default=PostgresSqlProcessor)
+
+
+# Expose the Cache class and also the Config class.
+__all__ = [
+    "PostgresCache",
+    "PostgresConfig",
+]

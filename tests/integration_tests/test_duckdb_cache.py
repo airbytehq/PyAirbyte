@@ -15,7 +15,7 @@ from pathlib import Path
 
 import airbyte as ab
 import pytest
-from airbyte._executor import _get_bin_dir
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
 
@@ -35,7 +35,7 @@ FAKER_SCALE_B = 300
 def add_venv_bin_to_path(monkeypatch):
     """Patch the PATH to include the virtual environment's bin directory."""
     # Get the path to the bin directory of the virtual environment
-    venv_bin_path = str(_get_bin_dir(Path(sys.prefix)))
+    venv_bin_path = str(get_bin_dir(Path(sys.prefix)))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"

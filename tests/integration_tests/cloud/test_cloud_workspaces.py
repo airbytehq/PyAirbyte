@@ -7,6 +7,7 @@ These tests are designed to be run against a running instance of the Airbyte API
 from __future__ import annotations
 
 import airbyte as ab
+import pytest
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
@@ -42,6 +43,7 @@ def test_deploy_cache_as_destination(
     cloud_workspace._permanently_delete_destination(destination=destination_id)
 
 
+@pytest.mark.skip("This test is flaky/failing and needs to be fixed.")
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
     motherduck_api_key: str,

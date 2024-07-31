@@ -16,8 +16,8 @@ import pytest
 import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
-from airbyte._executor import _get_bin_dir
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
@@ -147,7 +147,7 @@ def test_list_streams(expected_test_stream_data: dict[str, list[dict[str, str | 
     assert source.get_available_streams() == list(expected_test_stream_data.keys())
 
 
-def test_invalid_config():
+def test_invalid_config() -> None:
     source = ab.get_source(
         "source-test", config={"apiKey": 1234}, install_if_missing=False
     )
@@ -157,10 +157,12 @@ def test_invalid_config():
 
 def test_ensure_installation_detection():
     """Assert that install isn't called, since the connector is already installed by the fixture."""
-    with patch("airbyte._executor.VenvExecutor.install") as mock_venv_install, patch(
+    with patch(
+        "airbyte._executors.python.VenvExecutor.install"
+    ) as mock_venv_install, patch(
         "airbyte.sources.base.Source.install"
     ) as mock_source_install, patch(
-        "airbyte._executor.VenvExecutor.ensure_installation"
+        "airbyte._executors.python.VenvExecutor.ensure_installation"
     ) as mock_ensure_installed:
         source = ab.get_source(
             "source-test",
@@ -711,27 +713,19 @@ def test_sync_with_merge_to_postgres(
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
     the merge was successful.
-
-    # TODO: Add a check with a primary key to ensure that the merge strategy works as expected.
     """
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
     # Read twice to test merge strategy
-    result: ReadResult = source.read(new_postgres_cache)
-    result: ReadResult = source.read(new_postgres_cache)
+    result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
+    result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
 
     assert result.processed_records == 3
-    for stream_name, expected_data in expected_test_stream_data.items():
-        if len(new_postgres_cache[stream_name]) > 0:
-            pd.testing.assert_frame_equal(
-                result[stream_name].to_pandas(),
-                pd.DataFrame(expected_data),
-                check_dtype=False,
-            )
-        else:
-            # stream is empty
-            assert len(expected_test_stream_data[stream_name]) == 0
+    assert_data_matches_cache(
+        expected_test_stream_data=expected_test_stream_data,
+        cache=new_postgres_cache,
+    )
 
 
 def test_airbyte_version() -> None:
@@ -817,7 +811,7 @@ def test_failing_path_connector():
 
 
 def test_succeeding_path_connector(monkeypatch):
-    venv_bin_path = str(_get_bin_dir(Path(".venv-source-test")))
+    venv_bin_path = str(get_bin_dir(Path(".venv-source-test")))
 
     # Add the bin directory to the PATH
     new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
@@ -859,11 +853,11 @@ def test_install_uninstall():
         source.install()
 
         assert os.path.exists(install_root / ".venv-source-test")
-        assert os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
+        assert os.path.exists(get_bin_dir(install_root / ".venv-source-test"))
 
         source.check()
 
         source.uninstall()
 
         assert not os.path.exists(install_root / ".venv-source-test")
-        assert not os.path.exists(_get_bin_dir(install_root / ".venv-source-test"))
+        assert not os.path.exists(get_bin_dir(install_root / ".venv-source-test"))

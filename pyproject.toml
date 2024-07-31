@@ -45,6 +45,7 @@ types-pyyaml = "^6.0.12.12"
 sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
 airbyte-api = "^0.49.2"
 google-cloud-bigquery-storage = "^2.25.0"
+pyiceberg = "^0.6.1"
 uuid7 = "^0.1.0"
 
 [tool.poetry.group.dev.dependencies]
@@ -56,7 +57,7 @@ pdoc = "^14.3.0"
 pytest = "^8.2.0"
 pytest-docker = "^3.1.1"
 pytest-mypy = "^0.10.3"
-ruff = "^0.4.1"
+ruff = "0.4.1"
 types-jsonschema = "^4.20.0.0"
 types-requests = "2.31.0.4"
 freezegun = "^1.4.0"
@@ -77,7 +78,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 # Pytest configuration as follows:
 # - No test can take longer than 10 minutes (600 seconds)
 # - Markers must be declared explicitly
-addopts = "--strict-markers --timeout=600"
+addopts = "-rs --strict-markers --timeout=600"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
@@ -98,6 +99,8 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
+    # CDK has these refs:
+    "ignore::pydantic.warnings.PydanticDeprecatedSince20",
 ]
 
 [tool.ruff]
@@ -119,40 +122,40 @@ select = [
     "C90",   # mccabe (complexity)
     "COM",   # flake8-commas
     "CPY",   # missing copyright notice
-    # "D", # pydocstyle # TODO: Re-enable when adding docstrings
-    "DTZ",  # flake8-datetimez
-    "E",    # pycodestyle (errors)
-    "ERA",  # flake8-eradicate (commented out code)
-    "EXE",  # flake8-executable
-    "F",    # Pyflakes
-    "FA",   # flake8-future-annotations
-    "FIX",  # flake8-fixme
-    "FLY",  # flynt
-    "FURB", # Refurb
-    "I",    # isort
-    "ICN",  # flake8-import-conventions
-    "INP",  # flake8-no-pep420
-    "INT",  # flake8-gettext
-    "ISC",  # flake8-implicit-str-concat
-    "ICN",  # flake8-import-conventions
-    "LOG",  # flake8-logging
-    "N",    # pep8-naming
-    "PD",   # pandas-vet
-    "PERF", # Perflint
-    "PIE",  # flake8-pie
-    "PGH",  # pygrep-hooks
-    "PL",   # Pylint
-    "PT",   # flake8-pytest-style
-    "PTH",  # flake8-use-pathlib
-    "PYI",  # flake8-pyi
-    "Q",    # flake8-quotes
-    "RET",  # flake8-return
-    "RSE",  # flake8-raise
-    "RUF",  # Ruff-specific rules
-    "SIM",  # flake8-simplify
-    "SLF",  # flake8-self
-    "SLOT", # flake8-slots
-    "T10",  # debugger calls
+    "D",     # pydocstyle (Docstring conventions)
+    "DTZ",   # flake8-datetimez
+    "E",     # pycodestyle (errors)
+    "ERA",   # flake8-eradicate (commented out code)
+    "EXE",   # flake8-executable
+    "F",     # Pyflakes
+    "FA",    # flake8-future-annotations
+    "FIX",   # flake8-fixme
+    "FLY",   # flynt
+    "FURB",  # Refurb
+    "I",     # isort
+    "ICN",   # flake8-import-conventions
+    "INP",   # flake8-no-pep420
+    "INT",   # flake8-gettext
+    "ISC",   # flake8-implicit-str-concat
+    "ICN",   # flake8-import-conventions
+    "LOG",   # flake8-logging
+    "N",     # pep8-naming
+    "PD",    # pandas-vet
+    "PERF",  # Perflint
+    "PIE",   # flake8-pie
+    "PGH",   # pygrep-hooks
+    "PL",    # Pylint
+    "PT",    # flake8-pytest-style
+    "PTH",   # flake8-use-pathlib
+    "PYI",   # flake8-pyi
+    "Q",     # flake8-quotes
+    "RET",   # flake8-return
+    "RSE",   # flake8-raise
+    "RUF",   # Ruff-specific rules
+    "SIM",   # flake8-simplify
+    "SLF",   # flake8-self
+    "SLOT",  # flake8-slots
+    "T10",   # debugger calls
     # "T20", # flake8-print # TODO: Re-enable once we have logging
     "TCH",    # flake8-type-checking
     "TD",     # flake8-todos
@@ -194,7 +197,7 @@ ignore = [
     "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
     "PLW0603", # Using the global statement to update _cache is discouraged
     "PLW0108", # Lambda may be unnecessary; consider inlining inner function
-    "TD003",   # Require links for TODOs # TODO: Re-enable when we disable FIX002
+    # "TD003",   # Require links for TODOs (now enabled)
 
     "UP007", # Allow legacy `Union[a, b]` and `Optional[a]` for Pydantic, until we drop Python 3.9 (Pydantic doesn't like it)
 ]
@@ -310,13 +313,16 @@ airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }
+test-fast = { shell = "pytest --durations=5 --exitfirst -m 'not slow'" }
 
 coverage = { shell = "coverage run -m pytest && coverage report" }
 coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 coverage-reset = { shell = "coverage erase" }
 
-check = { shell = "ruff check . && mypy . && pytest --collect-only" }
+check = { shell = "ruff check . && mypy . && pytest --collect-only -qq" }
+
+docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, shell = "generate-docs && open docs/generated/index.html" }
 
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }

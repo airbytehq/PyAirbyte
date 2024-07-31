@@ -5,7 +5,6 @@ import os
 
 import airbyte as ab
 
-
 # preparation (from PyAirbyte main folder):
 #   python -m venv .venv-source-test
 #   source .venv-source-test/bin/activate
@@ -13,7 +12,9 @@ import airbyte as ab
 # In separate terminal:
 #   poetry run python examples/run_test_source.py
 
-os.environ["AIRBYTE_LOCAL_REGISTRY"] = "./tests/integration_tests/fixtures/registry.json"
+os.environ["AIRBYTE_LOCAL_REGISTRY"] = (
+    "./tests/integration_tests/fixtures/registry.json"
+)
 
 source = ab.get_source("source-test", config={"apiKey": "test"})
 cache = ab.new_local_cache("cache_test")
