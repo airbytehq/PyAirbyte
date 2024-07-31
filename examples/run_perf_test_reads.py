@@ -40,6 +40,15 @@ You can also use this script to test destination load performance:
 poetry run python ./examples/run_perf_test_reads.py -e=5 --destination=e2e
 ```
 
+Testing raw PyAirbyte throughput with and without caching:
+
+```bash
+# Test raw PyAirbyte throughput with caching (Source->Cache):
+poetry run python ./examples/run_perf_test_reads.py -e=5
+# Test raw PyAirbyte throughput without caching (Source->Destination):
+poetry run python ./examples/run_perf_test_reads.py -e=5 --destination=e2e --no-cache
+```
+
 Note:
 - The Faker stream ('purchases') is assumed to be 220 bytes, meaning 4_500 records is
   approximately 1 MB. Based on this: 25K records/second is approximately 5.5 MB/s.
@@ -188,7 +197,8 @@ def main(
         num_records=num_records,
     )
     source.check()
-    destination = get_destination(destination_type=destination_type)
+    if destination_type:
+        destination = get_destination(destination_type=destination_type)
     if cache is not False:
         read_result = source.read(cache)
         if destination_type:
