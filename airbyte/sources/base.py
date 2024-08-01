@@ -406,7 +406,12 @@ class Source(ConnectorBase):
 
         return found[0].json_schema
 
-    def get_records(self, stream: str) -> LazyDataset:
+    def get_records(
+        self,
+        stream: str,
+        *,
+        limit: int | None = None,
+    ) -> LazyDataset:
         """Read a stream from the connector.
 
         This involves the following steps:
@@ -470,6 +475,10 @@ class Source(ConnectorBase):
             )
             if record.record
         )
+        if limit is not None:
+            # Stop the iterator after the limit is reached
+            iterator = islice(iterator, limit)
+
         progress_tracker.log_success()
         return LazyDataset(
             iterator,
