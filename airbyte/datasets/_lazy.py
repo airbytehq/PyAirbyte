@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 from overrides import overrides
 
 from airbyte.datasets import DatasetBase
+from airbyte.datasets._inmemory import InMemoryDataset
 
 
 if TYPE_CHECKING:
@@ -33,3 +34,10 @@ class LazyDataset(DatasetBase):
 
     def __next__(self) -> Mapping[str, Any]:
         return next(self._iterator)
+
+    def fetch_all(self) -> InMemoryDataset:
+        """Fetch all records to memory and return an InMemoryDataset."""
+        return InMemoryDataset(
+            records=list(self._iterator),
+            stream_metadata=self._stream_metadata,
+        )
