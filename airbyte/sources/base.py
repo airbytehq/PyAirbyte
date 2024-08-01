@@ -5,12 +5,17 @@ from __future__ import annotations
 
 import json
 import warnings
+from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 from rich import print
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.markup import escape
 from rich.syntax import Syntax
+from rich.table import Table
 from typing_extensions import Literal
 
 from airbyte_protocol.models import (
@@ -46,7 +51,14 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
+    from airbyte.datasets._inmemory import InMemoryDataset
     from airbyte.documents import Document
+
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
+)
 
 
 class Source(ConnectorBase):
@@ -508,6 +520,86 @@ class Source(ConnectorBase):
             metadata_properties=metadata_properties,
             render_metadata=render_metadata,
         )
+
+    def get_samples(
+        self,
+        streams: list[str] | Literal["*"] | None = None,
+        *,
+        limit: int = 5,
+    ) -> dict[str, InMemoryDataset]:
+        """Get a sample of records from the given streams."""
+        if streams == "*":
+            streams = self.get_available_streams()
+        elif streams is None:
+            streams = self.get_selected_streams()
+
+        return {
+            stream: self.get_records(
+                stream=stream,
+                limit=limit,
+            ).fetch_all()
+            for stream in streams
+        }
+
+    def print_samples(
+        self,
+        streams: list[str] | Literal["*"] | None = None,
+        *,
+        limit: int = 5,
+    ) -> None:
+        """Print a sample of records from the given streams."""
+        internal_cols: list[str] = [
+            AB_EXTRACTED_AT_COLUMN,
+            AB_META_COLUMN,
+            AB_RAW_ID_COLUMN,
+        ]
+        col_limit = 10
+        if streams == "*":
+            streams = self.get_available_streams()
+        elif streams is None:
+            streams = self.get_selected_streams()
+
+        console = Console()
+
+        console.print(Markdown(f"# Sample Records from `{self.name}`", justify="left"))
+
+        for stream in streams:
+            console.print(Markdown(f"## `{stream}` Stream Sample", justify="left"))
+            samples = self.get_samples(streams=[stream], limit=limit)
+            dataset = samples[stream]
+
+            table = Table(
+                # title=Markdown(f"`{stream}`"),  # type: ignore [arg-type]
+                show_header=True,
+                show_lines=True,
+            )
+
+            if len(dataset.column_names) > col_limit:
+                # We'll pivot the columns so each column is its own row
+                table.add_column("Column Name")
+                for _ in range(len(dataset)):
+                    table.add_column(overflow="fold")
+                for col in dataset.column_names:
+                    table.add_row(
+                        Markdown(f"**`{col}`**"), *[escape(str(record[col])) for record in dataset]
+                    )
+            else:
+                for col in dataset.column_names:
+                    table.add_column(Markdown(f"**`{col}`**"), overflow="fold")
+
+                for record in dataset:
+                    table.add_row(
+                        *[
+                            escape(str(val))
+                            for key, val in record.items()
+                            # Exclude internal Airbyte columns.
+                            if key not in internal_cols
+                        ]
+                    )
+
+            console.print(table)
+
+        console.print(Markdown("--------------"))
 
     def _get_airbyte_message_iterator(
         self,
