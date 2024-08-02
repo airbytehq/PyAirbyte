@@ -12,7 +12,6 @@ import orjson
 import ulid
 from overrides import overrides
 
-from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte._processors.file.base import (
     FileWriterBase,
 )
