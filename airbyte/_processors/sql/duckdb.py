@@ -15,7 +15,7 @@ from typing_extensions import Literal
 
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
-from airbyte._processors.file import IcebergWriter
+from airbyte._processors.file.jsonl import JsonlWriter
 from airbyte.secrets.base import SecretString
 
 
@@ -91,7 +91,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
     """A DuckDB implementation of the cache."""
 
     supports_merge_insert = False
-    file_writer_class = IcebergWriter
+    file_writer_class = JsonlWriter
     sql_config: DuckDBConfig
 
     @overrides
