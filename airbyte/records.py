@@ -72,7 +72,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import pytz
-from uuid_extensions import uuid7str
+from uuid6 import uuid7
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer, NameNormalizerBase
 from airbyte.constants import (
@@ -232,7 +232,7 @@ class StreamRecord(dict[str, Any]):
         if with_internal_columns:
             self.update(
                 {
-                    AB_RAW_ID_COLUMN: uuid7str(),
+                    AB_RAW_ID_COLUMN: str(uuid7()),
                     AB_EXTRACTED_AT_COLUMN: extracted_at or datetime.now(pytz.utc),
                     AB_META_COLUMN: {},
                 }
