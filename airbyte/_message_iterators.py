@@ -56,6 +56,30 @@ class AirbyteMessageIterator:
         """Read the next message from the iterator."""
         return next(self).model_dump_json()
 
+    def as_filelike(self) -> io.BytesIO:
+        """Return a file-like object that reads from the iterator."""
+
+        class FileLikeReader(io.RawIOBase):
+            def __init__(self, iterator: Iterator[AirbyteMessage]) -> None:
+                self.iterator = (msg.model_dump_json() for msg in iterator)
+                self.buffer = ""
+
+            def readable(self) -> Literal[True]:
+                return True
+
+            def readinto(self, b: Any) -> int:
+                try:
+                    chunk = next(self.iterator)
+                except StopIteration:
+                    return 0  # EOF
+
+                data = chunk.encode()
+                n = len(data)
+                b[:n] = data
+                return n
+
+        return FileLikeReader(self._iterator)
+
     @classmethod
     def from_read_result(cls, read_result: ReadResult) -> AirbyteMessageIterator:
         """Create a iterator from a `ReadResult` object."""
