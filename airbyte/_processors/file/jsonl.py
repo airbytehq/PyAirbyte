@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import gzip
+import io
 import json
 from typing import IO, TYPE_CHECKING, cast
 
@@ -33,14 +34,16 @@ class JsonlWriter(FileWriterBase):
         file_path: Path,
     ) -> IO[str]:
         """Open a new file for writing."""
-        return cast(
-            IO[str],
-            gzip.open(
-                file_path,
-                mode="wt",
-                encoding="utf-8",
-            ),
+        gzip_file: gzip.GzipFile = gzip.open(
+            file_path,
+            mode="wb",
+            # encoding="utf-8",
         )
+        return io.TextIOWrapper(
+            io.BufferedWriter(cast(io.RawIOBase, gzip_file)),
+            encoding="utf-8",
+        )
+
 
     @overrides
     def _write_record_dict(
