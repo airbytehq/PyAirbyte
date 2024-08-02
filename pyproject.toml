@@ -47,6 +47,7 @@ airbyte-api = "^0.49.2"
 google-cloud-bigquery-storage = "^2.25.0"
 pyiceberg = "^0.6.1"
 uuid7 = "^0.1.0"
+polars = "^1.3.0"
 
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
