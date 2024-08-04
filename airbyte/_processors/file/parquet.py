@@ -49,10 +49,6 @@ class ParquetWriter(FileWriterBase):
         """Return the records file path for the given stream and batch."""
         return cache_dir / f"{stream_name}_{batch_id}.records.parquet"
 
-    def _get_records_file_path(self, cache_dir: Path, stream_name: str, batch_id: str) -> Path:
-        """Return the records file path for the given stream and batch."""
-        return cache_dir / f"{stream_name}_{batch_id}.parquet"
-
     @overrides
     def _open_new_file(
         self,
