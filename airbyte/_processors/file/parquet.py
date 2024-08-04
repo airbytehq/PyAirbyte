@@ -6,12 +6,22 @@ from __future__ import annotations
 import gzip
 import json
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, cast
+from typing import IO, TYPE_CHECKING, Literal, cast
 
 import orjson
 import ulid
 from overrides import overrides
+from pydantic import PrivateAttr
 
+from airbyte_protocol.models import (
+    AirbyteMessage,
+    AirbyteRecordMessage,
+    AirbyteStateMessage,
+    AirbyteStateType,
+)
+
+from airbyte import exceptions as exc
+from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte._processors.file.base import (
     FileWriterBase,
 )
@@ -21,11 +31,23 @@ if TYPE_CHECKING:
     from airbyte.records import StreamRecord
 
 
-class LocalIcebergWriter(FileWriterBase):
-    """An Iceberg file writer implementation."""
+class ParquetWriter(FileWriterBase):
+    """An Parquet file writer implementation."""
 
     default_cache_file_suffix = ".parquet"
     prune_extra_fields = True
+
+    _state_writer: StateWriterBase | None = PrivateAttr(default=None)
+    _buffered_records: dict[str, list[AirbyteMessage]] = PrivateAttr(default_factory=dict)
+
+    def _get_records_file_path(
+        self,
+        cache_dir: Path,
+        stream_name: str,
+        batch_id: str,
+    ) -> Path:
+        """Return the records file path for the given stream and batch."""
+        return cache_dir / f"{stream_name}_{batch_id}.records.parquet"
 
     def _get_records_file_path(self, cache_dir: Path, stream_name: str, batch_id: str) -> Path:
         """Return the records file path for the given stream and batch."""
