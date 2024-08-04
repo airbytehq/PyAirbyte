@@ -18,14 +18,18 @@ GITHUB_TOKEN = ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")
 
 
 source = ab.get_source("source-github")
-source.set_config(
-    {
-        "repositories": ["airbytehq/airbyte-lib-private-beta"],
-        "credentials": {"personal_access_token": GITHUB_TOKEN},
-    }
-)
+source.set_config({
+    "repositories": ["airbytehq/airbyte-lib-private-beta"],
+    "credentials": {"personal_access_token": GITHUB_TOKEN},
+})
 source.check()
-source.select_streams(["issues", "pull_requests", "commits", "collaborators", "deployments"])
+source.select_streams([
+    "issues",
+    "pull_requests",
+    "commits",
+    "collaborators",
+    "deployments",
+])
 
 result = source.read(cache=ab.new_local_cache("github"))
 print(result.processed_records)

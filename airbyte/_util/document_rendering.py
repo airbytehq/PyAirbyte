@@ -43,6 +43,7 @@ class DocumentRenderer(BaseModel):
     render_metadata: bool = False
 
     # TODO: Add primary key and cursor key support:
+    # https://github.com/airbytehq/pyairbyte/issues/319
     # primary_key_properties: list[str]
     # cursor_property: str | None
 
@@ -71,13 +72,6 @@ class DocumentRenderer(BaseModel):
             content += "```yaml\n"
             content += yaml.dump({key: record[key] for key in self.metadata_properties})
             content += "```\n"
-
-        # TODO: Add support for primary key and doc ID generation:
-        # doc_id: str = (
-        #     "-".join(str(record[key]) for key in self.primary_key_properties)
-        #     if self.primary_key_properties
-        #     else str(hash(record))
-        # )
 
         if not self.content_properties:
             pass

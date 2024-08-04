@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import abc
+import functools
 import re
 from typing import TYPE_CHECKING
 
@@ -48,6 +49,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
     """A name normalizer that converts names to lower case."""
 
     @staticmethod
+    @functools.cache
     def normalize(name: str) -> str:
         """Return the normalized name.
 

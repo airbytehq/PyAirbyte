@@ -72,7 +72,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 import pytz
-import ulid
+from uuid_extensions import uuid7str
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer, NameNormalizerBase
 from airbyte.constants import (
@@ -84,9 +84,89 @@ from airbyte.constants import (
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from airbyte_protocol.models import (
         AirbyteRecordMessage,
     )
+
+
+class StreamRecordHandler:
+    """A class to handle processing of StreamRecords.
+
+    This is a long-lived object that can be used to process multiple StreamRecords, which
+    saves on memory and processing time by reusing the same object for all records of the same type.
+    """
+
+    def __init__(
+        self,
+        *,
+        json_schema: dict,
+        normalizer: type[NameNormalizerBase] = LowerCaseNormalizer,
+        normalize_keys: bool = False,
+        prune_extra_fields: bool,
+    ) -> None:
+        """Initialize the dictionary with the given data.
+
+        Args:
+            json_schema: The JSON Schema definition for this stream.
+            normalizer: The normalizer to use when normalizing keys. If not provided, the
+                LowerCaseNormalizer will be used.
+            normalize_keys: If `True`, the keys will be normalized using the given normalizer.
+            prune_extra_fields: If `True`, unexpected fields will be removed.
+        """
+        self._expected_keys: list[str] = list(json_schema.get("properties", {}).keys())
+        self._normalizer: type[NameNormalizerBase] = normalizer
+        self._normalize_keys: bool = normalize_keys
+        self.prune_extra_fields: bool = prune_extra_fields
+
+        self.index_keys: list[str] = [
+            self._normalizer.normalize(key) if self._normalize_keys else key
+            for key in self._expected_keys
+        ]
+        self.normalized_keys: list[str] = [
+            self._normalizer.normalize(key) for key in self._expected_keys
+        ]
+        self.quick_lookup: dict[str, str]
+
+        for internal_col in AB_INTERNAL_COLUMNS:
+            if internal_col not in self._expected_keys:
+                self._expected_keys.append(internal_col)
+
+        # Store a lookup from normalized keys to pretty cased (originally cased) keys.
+        self._pretty_case_lookup: dict[str, str] = {
+            self._normalizer.normalize(pretty_case.lower()): pretty_case
+            for pretty_case in self._expected_keys
+        }
+        # Store a map from all key versions (normalized and pretty-cased) to their normalized
+        # version.
+        self.quick_lookup = {
+            key: self._normalizer.normalize(key)
+            if self._normalize_keys
+            else self.to_display_case(key)
+            for key in set(self._expected_keys) | set(self._pretty_case_lookup.values())
+        }
+
+    def to_display_case(self, key: str) -> str:
+        """Return the original case of the key."""
+        return self._pretty_case_lookup[self._normalizer.normalize(key)]
+
+    def to_index_case(self, key: str) -> str:
+        """Return the internal case of the key.
+
+        If `normalize_keys` is True, returns the normalized key.
+        Otherwise, return the original case ("pretty case") of the key.
+        """
+        try:
+            return self.quick_lookup[key]
+        except KeyError:
+            result = (
+                self._normalizer.normalize(key)
+                if self._normalize_keys
+                else self.to_display_case(key)
+            )
+            self.quick_lookup[key] = result
+            return result
 
 
 class StreamRecord(dict[str, Any]):
@@ -115,148 +195,115 @@ class StreamRecord(dict[str, Any]):
     determine the original case of the keys.
     """
 
-    def _display_case(self, key: str) -> str:
-        """Return the original case of the key."""
-        return self._pretty_case_keys[self._normalizer.normalize(key)]
+    def __init__(
+        self,
+        from_dict: dict,
+        *,
+        stream_record_handler: StreamRecordHandler,
+        with_internal_columns: bool = True,
+        extracted_at: datetime | None = None,
+    ) -> None:
+        """Initialize the dictionary with the given data.
 
-    def _index_case(self, key: str) -> str:
-        """Return the internal case of the key.
-
-        If normalize_keys is True, return the normalized key.
-        Otherwise, return the original case of the key.
+        Args:
+            from_dict: The dictionary to initialize the StreamRecord with.
+            stream_record_handler: The StreamRecordHandler to use for processing the record.
+            with_internal_columns: If `True`, the internal columns will be added to the record.
+            extracted_at: The time the record was extracted. If not provided, the current time will
+                be used.
         """
-        if self._normalize_keys:
-            return self._normalizer.normalize(key)
+        self._stream_handler: StreamRecordHandler = stream_record_handler
 
-        return self._display_case(key)
+        # Start by initializing all values to None
+        self.update(dict.fromkeys(stream_record_handler.index_keys))
+
+        # Update the dictionary with the given data
+        if self._stream_handler.prune_extra_fields:
+            self.update(
+                {
+                    self._stream_handler.to_index_case(k): v
+                    for k, v in from_dict.items()
+                    if self._stream_handler.to_index_case(k) in self._stream_handler.index_keys
+                }
+            )
+        else:
+            self.update({self._stream_handler.to_index_case(k): v for k, v in from_dict.items()})
+
+        if with_internal_columns:
+            self.update(
+                {
+                    AB_RAW_ID_COLUMN: uuid7str(),
+                    AB_EXTRACTED_AT_COLUMN: extracted_at or datetime.now(pytz.utc),
+                    AB_META_COLUMN: {},
+                }
+            )
 
     @classmethod
     def from_record_message(
         cls,
         record_message: AirbyteRecordMessage,
         *,
-        prune_extra_fields: bool,
-        normalize_keys: bool = True,
-        normalizer: type[NameNormalizerBase] | None = None,
-        expected_keys: list[str] | None = None,
+        stream_record_handler: StreamRecordHandler,
     ) -> StreamRecord:
         """Return a StreamRecord from a RecordMessage."""
         data_dict: dict[str, Any] = record_message.data.copy()
-        data_dict[AB_RAW_ID_COLUMN] = str(ulid.ULID())
-        data_dict[AB_EXTRACTED_AT_COLUMN] = datetime.fromtimestamp(
-            record_message.emitted_at / 1000, tz=pytz.utc
-        )
-        data_dict[AB_META_COLUMN] = {}
-
         return cls(
             from_dict=data_dict,
-            prune_extra_fields=prune_extra_fields,
-            normalize_keys=normalize_keys,
-            normalizer=normalizer,
-            expected_keys=expected_keys,
+            stream_record_handler=stream_record_handler,
+            with_internal_columns=True,
+            extracted_at=datetime.fromtimestamp(record_message.emitted_at / 1000, tz=pytz.utc),
         )
 
-    def __init__(
-        self,
-        from_dict: dict,
-        *,
-        prune_extra_fields: bool,
-        normalize_keys: bool = True,
-        normalizer: type[NameNormalizerBase] | None = None,
-        expected_keys: list[str] | None = None,
-    ) -> None:
-        """Initialize the dictionary with the given data.
-
-        Args:
-            from_dict: The dictionary to initialize the StreamRecord with.
-            prune_extra_fields: If `True`, unexpected fields will be removed.
-            normalize_keys: If `True`, the keys will be normalized using the given normalizer.
-            normalizer: The normalizer to use when normalizing keys. If not provided, the
-                LowerCaseNormalizer will be used.
-            expected_keys: If provided and `prune_extra_fields` is True, then unexpected fields
-                will be removed. This option is ignored if `expected_keys` is not provided.
-        """
-        # If no normalizer is provided, use LowerCaseNormalizer.
-        self._normalize_keys = normalize_keys
-        self._normalizer: type[NameNormalizerBase] = normalizer or LowerCaseNormalizer
-
-        # If no expected keys are provided, use all keys from the input dictionary.
-        if not expected_keys:
-            expected_keys = list(from_dict.keys())
-            prune_extra_fields = False  # No expected keys provided.
-        else:
-            expected_keys = list(expected_keys)
-
-        for internal_col in AB_INTERNAL_COLUMNS:
-            if internal_col not in expected_keys:
-                expected_keys.append(internal_col)
-
-        # Store a lookup from normalized keys to pretty cased (originally cased) keys.
-        self._pretty_case_keys: dict[str, str] = {
-            self._normalizer.normalize(pretty_case.lower()): pretty_case
-            for pretty_case in expected_keys
-        }
-
-        if normalize_keys:
-            index_keys = [self._normalizer.normalize(key) for key in expected_keys]
-        else:
-            index_keys = expected_keys
-
-        self.update(dict.fromkeys(index_keys))  # Start by initializing all values to None
-        for k, v in from_dict.items():
-            index_cased_key = self._index_case(k)
-            if prune_extra_fields and index_cased_key not in index_keys:
-                # Dropping undeclared field
-                continue
-
-            self[index_cased_key] = v
-
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401
-        if super().__contains__(key):
+        """Return the item with the given key."""
+        try:
             return super().__getitem__(key)
-
-        if super().__contains__(self._index_case(key)):
-            return super().__getitem__(self._index_case(key))
-
-        raise KeyError(key)
+        except KeyError:
+            return super().__getitem__(self._stream_handler.to_index_case(key))
 
     def __setitem__(self, key: str, value: Any) -> None:  # noqa: ANN401
-        if super().__contains__(key):
-            super().__setitem__(key, value)
+        """Set the item with the given key to the given value."""
+        index_case_key = self._stream_handler.to_index_case(key)
+        if (
+            self._stream_handler.prune_extra_fields
+            and index_case_key not in self._stream_handler.index_keys
+        ):
             return
 
-        if super().__contains__(self._index_case(key)):
-            super().__setitem__(self._index_case(key), value)
-            return
-
-        # Store the pretty cased (originally cased) key:
-        self._pretty_case_keys[self._normalizer.normalize(key)] = key
-
-        # Store the data with the normalized key:
-        super().__setitem__(self._index_case(key), value)
+        super().__setitem__(index_case_key, value)
 
     def __delitem__(self, key: str) -> None:
-        if super().__contains__(key):
+        """Delete the item with the given key."""
+        try:
             super().__delitem__(key)
-            return
-
-        if super().__contains__(self._index_case(key)):
-            super().__delitem__(self._index_case(key))
+        except KeyError:
+            index_case_key = self._stream_handler.to_index_case(key)
+            if super().__contains__(index_case_key):
+                super().__delitem__(index_case_key)
+                return
+        else:
+            # No failure. Key was deleted.
             return
 
         raise KeyError(key)
 
     def __contains__(self, key: object) -> bool:
+        """Return whether the dictionary contains the given key."""
         assert isinstance(key, str), "Key must be a string."
-        return super().__contains__(key) or super().__contains__(self._index_case(key))
+        return super().__contains__(key) or super().__contains__(
+            self._stream_handler.to_index_case(key)
+        )
 
-    def __iter__(self) -> Any:  # noqa: ANN401
+    def __iter__(self) -> Iterator[str]:
+        """Return an iterator over the keys of the dictionary."""
         return iter(super().__iter__())
 
     def __len__(self) -> int:
+        """Return the number of items in the dictionary."""
         return super().__len__()
 
     def __eq__(self, other: object) -> bool:
+        """Return whether the StreamRecord is equal to the given dict or StreamRecord object."""
         if isinstance(other, StreamRecord):
             return dict(self) == dict(other)
 

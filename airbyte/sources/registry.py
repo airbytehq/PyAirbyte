@@ -1,4 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+"""Connectivity to the connector catalog registry."""
+
 from __future__ import annotations
 
 import json
@@ -70,6 +72,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-quickbooks",
     "source-railz",
     "source-recharge",
+    "source-recurly",
     "source-retently",
     "source-rss",
     "source-salesloft",
@@ -92,7 +95,9 @@ _LOWCODE_CONNECTORS_FAILING_VALIDATION = [
     "source-amazon-ads",
 ]
 # Connectors that return 404 or some other misc error.
-_LOWCODE_CONNECTORS_404: list[str] = []
+_LOWCODE_CONNECTORS_404: list[str] = [
+    "source-xkcd",
+]
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
     *_LOWCODE_CONNECTORS_404,
@@ -101,6 +106,8 @@ _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
 
 
 class InstallType(str, Enum):
+    """The type of installation for a connector."""
+
     YAML = "yaml"
     PYTHON = "python"
     DOCKER = "docker"
@@ -108,6 +115,8 @@ class InstallType(str, Enum):
 
 
 class Language(str, Enum):
+    """The language of a connector."""
+
     PYTHON = InstallType.PYTHON.value
     JAVA = InstallType.JAVA.value
 
@@ -195,6 +204,10 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
     new_cache: dict[str, ConnectorMetadata] = {}
 
     for connector in data["sources"]:
+        connector_metadata = _registry_entry_to_connector_metadata(connector)
+        new_cache[connector_metadata.name] = connector_metadata
+
+    for connector in data["destinations"]:
         connector_metadata = _registry_entry_to_connector_metadata(connector)
         new_cache[connector_metadata.name] = connector_metadata
 

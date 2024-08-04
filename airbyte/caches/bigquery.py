@@ -17,6 +17,8 @@ cache = BigQueryCache(
 
 from __future__ import annotations
 
+from typing import NoReturn
+
 from pydantic import PrivateAttr
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
@@ -36,11 +38,19 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         stream_name: str,
         *,
         max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
-    ) -> None:
+    ) -> NoReturn:
         """Raises NotImplementedError; BigQuery doesn't support `pd.read_sql_table`.
-        https://github.com/airbytehq/PyAirbyte/issues/165
+
+        See: https://github.com/airbytehq/PyAirbyte/issues/165
         """
         raise NotImplementedError(
             "BigQuery doesn't currently support to_arrow"
             "Please consider using a different cache implementation for these functionalities."
         )
+
+
+# Expose the Cache class and also the Config class.
+__all__ = [
+    "BigQueryCache",
+    "BigQueryConfig",
+]

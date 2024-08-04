@@ -19,7 +19,7 @@ from rich import print
 
 import airbyte as ab
 from airbyte import exceptions as exc
-from airbyte._executor import _get_bin_dir
+from airbyte._util.venv_util import get_bin_dir
 
 
 def _parse_args() -> argparse.Namespace:
@@ -59,9 +59,9 @@ def _run_subprocess_and_raise_on_failure(args: list[str]) -> None:
 
 
 def full_tests(connector_name: str, sample_config: str) -> None:
+    """Run full tests on the connector."""
     print("Creating source and validating spec and version...")
     source = ab.get_source(
-        # TODO: FIXME: noqa: SIM115, PTH123
         connector_name,
         config=json.loads(Path(sample_config).read_text(encoding="utf-8")),  # ,
         install_if_missing=False,
@@ -91,6 +91,7 @@ def full_tests(connector_name: str, sample_config: str) -> None:
 
 
 def install_only_test(connector_name: str) -> None:
+    """Test that the connector can be installed and spec can be printed."""
     print("Creating source and validating spec is returned successfully...")
     source = ab.get_source(connector_name)
     source._get_spec(force_refresh=True)  # noqa: SLF001  # Member is private until we have a public API for it.
@@ -116,11 +117,11 @@ def run() -> None:
 
 
 def validate(connector_dir: str, sample_config: str, *, validate_install_only: bool) -> None:
+    """Validate a connector."""
     # read metadata.yaml
     metadata_path = Path(connector_dir) / "metadata.yaml"
     metadata = yaml.safe_load(Path(metadata_path).read_text(encoding="utf-8"))["data"]
 
-    # TODO: Use remoteRegistries.pypi.packageName once set for connectors
     connector_name = metadata["dockerRepository"].replace("airbyte/", "")
 
     # create a venv and install the connector
@@ -129,7 +130,7 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     if not venv_path.exists():
         _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
 
-    pip_path = str(_get_bin_dir(Path(venv_path)) / "pip")
+    pip_path = str(get_bin_dir(Path(venv_path)) / "pip")
 
     _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
 

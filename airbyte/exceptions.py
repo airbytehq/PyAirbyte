@@ -38,7 +38,9 @@ In addition, the following principles are applied for exception class design:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
 
@@ -49,7 +51,7 @@ if TYPE_CHECKING:
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
-DOCS_URL = "https://docs.airbyte.io/"
+DOCS_URL = "https://airbytehq.github.io/PyAirbyte/airbyte.html"
 
 
 # Base error class
@@ -78,6 +80,7 @@ class PyAirbyteError(Exception):
         return self.__doc__.split("\n")[0] if self.__doc__ else ""
 
     def __str__(self) -> str:
+        """Return a string representation of the exception."""
         special_properties = ["message", "guidance", "help_url", "log_text", "context"]
         display_properties = {
             k: v
@@ -107,6 +110,7 @@ class PyAirbyteError(Exception):
         return exception_str
 
     def __repr__(self) -> str:
+        """Return a string representation of the exception."""
         class_name = self.__class__.__name__
         properties_str = ", ".join(
             f"{k}={v!r}" for k, v in self.__dict__.items() if not k.startswith("_")
@@ -154,9 +158,8 @@ class PyAirbyteInputError(PyAirbyteError, ValueError):
     ValueError in the PyAirbyte API.
     """
 
-    # TODO: Consider adding a help_url that links to the auto-generated API reference.
-
     guidance = "Please check the provided value and try again."
+    help_url = DOCS_URL
     input_value: str | None = None
 
 
@@ -259,6 +262,24 @@ class AirbyteConnectorError(PyAirbyteError):
 
     connector_name: str | None = None
 
+    def __post_init__(self) -> None:
+        """Log the error message when the exception is raised."""
+        if self.connector_name:
+            logger = logging.getLogger(f"airbyte.{self.connector_name}")
+            if self.connector_name:
+                logger.error(str(self))
+            else:
+                logger.error(str(self))
+
+            log_paths: list[Path] = [
+                Path(handler.baseFilename).absolute()
+                for handler in logger.handlers
+                if isinstance(handler, logging.FileHandler)
+            ]
+
+            if log_paths:
+                print(f"Connector logs: {', '.join(str(path) for path in log_paths)}")
+
 
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):
     """Connector executable not found."""
@@ -269,6 +290,18 @@ class AirbyteConnectorInstallationError(AirbyteConnectorError):
 
 
 class AirbyteConnectorReadError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorWriteError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorSpecFailedError(AirbyteConnectorError):
+    """Error when reading from the connector."""
+
+
+class AirbyteConnectorDiscoverFailedError(AirbyteConnectorError):
     """Error when reading from the connector."""
 
 
@@ -316,6 +349,14 @@ class AirbyteStreamNotFoundError(AirbyteConnectorError):
 
 
 @dataclass
+class AirbyteStateNotFoundError(AirbyteConnectorError, KeyError):
+    """State entry not found."""
+
+    stream_name: str | None = None
+    available_streams: list[str] | None = None
+
+
+@dataclass
 class PyAirbyteSecretNotFoundError(PyAirbyteError):
     """Secret not found."""
 
@@ -343,6 +384,7 @@ class AirbyteError(PyAirbyteError):
 
     @property
     def workspace_url(self) -> str | None:
+        """The URL to the workspace where the error occurred."""
         if self.workspace:
             return self.workspace.workspace_url
 
@@ -364,6 +406,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def connection_url(self) -> str | None:
+        """The URL to the connection where the error occurred."""
         if self.workspace_url and self.connection_id:
             return f"{self.workspace_url}/connections/{self.connection_id}"
 
@@ -371,6 +414,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def job_history_url(self) -> str | None:
+        """The URL to the job history where the error occurred."""
         if self.connection_url:
             return f"{self.connection_url}/job-history"
 
@@ -378,6 +422,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def job_url(self) -> str | None:
+        """The URL to the job where the error occurred."""
         if self.job_history_url and self.job_id:
             return f"{self.job_history_url}#{self.job_id}::0"
 
@@ -421,3 +466,18 @@ class AirbyteMultipleResourcesError(AirbyteError):
 
 class AirbyteExperimentalFeatureWarning(FutureWarning):
     """Warning whenever using experimental features in PyAirbyte."""
+
+
+# PyAirbyte Warnings
+
+
+class PyAirbyteWarning(Warning):
+    """General warnings from PyAirbyte."""
+
+
+class PyAirbyteDataLossWarning(PyAirbyteWarning):
+    """Warning for potential data loss.
+
+    Users can ignore this warning by running:
+    > warnings.filterwarnings("ignore", category="airbyte.exceptions.PyAirbyteDataLossWarning")
+    """

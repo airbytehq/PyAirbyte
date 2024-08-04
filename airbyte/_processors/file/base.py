@@ -11,10 +11,9 @@ from typing import IO, TYPE_CHECKING, final
 import ulid
 
 from airbyte import exceptions as exc
+from airbyte import progress
 from airbyte._batch_handles import BatchHandle
-from airbyte._util.name_normalizers import LowerCaseNormalizer
-from airbyte.progress import progress
-from airbyte.records import StreamRecord
+from airbyte.records import StreamRecord, StreamRecordHandler
 
 
 if TYPE_CHECKING:
@@ -22,8 +21,10 @@ if TYPE_CHECKING:
         AirbyteRecordMessage,
     )
 
+    from airbyte.progress import ProgressTracker
 
-DEFAULT_BATCH_SIZE = 10000
+
+DEFAULT_BATCH_SIZE = 100_000
 
 
 class FileWriterBase(abc.ABC):
@@ -60,13 +61,14 @@ class FileWriterBase(abc.ABC):
     def _open_new_file(
         self,
         file_path: Path,
-    ) -> IO[bytes]:
+    ) -> IO[str]:
         """Open a new file for writing."""
-        return file_path.open("wb")
+        return file_path.open("w", encoding="utf-8")
 
     def _flush_active_batch(
         self,
         stream_name: str,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Flush the active batch for the given stream.
 
@@ -81,7 +83,7 @@ class FileWriterBase(abc.ABC):
         del self._active_batches[stream_name]
 
         self._completed_batches[stream_name].append(batch_handle)
-        progress.log_batch_written(
+        progress_tracker.log_batch_written(
             stream_name=stream_name,
             batch_size=batch_handle.record_count,
         )
@@ -89,6 +91,7 @@ class FileWriterBase(abc.ABC):
     def _new_batch(
         self,
         stream_name: str,
+        progress_tracker: progress.ProgressTracker,
     ) -> BatchHandle:
         """Create and return a new batch handle.
 
@@ -98,7 +101,10 @@ class FileWriterBase(abc.ABC):
         This also flushes the active batch if one already exists for the given stream.
         """
         if stream_name in self._active_batches:
-            self._flush_active_batch(stream_name)
+            self._flush_active_batch(
+                stream_name=stream_name,
+                progress_tracker=progress_tracker,
+            )
 
         batch_id = self._new_batch_id()
         new_file_path = self._get_new_cache_file_path(stream_name)
@@ -142,7 +148,8 @@ class FileWriterBase(abc.ABC):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-        stream_schema: dict,
+        stream_record_handler: StreamRecordHandler,
+        progress_tracker: progress.ProgressTracker,
     ) -> None:
         """Write a record to the cache.
 
@@ -152,14 +159,20 @@ class FileWriterBase(abc.ABC):
 
         batch_handle: BatchHandle
         if stream_name not in self._active_batches:
-            batch_handle = self._new_batch(stream_name=stream_name)
+            batch_handle = self._new_batch(
+                stream_name=stream_name,
+                progress_tracker=progress_tracker,
+            )
 
         else:
             batch_handle = self._active_batches[stream_name]
 
         if batch_handle.record_count + 1 > self.MAX_BATCH_SIZE:
             # Already at max batch size, so start a new batch.
-            batch_handle = self._new_batch(stream_name=stream_name)
+            batch_handle = self._new_batch(
+                stream_name=stream_name,
+                progress_tracker=progress_tracker,
+            )
 
         if batch_handle.open_file_writer is None:
             raise exc.PyAirbyteInternalError(message="Expected open file writer.")
@@ -167,9 +180,7 @@ class FileWriterBase(abc.ABC):
         self._write_record_dict(
             record_dict=StreamRecord.from_record_message(
                 record_message=record_msg,
-                expected_keys=stream_schema["properties"].keys(),
-                normalizer=LowerCaseNormalizer,
-                prune_extra_fields=self.prune_extra_fields,
+                stream_record_handler=stream_record_handler,
             ),
             open_file_writer=batch_handle.open_file_writer,
         )
@@ -177,11 +188,15 @@ class FileWriterBase(abc.ABC):
 
     def flush_active_batches(
         self,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Flush active batches for all streams."""
         streams = list(self._active_batches.keys())
         for stream_name in streams:
-            self._flush_active_batch(stream_name)
+            self._flush_active_batch(
+                stream_name=stream_name,
+                progress_tracker=progress_tracker,
+            )
 
     def _cleanup_batch(
         self,
@@ -216,7 +231,7 @@ class FileWriterBase(abc.ABC):
     def _write_record_dict(
         self,
         record_dict: StreamRecord,
-        open_file_writer: IO[bytes],
+        open_file_writer: IO[str],
     ) -> None:
         """Write one record to a file."""
         raise NotImplementedError("No default implementation.")

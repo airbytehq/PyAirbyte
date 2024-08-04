@@ -39,3 +39,10 @@ class DuckDBCache(DuckDBConfig, CacheBase):
     """A DuckDB cache."""
 
     _sql_processor_class: type[DuckDBSqlProcessor] = PrivateAttr(default=DuckDBSqlProcessor)
+
+
+# Expose the Cache class and also the Config class.
+__all__ = [
+    "DuckDBCache",
+    "DuckDBConfig",
+]

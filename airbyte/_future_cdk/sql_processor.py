@@ -39,7 +39,6 @@ from airbyte.constants import (
     AB_RAW_ID_COLUMN,
     DEBUG_MODE,
 )
-from airbyte.progress import progress
 from airbyte.strategies import WriteStrategy
 from airbyte.types import SQLTypeConverter
 
@@ -62,6 +61,8 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
+    from airbyte.progress import ProgressTracker
+    from airbyte.records import StreamRecordHandler
     from airbyte.secrets.base import SecretString
 
 
@@ -161,6 +162,8 @@ class SqlProcessorBase(RecordProcessorBase):
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
+
+        self._known_schemas_list: list[str] = []
         self._ensure_schema_exists()
 
     # Public interface:
@@ -203,9 +206,6 @@ class SqlProcessorBase(RecordProcessorBase):
     ) -> str:
         """Return the name of the SQL table for the given stream."""
         table_prefix = self.sql_config.table_prefix
-
-        # TODO: Add default prefix based on the source name.
-
         return self.normalizer.normalize(
             f"{table_prefix}{stream_name}",
         )
@@ -225,7 +225,8 @@ class SqlProcessorBase(RecordProcessorBase):
     def process_record_message(
         self,
         record_msg: AirbyteRecordMessage,
-        stream_schema: dict,
+        stream_record_handler: StreamRecordHandler,
+        progress_tracker: ProgressTracker,
     ) -> None:
         """Write a record to the cache.
 
@@ -236,7 +237,8 @@ class SqlProcessorBase(RecordProcessorBase):
         """
         self.file_writer.process_record_message(
             record_msg,
-            stream_schema=stream_schema,
+            stream_record_handler=stream_record_handler,
+            progress_tracker=progress_tracker,
         )
 
     # Protected members (non-public interface):
@@ -304,6 +306,10 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
     ) -> None:
         schema_name = self.normalizer.normalize(self.sql_config.schema_name)
+        known_schemas_list = self.normalizer.normalize_list(self._known_schemas_list)
+        if known_schemas_list and schema_name in known_schemas_list:
+            return  # Already exists
+
         schemas_list = self.normalizer.normalize_list(self._get_schemas_list())
         if schema_name in schemas_list:
             return
@@ -372,17 +378,23 @@ class SqlProcessorBase(RecordProcessorBase):
     def _get_schemas_list(
         self,
         database_name: str | None = None,
+        *,
+        force_refresh: bool = False,
     ) -> list[str]:
         """Return a list of all tables in the database."""
+        if not force_refresh and self._known_schemas_list:
+            return self._known_schemas_list
+
         inspector: Inspector = sqlalchemy.inspect(self.get_sql_engine())
         database_name = database_name or self.database_name
         found_schemas = inspector.get_schema_names()
-        return [
+        self._known_schemas_list = [
             found_schema.split(".")[-1].strip('"')
             for found_schema in found_schemas
             if "." not in found_schema
             or (found_schema.split(".")[0].lower().strip('"') == database_name.lower())
         ]
+        return self._known_schemas_list
 
     def _ensure_final_table_exists(
         self,
@@ -416,10 +428,9 @@ class SqlProcessorBase(RecordProcessorBase):
 
         Raises an exception if the table schema is not compatible with the schema of the
         input stream.
-
-        TODO:
-        - Expand this to check for column types and sizes.
         """
+        # TODO: Expand this to check for column types and sizes.
+        # https://github.com/airbytehq/pyairbyte/issues/321
         self._add_missing_columns_to_table(
             stream_name=stream_name,
             table_name=table_name,
@@ -468,6 +479,7 @@ class SqlProcessorBase(RecordProcessorBase):
         self,
         stream_name: str,
         write_strategy: WriteStrategy,
+        progress_tracker: ProgressTracker,
     ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
 
@@ -480,9 +492,14 @@ class SqlProcessorBase(RecordProcessorBase):
               although this is a fairly rare edge case we can ignore in V1.
         """
         # Flush any pending writes
-        self.file_writer.flush_active_batches()
+        self.file_writer.flush_active_batches(
+            progress_tracker=progress_tracker,
+        )
 
-        with self.finalizing_batches(stream_name) as batches_to_finalize:
+        with self.finalizing_batches(
+            stream_name=stream_name,
+            progress_tracker=progress_tracker,
+        ) as batches_to_finalize:
             # Make sure the target schema and target table exist.
             self._ensure_schema_exists()
             final_table_name = self._ensure_final_table_exists(
@@ -516,7 +533,7 @@ class SqlProcessorBase(RecordProcessorBase):
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
 
-        progress.log_stream_finalized(stream_name)
+        progress_tracker.log_stream_finalized(stream_name)
 
         # Return the batch handles as measure of work completed.
         return batches_to_finalize
@@ -533,6 +550,7 @@ class SqlProcessorBase(RecordProcessorBase):
     def finalizing_batches(
         self,
         stream_name: str,
+        progress_tracker: ProgressTracker,
     ) -> Generator[list[BatchHandle], str, None]:
         """Context manager to use for finalizing batches, if applicable.
 
@@ -544,10 +562,10 @@ class SqlProcessorBase(RecordProcessorBase):
         ].copy()
         self._pending_state_messages[stream_name].clear()
 
-        progress.log_batches_finalizing(stream_name, len(batches_to_finalize))
+        progress_tracker.log_batches_finalizing(stream_name, len(batches_to_finalize))
         yield batches_to_finalize
         self._finalize_state_messages(state_messages_to_finalize)
-        progress.log_batches_finalized(stream_name, len(batches_to_finalize))
+        progress_tracker.log_batches_finalized(stream_name, len(batches_to_finalize))
 
         for batch_handle in batches_to_finalize:
             batch_handle.finalized = True

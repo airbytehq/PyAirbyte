@@ -1,3 +1,13 @@
+# temp files
+temp
+.temp
+
+# logs
+logs/
+
+# Viztracer log files
+viztracer_report.json
+
 # Packaged docs
 docs/*.zip
 

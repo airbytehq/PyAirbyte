@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 
 class SecretSourceEnum(str, Enum):
+    """Enumeration of secret sources supported by PyAirbyte."""
+
     ENV = "env"
     DOTENV = "dotenv"
     GOOGLE_COLAB = "google_colab"
@@ -31,12 +33,30 @@ class SecretString(str):
     """A string that represents a secret.
 
     This class is used to mark a string as a secret. When a secret is printed, it
-    will be masked to prevent accidental exposure of sensitive information.
+    will be masked to prevent accidental exposure of sensitive information when debugging
+    or when printing containing objects like dictionaries.
+
+    To create a secret string, simply instantiate the class with any string value:
+
+        ```python
+        secret = SecretString("my_secret_password")
+        ```
+
     """
 
     __slots__ = ()
 
     def __repr__(self) -> str:
+        """Override the representation of the secret string to return a masked value.
+
+        The secret string is always masked with `****` to prevent accidental exposure, unless
+        explicitly converted to a string. For instance, printing a config dictionary that contains
+        a secret will automatically mask the secret value instead of printing it in plain text.
+
+        However, if you explicitly convert the cast the secret as a string, such as when used
+        in an f-string, the secret will be exposed. This is the desired behavior to allow
+        secrets to be used in a controlled manner.
+        """
         return "<SecretString: ****>"
 
     def is_empty(self) -> bool:
@@ -55,7 +75,8 @@ class SecretString(str):
     def __bool__(self) -> bool:
         """Override the boolean value of the secret string.
 
-        Always returns `True` without inspecting contents."""
+        Always returns `True` without inspecting contents.
+        """
         return True
 
     def parse_json(self) -> dict:
@@ -94,6 +115,7 @@ class SecretString(str):
         source_type: Any,  # noqa: ANN401  # Must allow `Any` to match Pydantic signature
         handler: GetCoreSchemaHandler,
     ) -> CoreSchema:
+        """Return a modified core schema for the secret string."""
         return core_schema.with_info_after_validator_function(
             function=cls.validate, schema=handler(str), field_name=handler.field_name
         )
@@ -102,8 +124,7 @@ class SecretString(str):
     def __get_pydantic_json_schema__(  # noqa: PLW3201  # Pydantic dunder method
         cls, _core_schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
-        """
-        Return a modified JSON schema for the secret string.
+        """Return a modified JSON schema for the secret string.
 
         - `writeOnly=True` is the official way to prevent secrets from being exposed inadvertently.
         - `Format=password` is a popular and readable convention to indicate the field is sensitive.
@@ -157,9 +178,11 @@ class SecretManager(ABC):
         ...
 
     def __str__(self) -> str:
+        """Return the name of the secret manager."""
         return self.name
 
     def __eq__(self, value: object) -> bool:
+        """Check if the secret manager is equal to another secret manager."""
         if isinstance(value, SecretManager):
             return self.name == value.name
 
@@ -172,6 +195,10 @@ class SecretManager(ABC):
         return super().__eq__(value)
 
     def __hash__(self) -> int:
+        """Return a hash of the secret manager name.
+
+        This allows the secret manager to be used in sets and dictionaries.
+        """
         return hash(self.name)
 
 

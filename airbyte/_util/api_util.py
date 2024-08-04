@@ -254,7 +254,7 @@ def create_source(
         models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,  # TODO: wrap in a proper configuration object
+            configuration=config,
             definition_id=None,  # Not used alternative to config.sourceType.
             secret_id=None,  # For OAuth, not yet supported
         ),
@@ -337,7 +337,7 @@ def create_destination(
         models.DestinationCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,  # TODO: wrap in a proper configuration object
+            configuration=config,
         ),
     )
     if status_ok(response.status_code) and response.destination_response:
@@ -368,6 +368,7 @@ def get_destination(
     if status_ok(response.status_code):
         # TODO: This is a temporary workaround to resolve an issue where
         # the destination API response is of the wrong type.
+        # https://github.com/airbytehq/pyairbyte/issues/320
         raw_response: dict[str, Any] = json.loads(response.raw_response.text)
         raw_configuration: dict[str, Any] = raw_response["configuration"]
         destination_type = raw_response.get("destinationType")
@@ -538,10 +539,6 @@ def delete_connection(
 #     api_key: str,
 #     workspace_id: str | None = None,
 # ) -> api.SourceCheckResponse:
-#     """Check a source.
-
-#     # TODO: Need to use legacy Configuration API for this:
-#     # https://airbyte-public-api-docs.s3.us-east-2.amazonaws.com/rapidoc-api-docs.html#post-/v1/sources/check_connection
-#     """
+#     """Check a source."""
 #     _ = source_id, workspace_id, api_root, api_key
 #     raise NotImplementedError

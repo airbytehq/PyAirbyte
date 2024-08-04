@@ -95,6 +95,14 @@ class CacheBase(SqlConfig):
             temp_file_cleanup=self.cleanup,
         )
 
+    @property
+    def name(self) -> str:
+        """Return the name of the cache.
+
+        By default, this is the class name.
+        """
+        return type(self).__name__
+
     @final
     @property
     def processor(self) -> SqlProcessorBase:
@@ -105,6 +113,7 @@ class CacheBase(SqlConfig):
         self,
         source_name: str,
         catalog_provider: CatalogProvider,
+        state_writer: StateWriterBase | None = None,
     ) -> SqlProcessorBase:
         """Return a record processor for the specified source name and catalog.
 
@@ -126,7 +135,7 @@ class CacheBase(SqlConfig):
         return self._sql_processor_class(
             sql_config=self,
             catalog_provider=catalog_provider,
-            state_writer=self.get_state_writer(source_name=source_name),
+            state_writer=state_writer or self.get_state_writer(source_name=source_name),
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
@@ -198,20 +207,30 @@ class CacheBase(SqlConfig):
         source_name: str,
         *,
         refresh: bool = True,
+        destination_name: str | None = None,
     ) -> StateProviderBase:
         """Return a state provider for the specified source name."""
         return self._state_backend.get_state_provider(
             source_name=source_name,
             table_prefix=self.table_prefix or "",
             refresh=refresh,
+            destination_name=destination_name,
         )
 
     def get_state_writer(
         self,
         source_name: str,
+        destination_name: str | None = None,
     ) -> StateWriterBase:
-        """Return a state writer for the specified source name."""
-        return self._state_backend.get_state_writer(source_name=source_name)
+        """Return a state writer for the specified source name.
+
+        If syncing to the cache, `destination_name` should be `None`.
+        If syncing to a destination, `destination_name` should be the destination name.
+        """
+        return self._state_backend.get_state_writer(
+            source_name=source_name,
+            destination_name=destination_name,
+        )
 
     def register_source(
         self,
