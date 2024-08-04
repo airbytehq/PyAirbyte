@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import datetime
+import io
 import sys
 from collections.abc import Iterator
-from typing import IO, TYPE_CHECKING, Callable, cast
+from typing import IO, TYPE_CHECKING, Any, Callable, Literal, cast
 
 import pydantic
 from typing_extensions import final
@@ -78,7 +79,7 @@ class AirbyteMessageIterator:
                 b[:n] = data
                 return n
 
-        return FileLikeReader(self._iterator)
+        return cast(io.BytesIO, FileLikeReader(self._iterator))
 
     @classmethod
     def from_read_result(cls, read_result: ReadResult) -> AirbyteMessageIterator:

@@ -7,9 +7,6 @@ Usage (from PyAirbyte root directory):
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from io import BytesIO, StringIO
-from typing import TextIO
 
 import airbyte as ab
 import polars as pl
