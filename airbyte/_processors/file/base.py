@@ -65,7 +65,7 @@ class FileWriterBase(abc.ABC):
         """Open a new file for writing."""
         return file_path.open("w", encoding="utf-8")
 
-    def _flush_active_batch(
+    def flush_active_batch(
         self,
         stream_name: str,
         progress_tracker: ProgressTracker,
@@ -101,7 +101,7 @@ class FileWriterBase(abc.ABC):
         This also flushes the active batch if one already exists for the given stream.
         """
         if stream_name in self._active_batches:
-            self._flush_active_batch(
+            self.flush_active_batch(
                 stream_name=stream_name,
                 progress_tracker=progress_tracker,
             )
@@ -193,7 +193,7 @@ class FileWriterBase(abc.ABC):
         """Flush active batches for all streams."""
         streams = list(self._active_batches.keys())
         for stream_name in streams:
-            self._flush_active_batch(
+            self.flush_active_batch(
                 stream_name=stream_name,
                 progress_tracker=progress_tracker,
             )
