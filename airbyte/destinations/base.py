@@ -23,7 +23,7 @@ from airbyte._future_cdk.state_providers import (
     StateProviderBase,
     StaticInputState,
 )
-from airbyte._future_cdk.state_writers import NoOpStateWriter, StateWriterBase, StdOutStateWriter
+from airbyte._future_cdk.state_writers import NoOpStateWriter, StdOutStateWriter
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
@@ -31,6 +31,7 @@ from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
+from airbyte.writers import AirbyteWriterInterface
 
 
 if TYPE_CHECKING:
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
 
 
-class Destination(ConnectorBase):
+class Destination(ConnectorBase, AirbyteWriterInterface):
     """A class representing a destination that can be called."""
 
     connector_type: Literal["destination"] = "destination"
@@ -73,11 +74,12 @@ class Destination(ConnectorBase):
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
     ) -> WriteResult:
-        """Write data to the destination.
+        """Write data from source connector or already cached source data.
+
+        Caching is enabled by default, unless explicitly disabled.
 
         Args:
-            source_data: The source data to write to the destination. Can be a `Source`, a `Cache`,
-                or a `ReadResult` object.
+            source_data: The source data to write. Can be a `Source` or a `ReadResult` object.
             streams: The streams to write to the destination. If omitted or if "*" is provided,
                 all streams will be written. If `source_data` is a source, then streams must be
                 selected here or on the source. If both are specified, this setting will override
@@ -227,8 +229,8 @@ class Destination(ConnectorBase):
             self._write_airbyte_message_stream(
                 stdin=message_iterator,
                 catalog_provider=catalog_provider,
+                write_strategy=write_strategy,
                 state_writer=destination_state_writer,
-                skip_validation=False,
                 progress_tracker=progress_tracker,
             )
         except Exception as ex:
@@ -251,17 +253,17 @@ class Destination(ConnectorBase):
         stdin: IO[str] | AirbyteMessageIterator,
         *,
         catalog_provider: CatalogProvider,
+        write_strategy: WriteStrategy,
         state_writer: StateWriterBase | None = None,
-        skip_validation: bool = False,
         progress_tracker: ProgressTracker,
     ) -> None:
         """Read from the connector and write to the cache."""
         # Run optional validation step
-        if not skip_validation:
-            self.validate_config()
-
         if state_writer is None:
             state_writer = StdOutStateWriter()
+
+        # Apply the write strategy to the catalog provider before sending to the destination
+        catalog_provider = catalog_provider.with_write_strategy(write_strategy)
 
         with as_temp_files(
             files_contents=[

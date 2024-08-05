@@ -50,7 +50,7 @@ from airbyte.constants import (
     DEBUG_MODE,
 )
 from airbyte.records import StreamRecordHandler
-from airbyte.strategies import WriteStrategy
+from airbyte.strategies import WriteMethod, WriteStrategy
 from airbyte.types import SQLTypeConverter
 
 
@@ -225,11 +225,13 @@ class SqlProcessorBase(abc.ABC):
         self,
         messages: Iterable[AirbyteMessage],
         *,
-        catalog_provider: CatalogProvider | None = None,
-        write_strategy: WriteStrategy,
+        write_strategy: WriteStrategy = WriteStrategy.AUTO,
         progress_tracker: ProgressTracker,
     ) -> None:
-        """Process a stream of Airbyte messages."""
+        """Process a stream of Airbyte messages.
+
+        This method assumes that the catalog is already registered with the processor.
+        """
         if not isinstance(write_strategy, WriteStrategy):
             raise exc.AirbyteInternalError(
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
@@ -401,7 +403,7 @@ class SqlProcessorBase(abc.ABC):
 
     # Protected members (non-public interface):
 
-    def _init_connection_settings(self, connection: Connection) -> None:
+    def _init_connection_settings(self, connection: Connection) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """This is called automatically whenever a new connection is created.
 
         By default this is a no-op. Subclasses can use this to set connection settings, such as
@@ -636,7 +638,9 @@ class SqlProcessorBase(abc.ABC):
     def write_stream_data(
         self,
         stream_name: str,
-        write_strategy: WriteStrategy,
+        *,
+        write_method: WriteMethod | None = None,
+        write_strategy: WriteStrategy | None = None,
         progress_tracker: ProgressTracker,
     ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
@@ -649,6 +653,18 @@ class SqlProcessorBase(abc.ABC):
               Some sources will send us duplicate records within the same stream,
               although this is a fairly rare edge case we can ignore in V1.
         """
+        if write_method and write_strategy and write_strategy != WriteStrategy.AUTO:
+            raise exc.PyAirbyteInternalError(
+                message=(
+                    "Both `write_method` and `write_strategy` were provided. "
+                    "Only one should be set."
+                ),
+            )
+        if not write_method:
+            write_method = self.catalog_provider.resolve_write_method(
+                stream_name=stream_name,
+                write_strategy=write_strategy or WriteStrategy.AUTO,
+            )
         # Flush any pending writes
         self.file_writer.flush_active_batches(
             progress_tracker=progress_tracker,
@@ -686,7 +702,7 @@ class SqlProcessorBase(abc.ABC):
                     stream_name=stream_name,
                     temp_table_name=temp_table_name,
                     final_table_name=final_table_name,
-                    write_strategy=write_strategy,
+                    write_method=write_method,
                 )
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
@@ -863,28 +879,10 @@ class SqlProcessorBase(abc.ABC):
         stream_name: str,
         temp_table_name: str,
         final_table_name: str,
-        write_strategy: WriteStrategy,
+        write_method: WriteMethod,
     ) -> None:
         """Write the temp table into the final table using the provided write strategy."""
-        has_pks: bool = bool(self._get_primary_keys(stream_name))
-        has_incremental_key: bool = bool(self._get_incremental_key(stream_name))
-        if write_strategy == WriteStrategy.MERGE and not has_pks:
-            raise exc.PyAirbyteInputError(
-                message="Cannot use merge strategy on a stream with no primary keys.",
-                context={
-                    "stream_name": stream_name,
-                },
-            )
-
-        if write_strategy == WriteStrategy.AUTO:
-            if has_pks:
-                write_strategy = WriteStrategy.MERGE
-            elif has_incremental_key:
-                write_strategy = WriteStrategy.APPEND
-            else:
-                write_strategy = WriteStrategy.REPLACE
-
-        if write_strategy == WriteStrategy.REPLACE:
+        if write_method == WriteMethod.REPLACE:
             # Note: No need to check for schema compatibility
             # here, because we are fully replacing the table.
             self._swap_temp_table_with_final_table(
@@ -894,7 +892,7 @@ class SqlProcessorBase(abc.ABC):
             )
             return
 
-        if write_strategy == WriteStrategy.APPEND:
+        if write_method == WriteMethod.APPEND:
             self._ensure_compatible_table_schema(
                 stream_name=stream_name,
                 table_name=final_table_name,
@@ -906,7 +904,7 @@ class SqlProcessorBase(abc.ABC):
             )
             return
 
-        if write_strategy == WriteStrategy.MERGE:
+        if write_method == WriteMethod.MERGE:
             self._ensure_compatible_table_schema(
                 stream_name=stream_name,
                 table_name=final_table_name,
@@ -928,9 +926,9 @@ class SqlProcessorBase(abc.ABC):
             return
 
         raise exc.PyAirbyteInternalError(
-            message="Write strategy is not supported.",
+            message="Write method is not supported.",
             context={
-                "write_strategy": write_strategy,
+                "write_method": write_method,
             },
         )
 
@@ -952,28 +950,6 @@ class SqlProcessorBase(abc.ABC):
             FROM {self._fully_qualified(temp_table_name)}
             """,
         )
-
-    def _get_primary_keys(
-        self,
-        stream_name: str,
-    ) -> list[str]:
-        pks = self.catalog_provider.get_configured_stream_info(stream_name).primary_key
-        if not pks:
-            return []
-
-        joined_pks = [".".join(pk) for pk in pks]
-        for pk in joined_pks:
-            if "." in pk:
-                msg = f"Nested primary keys are not yet supported. Found: {pk}"
-                raise NotImplementedError(msg)
-
-        return joined_pks
-
-    def _get_incremental_key(
-        self,
-        stream_name: str,
-    ) -> str | None:
-        return self.catalog_provider.get_configured_stream_info(stream_name).cursor_field
 
     def _swap_temp_table_with_final_table(
         self,
@@ -1017,7 +993,9 @@ class SqlProcessorBase(abc.ABC):
         """
         nl = "\n"
         columns = {self._quote_identifier(c) for c in self._get_sql_column_definitions(stream_name)}
-        pk_columns = {self._quote_identifier(c) for c in self._get_primary_keys(stream_name)}
+        pk_columns = {
+            self._quote_identifier(c) for c in self.catalog_provider.get_primary_keys(stream_name)
+        }
         non_pk_columns = columns - pk_columns
         join_clause = f"{nl} AND ".join(f"tmp.{pk_col} = final.{pk_col}" for pk_col in pk_columns)
         set_clause = f"{nl}  , ".join(f"{col} = tmp.{col}" for col in non_pk_columns)
@@ -1073,7 +1051,7 @@ class SqlProcessorBase(abc.ABC):
         """
         final_table = self._get_table_by_name(final_table_name)
         temp_table = self._get_table_by_name(temp_table_name)
-        pk_columns = self._get_primary_keys(stream_name)
+        pk_columns = self.catalog_provider.get_primary_keys(stream_name)
 
         columns_to_update: set[str] = self._get_sql_column_definitions(
             stream_name=stream_name
