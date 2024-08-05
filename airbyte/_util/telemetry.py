@@ -47,14 +47,14 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
-from airbyte.destinations.base import Destination
 from airbyte.version import get_version
-from airbyte.writers import AirbyteWriterInterface
 
 
 if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
+    from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
+    from airbyte.writers import AirbyteWriterInterface
 
 
 DEBUG = True
@@ -237,19 +237,11 @@ class DestinationTelemetryInfo:
         if isinstance(destination, str):
             return cls(name=destination, executor_type=UNKNOWN, version=UNKNOWN)
 
-        if isinstance(destination, Destination):
+        if hasattr(destination, "executor"):
             return cls(
                 name=destination.name,
                 executor_type=type(destination.executor).__name__,
                 version=destination.executor.reported_version,
-            )
-
-        # Else, `destination` should be a `AirbyteWriterInterface` at this point
-        if isinstance(destination, AirbyteWriterInterface):
-            return cls(
-                name=destination.name,
-                executor_type=UNKNOWN,
-                version=UNKNOWN,
             )
 
         return cls(  # type: ignore [unreachable]
