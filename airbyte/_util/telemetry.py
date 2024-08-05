@@ -47,12 +47,13 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
+from airbyte.destinations.base import Destination
 from airbyte.version import get_version
+from airbyte.writers import AirbyteWriterInterface
 
 
 if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
-    from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
 
@@ -226,18 +227,35 @@ class DestinationTelemetryInfo:
     version: str | None
 
     @classmethod
-    def from_destination(cls, destination: Destination | str | None) -> DestinationTelemetryInfo:
+    def from_destination(
+        cls,
+        destination: Destination | AirbyteWriterInterface | str | None,
+    ) -> DestinationTelemetryInfo:
         if not destination:
             return cls(name=UNKNOWN, executor_type=UNKNOWN, version=UNKNOWN)
 
         if isinstance(destination, str):
             return cls(name=destination, executor_type=UNKNOWN, version=UNKNOWN)
 
-        # Else, `destination` should be a `Destination` at this point
-        return cls(
-            name=destination.name,
-            executor_type=type(destination.executor).__name__,
-            version=destination.executor.reported_version,
+        if isinstance(destination, Destination):
+            return cls(
+                name=destination.name,
+                executor_type=type(destination.executor).__name__,
+                version=destination.executor.reported_version,
+            )
+
+        # Else, `destination` should be a `AirbyteWriterInterface` at this point
+        if isinstance(destination, AirbyteWriterInterface):
+            return cls(
+                name=destination.name,
+                executor_type=UNKNOWN,
+                version=UNKNOWN,
+            )
+
+        return cls(  # type: ignore [unreachable]
+            name=repr(destination),
+            executor_type=UNKNOWN,
+            version=UNKNOWN,
         )
 
 
@@ -274,7 +292,7 @@ def get_env_flags() -> dict[str, Any]:
 def send_telemetry(
     *,
     source: Source | str | None,
-    destination: Destination | str | None,
+    destination: Destination | AirbyteWriterInterface | str | None,
     cache: CacheBase | None,
     state: EventState,
     event_type: EventType,

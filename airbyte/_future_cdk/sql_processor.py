@@ -6,6 +6,7 @@ from __future__ import annotations
 import abc
 import contextlib
 import enum
+from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
@@ -29,8 +30,17 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql.elements import TextClause
 
+from airbyte_protocol.models import (
+    AirbyteMessage,
+    AirbyteRecordMessage,
+    AirbyteStateMessage,
+    AirbyteStateType,
+    AirbyteStreamState,
+    AirbyteTraceMessage,
+    Type,
+)
+
 from airbyte import exceptions as exc
-from airbyte._future_cdk.record_processor import RecordProcessorBase
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import (
@@ -39,12 +49,13 @@ from airbyte.constants import (
     AB_RAW_ID_COLUMN,
     DEBUG_MODE,
 )
-from airbyte.strategies import WriteStrategy
+from airbyte.records import StreamRecordHandler
+from airbyte.strategies import WriteMethod, WriteStrategy
 from airbyte.types import SQLTypeConverter
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Generator, Iterable
 
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
@@ -52,17 +63,11 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.base import Executable
     from sqlalchemy.sql.type_api import TypeEngine
 
-    from airbyte_protocol.models import (
-        AirbyteRecordMessage,
-        AirbyteStateMessage,
-    )
-
     from airbyte._batch_handles import BatchHandle
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._processors.file.base import FileWriterBase
     from airbyte.progress import ProgressTracker
-    from airbyte.records import StreamRecordHandler
     from airbyte.secrets.base import SecretString
 
 
@@ -116,7 +121,7 @@ class SqlConfig(BaseModel, abc.ABC):
         )
 
 
-class SqlProcessorBase(RecordProcessorBase):
+class SqlProcessorBase(abc.ABC):
     """A base class to be used for SQL Caches."""
 
     type_converter_class: type[SQLTypeConverter] = SQLTypeConverter
@@ -130,8 +135,6 @@ class SqlProcessorBase(RecordProcessorBase):
 
     supports_merge_insert = False
     """True if the database supports the MERGE INTO syntax."""
-
-    # Constructor:
 
     def __init__(
         self,
@@ -152,10 +155,16 @@ class SqlProcessorBase(RecordProcessorBase):
 
         self._sql_config: SqlConfig = sql_config
 
-        super().__init__(
-            state_writer=state_writer,
-            catalog_provider=catalog_provider,
-        )
+        self._catalog_provider: CatalogProvider | None = catalog_provider
+        self._state_writer: StateWriterBase | None = state_writer or StdOutStateWriter()
+
+        self._pending_state_messages: dict[str, list[AirbyteStateMessage]] = defaultdict(list, {})
+        self._finalized_state_messages: dict[
+            str,
+            list[AirbyteStateMessage],
+        ] = defaultdict(list, {})
+
+        self._setup()
         self.file_writer = file_writer or self.file_writer_class(
             cache_dir=cast(Path, temp_dir),
             cleanup=temp_file_cleanup,
@@ -165,6 +174,157 @@ class SqlProcessorBase(RecordProcessorBase):
 
         self._known_schemas_list: list[str] = []
         self._ensure_schema_exists()
+
+    # Inherited methods
+
+    # @property
+    # def expected_streams(self) -> set[str]:
+    #     """Return the expected stream names."""
+    #     return set(self.catalog_provider.stream_names)
+
+    @property
+    def catalog_provider(
+        self,
+    ) -> CatalogProvider:
+        """Return the catalog manager.
+
+        Subclasses should set this property to a valid catalog manager instance if one
+        is not explicitly passed to the constructor.
+
+        Raises:
+            PyAirbyteInternalError: If the catalog manager is not set.
+        """
+        if not self._catalog_provider:
+            raise exc.PyAirbyteInternalError(
+                message="Catalog manager should exist but does not.",
+            )
+
+        return self._catalog_provider
+
+    @property
+    def state_writer(
+        self,
+    ) -> StateWriterBase:
+        """Return the state writer instance.
+
+        Subclasses should set this property to a valid state manager instance if one
+        is not explicitly passed to the constructor.
+
+        Raises:
+            PyAirbyteInternalError: If the state manager is not set.
+        """
+        if not self._state_writer:
+            raise exc.PyAirbyteInternalError(
+                message="State manager should exist but does not.",
+            )
+
+        return self._state_writer
+
+    @final
+    def process_airbyte_messages(
+        self,
+        messages: Iterable[AirbyteMessage],
+        *,
+        write_strategy: WriteStrategy = WriteStrategy.AUTO,
+        progress_tracker: ProgressTracker,
+    ) -> None:
+        """Process a stream of Airbyte messages.
+
+        This method assumes that the catalog is already registered with the processor.
+        """
+        if not isinstance(write_strategy, WriteStrategy):
+            raise exc.AirbyteInternalError(
+                message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
+                context={"write_strategy": write_strategy},
+            )
+
+        stream_record_handlers: dict[str, StreamRecordHandler] = {}
+
+        # Process messages, writing to batches as we go
+        for message in messages:
+            if message.type is Type.RECORD:
+                record_msg = cast(AirbyteRecordMessage, message.record)
+                stream_name = record_msg.stream
+
+                if stream_name not in stream_record_handlers:
+                    stream_record_handlers[stream_name] = StreamRecordHandler(
+                        json_schema=self.catalog_provider.get_stream_json_schema(
+                            stream_name=stream_name,
+                        ),
+                        normalize_keys=True,
+                        prune_extra_fields=True,
+                    )
+
+                self.process_record_message(
+                    record_msg,
+                    stream_record_handler=stream_record_handlers[stream_name],
+                    progress_tracker=progress_tracker,
+                )
+
+            elif message.type is Type.STATE:
+                state_msg = cast(AirbyteStateMessage, message.state)
+                if state_msg.type in {AirbyteStateType.GLOBAL, AirbyteStateType.LEGACY}:
+                    self._pending_state_messages[f"_{state_msg.type}"].append(state_msg)
+                else:
+                    stream_state = cast(AirbyteStreamState, state_msg.stream)
+                    stream_name = stream_state.stream_descriptor.name
+                    self._pending_state_messages[stream_name].append(state_msg)
+
+            elif message.type is Type.TRACE:
+                trace_msg: AirbyteTraceMessage = cast(AirbyteTraceMessage, message.trace)
+                if trace_msg.stream_status and trace_msg.stream_status.status == "SUCCEEDED":
+                    # This stream has completed successfully, so go ahead and write the data.
+                    # This will also finalize any pending state messages.
+                    self.write_stream_data(
+                        stream_name=trace_msg.stream_status.stream_descriptor.name,
+                        write_strategy=write_strategy,
+                        progress_tracker=progress_tracker,
+                    )
+
+            else:
+                # Ignore unexpected or unhandled message types:
+                # Type.LOG, Type.CONTROL, etc.
+                pass
+
+        # We've finished processing input data.
+        # Finalize all received records and state messages:
+        self.write_all_stream_data(
+            write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
+        )
+
+        self.cleanup_all()
+
+    def write_all_stream_data(
+        self,
+        write_strategy: WriteStrategy,
+        progress_tracker: ProgressTracker,
+    ) -> None:
+        """Finalize any pending writes."""
+        for stream_name in self.catalog_provider.stream_names:
+            self.write_stream_data(
+                stream_name,
+                write_strategy=write_strategy,
+                progress_tracker=progress_tracker,
+            )
+
+    def _finalize_state_messages(
+        self,
+        state_messages: list[AirbyteStateMessage],
+    ) -> None:
+        """Handle state messages by passing them to the catalog manager."""
+        if state_messages:
+            self.state_writer.write_state(
+                state_message=state_messages[-1],
+            )
+
+    def _setup(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
+        """Create the database.
+
+        By default this is a no-op but subclasses can override this method to prepare
+        any necessary resources.
+        """
+        pass
 
     # Public interface:
 
@@ -243,7 +403,7 @@ class SqlProcessorBase(RecordProcessorBase):
 
     # Protected members (non-public interface):
 
-    def _init_connection_settings(self, connection: Connection) -> None:
+    def _init_connection_settings(self, connection: Connection) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """This is called automatically whenever a new connection is created.
 
         By default this is a no-op. Subclasses can use this to set connection settings, such as
@@ -478,7 +638,9 @@ class SqlProcessorBase(RecordProcessorBase):
     def write_stream_data(
         self,
         stream_name: str,
-        write_strategy: WriteStrategy,
+        *,
+        write_method: WriteMethod | None = None,
+        write_strategy: WriteStrategy | None = None,
         progress_tracker: ProgressTracker,
     ) -> list[BatchHandle]:
         """Finalize all uncommitted batches.
@@ -491,6 +653,18 @@ class SqlProcessorBase(RecordProcessorBase):
               Some sources will send us duplicate records within the same stream,
               although this is a fairly rare edge case we can ignore in V1.
         """
+        if write_method and write_strategy and write_strategy != WriteStrategy.AUTO:
+            raise exc.PyAirbyteInternalError(
+                message=(
+                    "Both `write_method` and `write_strategy` were provided. "
+                    "Only one should be set."
+                ),
+            )
+        if not write_method:
+            write_method = self.catalog_provider.resolve_write_method(
+                stream_name=stream_name,
+                write_strategy=write_strategy or WriteStrategy.AUTO,
+            )
         # Flush any pending writes
         self.file_writer.flush_active_batches(
             progress_tracker=progress_tracker,
@@ -528,7 +702,7 @@ class SqlProcessorBase(RecordProcessorBase):
                     stream_name=stream_name,
                     temp_table_name=temp_table_name,
                     final_table_name=final_table_name,
-                    write_strategy=write_strategy,
+                    write_method=write_method,
                 )
             finally:
                 self._drop_temp_table(temp_table_name, if_exists=True)
@@ -705,28 +879,10 @@ class SqlProcessorBase(RecordProcessorBase):
         stream_name: str,
         temp_table_name: str,
         final_table_name: str,
-        write_strategy: WriteStrategy,
+        write_method: WriteMethod,
     ) -> None:
         """Write the temp table into the final table using the provided write strategy."""
-        has_pks: bool = bool(self._get_primary_keys(stream_name))
-        has_incremental_key: bool = bool(self._get_incremental_key(stream_name))
-        if write_strategy == WriteStrategy.MERGE and not has_pks:
-            raise exc.PyAirbyteInputError(
-                message="Cannot use merge strategy on a stream with no primary keys.",
-                context={
-                    "stream_name": stream_name,
-                },
-            )
-
-        if write_strategy == WriteStrategy.AUTO:
-            if has_pks:
-                write_strategy = WriteStrategy.MERGE
-            elif has_incremental_key:
-                write_strategy = WriteStrategy.APPEND
-            else:
-                write_strategy = WriteStrategy.REPLACE
-
-        if write_strategy == WriteStrategy.REPLACE:
+        if write_method == WriteMethod.REPLACE:
             # Note: No need to check for schema compatibility
             # here, because we are fully replacing the table.
             self._swap_temp_table_with_final_table(
@@ -736,7 +892,7 @@ class SqlProcessorBase(RecordProcessorBase):
             )
             return
 
-        if write_strategy == WriteStrategy.APPEND:
+        if write_method == WriteMethod.APPEND:
             self._ensure_compatible_table_schema(
                 stream_name=stream_name,
                 table_name=final_table_name,
@@ -748,7 +904,7 @@ class SqlProcessorBase(RecordProcessorBase):
             )
             return
 
-        if write_strategy == WriteStrategy.MERGE:
+        if write_method == WriteMethod.MERGE:
             self._ensure_compatible_table_schema(
                 stream_name=stream_name,
                 table_name=final_table_name,
@@ -770,9 +926,9 @@ class SqlProcessorBase(RecordProcessorBase):
             return
 
         raise exc.PyAirbyteInternalError(
-            message="Write strategy is not supported.",
+            message="Write method is not supported.",
             context={
-                "write_strategy": write_strategy,
+                "write_method": write_method,
             },
         )
 
@@ -794,28 +950,6 @@ class SqlProcessorBase(RecordProcessorBase):
             FROM {self._fully_qualified(temp_table_name)}
             """,
         )
-
-    def _get_primary_keys(
-        self,
-        stream_name: str,
-    ) -> list[str]:
-        pks = self.catalog_provider.get_configured_stream_info(stream_name).primary_key
-        if not pks:
-            return []
-
-        joined_pks = [".".join(pk) for pk in pks]
-        for pk in joined_pks:
-            if "." in pk:
-                msg = f"Nested primary keys are not yet supported. Found: {pk}"
-                raise NotImplementedError(msg)
-
-        return joined_pks
-
-    def _get_incremental_key(
-        self,
-        stream_name: str,
-    ) -> str | None:
-        return self.catalog_provider.get_configured_stream_info(stream_name).cursor_field
 
     def _swap_temp_table_with_final_table(
         self,
@@ -859,7 +993,9 @@ class SqlProcessorBase(RecordProcessorBase):
         """
         nl = "\n"
         columns = {self._quote_identifier(c) for c in self._get_sql_column_definitions(stream_name)}
-        pk_columns = {self._quote_identifier(c) for c in self._get_primary_keys(stream_name)}
+        pk_columns = {
+            self._quote_identifier(c) for c in self.catalog_provider.get_primary_keys(stream_name)
+        }
         non_pk_columns = columns - pk_columns
         join_clause = f"{nl} AND ".join(f"tmp.{pk_col} = final.{pk_col}" for pk_col in pk_columns)
         set_clause = f"{nl}  , ".join(f"{col} = tmp.{col}" for col in non_pk_columns)
@@ -915,7 +1051,7 @@ class SqlProcessorBase(RecordProcessorBase):
         """
         final_table = self._get_table_by_name(final_table_name)
         temp_table = self._get_table_by_name(temp_table_name)
-        pk_columns = self._get_primary_keys(stream_name)
+        pk_columns = self.catalog_provider.get_primary_keys(stream_name)
 
         columns_to_update: set[str] = self._get_sql_column_definitions(
             stream_name=stream_name

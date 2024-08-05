@@ -46,6 +46,7 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
+    from airbyte.writers import AirbyteWriterInterface
 
 IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case we can use Rich.
 HORIZONTAL_LINE = "------------------------------------------------\n"
@@ -148,7 +149,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         *,
         source: Source | None,
         cache: CacheBase | None,
-        destination: Destination | None,
+        destination: AirbyteWriterInterface | Destination | None,
         expected_streams: list[str] | None = None,
     ) -> None:
         """Initialize the progress tracker."""
