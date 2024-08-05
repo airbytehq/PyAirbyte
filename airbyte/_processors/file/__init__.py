@@ -6,12 +6,12 @@ from __future__ import annotations
 from airbyte._batch_handles import BatchHandle
 from airbyte._processors.file.base import FileWriterBase
 from airbyte._processors.file.jsonl import JsonlWriter
-from airbyte._processors.file.parquet import LocalIcebergWriter
+from airbyte._processors.file.parquet import ParquetWriter
 
 
 __all__ = [
     "BatchHandle",
     "FileWriterBase",
     "JsonlWriter",
-    "LocalIcebergWriter",
+    "ParquetWriter",
 ]
