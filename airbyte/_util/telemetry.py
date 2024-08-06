@@ -175,6 +175,7 @@ class EventState(str, Enum):
     STARTED = "started"
     FAILED = "failed"
     SUCCEEDED = "succeeded"
+    CANCELED = "canceled"
 
 
 class EventType(str, Enum):

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import warnings
 from itertools import islice
 from pathlib import Path
@@ -423,6 +424,7 @@ class Source(ConnectorBase):
         stream: str,
         *,
         limit: int | None = None,
+        stop_event: threading.Event | None = None,
     ) -> LazyDataset:
         """Read a stream from the connector.
 
@@ -433,7 +435,10 @@ class Source(ConnectorBase):
         * execute the connector with read --config <config_file> --catalog <catalog_file>
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
+
+        If `stop_event` is set, the method will stop reading records when the event is set.
         """
+        stop_event = stop_event or threading.Event()
         discovered_catalog: AirbyteCatalog = self.discovered_catalog
         configured_catalog = ConfiguredAirbyteCatalog(
             streams=[
@@ -484,6 +489,7 @@ class Source(ConnectorBase):
             for record in self._read_with_catalog(
                 catalog=configured_catalog,
                 progress_tracker=progress_tracker,
+                stop_event=stop_event,
             )
             if record.record
         )
@@ -491,10 +497,11 @@ class Source(ConnectorBase):
             # Stop the iterator after the limit is reached
             iterator = islice(iterator, limit)
 
-        progress_tracker.log_success()
         return LazyDataset(
             iterator,
             stream_metadata=configured_stream,
+            stop_event=stop_event,
+            progress_tracker=progress_tracker,
         )
 
     def get_documents(
@@ -526,26 +533,43 @@ class Source(ConnectorBase):
         streams: list[str] | Literal["*"] | None = None,
         *,
         limit: int = 5,
-    ) -> dict[str, InMemoryDataset]:
+        on_error: Literal["raise", "ignore", "log"] = "raise",
+    ) -> dict[str, InMemoryDataset | None]:
         """Get a sample of records from the given streams."""
         if streams == "*":
             streams = self.get_available_streams()
         elif streams is None:
             streams = self.get_selected_streams()
 
-        return {
-            stream: self.get_records(
-                stream=stream,
-                limit=limit,
-            ).fetch_all()
-            for stream in streams
-        }
+        results: dict[str, InMemoryDataset | None] = {}
+        for stream in streams:
+            stop_event = threading.Event()
+            try:
+                results[stream] = self.get_records(
+                    stream,
+                    limit=limit,
+                    stop_event=stop_event,
+                ).fetch_all()
+                stop_event.set()
+            except Exception as ex:
+                results[stream] = None
+                if on_error == "ignore":
+                    continue
+
+                if on_error == "raise":
+                    raise ex from None
+
+                if on_error == "log":
+                    print(f"Error fetching sample for stream '{stream}': {ex}")
+
+        return results
 
     def print_samples(
         self,
         streams: list[str] | Literal["*"] | None = None,
         *,
         limit: int = 5,
+        on_error: Literal["raise", "ignore", "log"] = "log",
     ) -> None:
         """Print a sample of records from the given streams."""
         internal_cols: list[str] = [
@@ -561,11 +585,20 @@ class Source(ConnectorBase):
 
         console = Console()
 
-        console.print(Markdown(f"# Sample Records from `{self.name}`", justify="left"))
+        console.print(
+            Markdown(
+                f"# Sample Records from `{self.name}` ({len(streams)} selected streams)",
+                justify="left",
+            )
+        )
 
         for stream in streams:
             console.print(Markdown(f"## `{stream}` Stream Sample", justify="left"))
-            samples = self.get_samples(streams=[stream], limit=limit)
+            samples = self.get_samples(
+                streams=[stream],
+                limit=limit,
+                on_error=on_error,
+            )
             dataset = samples[stream]
 
             table = Table(
@@ -573,6 +606,9 @@ class Source(ConnectorBase):
                 show_header=True,
                 show_lines=True,
             )
+            if dataset is None:
+                console.print(Markdown("**⚠️ `Error fetching sample records.` ⚠️**"))
+                continue
 
             if len(dataset.column_names) > col_limit:
                 # We'll pivot the columns so each column is its own row
@@ -622,7 +658,9 @@ class Source(ConnectorBase):
         self,
         catalog: ConfiguredAirbyteCatalog,
         progress_tracker: ProgressTracker,
+        *,
         state: StateProviderBase | None = None,
+        stop_event: threading.Event | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Call read on the connector.
 
@@ -656,6 +694,10 @@ class Source(ConnectorBase):
                 ],
             )
             yield from progress_tracker.tally_records_read(message_generator)
+            if stop_event and stop_event.is_set():
+                progress_tracker._log_sync_cancel()
+                return
+
         progress_tracker.log_read_complete()
 
     def _peek_airbyte_message(

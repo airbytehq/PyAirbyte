@@ -15,20 +15,24 @@ import airbyte as ab
 # Create a token here: https://github.com/settings/tokens
 GITHUB_TOKEN = ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")
 
+FAILING_STREAMS = [
+    "collaborators",
+    "issue_timeline_events",  # key error: 'converted_to_discussion'
+    "projects_v2",
+    "team_members",
+    "team_memberships",
+    "teams",
+]
 
-source = ab.get_source("source-github")
-source.set_config({
-    "repositories": ["airbytehq/airbyte-lib-private-beta"],
-    "credentials": {"personal_access_token": GITHUB_TOKEN},
-})
-source.validate_config()
-source.check()
-source.select_streams([
-    "issues",
-    "pull_requests",
-    "commits",
-    # "collaborators",
-    "deployments",
-])
+source = ab.get_source(
+    "source-github",
+    config={
+        "repositories": ["airbytehq/airbyte-lib-private-beta"],
+        "credentials": {"personal_access_token": GITHUB_TOKEN},
+    },
+    streams="*",
+)
 
-source.print_samples()
+streams = list(set(source.get_available_streams()) - set(FAILING_STREAMS))
+
+source.print_samples(streams=streams)
