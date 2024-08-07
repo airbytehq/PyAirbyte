@@ -35,7 +35,12 @@ class AirbyteWriterInterface(abc.ABC):
         state_writer: StateWriterBase | None = None,
         progress_tracker: ProgressTracker,
     ) -> None:
-        """Read from the connector and write to the cache."""
+        """Read from the connector and write to the cache.
+
+        This is a specialized version of `_write_airbyte_message_stream` that reads from an IO
+        stream. Writers can override this method to provide custom behavior for reading from an IO
+        stream, without paying the cost of converting the stream to an AirbyteMessageIterator.
+        """
         self._write_airbyte_message_stream(
             stdin,
             catalog_provider=catalog_provider,
@@ -54,5 +59,10 @@ class AirbyteWriterInterface(abc.ABC):
         state_writer: StateWriterBase | None = None,
         progress_tracker: ProgressTracker,
     ) -> None:
-        """Write the incoming data."""
+        """Write the incoming data.
+
+        Note: Callers should use `_write_airbyte_io_stream` instead of this method if
+        `stdin` is always an IO stream. This ensures that the most efficient method is used for
+        writing the incoming stream.
+        """
         ...

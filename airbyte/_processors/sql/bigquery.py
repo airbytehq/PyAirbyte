@@ -19,7 +19,7 @@ from sqlalchemy.engine import make_url
 from airbyte import exceptions as exc
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
-from airbyte._processors.file.jsonl import JsonlWriter
+from airbyte._writers.jsonl import JsonlWriter
 from airbyte.constants import DEFAULT_CACHE_SCHEMA_NAME
 from airbyte.secrets.base import SecretString
 from airbyte.types import SQLTypeConverter

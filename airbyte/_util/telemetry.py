@@ -51,10 +51,10 @@ from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
+    from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
-    from airbyte.writers import AirbyteWriterInterface
 
 
 DEBUG = True

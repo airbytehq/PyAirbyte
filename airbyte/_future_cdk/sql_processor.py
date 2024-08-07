@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
-    from airbyte._processors.file.base import FileWriterBase
+    from airbyte._writers.jsonl import FileWriterBase
     from airbyte.progress import ProgressTracker
     from airbyte.secrets.base import SecretString
 

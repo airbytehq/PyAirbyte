@@ -10,9 +10,14 @@ from typing import IO, TYPE_CHECKING, cast
 import orjson
 from overrides import overrides
 
-from airbyte._processors.file.base import (
+from airbyte._future_cdk.catalog_providers import CatalogProvider
+from airbyte._future_cdk.state_writers import StateWriterBase
+from airbyte._message_iterators import AirbyteMessageIterator
+from airbyte._writers.file_writers import (
     FileWriterBase,
 )
+from airbyte.progress import ProgressTracker
+from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:

@@ -19,11 +19,11 @@ from airbyte._future_cdk.sql_processor import (
     SqlProcessorBase,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._sql import CachedDataset
-from airbyte.writers import AirbyteWriterInterface
 
 
 if TYPE_CHECKING:

@@ -26,12 +26,12 @@ from airbyte._future_cdk.state_providers import (
 from airbyte._future_cdk.state_writers import NoOpStateWriter, StdOutStateWriter
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
-from airbyte.writers import AirbyteWriterInterface
 
 
 if TYPE_CHECKING:
