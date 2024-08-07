@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, cast
 
@@ -139,14 +140,12 @@ def add_custom_transforms(
     df: pl.LazyFrame | pl.DataFrame,
 ) -> pl.LazyFrame | pl.DataFrame:
     """Add custom transforms to the Polars lazy DataFrame."""
-    # Add a sample custom column to the DataFrame with text 'Hello, world!'
     return df.with_columns(
         [
             pl.lit("Hello, world!").alias("greeting"),
             pl.col("_airbyte_ab_id").str.to_uppercase(),
-            # pl.lit(pl.now()).alias("current_timestamp"),
+            pl.lit(datetime.now()).alias("current_timestamp"),
         ],
-        # timestamp=datetime.now(),
     )
 
 
