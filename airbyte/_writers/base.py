@@ -26,7 +26,7 @@ class AirbyteWriterInterface(abc.ABC):
         """
         return self.__class__.__name__
 
-    def _write_airbyte_io_stream(
+    def _airbyte_io_stream_writer(
         self,
         stdin: IO[str],
         *,
@@ -34,14 +34,14 @@ class AirbyteWriterInterface(abc.ABC):
         write_strategy: WriteStrategy,
         state_writer: StateWriterBase | None = None,
         progress_tracker: ProgressTracker,
-    ) -> None:
+    ) -> AirbyteMessageIterator:
         """Read from the connector and write to the cache.
 
-        This is a specialized version of `_write_airbyte_message_stream` that reads from an IO
+        This is a specialized version of `_airbyte_message_stream_writer` that reads from an IO
         stream. Writers can override this method to provide custom behavior for reading from an IO
         stream, without paying the cost of converting the stream to an AirbyteMessageIterator.
         """
-        self._write_airbyte_message_stream(
+        return self._airbyte_message_stream_writer(
             stdin,
             catalog_provider=catalog_provider,
             write_strategy=write_strategy,
@@ -50,7 +50,7 @@ class AirbyteWriterInterface(abc.ABC):
         )
 
     @abc.abstractmethod
-    def _write_airbyte_message_stream(
+    def _airbyte_message_stream_writer(
         self,
         stdin: IO[str] | AirbyteMessageIterator,
         *,
@@ -58,10 +58,10 @@ class AirbyteWriterInterface(abc.ABC):
         write_strategy: WriteStrategy,
         state_writer: StateWriterBase | None = None,
         progress_tracker: ProgressTracker,
-    ) -> None:
+    ) -> AirbyteMessageIterator:
         """Write the incoming data.
 
-        Note: Callers should use `_write_airbyte_io_stream` instead of this method if
+        Note: Callers should use `_airbyte_io_stream_writer` instead of this method if
         `stdin` is always an IO stream. This ensures that the most efficient method is used for
         writing the incoming stream.
         """
