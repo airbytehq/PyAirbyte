@@ -49,7 +49,10 @@ def main() -> None:
             "destination-bigquery",
             config={**bigquery_destination_secret, "dataset_id": "pyairbyte_tests"},
         )
-        write_result = destination.write(source)
+        write_result = destination.write(
+            source,
+            # cache=False,  # Toggle comment to test with/without caching
+        )
 
 
 if __name__ == "__main__":

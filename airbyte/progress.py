@@ -30,7 +30,15 @@ from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 from typing_extensions import Literal
 
-from airbyte_protocol.models import AirbyteStreamStatus, Type
+from airbyte_protocol.models import (
+    AirbyteMessage,
+    AirbyteStreamStatus,
+    AirbyteStreamStatusTraceMessage,
+    AirbyteTraceMessage,
+    StreamDescriptor,
+    TraceType,
+    Type,
+)
 
 from airbyte._util import meta
 from airbyte._util.telemetry import EventState, EventType, send_telemetry
@@ -39,8 +47,6 @@ from airbyte._util.telemetry import EventState, EventType, send_telemetry
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable
     from types import ModuleType
-
-    from airbyte_protocol.models import AirbyteMessage
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches.base import CacheBase
@@ -66,6 +72,24 @@ except ImportError:
     # If IPython is not installed, then we're definitely not in a notebook.
     ipy_display = None
     IS_NOTEBOOK = False
+
+
+def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
+    """Return a new stream success message."""
+    return AirbyteMessage(
+        type=Type.TRACE,
+        trace=AirbyteTraceMessage(
+            type=TraceType.STREAM_STATUS,
+            stream=stream_name,
+            emitted_at=pendulum.now().float_timestamp,
+            stream_status=AirbyteStreamStatusTraceMessage(
+                stream_descriptor=StreamDescriptor(
+                    name=stream_name,
+                ),
+                status=AirbyteStreamStatus.COMPLETE,
+            ),
+        ),
+    )
 
 
 class ProgressStyle(Enum):
@@ -201,6 +225,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def tally_records_read(
         self,
         messages: Iterable[AirbyteMessage],
+        *,
+        auto_close_streams: bool = False,
     ) -> Generator[AirbyteMessage, Any, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         # Update the display before we start.
@@ -246,6 +272,11 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
             # Update the display.
             self._update_display()
+
+        if auto_close_streams:
+            for stream_name in self._unclosed_stream_names:
+                yield _new_stream_success_message(stream_name)
+                self._log_stream_read_end(stream_name)
 
     def tally_pending_writes(
         self,
@@ -341,6 +372,15 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             f"Read completed on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
         )
         self.stream_read_end_times[stream_name] = time.time()
+
+    @property
+    def _unclosed_stream_names(self) -> list[str]:
+        """Return a list of streams that have not yet been fully read."""
+        return [
+            stream_name
+            for stream_name in self.stream_read_counts
+            if stream_name not in self.stream_read_end_times
+        ]
 
     def log_success(
         self,
