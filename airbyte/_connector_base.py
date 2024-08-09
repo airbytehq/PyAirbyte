@@ -25,13 +25,13 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import meta
 from airbyte._util.telemetry import (
     EventState,
     log_config_validation_result,
     log_connector_check_result,
 )
 from airbyte._util.temp_files import as_temp_files
+from airbyte.constants import AIRBYTE_LOGGING_ROOT
 
 
 if TYPE_CHECKING:
@@ -311,12 +311,12 @@ class ConnectorBase(abc.ABC):
         for handler in logger.handlers:
             logger.removeHandler(handler)
 
-        folder = meta.get_logging_root() / self.name
+        folder = AIRBYTE_LOGGING_ROOT / self.name
         folder.mkdir(parents=True, exist_ok=True)
 
         # Create and configure file handler
         handler = logging.FileHandler(
-            filename=folder / f"{ulid.ULID()!s}-run-log.txt",
+            filename=folder / f"connector-log-{ulid.ULID()!s}.txt",
             encoding="utf-8",
         )
         handler.setFormatter(
@@ -330,7 +330,7 @@ class ConnectorBase(abc.ABC):
         return logger
 
     def _new_log_file(self, verb: str = "run") -> Path:
-        folder = meta.get_logging_root() / self.name
+        folder = AIRBYTE_LOGGING_ROOT / self.name
         folder.mkdir(parents=True, exist_ok=True)
         return folder / f"{ulid.ULID()!s}-{self.name}-{verb}-log.txt"
 

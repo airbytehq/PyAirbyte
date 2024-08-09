@@ -3,6 +3,11 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from functools import lru_cache
+from pathlib import Path
+
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
 
@@ -41,3 +46,28 @@ Specific caches may override this value with a different schema name.
 
 DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
+
+
+@lru_cache
+def _get_logging_root() -> Path:
+    """Return the root directory for logs.
+
+    This is the directory where logs are stored.
+    """
+    if "AIRBYTE_LOGGING_ROOT" in os.environ:
+        log_root = Path(os.environ["AIRBYTE_LOGGING_ROOT"])
+    else:
+        log_root = Path(tempfile.gettempdir()) / "airbyte" / "logs"
+
+    log_root.mkdir(parents=True, exist_ok=True)
+    return log_root
+
+
+AIRBYTE_LOGGING_ROOT: Path = _get_logging_root()
+"""The root directory for Airbyte logs.
+
+This value can be overridden by setting the `AIRBYTE_LOGGING_ROOT` environment variable.
+
+If not provided, PyAirbyte will use `/tmp/airbyte/logs/` where `/tmp/` is the OS's default
+temporary directory.
+"""
