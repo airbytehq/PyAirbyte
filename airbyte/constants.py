@@ -8,8 +8,6 @@ import tempfile
 import warnings
 from functools import lru_cache
 from pathlib import Path
-from re import U
-from turtle import st
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
