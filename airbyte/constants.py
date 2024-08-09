@@ -5,8 +5,11 @@ from __future__ import annotations
 
 import os
 import tempfile
+import warnings
 from functools import lru_cache
 from pathlib import Path
+from re import U
+from turtle import st
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
@@ -49,8 +52,10 @@ DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 
 
 @lru_cache
-def _get_logging_root() -> Path:
+def _get_logging_root() -> Path | None:
     """Return the root directory for logs.
+
+    Returns `None` if no valid path can be found.
 
     This is the directory where logs are stored.
     """
@@ -59,15 +64,31 @@ def _get_logging_root() -> Path:
     else:
         log_root = Path(tempfile.gettempdir()) / "airbyte" / "logs"
 
-    log_root.mkdir(parents=True, exist_ok=True)
-    return log_root
+    try:
+        # Attempt to create the log root directory if it does not exist
+        log_root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        # Handle the error by returning None
+        warnings.warn(
+            (
+                f"Failed to create PyAirbyte logging directory at `{log_root}`. "
+                "You can override the default path by setting the `AIRBYTE_LOGGING_ROOT` "
+                "environment variable."
+            ),
+            category=UserWarning,
+            stacklevel=0,
+        )
+        return None
+    else:
+        return log_root
 
 
-AIRBYTE_LOGGING_ROOT: Path = _get_logging_root()
+AIRBYTE_LOGGING_ROOT: Path | None = _get_logging_root()
 """The root directory for Airbyte logs.
 
 This value can be overridden by setting the `AIRBYTE_LOGGING_ROOT` environment variable.
 
 If not provided, PyAirbyte will use `/tmp/airbyte/logs/` where `/tmp/` is the OS's default
-temporary directory.
+temporary directory. If the directory cannot be created, PyAirbyte will log a warning and
+set this value to `None`.
 """

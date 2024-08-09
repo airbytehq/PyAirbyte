@@ -307,6 +307,12 @@ class ConnectorBase(abc.ABC):
         # Prevent logging to stderr by stopping propagation to the root logger
         logger.propagate = False
 
+        if AIRBYTE_LOGGING_ROOT is None:
+            # No temp directory available, so return a basic logger
+            return logger
+
+        # Else, configure the logger to write to a file
+
         # Remove any existing handlers
         for handler in logger.handlers:
             logger.removeHandler(handler)
