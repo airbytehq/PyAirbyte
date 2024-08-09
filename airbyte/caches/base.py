@@ -21,7 +21,7 @@ from airbyte._future_cdk.sql_processor import (
 from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
-from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
 
 
@@ -49,7 +49,7 @@ class CacheBase(SqlConfig):
     cache_dir: Path = Field(default=Path(".cache"))
     """The directory to store the cache in."""
 
-    cleanup: bool = True
+    cleanup: bool = TEMP_FILE_CLEANUP
     """Whether to clean up the cache after use."""
 
     _deployed_api_root: Optional[str] = PrivateAttr(default=None)
