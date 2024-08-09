@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.progress import ProgressTracker
@@ -110,7 +111,7 @@ class WriteResult:
     def __init__(
         self,
         *,
-        destination: Destination,
+        destination: AirbyteWriterInterface | Destination,
         source_data: Source | ReadResult,
         catalog_provider: CatalogProvider,
         state_writer: StateWriterBase,
@@ -121,7 +122,7 @@ class WriteResult:
         This class should not be created directly. Instead, it should be returned by the `write`
         method of the `Destination` class.
         """
-        self._destination: Destination = destination
+        self._destination: AirbyteWriterInterface | Destination = destination
         self._source_data: Source | ReadResult = source_data
         self._catalog_provider: CatalogProvider = catalog_provider
         self._state_writer: StateWriterBase = state_writer

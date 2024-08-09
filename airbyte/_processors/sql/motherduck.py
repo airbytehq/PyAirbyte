@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 
-from airbyte._processors.file import JsonlWriter
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
+from airbyte._writers.jsonl import JsonlWriter
 
 
 if TYPE_CHECKING:

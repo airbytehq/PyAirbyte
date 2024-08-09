@@ -13,6 +13,7 @@ import ulid
 from airbyte import exceptions as exc
 from airbyte import progress
 from airbyte._batch_handles import BatchHandle
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.records import StreamRecord, StreamRecordHandler
 
 
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
 DEFAULT_BATCH_SIZE = 100_000
 
 
-class FileWriterBase(abc.ABC):
-    """A generic base implementation for a file-based cache."""
+class FileWriterBase(AirbyteWriterInterface):
+    """A generic abstract implementation for a file-based writer."""
 
     default_cache_file_suffix: str = ".batch"
     prune_extra_fields: bool = False
