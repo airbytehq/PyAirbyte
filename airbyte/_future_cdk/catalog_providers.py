@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, final
 
-import ulid
-
 from airbyte_protocol.models import (
     ConfiguredAirbyteCatalog,
 )
