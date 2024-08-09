@@ -18,6 +18,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte.constants import AB_EXTRACTED_AT_COLUMN
+from airbyte.progress import _new_stream_success_message
 
 
 if TYPE_CHECKING:
@@ -89,6 +90,8 @@ class AirbyteMessageIterator:
                         type=Type.STATE,
                         state=state_provider.get_stream_state(stream_name),
                     )
+
+                yield _new_stream_success_message(stream_name)
 
         return cls(generator())
 
