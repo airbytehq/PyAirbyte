@@ -270,7 +270,7 @@ class AirbyteConnectorError(PyAirbyteError):
         """Set the log file path for the connector."""
         self.log_file = self._get_log_file()
 
-    def _get_log_file(self) -> Path | None:  # type: ignore [override]  # Read-only property replaces attribute
+    def _get_log_file(self) -> Path | None:
         """Return the log file path for the connector."""
         if self.connector_name:
             logger = logging.getLogger(f"airbyte.{self.connector_name}")

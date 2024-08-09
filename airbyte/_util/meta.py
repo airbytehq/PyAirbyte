@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import sys
-import tempfile
 from contextlib import suppress
 from functools import lru_cache
 from pathlib import Path
@@ -19,7 +18,6 @@ import requests
 
 COLAB_SESSION_URL = "http://172.28.0.12:9000/api/sessions"
 """URL to get the current Google Colab session information."""
-
 
 
 def get_colab_release_version() -> str | None:
