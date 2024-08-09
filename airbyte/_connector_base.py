@@ -335,11 +335,6 @@ class ConnectorBase(abc.ABC):
         logger.addHandler(handler)
         return logger
 
-    def _new_log_file(self, verb: str = "run") -> Path:
-        folder = AIRBYTE_LOGGING_ROOT / self.name
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder / f"{ulid.ULID()!s}-{self.name}-{verb}-log.txt"
-
     def _peek_airbyte_message(
         self,
         message: AirbyteMessage,
