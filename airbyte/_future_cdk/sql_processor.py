@@ -452,9 +452,10 @@ class SqlProcessorBase(RecordProcessorBase):
     def _get_stream_schema(self, stream_name: str) -> dict:
         """
         Retrieve the schema for the specified stream.
-    
+
         :param stream_name: Name of the stream
-        :return: Dictionary of the stream's schema with column names as keys and their specifications as values
+        :return: Dictionary of the stream's schema with column names as keys 
+        and their specifications as values
         """
         # Implement this method to fetch the schema from the stream
         pass
@@ -462,22 +463,29 @@ class SqlProcessorBase(RecordProcessorBase):
     def _get_table_schema(self, table_name: str) -> dict:
         """
         Retrieve the schema of the specified table.
-    
+
         :param table_name: Name of the table
-        :return: Dictionary of existing schema with column names as keys and their specifications as values
+        :return: Dictionary of existing schema with column names as keys 
+        and their specifications as values
         """
         query = f"DESCRIBE {table_name}"
         with self.get_sql_connection() as conn:
             result = conn.execute(query).fetchall()
+    
         schema = {}
         for row in result:
-            schema[row['Field']] = row
+            if 'Field' in row:
+                schema[row['Field']] = row
+            else:
+                # Handle the missing column scenario
+                raise KeyError(f"Expected column 'Field' not found in the result of DESCRIBE {table_name}")
+    
         return schema
 
+
+
     def _is_size_expansion_needed(self, existing_spec: dict, new_spec: dict) -> bool:
-        """
-        Check if the column size needs to be expanded.
-    
+        """Check if the column size needs to be expanded.
         :param existing_spec: Specification of the existing column
         :param new_spec: Specification of the new column
         :return: True if size expansion is needed, False otherwise
