@@ -18,6 +18,13 @@ jobs:
     name: Validate PR title
     runs-on: ubuntu-latest
     steps:
+      - name: Check if PR is a draft
+        id: check_draft
+        run: |
+          if [ "${{ github.event.pull_request.draft }}" == "true" ]; then
+            echo "This PR is a draft. Skipping validation."
+            exit 78  # Exit with a neutral status
+          fi
       - uses: amannn/action-semantic-pull-request@v5
         if: ${{ github.event.pull_request.draft == false }}
         env:
