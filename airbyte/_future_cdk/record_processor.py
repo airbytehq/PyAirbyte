@@ -252,8 +252,12 @@ class RecordProcessorBase(abc.ABC):
         write_strategy: WriteStrategy,
         progress_tracker: ProgressTracker,
     ) -> None:
-        """Finalize any pending writes."""
-        for stream_name in self.catalog_provider.stream_names:
+        """Finalize any pending writes.
+
+        Streams are processed in alphabetical order, so that order is deterministic and opaque,
+        without resorting to knowledge about catalog declaration order.
+        """
+        for stream_name in sorted(self.catalog_provider.stream_names):
             self.write_stream_data(
                 stream_name,
                 write_strategy=write_strategy,

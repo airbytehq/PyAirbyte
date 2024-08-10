@@ -305,13 +305,13 @@ class SqlProcessorBase(RecordProcessorBase):
     def _ensure_schema_exists(
         self,
     ) -> None:
-        """Return a new (unique) temporary table name."""
-        schema_name = self.sql_config.schema_name
-
-        if self._known_schemas_list and self.sql_config.schema_name in self._known_schemas_list:
+        schema_name = self.normalizer.normalize(self.sql_config.schema_name)
+        known_schemas_list = self.normalizer.normalize_list(self._known_schemas_list)
+        if known_schemas_list and schema_name in known_schemas_list:
             return  # Already exists
 
-        if schema_name in self._get_schemas_list():
+        schemas_list = self.normalizer.normalize_list(self._get_schemas_list())
+        if schema_name in schemas_list:
             return
 
         sql = f"CREATE SCHEMA IF NOT EXISTS {schema_name}"
@@ -324,7 +324,7 @@ class SqlProcessorBase(RecordProcessorBase):
                 raise
 
         if DEBUG_MODE:
-            found_schemas = self._get_schemas_list()
+            found_schemas = schemas_list
             assert (
                 schema_name in found_schemas
             ), f"Schema {schema_name} was not created. Found: {found_schemas}"

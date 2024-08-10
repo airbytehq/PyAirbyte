@@ -64,6 +64,7 @@ class PyAirbyteError(Exception):
     guidance: str | None = None
     help_url: str | None = None
     log_text: str | list[str] | None = None
+    log_file: Path | None = None
     context: dict[str, Any] | None = None
     message: str | None = None
 
@@ -81,7 +82,7 @@ class PyAirbyteError(Exception):
 
     def __str__(self) -> str:
         """Return a string representation of the exception."""
-        special_properties = ["message", "guidance", "help_url", "log_text", "context"]
+        special_properties = ["message", "guidance", "help_url", "log_text", "context", "log_file"]
         display_properties = {
             k: v
             for k, v in self.__dict__.items()
@@ -99,13 +100,16 @@ class PyAirbyteError(Exception):
             if isinstance(self.log_text, list):
                 self.log_text = "\n".join(self.log_text)
 
-            exception_str += f"\nLog output: \n    {indent(self.log_text, '    ')}"
+            exception_str += f"\n    Log output: \n    {indent(self.log_text, '    ')}"
+
+        if self.log_file:
+            exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
 
         if self.guidance:
-            exception_str += f"\nSuggestion: {self.guidance}"
+            exception_str += f"\n    Suggestion: {self.guidance}"
 
         if self.help_url:
-            exception_str += f"\nMore info: {self.help_url}"
+            exception_str += f"\n    More info: {self.help_url}"
 
         return exception_str
 
@@ -263,13 +267,13 @@ class AirbyteConnectorError(PyAirbyteError):
     connector_name: str | None = None
 
     def __post_init__(self) -> None:
-        """Log the error message when the exception is raised."""
+        """Set the log file path for the connector."""
+        self.log_file = self._get_log_file()
+
+    def _get_log_file(self) -> Path | None:
+        """Return the log file path for the connector."""
         if self.connector_name:
             logger = logging.getLogger(f"airbyte.{self.connector_name}")
-            if self.connector_name:
-                logger.error(str(self))
-            else:
-                logger.error(str(self))
 
             log_paths: list[Path] = [
                 Path(handler.baseFilename).absolute()
@@ -278,7 +282,9 @@ class AirbyteConnectorError(PyAirbyteError):
             ]
 
             if log_paths:
-                print(f"Connector logs: {', '.join(str(path) for path in log_paths)}")
+                return log_paths[0]
+
+        return None
 
 
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):

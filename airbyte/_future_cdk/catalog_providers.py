@@ -44,7 +44,24 @@ class CatalogProvider:
         Since the catalog is passed by reference, the catalog manager may be updated with new
         streams as they are discovered.
         """
-        self._catalog: ConfiguredAirbyteCatalog = configured_catalog
+        self._catalog: ConfiguredAirbyteCatalog = self.validate_catalog(configured_catalog)
+
+    @staticmethod
+    def validate_catalog(catalog: ConfiguredAirbyteCatalog) -> None:
+        """Validate the catalog to ensure it is valid.
+
+        This requires ensuring that `generationId` and `minGenerationId` are both set. If
+        not, both values will be set to `1`.
+        """
+        for stream in catalog.streams:
+            if stream.generation_id is None:
+                stream.generation_id = 1
+            if stream.minimum_generation_id is None:
+                stream.minimum_generation_id = 1
+            if stream.sync_id is None:
+                stream.sync_id = 1  # This should ideally increment monotonically with each sync.
+
+        return catalog
 
     @property
     def configured_catalog(self) -> ConfiguredAirbyteCatalog:
