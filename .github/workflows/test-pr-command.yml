@@ -64,11 +64,17 @@ jobs:
         ]
       fail-fast: false
     runs-on: "${{ matrix.os }}-latest"
+    permissions:
+      actions: read
+      statuses: write
     env:
       # Enforce UTF-8 encoding so Windows runners don't fail inside the connector code.
       # TODO: See if we can fully enforce this within PyAirbyte itself.
       PYTHONIOENCODING: utf-8
     steps:
+
+    - name: CI job status tracker
+      uses: ushuz/action-job-status@v1
 
     # Custom steps to fetch the PR and checkout the code:
 
