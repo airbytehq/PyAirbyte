@@ -6,6 +6,7 @@ on:
       - opened
       - edited
       - synchronize
+      - ready_for_review
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
