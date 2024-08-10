@@ -18,6 +18,9 @@ jobs:
     name: Validate PR title
     runs-on: ubuntu-latest
     steps:
+      - name: debug
+        # Print github.event.pull_request.draft
+        run: echo ${{ github.event.pull_request.draft }}
       - uses: amannn/action-semantic-pull-request@v5
         if: ${{ github.event.pull_request.draft == false }}
         env:
