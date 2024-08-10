@@ -73,11 +73,6 @@ jobs:
       PYTHONIOENCODING: utf-8
     steps:
 
-    - name: CI job status tracker
-      uses: aaronsteers/action-job-status@feat/allow-job-name-override
-      with:
-        job_name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
-
     # Custom steps to fetch the PR and checkout the code:
 
     - name: Download PR info
@@ -95,6 +90,11 @@ jobs:
       uses: dawidd6/action-checkout-pr@v1
       with:
         pr: ${{ github.event.inputs.pr }}
+
+    - name: CI job status tracker
+      uses: aaronsteers/action-job-status@feat/allow-job-name-override
+      with:
+        job_name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
 
     # Same as the `python_pytest.yml` file:
 
