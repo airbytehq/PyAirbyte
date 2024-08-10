@@ -74,9 +74,9 @@ jobs:
     steps:
 
     - name: CI job status tracker
-      uses: ushuz/action-job-status@v1
+      uses: aaronsteers/action-job-status@feat/allow-job-name-override
       with:
-        matrix_label: "${{ matrix.python-version }} ${{ matrix.os }}"
+        job_name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
 
     # Custom steps to fetch the PR and checkout the code:
 
