@@ -90,3 +90,18 @@ If not provided, PyAirbyte will use `/tmp/airbyte/logs/` where `/tmp/` is the OS
 temporary directory. If the directory cannot be created, PyAirbyte will log a warning and
 set this value to `None`.
 """
+
+TEMP_FILE_CLEANUP = bool(
+    os.getenv(
+        key="AIRBYTE_TEMP_FILE_CLEANUP",
+        default="true",
+    )
+    .lower()
+    .replace("false", "")
+    .replace("0", "")
+)
+"""Whether to clean up temporary files after use.
+
+This value is read from the `AIRBYTE_TEMP_FILE_CLEANUP` environment variable. If the variable is
+not set, the default value is `True`.
+"""
