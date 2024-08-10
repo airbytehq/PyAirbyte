@@ -75,6 +75,8 @@ jobs:
 
     - name: CI job status tracker
       uses: ushuz/action-job-status@v1
+      with:
+        matrix_label: "${{ matrix.python-version }} ${{ matrix.os }}"
 
     # Custom steps to fetch the PR and checkout the code:
 
