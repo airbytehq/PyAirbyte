@@ -129,18 +129,6 @@ jobs:
         --verbose
         -m "flaky and not super_slow"
 
-    - name: Post CI Success to GitHub
-      run: |
-        curl --request POST \
-        --url https://api.github.com/repos/${{ github.repository }}/statuses/$(cat pr-info.json | jq -r .head.sha) \
-        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-        --header 'content-type: application/json' \
-        --data '{
-          "state": "success",
-          "context": "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})",
-          "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-          }' \
-
   log-success-comment:
     name: Append 'Success' Comment
     needs: [pytest-on-demand]
