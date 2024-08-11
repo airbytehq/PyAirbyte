@@ -92,7 +92,11 @@ jobs:
       with:
         pr: ${{ github.event.inputs.pr }}
 
-    - name: CI job status tracker
+    - name: Get SHA of checked-out PR
+      id: get-sha
+      run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+    - name: CI job status tracker (commit ${{ steps.get-sha.outputs.sha }})
       uses: aaronsteers/action-job-status@feat/allow-job-name-override
       with:
         commit_sha: ${{ steps.checkout-pr.outputs.sha }}
