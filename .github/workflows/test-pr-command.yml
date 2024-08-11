@@ -99,7 +99,7 @@ jobs:
     - name: CI job status tracker (commit ${{ steps.get-sha.outputs.sha }})
       uses: aaronsteers/action-job-status@feat/allow-job-name-override
       with:
-        commit_sha: ${{ steps.checkout-pr.outputs.sha }}
+        commit_sha: ${{ steps.get-sha.outputs.sha }}
         job_name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
 
     # Same as the `python_pytest.yml` file:
