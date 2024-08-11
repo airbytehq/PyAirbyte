@@ -82,11 +82,12 @@ jobs:
       with:
         name: pr-info
 
-    - name: Checkout PR
+    - name: Checkout Repo
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
     - name: Checkout PR (${{ github.event.inputs.pr }})
+      id: checkout-pr
       uses: dawidd6/action-checkout-pr@v1
       with:
         pr: ${{ github.event.inputs.pr }}
@@ -94,6 +95,7 @@ jobs:
     - name: CI job status tracker
       uses: aaronsteers/action-job-status@feat/allow-job-name-override
       with:
+        commit_sha: ${{ steps.checkout-pr.outputs.sha }}
         job_name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
 
     # Same as the `python_pytest.yml` file:
