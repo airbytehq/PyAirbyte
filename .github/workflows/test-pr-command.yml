@@ -98,6 +98,8 @@ jobs:
 
     - id: get-sha
       uses: hudsonm62/short-sha@v1
+      with:
+        length: 40
 
     # - name: Get SHA of checked-out PR
     #   id: get-sha-2
