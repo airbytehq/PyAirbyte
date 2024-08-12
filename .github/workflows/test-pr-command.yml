@@ -92,9 +92,24 @@ jobs:
       with:
         pr: ${{ github.event.inputs.pr }}
 
-    - name: Get SHA of checked-out PR
-      id: get-sha
-      run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+    # - name: Get SHA of checked-out PR
+    #   id: get-sha
+    #   run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+    - id: get-sha
+      uses: hudsonm62/short-sha@v1
+
+    # - name: Get SHA of checked-out PR
+    #   id: get-sha-2
+    #   uses: actions/github-script@v6
+    #   with:
+    #     script: |
+    #       const sha = await github.rest.repos.getCommit({
+    #         owner: context.repo.owner,
+    #         repo: context.repo.repo,
+    #         ref: context.sha
+    #       });
+    #       return { sha: sha.data.sha };
 
     - name: CI job status tracker (commit ${{ steps.get-sha.outputs.sha }})
       uses: aaronsteers/action-job-status@feat/allow-job-name-override
