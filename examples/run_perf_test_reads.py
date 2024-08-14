@@ -161,7 +161,9 @@ def get_source(
         return ab.get_source(
             "source-hardcoded-records",
             streams="*",
-            config={},
+            config={
+                "count": 2_400_000,
+            },
         )
 
     raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
