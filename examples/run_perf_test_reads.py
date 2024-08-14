@@ -157,6 +157,13 @@ def get_source(
             },
         )
 
+    if source_alias == "hardcoded":
+        return ab.get_source(
+            "source-hardcoded-records",
+            streams="*",
+            config={},
+        )
+
     raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
 
 
@@ -244,10 +251,11 @@ if __name__ == "__main__":
         type=str,
         help=(
             "The cache type to use. The `e2e` source is recommended when Docker is available, "
-            "while the `faker` source runs natively in Python."
+            "while the `faker` source runs natively in Python. The 'hardcoded' source is "
+            "similar to the 'e2e' source, but written in Python."
         ),
-        choices=["faker", "e2e"],
-        default="e2e",
+        choices=["faker", "e2e", "hardcoded"],
+        default="hardcoded",
     )
     parser.add_argument(
         "--destination",
