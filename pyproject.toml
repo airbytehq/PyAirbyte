@@ -104,7 +104,7 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 preview = true
 line-length = 100
 
