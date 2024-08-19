@@ -13,9 +13,9 @@ version = "0.0.0"
 enable = true
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4.0"
+python = ">=3.10,<4.0"
 
-airbyte-cdk = ">=2.0,<=3.0"
+airbyte-cdk = "^4.5.1"
 duckdb = "^1.0.0"
 duckdb-engine = "^0.13.0"
 google-auth = ">=2.27.0,<3.0"
@@ -62,7 +62,6 @@ ruff = "0.4.1"
 types-jsonschema = "^4.20.0.0"
 types-requests = "2.31.0.4"
 freezegun = "^1.4.0"
-airbyte-source-faker = ">=6.2.0"
 tomli = "^2.0"
 responses = "^0.25.0"
 pytest-mock = "^3.14.0"
@@ -255,7 +254,7 @@ docstring-code-format = true
 
 [tool.mypy]
 # Platform configuration
-python_version = "3.9"
+python_version = "3.10"
 # imports related
 ignore_missing_imports = true
 follow_imports = "silent"
@@ -304,7 +303,7 @@ module = ["airbyte_protocol", "airbyte_protocol.models"]
 ignore_missing_imports = true                            # No stubs yet (😢)
 
 [tool.pyright]
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
