@@ -195,13 +195,13 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
         )
 
     if source_manifest:
-        if isinstance(source_manifest, (dict, Path)):
+        if isinstance(source_manifest, dict | Path):
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
             )
 
-        if isinstance(source_manifest, (str, bool)):
+        if isinstance(source_manifest, str | bool):
             # Source manifest is either a URL or a boolean (True)
             source_manifest = _try_get_source_manifest(
                 source_name=name,

@@ -22,13 +22,12 @@ import warnings
 from collections import defaultdict
 from contextlib import suppress
 from enum import Enum, auto
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 import pendulum
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
-from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteMessage,

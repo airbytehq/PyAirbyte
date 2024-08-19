@@ -103,7 +103,7 @@ class CloudWorkspace:
 
         You can pass either the source ID `str` or a deployed `Source` object.
         """
-        if not isinstance(source, (str, Source)):
+        if not isinstance(source, str | Source):
             raise ValueError(f"Invalid source type: {type(source)}")  # noqa: TRY004, TRY003
 
         if isinstance(source, Source):

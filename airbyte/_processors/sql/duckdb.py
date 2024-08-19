@@ -6,12 +6,11 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
-from typing_extensions import Literal
 
 from airbyte._future_cdk import SqlProcessorBase
 from airbyte._future_cdk.sql_processor import SqlConfig
