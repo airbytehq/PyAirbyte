@@ -110,6 +110,7 @@ def all_cache_types(
     ]
 
 
+@pytest.mark.xfail(reason="Source is no longer auto-installed in virtualenv.")
 def test_which_source_faker() -> None:
     """Test that source-faker is available on PATH."""
     assert shutil.which(
