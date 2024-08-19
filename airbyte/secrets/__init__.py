@@ -11,7 +11,7 @@ PyAirbyte can auto-import secrets from the following sources:
 1. Environment variables.
 2. Variables defined in a local `.env` ("Dotenv") file.
 3. [Google Colab secrets](https://medium.com/@parthdasawant/how-to-use-secrets-in-google-colab-450c38e3ec75).
-4. Manual entry via [`getpass`](https://docs.python.org/3.9/library/getpass.html).
+4. Manual entry via [`getpass`](https://docs.python.org/3.10/library/getpass.html).
 
 **Note:** You can also build your own secret manager by subclassing the `CustomSecretManager`
 implementation. For more information, see the `airbyte.secrets.CustomSecretManager` reference docs.

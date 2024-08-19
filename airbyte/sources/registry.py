@@ -24,6 +24,7 @@ _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
 _LOWCODE_LABEL = "cdk:low-code"
+_MANIFEST_ONLY_LABEL = "cdk:manifest-only"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-adjust",
@@ -169,7 +170,10 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
             InstallType.DOCKER if entry.get("dockerImageTag") else None,
             InstallType.PYTHON if pypi_enabled else None,
             InstallType.JAVA if language == Language.JAVA else None,
-            InstallType.YAML if _LOWCODE_LABEL in entry.get("tags", []) else None,
+            InstallType.YAML
+            if _LOWCODE_LABEL in entry.get("tags", [])
+            or _MANIFEST_ONLY_LABEL in entry.get("tags", [])
+            else None,
         ]
         if x
     }

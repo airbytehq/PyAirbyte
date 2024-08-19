@@ -4,12 +4,12 @@ from __future__ import annotations
 import shutil
 import sys
 import tempfile
-from json import JSONDecodeError
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import requests
 import yaml
+from requests import HTTPError
 from rich import print
 
 from airbyte import exceptions as exc
@@ -23,6 +23,58 @@ from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
+
+
+def _try_get_source_manifest(source_name: str, manifest_url: str | None) -> dict:
+    """Try to get a source manifest from a URL.
+
+    If the URL is not provided, we'll try a couple of default URLs.
+    We can remove/refactor this once manifests are available in GCS connector registry.
+    """
+    if manifest_url:
+        response = requests.get(url=manifest_url)
+        response.raise_for_status()  # Raise HTTPError exception if the download failed
+        try:
+            return cast(dict, yaml.safe_load(response.text))
+        except yaml.YAMLError as ex:
+            raise exc.AirbyteConnectorInstallationError(
+                message="Failed to parse the connector manifest YAML.",
+                connector_name=source_name,
+                context={
+                    "manifest_url": manifest_url,
+                },
+            ) from ex
+
+    # No manifest URL was provided. We'll try a couple of default URLs.
+
+    try:
+        # First try the new URL format (language='manifest-only'):
+        result_1 = _try_get_source_manifest(
+            source_name=source_name,
+            manifest_url=(
+                f"https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
+                f"/connectors/{source_name}/manifest.yaml"
+            ),
+        )
+    except HTTPError as ex_1:
+        # If the new URL path was not found, try the old URL format (language='low-code'):
+        try:
+            result_2 = _try_get_source_manifest(
+                source_name=source_name,
+                manifest_url=(
+                    f"https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
+                    f"/connectors/{source_name}/{source_name.replace('-', '_')}/manifest.yaml"
+                ),
+            )
+        except HTTPError:
+            # Raise the first exception, since that represents the new default URL
+            raise ex_1 from None
+        else:
+            # Old URL path was found (no exceptions raised).
+            return result_2
+    else:
+        # New URL path was found (no exceptions raised).
+        return result_1
 
 
 def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
@@ -143,49 +195,23 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
         )
 
     if source_manifest:
-        if source_manifest is True:
-            # Auto-set the manifest to a valid http address URL string
-            source_manifest = (
-                "https://raw.githubusercontent.com/airbytehq/airbyte/master/airbyte-integrations"
-                f"/connectors/{name}/{name.replace('-', '_')}/manifest.yaml"
+        if isinstance(source_manifest, (dict, Path)):
+            return DeclarativeExecutor(
+                name=name,
+                manifest=source_manifest,
             )
-        if isinstance(source_manifest, str):
-            print("Installing connector from YAML manifest:", source_manifest)
-            # Download the manifest file
-            response = requests.get(url=source_manifest)
-            response.raise_for_status()  # Raise an exception if the download failed
 
-            if "class_name:" in response.text:
-                raise exc.AirbyteConnectorInstallationError(
-                    message=(
-                        "The provided manifest requires additional code files (`class_name` key "
-                        "detected). This feature is not compatible with the declarative YAML "
-                        "executor. To use this executor, please try again with the Python "
-                        "executor."
-                    ),
-                    connector_name=name,
-                    context={
-                        "manifest_url": source_manifest,
-                    },
-                )
+        if isinstance(source_manifest, (str, bool)):
+            # Source manifest is either a URL or a boolean (True)
+            source_manifest = _try_get_source_manifest(
+                source_name=name,
+                manifest_url=None if source_manifest is True else source_manifest,
+            )
 
-            try:
-                source_manifest = cast(dict, yaml.safe_load(response.text))
-            except JSONDecodeError as ex:
-                raise exc.AirbyteConnectorInstallationError(
-                    connector_name=name,
-                    context={
-                        "manifest_url": source_manifest,
-                    },
-                ) from ex
-
-        if isinstance(source_manifest, Path):
-            source_manifest = cast(dict, yaml.safe_load(source_manifest.read_text()))
-
-        # Source manifest is a dict at this point
-        return DeclarativeExecutor(
-            manifest=source_manifest,
-        )
+            return DeclarativeExecutor(
+                name=name,
+                manifest=source_manifest,
+            )
 
     # else: we are installing a connector in a Python virtual environment:
 
