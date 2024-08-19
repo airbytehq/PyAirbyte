@@ -49,6 +49,16 @@ poetry run python ./examples/run_perf_test_reads.py -e=5
 poetry run python ./examples/run_perf_test_reads.py -e=5 --destination=e2e --no-cache
 ```
 
+Testing Python CDK throughput:
+
+```bash
+# Test max throughput:
+poetry run python ./examples/run_perf_test_reads.py -n=2400000 --source=hardcoded --destination=e2e
+# Analyze tracing data:
+poetry run viztracer --open -- ./examples/run_perf_test_reads.py -e=3 --source=hardcoded --destination=e2e
+```
+
+
 Note:
 - The Faker stream ('purchases') is assumed to be 220 bytes, meaning 4_500 records is
   approximately 1 MB. Based on this: 25K records/second is approximately 5.5 MB/s.
@@ -157,6 +167,15 @@ def get_source(
             },
         )
 
+    if source_alias == "hardcoded":
+        return ab.get_source(
+            "source-hardcoded-records",
+            streams=["dummy_fields"],
+            config={
+                "count": num_records,
+            },
+        )
+
     raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
 
 
@@ -244,10 +263,11 @@ if __name__ == "__main__":
         type=str,
         help=(
             "The cache type to use. The `e2e` source is recommended when Docker is available, "
-            "while the `faker` source runs natively in Python."
+            "while the `faker` source runs natively in Python. The 'hardcoded' source is "
+            "similar to the 'e2e' source, but written in Python."
         ),
-        choices=["faker", "e2e"],
-        default="e2e",
+        choices=["faker", "e2e", "hardcoded"],
+        default="hardcoded",
     )
     parser.add_argument(
         "--destination",
