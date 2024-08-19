@@ -46,13 +46,12 @@ def new_duckdb_destination(new_duckdb_destination_executor: Destination) -> Dest
 def new_source_faker() -> Source:
     return get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": 100,
             "seed": 1234,
             "parallelism": 16,
         },
-        install_if_missing=False,
+        install_if_missing=True,
         streams=["products"],
     )
 
