@@ -6,7 +6,7 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING
 
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 class DuckDBConfig(SqlConfig):
     """Configuration for DuckDB."""
 
-    db_path: Union[Path, str] = Field()
+    db_path: Path | str = Field()
     """Normally db_path is a Path object.
 
     The database name will be inferred from the file name. For example, given a `db_path` of
