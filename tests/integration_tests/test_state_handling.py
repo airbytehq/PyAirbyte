@@ -46,13 +46,11 @@ def source_faker_seed_b() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_B,
             "seed": SEED_B,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users", "products", "purchases"],
     )
     return source
