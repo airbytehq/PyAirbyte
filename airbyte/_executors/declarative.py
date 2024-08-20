@@ -9,12 +9,13 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
+import yaml
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
+from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
-from airbyte.exceptions import PyAirbyteInternalError
 
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ class DeclarativeExecutor(Executor):
 
     def __init__(
         self,
+        name: str,
         manifest: dict | Path,
     ) -> None:
         """Initialize a declarative executor.
@@ -49,21 +51,35 @@ class DeclarativeExecutor(Executor):
         - If `manifest` is a dict, it will be used as is.
         """
         _suppress_cdk_pydantic_deprecation_warnings()
+
+        self.name = name
         self._manifest_dict: dict
         if isinstance(manifest, Path):
-            self._manifest_dict = cast(dict, json.loads(manifest.read_text()))
+            self._manifest_dict = cast(dict, yaml.safe_load(manifest.read_text()))
 
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
 
-        if not isinstance(self._manifest_dict, dict):
-            raise PyAirbyteInternalError(message="Manifest must be a dict.")
-
+        self._validate_manifest(self._manifest_dict)
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
 
         # TODO: Consider adding version detection
         # https://github.com/airbytehq/airbyte/issues/318
         self.reported_version: str | None = None
+
+    def _validate_manifest(self, manifest_dict: dict) -> None:
+        """Validate the manifest."""
+        manifest_text = json.dumps(manifest_dict)
+        if "class_name:" in manifest_text:
+            raise exc.AirbyteConnectorInstallationError(
+                message=(
+                    "The provided manifest requires additional code files (`class_name` key "
+                    "detected). This feature is not compatible with the declarative YAML "
+                    "executor. To use this executor, please try again with the Python "
+                    "executor."
+                ),
+                connector_name=self.name,
+            )
 
     @property
     def _cli(self) -> list[str]:
