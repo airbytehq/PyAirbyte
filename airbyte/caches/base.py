@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, final
+from typing import TYPE_CHECKING, Any, final
 
 import pandas as pd
 import pyarrow as pa
@@ -52,9 +52,9 @@ class CacheBase(SqlConfig):
     cleanup: bool = TEMP_FILE_CLEANUP
     """Whether to clean up the cache after use."""
 
-    _deployed_api_root: Optional[str] = PrivateAttr(default=None)
-    _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
-    _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
+    _deployed_api_root: str | None = PrivateAttr(default=None)
+    _deployed_workspace_id: str | None = PrivateAttr(default=None)
+    _deployed_destination_id: str | None = PrivateAttr(default=None)
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _read_processor: SqlProcessorBase = PrivateAttr()

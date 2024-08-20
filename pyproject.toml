@@ -104,7 +104,7 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 ]
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 preview = true
 line-length = 100
 
@@ -198,8 +198,6 @@ ignore = [
     "PLW0603", # Using the global statement to update _cache is discouraged
     "PLW0108", # Lambda may be unnecessary; consider inlining inner function
     # "TD003",   # Require links for TODOs (now enabled)
-
-    "UP007", # Allow legacy `Union[a, b]` and `Optional[a]` for Pydantic, until we drop Python 3.9 (Pydantic doesn't like it)
 ]
 fixable = ["ALL"]
 unfixable = [

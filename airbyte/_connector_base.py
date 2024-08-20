@@ -7,14 +7,13 @@ import abc
 import json
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import jsonschema
 import ulid
 import yaml
 from rich import print
 from rich.syntax import Syntax
-from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteMessage,
