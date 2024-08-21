@@ -7,11 +7,10 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from shutil import rmtree
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from overrides import overrides
 from rich import print
-from typing_extensions import Literal
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor

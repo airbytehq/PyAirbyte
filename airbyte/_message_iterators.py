@@ -6,7 +6,7 @@ from __future__ import annotations
 import datetime
 import sys
 from collections.abc import Iterator
-from typing import IO, TYPE_CHECKING, Callable, cast
+from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
 from typing_extensions import final
@@ -22,7 +22,7 @@ from airbyte.progress import _new_stream_success_message
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Callable, Generator, Iterable, Iterator
     from pathlib import Path
 
     from airbyte.results import ReadResult

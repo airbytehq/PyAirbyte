@@ -9,7 +9,7 @@ import enum
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, cast, final
+from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
 import sqlalchemy
@@ -81,7 +81,7 @@ class SqlConfig(BaseModel, abc.ABC):
     schema_name: str = Field(default="airbyte_raw")
     """The name of the schema to write to."""
 
-    table_prefix: Optional[str] = ""
+    table_prefix: str | None = ""
     """A prefix to add to created table names."""
 
     @abc.abstractmethod

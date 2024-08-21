@@ -7,9 +7,7 @@ For usage examples, see the `airbyte.destinations` module documentation.
 from __future__ import annotations
 
 import warnings
-from typing import IO, TYPE_CHECKING, Any, cast
-
-from typing_extensions import Literal
+from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 from airbyte_protocol.models import (
     Type,
@@ -98,7 +96,7 @@ class Destination(ConnectorBase):
         a known destination state, the destination-specific state will be used. If neither are
         available, a full refresh will be performed.
         """
-        if not isinstance(source_data, (ReadResult, Source)):
+        if not isinstance(source_data, ReadResult | Source):
             raise exc.PyAirbyteInputError(
                 message="Invalid source_data type for `source_data` arg.",
                 context={
