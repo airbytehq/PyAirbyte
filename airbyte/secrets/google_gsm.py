@@ -44,7 +44,7 @@ from airbyte.secrets.custom import CustomSecretManager
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, MutableMapping
 
     from google.cloud.secretmanager_v1.services.secret_manager_service.pagers import (
         ListSecretsPager,
@@ -60,12 +60,16 @@ class GSMSecretHandle(SecretHandle):
 
     parent: GoogleGSMSecretManager
 
-    @property
-    def labels(self) -> dict[str, str]:
-        """Get the labels of the secret."""
+    def _get_gsm_secret_object(self) -> secretmanager.Secret:
+        """Get the `Secret` object from GSM."""
         return self.parent.secret_client.get_secret(
             name=self.secret_name,
-        ).labels
+        )
+
+    @property
+    def labels(self) -> MutableMapping[str, str]:
+        """Get the labels of the secret."""
+        return self._get_gsm_secret_object().labels
 
 
 class GoogleGSMSecretManager(CustomSecretManager):
@@ -145,8 +149,8 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
         super().__init__()  # Handles the registration if needed
 
-    def get_secret(self, secret_name: str) -> SecretString | None:
-        """Get a named secret from Google Colab user secrets."""
+    def _fully_qualified_secret_name(self, secret_name: str) -> str:
+        """Get the fully qualified secret name."""
         full_name = secret_name
         if "projects/" not in full_name:
             # This is not yet fully qualified
@@ -155,8 +159,34 @@ class GoogleGSMSecretManager(CustomSecretManager):
         if "/versions/" not in full_name:
             full_name += "/versions/latest"
 
+        return full_name
+
+    def get_secret(self, secret_name: str) -> SecretString | None:
+        """Get a named secret from Google Colab user secrets."""
         return SecretString(
-            self.secret_client.access_secret_version(name=full_name).payload.data.decode("UTF-8")
+            self.secret_client.access_secret_version(
+                name=self._fully_qualified_secret_name(secret_name)
+            ).payload.data.decode("UTF-8")
+        )
+
+    def get_secret_handle(
+        self,
+        secret_name: str,
+    ) -> GSMSecretHandle:
+        """Fetch secret in the secret manager, using the secret name.
+
+        Unlike `get_secret`, this method returns a `GSMSecretHandle` object, which can be used to
+        inspect the secret's labels and other metadata.
+
+        Args:
+            secret_name (str): The name of the connector to filter by.
+
+        Returns:
+            GSMSecretHandle: A handle for the matching secret.
+        """
+        return GSMSecretHandle(
+            parent=self,
+            secret_name=self._fully_qualified_secret_name(secret_name),
         )
 
     def fetch_secrets(
@@ -246,7 +276,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
             connector_name (str): The name of the connector to filter by.
 
         Returns:
-            GSMSecretHandle: The matching secret.
+            GSMSecretHandle: A handle for the matching secret.
         """
         results: Iterable[GSMSecretHandle] = self.fetch_connector_secrets(connector_name)
         try:
