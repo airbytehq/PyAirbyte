@@ -51,6 +51,23 @@ if TYPE_CHECKING:
     )
 
 
+class GSMSecretHandle(SecretHandle):
+    """A handle for a secret stored in Google Secrets Manager (GSM).
+
+    This class inherits from `SecretHandle` and adds a `labels` attribute for inspecting GSM
+    labels.
+    """
+
+    parent: GoogleGSMSecretManager
+
+    @property
+    def labels(self) -> dict[str, str]:
+        """Get the labels of the secret."""
+        return self.parent.secret_client.get_secret(
+            name=self.secret_name,
+        ).labels
+
+
 class GoogleGSMSecretManager(CustomSecretManager):
     """Secret manager that retrieves secrets from Google Secrets Manager (GSM).
 
@@ -146,7 +163,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
         self,
         *,
         filter_string: str,
-    ) -> Iterable[SecretHandle]:
+    ) -> Iterable[GSMSecretHandle]:
         """List all available secrets in the secret manager.
 
         Example filter strings:
@@ -158,7 +175,8 @@ class GoogleGSMSecretManager(CustomSecretManager):
                 https://cloud.google.com/secret-manager/docs/filtering
 
         Returns:
-            Iterable[SecretHandle]: An iterable of `SecretHandle` objects for the matching secrets.
+            Iterable[GSMSecretHandle]: An iterable of `GSMSecretHandle` objects for the matching
+            secrets.
         """
         gsm_secrets: ListSecretsPager = self.secret_client.list_secrets(
             request=secretmanager.ListSecretsRequest(
@@ -168,7 +186,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
         )
 
         return [
-            SecretHandle(
+            GSMSecretHandle(
                 parent=self,
                 secret_name=secret.name,
             )
@@ -179,7 +197,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
         self,
         label_key: str,
         label_value: str,
-    ) -> Iterable[SecretHandle]:
+    ) -> Iterable[GSMSecretHandle]:
         """List all available secrets in the secret manager.
 
         Args:
@@ -187,14 +205,15 @@ class GoogleGSMSecretManager(CustomSecretManager):
             label_value (str): The value of the label to filter by.
 
         Returns:
-            Iterable[SecretHandle]: An iterable of `SecretHandle` objects for the matching secrets.
+            Iterable[GSMSecretHandle]: An iterable of `GSMSecretHandle` objects for the matching
+            secrets.
         """
         return self.fetch_secrets(filter_string=f"labels.{label_key}={label_value}")
 
     def fetch_connector_secrets(
         self,
         connector_name: str,
-    ) -> Iterable[SecretHandle]:
+    ) -> Iterable[GSMSecretHandle]:
         """Fetch secrets in the secret manager, using the connector name as a filter for the label.
 
         The label key used to filter the secrets is defined by the `CONNECTOR_LABEL` attribute,
@@ -204,7 +223,8 @@ class GoogleGSMSecretManager(CustomSecretManager):
             connector_name (str): The name of the connector to filter by.
 
         Returns:
-            Iterable[SecretHandle]: An iterable of `SecretHandle` objects for the matching secrets.
+            Iterable[GSMSecretHandle]: An iterable of `GSMSecretHandle` objects for the matching
+            secrets.
         """
         return self.fetch_secrets_by_label(
             label_key=self.CONNECTOR_LABEL,
@@ -214,7 +234,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
     def fetch_connector_secret(
         self,
         connector_name: str,
-    ) -> SecretHandle:
+    ) -> GSMSecretHandle:
         """Fetch secret in the secret manager, using the connector name as a filter for the label.
 
         This method is a convenience method that returns the first secret found for the connector.
@@ -226,9 +246,9 @@ class GoogleGSMSecretManager(CustomSecretManager):
             connector_name (str): The name of the connector to filter by.
 
         Returns:
-            SecretHandle: The matching secret.
+            GSMSecretHandle: The matching secret.
         """
-        results: Iterable[SecretHandle] = self.fetch_connector_secrets(connector_name)
+        results: Iterable[GSMSecretHandle] = self.fetch_connector_secrets(connector_name)
         try:
             result = next(iter(results))
         except StopIteration:
