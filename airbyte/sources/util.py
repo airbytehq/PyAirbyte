@@ -56,6 +56,16 @@ def get_source(  # noqa: PLR0913 # Too many arguments
 ) -> Source:
     """Get a connector by name and version.
 
+    If an explicit install or execution method is requested (e.g. `local_executable`,
+    `docker_image`, `pip_url`, `source_manifest`), the connector will be executed using this method.
+
+    Otherwise, an appropriate method will be selected based on the available connector metadata:
+    1. If the connector is registered and has a YAML source manifest is available, the YAML manifest
+       will be downloaded and used to to execute the connector.
+    2. Else, if the connector is registered and has a PyPI package, it will be installed via pip.
+    3. Else, if the connector is registered and has a Docker image, and if Docker is available, it
+       will be executed using Docker.
+
     Args:
         name: connector name
         config: connector config - if not provided, you need to set it later via the set_config
