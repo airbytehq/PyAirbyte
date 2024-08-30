@@ -24,7 +24,8 @@ _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
 _LOWCODE_LABEL = "cdk:low-code"
-_MANIFEST_ONLY_LABEL = "cdk:manifest-only"
+_MANIFEST_ONLY_LANGUAGE = "manifest-only"
+_MANIFEST_ONLY_LABEL = f"cdk:{_MANIFEST_ONLY_LANGUAGE}"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-adjust",
@@ -96,13 +97,25 @@ _LOWCODE_CONNECTORS_FAILING_VALIDATION = [
     "source-amazon-ads",
 ]
 # Connectors that return 404 or some other misc error.
-_LOWCODE_CONNECTORS_404: list[str] = [
+_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
+    # 404 Error:
     "source-xkcd",
+]
+# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
+_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = [
+    "source-apple-search-ads",
+    "source-marketo",
+    "source-n8n",
+    "source-onesignal",
+    "source-postmarkapp",
+    "source-sentry",
+    "source-unleash",
 ]
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
-    *_LOWCODE_CONNECTORS_404,
+    *_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
     *_LOWCODE_CONNECTORS_NEEDING_PYTHON,
+    *_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS,
 ]
 
 
@@ -120,6 +133,7 @@ class Language(str, Enum):
 
     PYTHON = InstallType.PYTHON.value
     JAVA = InstallType.JAVA.value
+    MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
 @dataclass
