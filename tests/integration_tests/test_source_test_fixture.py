@@ -16,6 +16,7 @@ import pytest
 import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
+from airbyte._executors.docker import DockerExecutor
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
@@ -183,13 +184,22 @@ def test_source_yaml_spec():
 
 
 def test_non_existing_connector():
-    with pytest.raises(Exception):
+    with pytest.raises(exc.AirbyteConnectorNotRegisteredError):
         ab.get_source("source-not-existing", config={"apiKey": "abc"})
 
 
-def test_non_enabled_connector():
-    with pytest.raises(exc.AirbyteConnectorNotPyPiPublishedError):
-        ab.get_source("source-non-published", config={"apiKey": "abc"})
+def test_non_existing_connector_with_local_exe():
+    # We should not complain about the missing source if we provide a local executable
+    _ = ab.get_source(
+        "source-not-existing",
+        local_executable=Path("dummy-exe-path"),
+        config={"apiKey": "abc"},
+    )
+
+
+def test_docker_only_connector():
+    source = ab.get_source("source-docker-only", config={"apiKey": "abc"})
+    assert isinstance(source.executor, DockerExecutor), "Expected DockerExecutor."
 
 
 @pytest.mark.parametrize(
