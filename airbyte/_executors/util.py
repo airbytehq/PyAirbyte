@@ -1,8 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import shutil
-import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -17,6 +15,7 @@ from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._executors.docker import DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
+from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 
@@ -77,20 +76,6 @@ def _try_get_source_manifest(source_name: str, manifest_url: str | None) -> dict
         return result_1
 
 
-def _which(connector_name: str) -> Path | None:
-    """Return the path to an executable which would be run if the given name were called.
-
-    This function is a cross-platform wrapper for the `shutil.which()` function.
-    """
-    which_executable: str | None = None
-    which_executable = shutil.which(connector_name)
-    if not which_executable and sys.platform == "win32":
-        # Try with the .exe extension
-        which_executable = shutil.which(f"{connector_name}.exe")
-
-    return Path(which_executable) if which_executable else None
-
-
 def _get_local_executor(
     name: str,
     local_executable: Path | str | Literal[True],
@@ -111,7 +96,7 @@ def _get_local_executor(
             # Assume this is a path
             local_executable = Path(local_executable).absolute()
         else:
-            which_executable = _which(local_executable)
+            which_executable: Path | None = which(local_executable)
             if not which_executable:
                 raise exc.AirbyteConnectorExecutableNotFoundError(
                     connector_name=name,
@@ -178,16 +163,20 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913 # Too complex
             log_install_state(name, state=EventState.FAILED, exception=ex)
             raise
 
-    # User has not specified how to install the connector.
-    # Prefer manifests, then python, then docker, depending upon how the connector is declared
-    # in the connector registry.
-    if install_method_count == 0 and metadata and metadata.install_types:
-        if InstallType.YAML in metadata.install_types:
-            source_manifest = True
-        elif InstallType.PYTHON in metadata.install_types:
-            pip_url = metadata.pypi_package_name
-        elif InstallType.DOCKER in metadata.install_types:
-            docker_image = True
+    if install_method_count == 0:
+        # User has not specified how to install the connector.
+        # Prefer local executable if found, then manifests, then python, then docker, depending upon
+        # how the connector is declared in the connector registry.
+        if which(name):
+            local_executable = name
+        elif metadata and metadata.install_types:
+            match metadata.default_install_type:
+                case InstallType.YAML:
+                    source_manifest = True
+                case InstallType.PYTHON:
+                    pip_url = metadata.pypi_package_name
+                case _:
+                    docker_image = True
 
     if local_executable:
         return _get_local_executor(
