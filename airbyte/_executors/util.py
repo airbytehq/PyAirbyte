@@ -5,7 +5,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import requests
 import yaml
@@ -77,7 +77,61 @@ def _try_get_source_manifest(source_name: str, manifest_url: str | None) -> dict
         return result_1
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
+def _which(connector_name: str) -> Path | None:
+    """Return the path to an executable which would be run if the given name were called.
+
+    This function is a cross-platform wrapper for the `shutil.which()` function.
+    """
+    which_executable: str | None = None
+    which_executable = shutil.which(connector_name)
+    if not which_executable and sys.platform == "win32":
+        # Try with the .exe extension
+        which_executable = shutil.which(f"{connector_name}.exe")
+
+    return Path(which_executable) if which_executable else None
+
+
+def _get_local_executor(
+    name: str,
+    local_executable: Path | str | Literal[True],
+    version: str | None,
+) -> Executor:
+    """Get a local executor for a connector."""
+    if version:
+        raise exc.PyAirbyteInputError(
+            message="Param 'version' is not supported when 'local_executable' is set."
+        )
+
+    if local_executable is True:
+        # Use the default executable name for the connector
+        local_executable = name
+
+    if isinstance(local_executable, str):
+        if "/" in local_executable or "\\" in local_executable:
+            # Assume this is a path
+            local_executable = Path(local_executable).absolute()
+        else:
+            which_executable = _which(local_executable)
+            if not which_executable:
+                raise exc.AirbyteConnectorExecutableNotFoundError(
+                    connector_name=name,
+                    context={
+                        "executable": name,
+                        "working_directory": Path.cwd().absolute(),
+                    },
+                ) from FileNotFoundError(name)
+            local_executable = Path(which_executable).absolute()
+
+    # `local_executable` is now a Path object
+
+    print(f"Using local `{name}` executable: {local_executable!s}")
+    return PathExecutor(
+        name=name,
+        path=local_executable,
+    )
+
+
+def get_connector_executor(  # noqa: PLR0912, PLR0913 # Too complex
     name: str,
     *,
     version: str | None = None,
@@ -136,38 +190,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             docker_image = True
 
     if local_executable:
-        if version:
-            raise exc.PyAirbyteInputError(
-                message="Param 'version' is not supported when 'local_executable' is set."
-            )
-
-        if isinstance(local_executable, str):
-            if "/" in local_executable or "\\" in local_executable:
-                # Assume this is a path
-                local_executable = Path(local_executable).absolute()
-            else:
-                which_executable: str | None = None
-                which_executable = shutil.which(local_executable)
-                if not which_executable and sys.platform == "win32":
-                    # Try with the .exe extension
-                    local_executable = f"{local_executable}.exe"
-                    which_executable = shutil.which(local_executable)
-
-                if which_executable is None:
-                    raise exc.AirbyteConnectorExecutableNotFoundError(
-                        connector_name=name,
-                        context={
-                            "executable": local_executable,
-                            "working_directory": Path.cwd().absolute(),
-                        },
-                    ) from FileNotFoundError(local_executable)
-                local_executable = Path(which_executable).absolute()
-
-                print(f"Using local `{name}` executable: {local_executable!s}")
-                return PathExecutor(
-                    name=name,
-                    path=local_executable,
-                )
+        return _get_local_executor(
+            name=name,
+            local_executable=local_executable,
+            version=version,
+        )
 
     if docker_image:
         if docker_image is True:
