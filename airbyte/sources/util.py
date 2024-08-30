@@ -48,9 +48,9 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: bool | str = False,
+    docker_image: bool | str | None = None,
     use_host_network: bool = False,
-    source_manifest: bool | dict | Path | str = False,
+    source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
 ) -> Source:

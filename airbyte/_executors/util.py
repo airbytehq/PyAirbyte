@@ -18,7 +18,7 @@ from airbyte._executors.docker import DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
+from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 
 
 if TYPE_CHECKING:
@@ -83,9 +83,9 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: bool | str | None = False,
+    docker_image: bool | str | None = None,
     use_host_network: bool = False,
-    source_manifest: bool | dict | Path | str = False,
+    source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
 ) -> Executor:
@@ -93,17 +93,15 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
     """
-    if (
-        sum(
-            [
-                bool(local_executable),
-                bool(docker_image),
-                bool(pip_url),
-                bool(source_manifest),
-            ]
-        )
-        > 1
-    ):
+    install_method_count = sum(
+        [
+            bool(local_executable),
+            bool(docker_image),
+            bool(pip_url),
+            bool(source_manifest),
+        ]
+    )
+    if install_method_count > 1:
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
@@ -116,6 +114,26 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
                 "source_manifest": source_manifest,
             },
         )
+    metadata: ConnectorMetadata | None = None
+    try:
+        metadata = get_connector_metadata(name)
+    except exc.AirbyteConnectorNotRegisteredError as ex:
+        if install_method_count == 0:
+            # User has not specified how to install the connector, and it is not registered.
+            # Fail the install.
+            log_install_state(name, state=EventState.FAILED, exception=ex)
+            raise
+
+    # User has not specified how to install the connector.
+    # Prefer manifests, then python, then docker, depending upon how the connector is declared
+    # in the connector registry.
+    if install_method_count == 0 and metadata and metadata.install_types:
+        if InstallType.YAML in metadata.install_types:
+            source_manifest = True
+        elif InstallType.PYTHON in metadata.install_types:
+            pip_url = metadata.pypi_package_name
+        elif InstallType.DOCKER in metadata.install_types:
+            docker_image = True
 
     if local_executable:
         if version:
@@ -214,15 +232,6 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             )
 
     # else: we are installing a connector in a Python virtual environment:
-
-    metadata: ConnectorMetadata | None = None
-    try:
-        metadata = get_connector_metadata(name)
-    except exc.AirbyteConnectorNotRegisteredError as ex:
-        if not pip_url:
-            log_install_state(name, state=EventState.FAILED, exception=ex)
-            # We don't have a pip url or registry entry, so we can't install the connector
-            raise
 
     try:
         executor = VenvExecutor(

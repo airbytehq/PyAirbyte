@@ -51,7 +51,8 @@ if TYPE_CHECKING:
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
-DOCS_URL = "https://airbytehq.github.io/PyAirbyte/airbyte.html"
+DOCS_URL_BASE = "https://airbytehq.github.io/PyAirbyte"
+DOCS_URL = f"{DOCS_URL_BASE}/airbyte.html"
 
 
 # Base error class
@@ -246,7 +247,12 @@ class AirbyteConnectorNotRegisteredError(AirbyteConnectorRegistryError):
     """Connector not found in registry."""
 
     connector_name: str | None = None
-    guidance = "Please double check the connector name."
+    guidance = (
+        "Please double check the connector name. "
+        "Alternatively, you can provide an explicit connector install method to `get_source()`: "
+        "`pip_url`, `local_executable`, `docker_image`, or `source_manifest`."
+    )
+    help_url = DOCS_URL_BASE + "/airbyte/sources/util.html#get_source"
 
 
 @dataclass
