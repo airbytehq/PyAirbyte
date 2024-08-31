@@ -9,9 +9,10 @@ import pytest
 from airbyte import exceptions as exc
 from airbyte import get_source
 from airbyte.sources.registry import (
-    _LOWCODE_CONNECTORS_404,
+    _LOWCODE_CDK_FILE_NOT_FOUND_ERRORS,
     _LOWCODE_CONNECTORS_FAILING_VALIDATION,
     _LOWCODE_CONNECTORS_NEEDING_PYTHON,
+    _LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
 )
 
 UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
@@ -30,10 +31,11 @@ def test_nocode_connectors_setup(connector_name: str) -> None:
     hardcoded failure list (tested below).
     """
     try:
-        _ = get_source(
+        source = get_source(
             name=connector_name,
             source_manifest=True,
         )
+        _ = source.config_spec
     except Exception as ex:
         raise AssertionError(
             f"Expected '{connector_name}' init success but got '{type(ex).__name__}'."
@@ -48,7 +50,8 @@ def test_nocode_connectors_setup(connector_name: str) -> None:
     [
         (_LOWCODE_CONNECTORS_FAILING_VALIDATION, jsonschema.exceptions.ValidationError),
         (_LOWCODE_CONNECTORS_NEEDING_PYTHON, exc.AirbyteConnectorInstallationError),
-        (_LOWCODE_CONNECTORS_404, Exception),
+        (_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS, Exception),
+        (_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS, exc.AirbyteConnectorFailedError),
     ],
 )
 def test_expected_hardcoded_failures(
@@ -62,10 +65,11 @@ def test_expected_hardcoded_failures(
     """
     for connector_name in failure_group:
         try:
-            _ = get_source(
+            source = get_source(
                 name=connector_name,
                 source_manifest=True,
             )
+            _ = source.config_spec
         except Exception as ex:
             if isinstance(ex, exception_type):
                 pass

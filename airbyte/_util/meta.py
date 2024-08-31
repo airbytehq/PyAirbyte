@@ -7,6 +7,7 @@ This module contains functions for detecting environment and runtime information
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from contextlib import suppress
 from functools import lru_cache
@@ -147,3 +148,22 @@ def get_os() -> str:
         return f"Google Colab ({get_colab_release_version()})"
 
     return f"{system()}"
+
+
+@lru_cache
+def which(executable_name: str) -> Path | None:
+    """Return the path to an executable which would be run if the given name were called.
+
+    This function is a cross-platform wrapper for the `shutil.which()` function.
+    """
+    which_executable: str | None = None
+    which_executable = shutil.which(executable_name)
+    if not which_executable and is_windows():
+        # Try with the .exe extension
+        which_executable = shutil.which(f"{executable_name}.exe")
+
+    return Path(which_executable) if which_executable else None
+
+
+def is_docker_installed() -> bool:
+    return bool(which("docker"))

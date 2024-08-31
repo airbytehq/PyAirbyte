@@ -1,11 +1,9 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import shutil
-import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 
 import requests
 import yaml
@@ -17,8 +15,9 @@ from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._executors.docker import DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
+from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
+from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 
 
 if TYPE_CHECKING:
@@ -77,15 +76,55 @@ def _try_get_source_manifest(source_name: str, manifest_url: str | None) -> dict
         return result_1
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
+def _get_local_executor(
+    name: str,
+    local_executable: Path | str | Literal[True],
+    version: str | None,
+) -> Executor:
+    """Get a local executor for a connector."""
+    if version:
+        raise exc.PyAirbyteInputError(
+            message="Param 'version' is not supported when 'local_executable' is set."
+        )
+
+    if local_executable is True:
+        # Use the default executable name for the connector
+        local_executable = name
+
+    if isinstance(local_executable, str):
+        if "/" in local_executable or "\\" in local_executable:
+            # Assume this is a path
+            local_executable = Path(local_executable).absolute()
+        else:
+            which_executable: Path | None = which(local_executable)
+            if not which_executable:
+                raise exc.AirbyteConnectorExecutableNotFoundError(
+                    connector_name=name,
+                    context={
+                        "executable": name,
+                        "working_directory": Path.cwd().absolute(),
+                    },
+                ) from FileNotFoundError(name)
+            local_executable = Path(which_executable).absolute()
+
+    # `local_executable` is now a Path object
+
+    print(f"Using local `{name}` executable: {local_executable!s}")
+    return PathExecutor(
+        name=name,
+        path=local_executable,
+    )
+
+
+def get_connector_executor(  # noqa: PLR0912, PLR0913 # Too complex
     name: str,
     *,
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: bool | str | None = False,
+    docker_image: bool | str | None = None,
     use_host_network: bool = False,
-    source_manifest: bool | dict | Path | str = False,
+    source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
 ) -> Executor:
@@ -93,17 +132,15 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
     """
-    if (
-        sum(
-            [
-                bool(local_executable),
-                bool(docker_image),
-                bool(pip_url),
-                bool(source_manifest),
-            ]
-        )
-        > 1
-    ):
+    install_method_count = sum(
+        [
+            bool(local_executable),
+            bool(docker_image),
+            bool(pip_url),
+            bool(source_manifest),
+        ]
+    )
+    if install_method_count > 1:
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
@@ -116,40 +153,37 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
                 "source_manifest": source_manifest,
             },
         )
+    metadata: ConnectorMetadata | None = None
+    try:
+        metadata = get_connector_metadata(name)
+    except exc.AirbyteConnectorNotRegisteredError as ex:
+        if install_method_count == 0:
+            # User has not specified how to install the connector, and it is not registered.
+            # Fail the install.
+            log_install_state(name, state=EventState.FAILED, exception=ex)
+            raise
+
+    if install_method_count == 0:
+        # User has not specified how to install the connector.
+        # Prefer local executable if found, then manifests, then python, then docker, depending upon
+        # how the connector is declared in the connector registry.
+        if which(name):
+            local_executable = name
+        elif metadata and metadata.install_types:
+            match metadata.default_install_type:
+                case InstallType.YAML:
+                    source_manifest = True
+                case InstallType.PYTHON:
+                    pip_url = metadata.pypi_package_name
+                case _:
+                    docker_image = True
 
     if local_executable:
-        if version:
-            raise exc.PyAirbyteInputError(
-                message="Param 'version' is not supported when 'local_executable' is set."
-            )
-
-        if isinstance(local_executable, str):
-            if "/" in local_executable or "\\" in local_executable:
-                # Assume this is a path
-                local_executable = Path(local_executable).absolute()
-            else:
-                which_executable: str | None = None
-                which_executable = shutil.which(local_executable)
-                if not which_executable and sys.platform == "win32":
-                    # Try with the .exe extension
-                    local_executable = f"{local_executable}.exe"
-                    which_executable = shutil.which(local_executable)
-
-                if which_executable is None:
-                    raise exc.AirbyteConnectorExecutableNotFoundError(
-                        connector_name=name,
-                        context={
-                            "executable": local_executable,
-                            "working_directory": Path.cwd().absolute(),
-                        },
-                    ) from FileNotFoundError(local_executable)
-                local_executable = Path(which_executable).absolute()
-
-                print(f"Using local `{name}` executable: {local_executable!s}")
-                return PathExecutor(
-                    name=name,
-                    path=local_executable,
-                )
+        return _get_local_executor(
+            name=name,
+            local_executable=local_executable,
+            version=version,
+        )
 
     if docker_image:
         if docker_image is True:
@@ -214,15 +248,6 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too complex
             )
 
     # else: we are installing a connector in a Python virtual environment:
-
-    metadata: ConnectorMetadata | None = None
-    try:
-        metadata = get_connector_metadata(name)
-    except exc.AirbyteConnectorNotRegisteredError as ex:
-        if not pip_url:
-            log_install_state(name, state=EventState.FAILED, exception=ex)
-            # We don't have a pip url or registry entry, so we can't install the connector
-            raise
 
     try:
         executor = VenvExecutor(
