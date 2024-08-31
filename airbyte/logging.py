@@ -106,9 +106,22 @@ def get_global_file_logger() -> logging.Logger | None:
         )
         return None
 
-    print(f"Writing PyAirbyte logs to path: {folder!s}")
+    logfile_path = folder / f"airbyte-log-{ulid.ULID()!s}.log"
+    print(f"Writing PyAirbyte logs to file: {logfile_path!s}")
+
+    file_handler = logging.FileHandler(
+        filename=logfile_path,
+        encoding="utf-8",
+    )
 
     if AIRBYTE_STRUCTURED_LOGGING:
+        # Create a formatter and set it for the handler
+        formatter = logging.Formatter("%(message)s")
+        file_handler.setFormatter(formatter)
+
+        # Add the file handler to the logger
+        logger.addHandler(file_handler)
+
         # Configure structlog
         structlog.configure(
             processors=[
@@ -124,24 +137,19 @@ def get_global_file_logger() -> logging.Logger | None:
             wrapper_class=structlog.stdlib.BoundLogger,
             cache_logger_on_first_use=True,
         )
-        print(f"Logging structured logs to path: {folder}")
 
         # Create a logger
-        return structlog.get_logger()
+        return structlog.get_logger("airbyte")
 
     # Create and configure file handler
-    handler = logging.FileHandler(
-        filename=folder / f"airbyte-log-{ulid.ULID()!s}.txt",
-        encoding="utf-8",
-    )
-    handler.setFormatter(
+    file_handler.setFormatter(
         logging.Formatter(
             fmt="%(asctime)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
 
-    logger.addHandler(handler)
+    logger.addHandler(file_handler)
     return logger
 
 
@@ -166,17 +174,47 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     folder = AIRBYTE_LOGGING_ROOT / connector_name
     folder.mkdir(parents=True, exist_ok=True)
 
-    # Create and configure file handler
-    handler = logging.FileHandler(
-        filename=folder / f"{connector_name}-log-{ulid.ULID()!s}.txt",
-        encoding="utf-8",
-    )
-    handler.setFormatter(
+    # Create a file handler
+    logfile_path = folder / f"{connector_name}-log-{ulid.ULID()!s}.log"
+    file_handler = logging.FileHandler(logfile_path)
+    file_handler.setLevel(logging.INFO)
+
+    if AIRBYTE_STRUCTURED_LOGGING:
+        # Create a formatter and set it for the handler
+        formatter = logging.Formatter("%(message)s")
+        file_handler.setFormatter(formatter)
+
+        # Add the file handler to the logger
+        logger.addHandler(file_handler)
+
+        # Configure structlog
+        structlog.configure(
+            processors=[
+                structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+                structlog.stdlib.add_log_level,
+                structlog.stdlib.PositionalArgumentsFormatter(),
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.format_exc_info,
+                structlog.processors.JSONRenderer(),
+            ],
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            wrapper_class=structlog.stdlib.BoundLogger,
+            cache_logger_on_first_use=True,
+        )
+        print(f"Logging structured logs to path: {folder}")
+
+        # Create a logger
+        return structlog.get_logger(f"airbyte.{connector_name}")
+
+    # Else, write logs in plain text
+
+    file_handler.setFormatter(
         logging.Formatter(
             fmt="%(asctime)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
 
-    logger.addHandler(handler)
+    logger.addHandler(file_handler)
     return logger
