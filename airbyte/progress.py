@@ -8,6 +8,10 @@ based on your execution environment.
 
 If you experience issues, you can force plain text status reporting by setting the environment
 variable `NO_LIVE_PROGRESS=1`.
+
+Logging is controlled by the `AIRBYTE_LOGGING_ROOT` and `AIRBYTE_STRUCTURED_LOGGING` environment
+variables, as described in `airbyte.logging`. If `AIRBYTE_STRUCTURED_LOGGING` is set, logs will be
+written in JSONL format. Otherwise, log files will be written as text.
 """
 
 from __future__ import annotations
@@ -41,9 +45,11 @@ from airbyte_protocol.models import (
 
 from airbyte._util import meta
 from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte.logging import get_global_file_logger
 
 
 if TYPE_CHECKING:
+    import logging
     from collections.abc import Generator, Iterable
     from types import ModuleType
 
@@ -180,6 +186,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._cache = cache
         self._destination = destination
 
+        self._file_logger: logging.Logger | None = get_global_file_logger()
+
         # Streams expected (for progress bar)
         self.num_streams_expected = len(expected_streams) if expected_streams else 0
 
@@ -220,6 +228,15 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._rich_view: RichLive | None = None
 
         self.reset_progress_style(style)
+
+    def _print_status_update(
+        self,
+        message: str,
+    ) -> None:
+        """Print a message to the console and the file logger."""
+        print(message)
+        if self._file_logger:
+            self._file_logger.info(message)
 
     def tally_records_read(
         self,
@@ -353,7 +370,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
     def _log_sync_start(self) -> None:
         """Log the start of a sync operation."""
-        print(f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`...")
+        self._print_status_update(
+            f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`..."
+        )
         send_telemetry(
             source=self._source,
             cache=self._cache,
@@ -363,11 +382,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
 
     def _log_stream_read_start(self, stream_name: str) -> None:
-        print(f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`...")
+        self._print_status_update(
+            f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
+        )
         self.stream_read_start_times[stream_name] = time.time()
 
     def _log_stream_read_end(self, stream_name: str) -> None:
-        print(
+        self._print_status_update(
             f"Read completed on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
         )
         self.stream_read_end_times[stream_name] = time.time()
@@ -392,7 +413,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        print(f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
+        self._print_status_update(
+            f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
+        )
         send_telemetry(
             source=self._source,
             cache=self._cache,
@@ -409,7 +432,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """Log the failure of a sync operation."""
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        print(f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
+        self._print_status_update(
+            f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
+        )
         send_telemetry(
             state=EventState.FAILED,
             source=self._source,
