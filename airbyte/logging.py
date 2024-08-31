@@ -106,7 +106,7 @@ def get_global_file_logger() -> logging.Logger | None:
         )
         return None
 
-    logfile_path = folder / f"airbyte-log-{ulid.ULID()!s}.log"
+    logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
     print(f"Writing PyAirbyte logs to file: {logfile_path!s}")
 
     file_handler = logging.FileHandler(
@@ -176,7 +176,7 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
 
     # Create a file handler
     global_logger = get_global_file_logger()
-    logfile_path = folder / f"{connector_name}-log-{ulid.ULID()!s}.log"
+    logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
     logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
     print(logfile_msg)
     if global_logger:
