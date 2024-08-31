@@ -16,6 +16,9 @@ import pytest
 import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
+from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.local import PathExecutor
+from airbyte._executors.python import VenvExecutor
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
@@ -137,7 +140,28 @@ def test_registry_get():
 
 
 def test_registry_list() -> None:
-    assert registry.get_available_connectors() == ["source-test"]
+    assert set(registry.get_available_connectors(install_type="docker")) == {
+        "source-test",
+        "source-docker-only",
+    }
+    assert registry.get_available_connectors(install_type="python") == [
+        "source-test",
+    ]
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=False,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+        }
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=True,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+            "source-docker-only",
+        }
 
 
 def test_list_streams(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
@@ -179,17 +203,28 @@ def test_source_yaml_spec():
     source = ab.get_source(
         "source-test", config={"apiKey": 1234}, install_if_missing=False
     )
+    assert isinstance(source.executor, VenvExecutor), "Expected VenvExecutor."
     assert source._yaml_spec.startswith("connectionSpecification:\n  $schema:")
 
 
 def test_non_existing_connector():
-    with pytest.raises(Exception):
+    with pytest.raises(exc.AirbyteConnectorNotRegisteredError):
         ab.get_source("source-not-existing", config={"apiKey": "abc"})
 
 
-def test_non_enabled_connector():
-    with pytest.raises(exc.AirbyteConnectorNotPyPiPublishedError):
-        ab.get_source("source-non-published", config={"apiKey": "abc"})
+def test_non_existing_connector_with_local_exe():
+    # We should not complain about the missing source if we provide a local executable
+    source = ab.get_source(
+        "source-not-existing",
+        local_executable=Path("dummy-exe-path"),
+        config={"apiKey": "abc"},
+    )
+    assert isinstance(source.executor, PathExecutor), "Expected PathExecutor."
+
+
+def test_docker_only_connector():
+    source = ab.get_source("source-docker-only", config={"apiKey": "abc"})
+    assert isinstance(source.executor, DockerExecutor), "Expected DockerExecutor."
 
 
 @pytest.mark.parametrize(
@@ -813,16 +848,10 @@ def test_failing_path_connector():
 def test_succeeding_path_connector(monkeypatch):
     venv_bin_path = str(get_bin_dir(Path(".venv-source-test")))
 
-    # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-
-    # Patch the PATH env var to include the test venv bin folder
-    monkeypatch.setenv("PATH", new_path)
-
     source = ab.get_source(
         "source-test",
         config={"apiKey": "test"},
-        local_executable="source-test",
+        local_executable=Path(venv_bin_path) / "source-test",
     )
     source.check()
 

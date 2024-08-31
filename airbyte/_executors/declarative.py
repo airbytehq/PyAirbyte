@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import json
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, cast
@@ -63,13 +62,11 @@ class DeclarativeExecutor(Executor):
         self._validate_manifest(self._manifest_dict)
         self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
 
-        # TODO: Consider adding version detection
-        # https://github.com/airbytehq/airbyte/issues/318
-        self.reported_version: str | None = None
+        self.reported_version: str | None = self._manifest_dict.get("version", None)
 
     def _validate_manifest(self, manifest_dict: dict) -> None:
         """Validate the manifest."""
-        manifest_text = json.dumps(manifest_dict)
+        manifest_text = yaml.safe_dump(manifest_dict)
         if "class_name:" in manifest_text:
             raise exc.AirbyteConnectorInstallationError(
                 message=(
