@@ -48,6 +48,7 @@ google-cloud-bigquery-storage = "^2.25.0"
 pyiceberg = "^0.6.1"
 uuid7 = "^0.1.0"
 grpcio = "<=1.65.0"
+structlog = "^24.4.0"
 
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
