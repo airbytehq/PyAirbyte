@@ -175,8 +175,12 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     folder.mkdir(parents=True, exist_ok=True)
 
     # Create a file handler
+    global_logger = get_global_file_logger()
     logfile_path = folder / f"{connector_name}-log-{ulid.ULID()!s}.log"
-    print(f"Writing `{connector_name}` logs to file: {logfile_path!s}")
+    logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
+    print(logfile_msg)
+    if global_logger:
+        global_logger.info(logfile_msg)
 
     file_handler = logging.FileHandler(logfile_path)
     file_handler.setLevel(logging.INFO)
