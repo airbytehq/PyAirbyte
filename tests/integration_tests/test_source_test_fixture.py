@@ -848,16 +848,10 @@ def test_failing_path_connector():
 def test_succeeding_path_connector(monkeypatch):
     venv_bin_path = str(get_bin_dir(Path(".venv-source-test")))
 
-    # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-
-    # Patch the PATH env var to include the test venv bin folder
-    monkeypatch.setenv("PATH", new_path)
-
     source = ab.get_source(
         "source-test",
         config={"apiKey": "test"},
-        local_executable="source-test",
+        local_executable=Path(venv_bin_path) / "source-test",
     )
     source.check()
 
