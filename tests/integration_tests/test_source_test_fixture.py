@@ -17,6 +17,7 @@ import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
 from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
 from airbyte._util.venv_util import get_bin_dir
@@ -213,11 +214,12 @@ def test_non_existing_connector():
 
 def test_non_existing_connector_with_local_exe():
     # We should not complain about the missing source if we provide a local executable
-    _ = ab.get_source(
+    source = ab.get_source(
         "source-not-existing",
         local_executable=Path("dummy-exe-path"),
         config={"apiKey": "abc"},
     )
+    assert isinstance(source.executor, PathExecutor), "Expected PathExecutor."
 
 
 def test_docker_only_connector():
