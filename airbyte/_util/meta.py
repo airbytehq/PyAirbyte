@@ -158,7 +158,7 @@ def which(executable_name: str) -> Path | None:
     """
     which_executable: str | None = None
     which_executable = shutil.which(executable_name)
-    if not which_executable and sys.platform == "win32":
+    if not which_executable and is_windows():
         # Try with the .exe extension
         which_executable = shutil.which(f"{executable_name}.exe")
 
