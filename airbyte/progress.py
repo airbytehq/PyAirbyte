@@ -229,12 +229,11 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         self.reset_progress_style(style)
 
-    def _print_status_update(
+    def _print_info_message(
         self,
         message: str,
     ) -> None:
         """Print a message to the console and the file logger."""
-        print(message)
         if self._file_logger:
             self._file_logger.info(message)
 
@@ -257,31 +256,31 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             yield message
 
             if message.record:
+                # If this is the first record, set the start time.
+                if self.first_record_received_time is None:
+                    self.first_record_received_time = time.time()
+
                 # Tally the record.
                 self.total_records_read += 1
 
                 if message.record.stream:
                     self.stream_read_counts[message.record.stream] += 1
 
-                    if self.stream_read_start_times:
+                    if message.record.stream not in self.stream_read_start_times:
                         self._log_stream_read_start(stream_name=message.record.stream)
 
-                if (
-                    message.trace
-                    and message.trace.stream_status
-                    and message.trace.stream_status.status is AirbyteStreamStatus.COMPLETE
-                ):
-                    self._log_stream_read_end(
-                        stream_name=message.trace.stream_status.stream_descriptor.name
-                    )
+            elif (
+                message.trace
+                and message.trace.stream_status
+                and message.trace.stream_status.status is AirbyteStreamStatus.COMPLETE
+            ):
+                self._log_stream_read_end(
+                    stream_name=message.trace.stream_status.stream_descriptor.name
+                )
 
             # Bail if we're not due for a progress update.
             if count % update_period != 0:
                 continue
-
-            # If this is the first record, set the start time.
-            if self.first_record_received_time is None:
-                self.first_record_received_time = time.time()
 
             # Update the update period to the latest scale of data.
             update_period = self._get_update_period(count)
@@ -370,7 +369,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
     def _log_sync_start(self) -> None:
         """Log the start of a sync operation."""
-        self._print_status_update(
+        self._print_info_message(
             f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`..."
         )
         send_telemetry(
@@ -382,13 +381,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
 
     def _log_stream_read_start(self, stream_name: str) -> None:
-        self._print_status_update(
+        self._print_info_message(
             f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
         )
         self.stream_read_start_times[stream_name] = time.time()
 
     def _log_stream_read_end(self, stream_name: str) -> None:
-        self._print_status_update(
+        self._print_info_message(
             f"Read completed on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
         )
         self.stream_read_end_times[stream_name] = time.time()
@@ -413,7 +412,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        self._print_status_update(
+        self._print_info_message(
             f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
         )
         send_telemetry(
@@ -432,7 +431,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """Log the failure of a sync operation."""
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        self._print_status_update(
+        self._print_info_message(
             f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
         )
         send_telemetry(

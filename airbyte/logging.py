@@ -176,6 +176,8 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
 
     # Create a file handler
     logfile_path = folder / f"{connector_name}-log-{ulid.ULID()!s}.log"
+    print(f"Writing `{connector_name}` logs to file: {logfile_path!s}")
+
     file_handler = logging.FileHandler(logfile_path)
     file_handler.setLevel(logging.INFO)
 
@@ -202,7 +204,6 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
             wrapper_class=structlog.stdlib.BoundLogger,
             cache_logger_on_first_use=True,
         )
-        print(f"Logging structured logs to path: {folder}")
 
         # Create a logger
         return structlog.get_logger(f"airbyte.{connector_name}")
