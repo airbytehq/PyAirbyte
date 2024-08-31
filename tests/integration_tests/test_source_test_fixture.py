@@ -17,6 +17,7 @@ import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
 from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.python import VenvExecutor
 from airbyte._future_cdk.sql_processor import SqlProcessorBase
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
@@ -138,7 +139,28 @@ def test_registry_get():
 
 
 def test_registry_list() -> None:
-    assert registry.get_available_connectors() == ["source-test"]
+    assert set(registry.get_available_connectors(install_type="docker")) == {
+        "source-test",
+        "source-docker-only",
+    }
+    assert registry.get_available_connectors(install_type="python") == [
+        "source-test",
+    ]
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=False,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+        }
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=True,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+            "source-docker-only",
+        }
 
 
 def test_list_streams(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
@@ -180,6 +202,7 @@ def test_source_yaml_spec():
     source = ab.get_source(
         "source-test", config={"apiKey": 1234}, install_if_missing=False
     )
+    assert isinstance(source.executor, VenvExecutor), "Expected VenvExecutor."
     assert source._yaml_spec.startswith("connectionSpecification:\n  $schema:")
 
 

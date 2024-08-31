@@ -165,5 +165,5 @@ def which(executable_name: str) -> Path | None:
     return Path(which_executable) if which_executable else None
 
 
-def has_docker() -> bool:
+def is_docker_installed() -> bool:
     return bool(which("docker"))

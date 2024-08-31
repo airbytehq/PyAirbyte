@@ -76,7 +76,9 @@
         "sl": 100,
         "ql": 200
       },
-      "tags": ["language:python"],
+      "tags": [
+        "language:java"
+      ],
       "githubIssueLabel": "source-source-docker-only",
       "license": "MIT"
     }
