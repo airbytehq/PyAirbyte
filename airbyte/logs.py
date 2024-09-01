@@ -19,6 +19,51 @@ def _str_to_bool(value: str) -> bool:
     return bool(value.lower().replace("false", "").replace("0", ""))
 
 
+AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
+    os.getenv(
+        key="AIRBYTE_STRUCTURED_LOGGING",
+        default="false",
+    )
+)
+"""Whether to enable structured logging.
+
+This value is read from the `AIRBYTE_STRUCTURED_LOGGING` environment variable. If the variable is
+not set, the default value is `False`.
+"""
+
+_warned_messages: set[str] = set()
+
+
+def warn_once(
+    message: str,
+    logger: logging.Logger | None = None,
+    *,
+    with_stack: int | bool,
+) -> None:
+    """Emit a warning message only once.
+
+    This function is a wrapper around the `warnings.warn` function that logs the warning message
+    to the global logger. The warning message is only emitted once per unique message.
+    """
+    if message in _warned_messages:
+        return
+
+    if not with_stack:
+        stacklevel = 0
+    if with_stack is True:
+        stacklevel = 2
+
+    _warned_messages.add(message)
+    warnings.warn(
+        message,
+        category=UserWarning,
+        stacklevel=stacklevel,
+    )
+
+    if logger:
+        logger.warning(message)
+
+
 def _get_logging_root() -> Path | None:
     """Return the root directory for logs.
 
@@ -36,14 +81,13 @@ def _get_logging_root() -> Path | None:
         log_root.mkdir(parents=True, exist_ok=True)
     except OSError:
         # Handle the error by returning None
-        warnings.warn(
+        warn_once(
             (
                 f"Failed to create PyAirbyte logging directory at `{log_root}`. "
                 "You can override the default path by setting the `AIRBYTE_LOGGING_ROOT` "
                 "environment variable."
             ),
-            category=UserWarning,
-            stacklevel=0,
+            with_stack=False,
         )
         return None
     else:
@@ -58,19 +102,6 @@ This value can be overridden by setting the `AIRBYTE_LOGGING_ROOT` environment v
 If not provided, PyAirbyte will use `/tmp/airbyte/logs/` where `/tmp/` is the OS's default
 temporary directory. If the directory cannot be created, PyAirbyte will log a warning and
 set this value to `None`.
-"""
-
-
-AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_STRUCTURED_LOGGING",
-        default="false",
-    )
-)
-"""Whether to enable structured logging.
-
-This value is read from the `AIRBYTE_STRUCTURED_LOGGING` environment variable. If the variable is
-not set, the default value is `False`.
 """
 
 
@@ -99,10 +130,9 @@ def get_global_file_logger() -> logging.Logger | None:
     try:
         folder.mkdir(parents=True, exist_ok=True)
     except Exception:
-        warnings.warn(
-            f"Failed to create logging directory at '{folder!s}'. Logging to console only.",
-            category=UserWarning,
-            stacklevel=2,
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
         )
         return None
 

@@ -43,6 +43,7 @@ from airbyte_protocol.models import (
     Type,
 )
 
+from airbyte import logs
 from airbyte._util import meta
 from airbyte._util.telemetry import EventState, EventType, send_telemetry
 from airbyte.logs import get_global_file_logger
@@ -507,9 +508,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 )
                 self._rich_view.start()
             except Exception:
-                warnings.warn(
+                logs.warn_once(
                     "Failed to start Rich live view. Falling back to plain text progress.",
-                    stacklevel=2,
+                    with_stack=False,
                 )
                 self.style = ProgressStyle.PLAIN
                 self._stop_rich_view()
