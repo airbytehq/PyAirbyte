@@ -298,8 +298,8 @@ class ConnectorBase(abc.ABC):
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorCheckFailedError(
                     connector_name=self.name,
-                    log_text=ex.log_text,
-                ) from ex
+                    original_exception=ex,
+                ) from None
 
     def install(self) -> None:
         """Install the connector if it is not yet installed."""
@@ -373,7 +373,17 @@ class ConnectorBase(abc.ABC):
                     # This is likely a log message, so log it as INFO.
                     self._print_info_message(line)
 
+        except exc.AirbyteSubprocessFailedError as ex:
+            # Generic subprocess failure, so raise a connector error.
+            raise exc.AirbyteConnectorFailedError(
+                connector_name=self.name,
+                log_text=ex.log_text,
+                context={
+                    "exit_code": ex.exit_code,
+                },
+            ) from None
         except Exception as e:
+            # This is an unexpected error, so wrap the original exception when raising.
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,

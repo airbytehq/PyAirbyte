@@ -54,6 +54,8 @@ NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
 DOCS_URL_BASE = "https://airbytehq.github.io/PyAirbyte"
 DOCS_URL = f"{DOCS_URL_BASE}/airbyte.html"
 
+VERTICAL_SEPARATOR = "\n" + "-" * 60
+
 
 # Base error class
 
@@ -102,9 +104,23 @@ class PyAirbyteError(Exception):
         context_str = "\n    ".join(
             f"{str(k).replace('_', ' ').title()}: {v!r}" for k, v in display_properties.items()
         )
-        exception_str = f"{self.__class__.__name__}: {self.get_message()}\n"
+        exception_str = (
+            f"{self.get_message()} ({self.__class__.__name__})"
+            + VERTICAL_SEPARATOR
+            + f"\n{self.__class__.__name__}: {self.get_message()}"
+        )
+
+        if self.guidance:
+            exception_str += f"\n    {self.guidance}"
+
+        if self.help_url:
+            exception_str += f"\n    More info: {self.help_url}"
+
         if context_str:
-            exception_str += "    " + context_str
+            exception_str += "\n    " + context_str
+
+        if self.log_file:
+            exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
 
         if self.log_text:
             if isinstance(self.log_text, list):
@@ -112,19 +128,8 @@ class PyAirbyteError(Exception):
 
             exception_str += f"\n    Log output: \n    {indent(self.log_text, '    ')}"
 
-        if self.log_file:
-            exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
-
-        if self.guidance:
-            exception_str += f"\n    Suggestion: {self.guidance}"
-
-        if self.help_url:
-            exception_str += f"\n    More info: {self.help_url}"
-
         if self.original_exception:
-            exception_str += (
-                f"\n    Caused by:\n{indent(str(self.original_exception), prefix='    ')!s}"
-            )
+            exception_str += VERTICAL_SEPARATOR + f"\nCaused by: {self.original_exception!s}"
 
         return exception_str
 
@@ -289,6 +294,8 @@ class AirbyteConnectorError(PyAirbyteError):
     def __post_init__(self) -> None:
         """Set the log file path for the connector."""
         self.log_file = self._get_log_file()
+        if not self.guidance and self.log_file:
+            self.guidance = "Please review the log file for more information."
 
     def _get_log_file(self) -> Path | None:
         """Return the log file path for the connector."""
