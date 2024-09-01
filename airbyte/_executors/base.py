@@ -42,6 +42,10 @@ def _pump_input(
         try:
             pipe.writelines(message.model_dump_json() + "\n" for message in messages)
             pipe.flush()  # Ensure data is sent immediately
+        except BrokenPipeError:
+            # If the pipe is broken, ignore the exception
+            # The subprocess will handle the error
+            exception_holder.set_exception(exc.AirbyteConnectorBrokenPipeError())
         except Exception as ex:
             exception_holder.set_exception(ex)
 
