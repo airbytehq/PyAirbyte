@@ -293,6 +293,17 @@ class AirbyteConnectorError(PyAirbyteError):
         return None
 
 
+class AirbyteConnectorBrokenPipeError(AirbyteConnectorError, BrokenPipeError):
+    """Broken pipe error occurred.
+
+    This indicates that an upstream source failed and closed the pipe.
+    """
+
+    guidance = (
+        "Please check the upstream source logs for more information on the cause of the failure."
+    )
+
+
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):
     """Connector executable not found."""
 
