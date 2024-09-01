@@ -11,7 +11,7 @@ import airbyte as ab
 from airbyte.caches import SnowflakeCache
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
-SCALE = 10_000
+SCALE = 100
 
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
@@ -40,7 +40,7 @@ source = ab.get_source(
         "count": SCALE,
     },
     install_if_missing=True,
-    streams="*",
+    streams=["products", "users"],
 )
 cache = SnowflakeCache(
     account=secret_config["account"],
