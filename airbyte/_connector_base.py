@@ -28,7 +28,7 @@ from airbyte._util.telemetry import (
     log_connector_check_result,
 )
 from airbyte._util.temp_files import as_temp_files
-from airbyte.logging import new_passthrough_file_logger
+from airbyte.logs import new_passthrough_file_logger
 
 
 if TYPE_CHECKING:
