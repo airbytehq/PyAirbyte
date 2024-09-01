@@ -22,7 +22,6 @@ import math
 import os
 import sys
 import time
-import warnings
 from collections import defaultdict
 from contextlib import suppress
 from enum import Enum, auto

@@ -74,7 +74,7 @@ class ConnectorBase(abc.ABC):
         self,
         message: str,
     ) -> None:
-        """Print a message to the console and the file logger."""
+        """Print a message to the logger."""
         if self._file_logger:
             self._file_logger.info(message)
 
@@ -82,7 +82,7 @@ class ConnectorBase(abc.ABC):
         self,
         message: str,
     ) -> None:
-        """Print a message to the console and the file logger."""
+        """Print a message to the console and the logger."""
         rich.print(f"ERROR: {message}")
         if self._file_logger:
             self._file_logger.error(message)

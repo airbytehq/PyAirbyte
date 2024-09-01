@@ -46,7 +46,8 @@ DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 
 
 def _str_to_bool(value: str) -> bool:
-    return bool(value.lower().replace("false", "").replace("0", ""))
+    """Convert a string value of an environment values to a boolean value."""
+    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
 
 
 TEMP_FILE_CLEANUP = _str_to_bool(
