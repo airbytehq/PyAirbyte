@@ -306,15 +306,15 @@ class AirbyteConnectorReadError(AirbyteConnectorError):
 
 
 class AirbyteConnectorWriteError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+    """Error when writing to the connector."""
 
 
 class AirbyteConnectorSpecFailedError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+    """Error when getting spec from the connector."""
 
 
 class AirbyteConnectorDiscoverFailedError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+    """Error when running discovery on the connector."""
 
 
 class AirbyteNoDataFromConnectorError(AirbyteConnectorError):
