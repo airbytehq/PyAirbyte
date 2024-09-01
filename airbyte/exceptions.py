@@ -68,6 +68,7 @@ class PyAirbyteError(Exception):
     log_file: Path | None = None
     context: dict[str, Any] | None = None
     message: str | None = None
+    original_exception: Exception | None = None
 
     def get_message(self) -> str:
         """Return the best description for the exception.
@@ -83,7 +84,15 @@ class PyAirbyteError(Exception):
 
     def __str__(self) -> str:
         """Return a string representation of the exception."""
-        special_properties = ["message", "guidance", "help_url", "log_text", "context", "log_file"]
+        special_properties = [
+            "message",
+            "guidance",
+            "help_url",
+            "log_text",
+            "context",
+            "log_file",
+            "original_exception",
+        ]
         display_properties = {
             k: v
             for k, v in self.__dict__.items()
@@ -111,6 +120,11 @@ class PyAirbyteError(Exception):
 
         if self.help_url:
             exception_str += f"\n    More info: {self.help_url}"
+
+        if self.original_exception:
+            exception_str += (
+                f"\n    Caused by:\n{indent(str(self.original_exception), prefix='    ')!s}"
+            )
 
         return exception_str
 

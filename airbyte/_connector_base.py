@@ -377,7 +377,8 @@ class ConnectorBase(abc.ABC):
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,
-            ) from e
+                original_exception=e,
+            ) from None
 
 
 __all__ = [

@@ -88,7 +88,9 @@ def _stream_from_subprocess(
         )
         input_thread.start()
         input_thread.join()  # Ensure the input thread has finished
-        if exception_holder.exception:
+        if exception_holder.exception and not isinstance(
+            exception_holder.exception, exc.AirbyteConnectorBrokenPipeError
+        ):
             raise exception_holder.exception
 
     else:
@@ -137,6 +139,11 @@ def _stream_from_subprocess(
             raise exc.AirbyteSubprocessFailedError(
                 run_args=args,
                 exit_code=exit_code,
+                context={
+                    "exception": str(exception_holder.exception)
+                    if exception_holder.exception
+                    else None,
+                },
             )
 
 
