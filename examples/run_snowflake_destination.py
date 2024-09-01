@@ -68,12 +68,12 @@ cortex_destination = ab.get_destination(
     "destination-snowflake-cortex",
     config=cortex_destination_secret,
 )
-cortex_destination.print_config_spec()
+# cortex_destination.print_config_spec()
 # snowflake_destination.print_config_spec()
 # cortex_destination.print_config_spec()
-# snowflake_destination.check()
-# cortex_destination.check()
-# source.check()
+snowflake_destination.check()
+cortex_destination.check()
+source.check()
 
 # # This works:
 # snowflake_write_result = snowflake_destination.write(
@@ -81,7 +81,6 @@ cortex_destination.print_config_spec()
 #     cache=False,  # Toggle comment to test with/without caching
 # )
 
-# This fails with 'BrokenPipeError', but no other error logged:
 cortex_write_result = cortex_destination.write(
     source,
     cache=False,  # Toggle comment to test with/without caching
