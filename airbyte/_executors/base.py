@@ -139,11 +139,13 @@ def _stream_from_subprocess(
             raise exc.AirbyteSubprocessFailedError(
                 run_args=args,
                 exit_code=exit_code,
-                context={
-                    "exception": str(exception_holder.exception)
-                    if exception_holder.exception
-                    else None,
-                },
+                original_exception=(
+                    exception_holder.exception
+                    if not isinstance(
+                        exception_holder.exception, exc.AirbyteConnectorBrokenPipeError
+                    )
+                    else None
+                ),
             )
 
 
