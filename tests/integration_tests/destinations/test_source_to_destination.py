@@ -89,6 +89,7 @@ def test_duckdb_destination_write_components(
         catalog_provider=CatalogProvider(
             configured_catalog=new_source_faker.configured_catalog
         ),
+        write_strategy=WriteStrategy.AUTO,
         progress_tracker=ProgressTracker(
             source=None,
             cache=None,

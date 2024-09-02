@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, final
+from typing import IO, TYPE_CHECKING, Any, final
 
 import pandas as pd
 import pyarrow as pa
@@ -19,6 +19,7 @@ from airbyte._future_cdk.sql_processor import (
     SqlProcessorBase,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
@@ -31,11 +32,14 @@ if TYPE_CHECKING:
     from airbyte._future_cdk.sql_processor import SqlProcessorBase
     from airbyte._future_cdk.state_providers import StateProviderBase
     from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
     from airbyte.datasets._base import DatasetBase
+    from airbyte.progress import ProgressTracker
+    from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig):
+class CacheBase(SqlConfig, AirbyteWriterInterface):
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings
@@ -51,6 +55,8 @@ class CacheBase(SqlConfig):
 
     cleanup: bool = TEMP_FILE_CLEANUP
     """Whether to clean up the cache after use."""
+
+    _name: str = PrivateAttr()
 
     _deployed_api_root: str | None = PrivateAttr(default=None)
     _deployed_workspace_id: str | None = PrivateAttr(default=None)
@@ -94,14 +100,6 @@ class CacheBase(SqlConfig):
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
-
-    @property
-    def name(self) -> str:
-        """Return the name of the cache.
-
-        By default, this is the class name.
-        """
-        return type(self).__name__
 
     @final
     @property
@@ -258,3 +256,25 @@ class CacheBase(SqlConfig):
     ) -> Iterator[tuple[str, Any]]:
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
+
+    def _write_airbyte_message_stream(
+        self,
+        stdin: IO[str] | AirbyteMessageIterator,
+        *,
+        catalog_provider: CatalogProvider,
+        write_strategy: WriteStrategy,
+        state_writer: StateWriterBase | None = None,
+        progress_tracker: ProgressTracker,
+    ) -> None:
+        """Read from the connector and write to the cache."""
+        cache_processor = self.get_record_processor(
+            source_name=self.name,
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
+        )
+        cache_processor.process_airbyte_messages(
+            messages=stdin,
+            write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
+        )
+        progress_tracker.log_cache_processing_complete()
