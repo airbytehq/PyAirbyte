@@ -51,7 +51,10 @@ if TYPE_CHECKING:
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
-DOCS_URL = "https://airbytehq.github.io/PyAirbyte/airbyte.html"
+DOCS_URL_BASE = "https://airbytehq.github.io/PyAirbyte"
+DOCS_URL = f"{DOCS_URL_BASE}/airbyte.html"
+
+VERTICAL_SEPARATOR = "\n" + "-" * 60
 
 
 # Base error class
@@ -64,8 +67,10 @@ class PyAirbyteError(Exception):
     guidance: str | None = None
     help_url: str | None = None
     log_text: str | list[str] | None = None
+    log_file: Path | None = None
     context: dict[str, Any] | None = None
     message: str | None = None
+    original_exception: Exception | None = None
 
     def get_message(self) -> str:
         """Return the best description for the exception.
@@ -81,7 +86,15 @@ class PyAirbyteError(Exception):
 
     def __str__(self) -> str:
         """Return a string representation of the exception."""
-        special_properties = ["message", "guidance", "help_url", "log_text", "context"]
+        special_properties = [
+            "message",
+            "guidance",
+            "help_url",
+            "log_text",
+            "context",
+            "log_file",
+            "original_exception",
+        ]
         display_properties = {
             k: v
             for k, v in self.__dict__.items()
@@ -91,21 +104,32 @@ class PyAirbyteError(Exception):
         context_str = "\n    ".join(
             f"{str(k).replace('_', ' ').title()}: {v!r}" for k, v in display_properties.items()
         )
-        exception_str = f"{self.__class__.__name__}: {self.get_message()}\n"
+        exception_str = (
+            f"{self.get_message()} ({self.__class__.__name__})"
+            + VERTICAL_SEPARATOR
+            + f"\n{self.__class__.__name__}: {self.get_message()}"
+        )
+
+        if self.guidance:
+            exception_str += f"\n    {self.guidance}"
+
+        if self.help_url:
+            exception_str += f"\n    More info: {self.help_url}"
+
         if context_str:
-            exception_str += "    " + context_str
+            exception_str += "\n    " + context_str
+
+        if self.log_file:
+            exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
 
         if self.log_text:
             if isinstance(self.log_text, list):
                 self.log_text = "\n".join(self.log_text)
 
-            exception_str += f"\nLog output: \n    {indent(self.log_text, '    ')}"
+            exception_str += f"\n    Log output: \n    {indent(self.log_text, '    ')}"
 
-        if self.guidance:
-            exception_str += f"\nSuggestion: {self.guidance}"
-
-        if self.help_url:
-            exception_str += f"\nMore info: {self.help_url}"
+        if self.original_exception:
+            exception_str += VERTICAL_SEPARATOR + f"\nCaused by: {self.original_exception!s}"
 
         return exception_str
 
@@ -242,7 +266,12 @@ class AirbyteConnectorNotRegisteredError(AirbyteConnectorRegistryError):
     """Connector not found in registry."""
 
     connector_name: str | None = None
-    guidance = "Please double check the connector name."
+    guidance = (
+        "Please double check the connector name. "
+        "Alternatively, you can provide an explicit connector install method to `get_source()`: "
+        "`pip_url`, `local_executable`, `docker_image`, or `source_manifest`."
+    )
+    help_url = DOCS_URL_BASE + "/airbyte/sources/util.html#get_source"
 
 
 @dataclass
@@ -263,13 +292,15 @@ class AirbyteConnectorError(PyAirbyteError):
     connector_name: str | None = None
 
     def __post_init__(self) -> None:
-        """Log the error message when the exception is raised."""
+        """Set the log file path for the connector."""
+        self.log_file = self._get_log_file()
+        if not self.guidance and self.log_file:
+            self.guidance = "Please review the log file for more information."
+
+    def _get_log_file(self) -> Path | None:
+        """Return the log file path for the connector."""
         if self.connector_name:
             logger = logging.getLogger(f"airbyte.{self.connector_name}")
-            if self.connector_name:
-                logger.error(str(self))
-            else:
-                logger.error(str(self))
 
             log_paths: list[Path] = [
                 Path(handler.baseFilename).absolute()
@@ -278,7 +309,9 @@ class AirbyteConnectorError(PyAirbyteError):
             ]
 
             if log_paths:
-                print(f"Connector logs: {', '.join(str(path) for path in log_paths)}")
+                return log_paths[0]
+
+        return None
 
 
 class AirbyteConnectorExecutableNotFoundError(AirbyteConnectorError):
@@ -294,15 +327,15 @@ class AirbyteConnectorReadError(AirbyteConnectorError):
 
 
 class AirbyteConnectorWriteError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+    """Error when writing to the connector."""
 
 
 class AirbyteConnectorSpecFailedError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+    """Error when getting spec from the connector."""
 
 
 class AirbyteConnectorDiscoverFailedError(AirbyteConnectorError):
-    """Error when reading from the connector."""
+    """Error when running discovery on the connector."""
 
 
 class AirbyteNoDataFromConnectorError(AirbyteConnectorError):

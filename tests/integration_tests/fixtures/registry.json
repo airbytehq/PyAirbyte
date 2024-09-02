@@ -44,18 +44,14 @@
     },
     {
       "sourceDefinitionId": "9f32dab3-77cb-45a1-9d33-347aa5fbe333",
-      "name": "Non-published source",
-      "dockerRepository": "airbyte/source-non-published",
+      "name": "Docker-only source",
+      "dockerRepository": "airbyte/source-docker-only",
       "dockerImageTag": "0.0.1",
       "documentationUrl": "https://docs.airbyte.com/integrations/sources/test",
       "icon": "test.svg",
       "iconUrl": "https://connectors.airbyte.com/files/metadata/airbyte/source-test/latest/icon.svg",
       "sourceType": "api",
       "remoteRegistries": {
-        "pypi": {
-          "packageName": "airbyte-source-non-published",
-          "enabled": false
-        }
       },
       "spec": {
         "documentationUrl": "https://docs.airbyte.com/integrations/sources/test",
@@ -80,8 +76,10 @@
         "sl": 100,
         "ql": 200
       },
-      "tags": ["language:python"],
-      "githubIssueLabel": "source-source-non-published",
+      "tags": [
+        "language:java"
+      ],
+      "githubIssueLabel": "source-source-docker-only",
       "license": "MIT"
     }
   ],

@@ -5,16 +5,13 @@ from __future__ import annotations
 
 import abc
 import json
-import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import jsonschema
-import ulid
+import rich
 import yaml
-from rich import print
 from rich.syntax import Syntax
-from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -25,16 +22,17 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._util import meta
 from airbyte._util.telemetry import (
     EventState,
     log_config_validation_result,
     log_connector_check_result,
 )
 from airbyte._util.temp_files import as_temp_files
+from airbyte.logs import new_passthrough_file_logger
 
 
 if TYPE_CHECKING:
+    import logging
     from collections.abc import Generator
     from typing import IO
 
@@ -68,9 +66,26 @@ class ConnectorBase(abc.ABC):
         self._last_log_messages: list[str] = []
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
-        self._logger: logging.Logger = self._init_logger()
+        self._file_logger: logging.Logger = new_passthrough_file_logger(self.name)
         if config is not None:
             self.set_config(config, validate=validate)
+
+    def _print_info_message(
+        self,
+        message: str,
+    ) -> None:
+        """Print a message to the logger."""
+        if self._file_logger:
+            self._file_logger.info(message)
+
+    def _print_error_message(
+        self,
+        message: str,
+    ) -> None:
+        """Print a message to the console and the logger."""
+        rich.print(f"ERROR: {message}")
+        if self._file_logger:
+            self._file_logger.error(message)
 
     def set_config(
         self,
@@ -210,7 +225,7 @@ class ConnectorBase(abc.ABC):
             return
 
         syntax_highlighted = Syntax(content, format)
-        print(syntax_highlighted)
+        rich.print(syntax_highlighted)
 
     @property
     def _yaml_spec(self) -> str:
@@ -257,7 +272,7 @@ class ConnectorBase(abc.ABC):
                 for msg in self._execute(["check", "--config", config_file]):
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
-                            print(f"Connection check succeeded for `{self.name}`.")
+                            rich.print(f"Connection check succeeded for `{self.name}`.")
                             log_connector_check_result(
                                 name=self.name,
                                 state=EventState.SUCCEEDED,
@@ -283,13 +298,13 @@ class ConnectorBase(abc.ABC):
             except exc.AirbyteConnectorFailedError as ex:
                 raise exc.AirbyteConnectorCheckFailedError(
                     connector_name=self.name,
-                    log_text=ex.log_text,
-                ) from ex
+                    original_exception=ex,
+                ) from None
 
     def install(self) -> None:
         """Install the connector if it is not yet installed."""
         self.executor.install()
-        print("For configuration instructions, see: \n" f"{self.docs_url}#reference\n")
+        rich.print("For configuration instructions, see: \n" f"{self.docs_url}#reference\n")
 
     def uninstall(self) -> None:
         """Uninstall the connector if it is installed.
@@ -298,41 +313,6 @@ class ConnectorBase(abc.ABC):
         PyAirbyte.
         """
         self.executor.uninstall()
-
-    def _init_logger(self) -> logging.Logger:
-        """Create a logger from logging module."""
-        logger = logging.getLogger(f"airbyte.{self.name}")
-        logger.setLevel(logging.INFO)
-
-        # Prevent logging to stderr by stopping propagation to the root logger
-        logger.propagate = False
-
-        # Remove any existing handlers
-        for handler in logger.handlers:
-            logger.removeHandler(handler)
-
-        folder = meta.get_logging_root() / self.name
-        folder.mkdir(parents=True, exist_ok=True)
-
-        # Create and configure file handler
-        handler = logging.FileHandler(
-            filename=folder / f"{ulid.ULID()!s}-run-log.txt",
-            encoding="utf-8",
-        )
-        handler.setFormatter(
-            logging.Formatter(
-                fmt="%(asctime)s - %(levelname)s - %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-
-        logger.addHandler(handler)
-        return logger
-
-    def _new_log_file(self, verb: str = "run") -> Path:
-        folder = meta.get_logging_root() / self.name
-        folder.mkdir(parents=True, exist_ok=True)
-        return folder / f"{ulid.ULID()!s}-{self.name}-{verb}-log.txt"
 
     def _peek_airbyte_message(
         self,
@@ -350,11 +330,11 @@ class ConnectorBase(abc.ABC):
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
         if message.type == Type.LOG:
-            self._logger.info(message.log.message)
+            self._print_info_message(message.log.message)
             return
 
         if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-            self._logger.error(message.trace.error.message)
+            self._print_error_message(message.trace.error.message)
             if raise_on_error:
                 raise exc.AirbyteConnectorFailedError(
                     connector_name=self.name,
@@ -391,13 +371,24 @@ class ConnectorBase(abc.ABC):
 
                 except Exception:
                     # This is likely a log message, so log it as INFO.
-                    self._logger.info(line)
+                    self._print_info_message(line)
 
+        except exc.AirbyteSubprocessFailedError as ex:
+            # Generic subprocess failure, so raise a connector error.
+            raise exc.AirbyteConnectorFailedError(
+                connector_name=self.name,
+                log_text=ex.log_text,
+                context={
+                    "exit_code": ex.exit_code,
+                },
+            ) from None
         except Exception as e:
+            # This is an unexpected error, so wrap the original exception when raising.
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,
-            ) from e
+                original_exception=e,
+            ) from None
 
 
 __all__ = [

@@ -10,7 +10,7 @@ following methods to generate documents from records:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
@@ -38,10 +38,10 @@ class Document(BaseModel):
     This class is duck-typed to be compatible with LangChain project's `Document` class.
     """
 
-    id: Optional[str] = Field(default=None)
+    id: str | None = Field(default=None)
     content: str
     metadata: dict[str, Any]
-    last_modified: Optional[datetime.datetime] = Field(default=None)
+    last_modified: datetime.datetime | None = Field(default=None)
 
     def __str__(self) -> str:
         """Return a string representation of the document."""

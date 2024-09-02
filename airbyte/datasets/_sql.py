@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
-from typing_extensions import Literal
 
 from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
 

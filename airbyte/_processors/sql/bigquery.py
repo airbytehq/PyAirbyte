@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, final
+from typing import TYPE_CHECKING, final
 
 import google.oauth2
 import sqlalchemy
@@ -42,7 +42,7 @@ class BigQueryConfig(SqlConfig):
     schema_name: str = Field(alias="dataset_name", default=DEFAULT_CACHE_SCHEMA_NAME)
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
-    credentials_path: Optional[str] = None
+    credentials_path: str | None = None
     """The path to the credentials file to use.
     If not passed, falls back to the default inferred from the environment."""
 

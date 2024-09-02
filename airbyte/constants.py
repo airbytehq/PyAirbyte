@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import os
+
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
 
@@ -41,3 +43,21 @@ Specific caches may override this value with a different schema name.
 
 DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
+
+
+def _str_to_bool(value: str) -> bool:
+    """Convert a string value of an environment values to a boolean value."""
+    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+
+
+TEMP_FILE_CLEANUP = _str_to_bool(
+    os.getenv(
+        key="AIRBYTE_TEMP_FILE_CLEANUP",
+        default="true",
+    )
+)
+"""Whether to clean up temporary files after use.
+
+This value is read from the `AIRBYTE_TEMP_FILE_CLEANUP` environment variable. If the variable is
+not set, the default value is `True`.
+"""

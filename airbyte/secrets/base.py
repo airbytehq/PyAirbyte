@@ -14,6 +14,8 @@ from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, ValidationInfo
     from pydantic.json_schema import JsonSchemaValue
 
@@ -234,3 +236,28 @@ class SecretHandle:
         string, a `PyAirbyteInputError` will be raised.
         """
         return self.get_value().parse_json()
+
+    def write_to_file(
+        self,
+        file_path: Path,
+        /,
+        *,
+        silent: bool = False,
+    ) -> None:
+        """Write the secret to a file.
+
+        If `silent` is True, the method will not print any output to the console. Otherwise,
+        the method will print a message to the console indicating the file path to which the secret
+        is being written.
+
+        This method is a convenience method that writes the secret to a file as text.
+        """
+        if not silent:
+            print(
+                f"Writing secret '{self.secret_name.split('/')[-1]}' to '{file_path.absolute()!s}'"
+            )
+
+        file_path.write_text(
+            str(self.get_value()),
+            encoding="utf-8",
+        )

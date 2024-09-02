@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import warnings
 from copy import copy
@@ -14,6 +15,7 @@ from pathlib import Path
 import requests
 
 from airbyte import exceptions as exc
+from airbyte._util.meta import is_docker_installed
 from airbyte.version import get_version
 
 
@@ -23,7 +25,13 @@ __cache: dict[str, ConnectorMetadata] | None = None
 _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
-_LOWCODE_LABEL = "cdk:low-code"
+_LOWCODE_CDK_TAG = "cdk:low-code"
+
+_PYTHON_LANGUAGE = "python"
+_MANIFEST_ONLY_LANGUAGE = "manifest-only"
+
+_PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
+_MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-adjust",
@@ -52,6 +60,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-jina-ai-reader",
     "source-jira",
     "source-klaviyo",
+    "source-looker",
     "source-mailchimp",
     "source-mixpanel",
     "source-monday",
@@ -82,6 +91,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-the-guardian-api",
     "source-trello",
     "source-typeform",
+    "source-us-census",
     "source-xero",
     "source-younium",
     "source-zendesk-chat",
@@ -94,14 +104,23 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
 _LOWCODE_CONNECTORS_FAILING_VALIDATION = [
     "source-amazon-ads",
 ]
-# Connectors that return 404 or some other misc error.
-_LOWCODE_CONNECTORS_404: list[str] = [
-    "source-xkcd",
+# Connectors that return 404 or some other misc exception.
+_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = []
+# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
+_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = [
+    "source-apple-search-ads",
+    "source-marketo",
+    "source-n8n",
+    "source-onesignal",
+    "source-postmarkapp",
+    "source-sentry",
+    "source-unleash",
 ]
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
-    *_LOWCODE_CONNECTORS_404,
+    *_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
     *_LOWCODE_CONNECTORS_NEEDING_PYTHON,
+    *_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS,
 ]
 
 
@@ -119,6 +138,7 @@ class Language(str, Enum):
 
     PYTHON = InstallType.PYTHON.value
     JAVA = InstallType.JAVA.value
+    MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
 @dataclass
@@ -128,7 +148,7 @@ class ConnectorMetadata:
     name: str
     """Connector name. For example, "source-google-sheets"."""
 
-    latest_available_version: str
+    latest_available_version: str | None
     """The latest available version of the connector."""
 
     pypi_package_name: str | None
@@ -140,6 +160,18 @@ class ConnectorMetadata:
     install_types: set[InstallType]
     """The supported install types for the connector."""
 
+    @property
+    def default_install_type(self) -> InstallType:
+        """Return the default install type for the connector."""
+        if self.language == Language.MANIFEST_ONLY and InstallType.YAML in self.install_types:
+            return InstallType.YAML
+
+        if InstallType.PYTHON in self.install_types:
+            return InstallType.PYTHON
+
+        # Else: Java or Docker
+        return InstallType.DOCKER
+
 
 def _get_registry_url() -> str:
     if _REGISTRY_ENV_VAR in os.environ:
@@ -150,7 +182,10 @@ def _get_registry_url() -> str:
 
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
+    latest_version: str | None = entry.get("dockerImageTag")
+    tags = entry.get("tags", [])
     language: Language | None = None
+
     if "language" in entry and entry["language"] is not None:
         try:
             language = Language(entry["language"])
@@ -159,6 +194,11 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
                 message=f"Invalid language for connector {name}: {entry['language']}",
                 stacklevel=2,
             )
+    if not language and _PYTHON_LANGUAGE_TAG in tags:
+        language = Language.PYTHON
+    if not language and _MANIFEST_ONLY_TAG in tags:
+        language = Language.MANIFEST_ONLY
+
     remote_registries: dict = entry.get("remoteRegistries", {})
     pypi_registry: dict = remote_registries.get("pypi", {})
     pypi_package_name: str = pypi_registry.get("packageName", None)
@@ -166,17 +206,20 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     install_types: set[InstallType] = {
         x
         for x in [
-            InstallType.DOCKER if entry.get("dockerImageTag") else None,
-            InstallType.PYTHON if pypi_enabled else None,
+            InstallType.DOCKER,  # Always True
+            InstallType.PYTHON if language == Language.PYTHON and pypi_enabled else None,
             InstallType.JAVA if language == Language.JAVA else None,
-            InstallType.YAML if _LOWCODE_LABEL in entry.get("tags", []) else None,
+            InstallType.YAML if language == Language.MANIFEST_ONLY else None,
+            # TODO: Remove 'cdk:low-code' check once all connectors are migrated to manifest-only.
+            # https://github.com/airbytehq/PyAirbyte/issues/348
+            InstallType.YAML if _LOWCODE_CDK_TAG in tags else None,
         ]
         if x
     }
 
     return ConnectorMetadata(
         name=name,
-        latest_available_version=entry.get("dockerImageTag", None),
+        latest_available_version=latest_version,
         pypi_package_name=pypi_package_name if pypi_enabled else None,
         language=language,
         install_types=install_types,
@@ -247,11 +290,27 @@ def get_connector_metadata(name: str) -> ConnectorMetadata:
     return cache[name]
 
 
-def get_available_connectors(install_type: InstallType | str = InstallType.PYTHON) -> list[str]:
+def get_available_connectors(install_type: InstallType | str | None = None) -> list[str]:
     """Return a list of all available connectors.
 
     Connectors will be returned in alphabetical order, with the standard prefix "source-".
     """
+    if install_type is None:
+        # No install type specified. Filter for whatever is runnable.
+        if is_docker_installed():
+            logging.info("Docker is detected. Returning all connectors.")
+            # If Docker is available, return all connectors.
+            return sorted(conn.name for conn in _get_registry_cache().values())
+
+        logging.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
+
+        # If Docker is not available, return only Python and Manifest-based connectors.
+        return sorted(
+            conn.name
+            for conn in _get_registry_cache().values()
+            if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
+        )
+
     if not isinstance(install_type, InstallType):
         install_type = InstallType(install_type)
 
