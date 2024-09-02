@@ -441,11 +441,14 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if self._destination:
             perf_metrics["job_description"]["destination"] = self._destination.name
 
-        perf_metrics["total_records_read"] = self.total_records_read
+        perf_metrics["records_read"] = self.total_records_read
+        perf_metrics["read_time_seconds"] = self.elapsed_read_seconds
         perf_metrics["read_start_time"] = self.read_start_time
         perf_metrics["read_end_time"] = self.read_end_time
         if self.elapsed_read_seconds > 0:
-            perf_metrics["records_per_second"] = self.total_records_read / self.elapsed_read_seconds
+            perf_metrics["records_per_second"] = round(
+                self.total_records_read / self.elapsed_read_seconds, 4
+            )
             if self.bytes_tracking_enabled:
                 mb_read = self.total_megabytes_read
                 perf_metrics["mb_read"] = mb_read
@@ -469,9 +472,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 )
                 stream_metrics[stream_name]["read_time_seconds"] = duration
                 if duration > 0:
-                    stream_metrics[stream_name]["records_per_second"] = count / (
-                        self.stream_read_end_times[stream_name]
-                        - self.stream_read_start_times[stream_name]
+                    stream_metrics[stream_name]["records_per_second"] = round(
+                        count
+                        / (
+                            self.stream_read_end_times[stream_name]
+                            - self.stream_read_start_times[stream_name]
+                        ),
+                        4,
                     )
                     if self.bytes_tracking_enabled:
                         mb_read = self.stream_bytes_read[stream_name] / 1_000_000
