@@ -30,7 +30,6 @@ from airbyte.shared.state_providers import (
 from airbyte.shared.state_writers import NoOpStateWriter, StdOutStateWriter
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
-from airbyte.writers import AirbyteWriterInterface
 
 
 if TYPE_CHECKING:
