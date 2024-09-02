@@ -455,7 +455,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             if self.bytes_tracking_enabled:
                 mb_read = self.total_megabytes_read
                 perf_metrics["mb_read"] = mb_read
-                perf_metrics["mb_per_second"] = round(mb_read / self.bytes_tracking_enabled, 4)
+                perf_metrics["mb_per_second"] = round(mb_read / self.elapsed_read_seconds, 4)
 
         stream_metrics = {}
         for stream_name, count in self.stream_read_counts.items():
