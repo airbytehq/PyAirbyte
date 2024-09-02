@@ -244,7 +244,7 @@ class DestinationTelemetryInfo:
                 version=destination.executor.reported_version,
             )
 
-        return cls(  # type: ignore [unreachable]
+        return cls(
             name=repr(destination),
             executor_type=UNKNOWN,
             version=UNKNOWN,
