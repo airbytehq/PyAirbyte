@@ -107,6 +107,7 @@ has its own documentation and code samples related to effectively using the rela
 - **`airbyte.exceptions`** - Definitions of all exception and warning classes used in PyAirbyte.
 - **`airbyte.experimental`** - Experimental features and utilities that do not yet have a stable
     API.
+- **`airbyte.logs`** - Logging functionality and configuration.
 - **`airbyte.records`** - Internal record handling classes.
 - **`airbyte.results`** - Documents the classes returned when working with results from
     `Source.read` and `Destination.write`
@@ -130,6 +131,7 @@ from airbyte import (
     documents,
     exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
     experimental,
+    logs,
     records,
     results,
     secrets,
@@ -159,6 +161,7 @@ __all__ = [
     "documents",
     "exceptions",
     "experimental",
+    "logs",
     "records",
     "registry",
     "results",

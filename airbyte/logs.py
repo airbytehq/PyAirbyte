@@ -1,5 +1,13 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""PyAirbyte Logging Configuration."""
+"""PyAirbyte Logging features and related configuration.
+
+By default, PyAirbyte main logs are written to a file in the `AIRBYTE_LOGGING_ROOT` directory, which
+defaults to a system-created temporary directory. PyAirbyte also maintains connector-specific log
+files within the same directory, under a subfolder with the name of the connector.
+
+PyAirbyte supports structured JSON logging, which is disabled by default. To enable structured
+logging in JSON, set `AIRBYTE_STRUCTURED_LOGGING` to `True`.
+"""
 
 from __future__ import annotations
 
