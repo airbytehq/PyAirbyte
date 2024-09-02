@@ -13,29 +13,29 @@ from pydantic import Field, PrivateAttr
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
-from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._future_cdk.sql_processor import (
-    SqlConfig,
-    SqlProcessorBase,
-)
-from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
+from airbyte.shared.catalog_providers import CatalogProvider
+from airbyte.shared.sql_processor import (
+    SqlConfig,
+    SqlProcessorBase,
+)
+from airbyte.shared.state_writers import StdOutStateWriter
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte._future_cdk.sql_processor import SqlProcessorBase
-    from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
     from airbyte.datasets._base import DatasetBase
     from airbyte.progress import ProgressTracker
+    from airbyte.shared.sql_processor import SqlProcessorBase
+    from airbyte.shared.state_providers import StateProviderBase
+    from airbyte.shared.state_writers import StateWriterBase
     from airbyte.strategies import WriteStrategy
 
 

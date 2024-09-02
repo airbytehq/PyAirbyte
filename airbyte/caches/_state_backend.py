@@ -17,18 +17,18 @@ from airbyte_protocol.models import (
     AirbyteStateType,
 )
 
-from airbyte._future_cdk.state_providers import StaticInputState
-from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )
 from airbyte.exceptions import PyAirbyteInputError, PyAirbyteInternalError
+from airbyte.shared.state_providers import StaticInputState
+from airbyte.shared.state_writers import StateWriterBase
 
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Engine
 
-    from airbyte._future_cdk.state_providers import StateProviderBase
+    from airbyte.shared.state_providers import StateProviderBase
 
 
 CACHE_STATE_TABLE_NAME = "_airbyte_state"

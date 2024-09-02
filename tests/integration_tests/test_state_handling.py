@@ -9,9 +9,9 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 import ulid
-from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+from airbyte.shared.state_writers import StateWriterBase
 from airbyte_protocol import models
 
 # Product count is always the same, regardless of faker scale.

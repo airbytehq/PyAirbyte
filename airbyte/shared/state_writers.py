@@ -7,7 +7,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, NoReturn, final
 
-from airbyte._future_cdk.state_providers import StateProviderBase
+from airbyte.shared.state_providers import StateProviderBase
 
 
 if TYPE_CHECKING:

@@ -8,10 +8,10 @@ from typing import IO, TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from airbyte._future_cdk.catalog_providers import CatalogProvider
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.progress import ProgressTracker
+    from airbyte.shared.catalog_providers import CatalogProvider
+    from airbyte.shared.state_writers import StateWriterBase
     from airbyte.strategies import WriteStrategy
 
 
