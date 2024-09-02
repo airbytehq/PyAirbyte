@@ -175,13 +175,6 @@ class SqlProcessorBase(abc.ABC):
         self._known_schemas_list: list[str] = []
         self._ensure_schema_exists()
 
-    # Inherited methods
-
-    # @property
-    # def expected_streams(self) -> set[str]:
-    #     """Return the expected stream names."""
-    #     return set(self.catalog_provider.stream_names)
-
     @property
     def catalog_provider(
         self,
