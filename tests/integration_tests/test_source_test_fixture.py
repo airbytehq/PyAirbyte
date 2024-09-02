@@ -19,12 +19,12 @@ from airbyte import exceptions as exc
 from airbyte._executors.docker import DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
-from airbyte._future_cdk.sql_processor import SqlProcessorBase
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
 from airbyte.results import ReadResult
+from airbyte.shared.sql_processor import SqlProcessorBase
 from airbyte.sources import registry
 from airbyte.version import get_version
 from sqlalchemy import column, text

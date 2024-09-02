@@ -14,11 +14,11 @@ from snowflake import connector
 from snowflake.sqlalchemy import URL, VARIANT
 
 from airbyte import exceptions as exc
-from airbyte._future_cdk import SqlProcessorBase
-from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._writers.jsonl import JsonlWriter
 from airbyte.constants import DEFAULT_CACHE_SCHEMA_NAME
 from airbyte.secrets.base import SecretString
+from airbyte.shared import SqlProcessorBase
+from airbyte.shared.sql_processor import SqlConfig
 from airbyte.types import SQLTypeConverter
 
 
