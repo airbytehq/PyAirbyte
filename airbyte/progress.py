@@ -246,26 +246,20 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         return bool(self.stream_bytes_read)
 
     @property
-    def total_bytes_read(self) -> int | None:
+    def total_bytes_read(self) -> int:
         """Return the total number of bytes read.
 
         Return None if bytes are not being tracked.
         """
-        if not self.bytes_tracking_enabled:
-            return None
-
         return sum(self.stream_bytes_read.values())
 
     @property
-    def total_megabytes_read(self) -> float | None:
+    def total_megabytes_read(self) -> float:
         """Return the total number of bytes read.
 
         Return None if no bytes have been read, as this is generally due to bytes not being tracked.
         """
-        if not self.bytes_tracking_enabled:
-            return None
-
-        return sum(self.stream_bytes_read.values()) / 1_000_000
+        return self.total_bytes_read / 1_000_000
 
     def tally_records_read(
         self,
@@ -432,10 +426,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def _log_read_metrics(self) -> None:
         """Log read performance metrics."""
         # Source performance metrics
-        if not self.total_records_read:
+        if not self.total_records_read or not self._file_logger:
             return
 
-        perf_metrics = {
+        perf_metrics: dict[str, Any] = {
             "job_description": {
                 "description": self.job_description,
             }
