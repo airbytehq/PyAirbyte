@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
-    from airbyte.writers import AirbyteWriterInterface
 
 
 DEBUG = True
