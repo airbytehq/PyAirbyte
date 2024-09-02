@@ -72,6 +72,8 @@ if TYPE_CHECKING:
 
 
 class RecordDedupeMode(enum.Enum):
+    """The deduplication mode to use when writing records."""
+
     APPEND = "append"
     REPLACE = "replace"
 
@@ -146,6 +148,7 @@ class SqlProcessorBase(abc.ABC):
         temp_dir: Path | None = None,
         temp_file_cleanup: bool,
     ) -> None:
+        """Create a new SQL processor."""
         if not temp_dir and not file_writer:
             raise exc.PyAirbyteInternalError(
                 message="Either `temp_dir` or `file_writer` must be provided.",
@@ -323,6 +326,7 @@ class SqlProcessorBase(abc.ABC):
 
     @property
     def sql_config(self) -> SqlConfig:
+        """Return the SQL configuration."""
         return self._sql_config
 
     def get_sql_alchemy_url(self) -> SecretString:
