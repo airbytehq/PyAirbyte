@@ -34,7 +34,6 @@ warnings.filterwarnings(
 )
 
 
-# @dataclass
 class DuckDBCache(DuckDBConfig, CacheBase):
     """A DuckDB cache."""
 

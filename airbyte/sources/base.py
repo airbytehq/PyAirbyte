@@ -626,9 +626,9 @@ class Source(ConnectorBase):
             state_provider: StateProviderBase | None = None
         else:
             state_provider = cache.get_state_provider(
-                source_name=self.name,
+                source_name=self._name,
             )
-        state_writer = cache.get_state_writer(source_name=self.name)
+        state_writer = cache.get_state_writer(source_name=self._name)
 
         if streams:
             self.select_streams(streams)
@@ -717,23 +717,20 @@ class Source(ConnectorBase):
             if incremental_streams:
                 self._log_incremental_streams(incremental_streams=incremental_streams)
 
-        airbyte_message_iterator: Iterator[AirbyteMessage] = self._read_with_catalog(
-            catalog=catalog_provider.configured_catalog,
-            state=state_provider,
-            progress_tracker=progress_tracker,
+        airbyte_message_iterator = AirbyteMessageIterator(
+            self._read_with_catalog(
+                catalog=catalog_provider.configured_catalog,
+                state=state_provider,
+                progress_tracker=progress_tracker,
+            )
         )
-        cache_processor = cache.get_record_processor(
-            source_name=self.name,
+        cache._write_airbyte_message_stream(  # noqa: SLF001  # Non-public API
+            stdin=airbyte_message_iterator,
             catalog_provider=catalog_provider,
-            state_writer=state_writer,
-        )
-        cache_processor.process_airbyte_messages(
-            messages=airbyte_message_iterator,
             write_strategy=write_strategy,
+            state_writer=state_writer,
             progress_tracker=progress_tracker,
         )
-        progress_tracker.log_cache_processing_complete()
-
         return ReadResult(
             source_name=self.name,
             progress_tracker=progress_tracker,

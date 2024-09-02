@@ -10,7 +10,7 @@ from typing import IO, TYPE_CHECKING, cast
 import orjson
 from overrides import overrides
 
-from airbyte._processors.file.base import (
+from airbyte._writers.file_writers import (
     FileWriterBase,
 )
 

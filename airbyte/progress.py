@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from airbyte._message_iterators import AirbyteMessageIterator
+    from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
@@ -177,7 +178,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         *,
         source: Source | None,
         cache: CacheBase | None,
-        destination: Destination | None,
+        destination: AirbyteWriterInterface | Destination | None,
         expected_streams: list[str] | None = None,
     ) -> None:
         """Initialize the progress tracker."""
