@@ -54,9 +54,7 @@ def test_deploy_and_run_connection(
     """Test deploying a source and cache to a workspace as a new connection."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={"count": 100},
-        install_if_missing=False,
     )
     source.check()
 

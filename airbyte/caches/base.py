@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, Optional, final
+from typing import IO, TYPE_CHECKING, Any, final
 
 import pandas as pd
 import pyarrow as pa
@@ -19,9 +19,10 @@ from airbyte._future_cdk.sql_processor import (
     SqlProcessorBase,
 )
 from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
-from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
 from airbyte.writers import AirbyteWriterInterface
 
@@ -53,12 +54,14 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     cache_dir: Path = Field(default=Path(".cache"))
     """The directory to store the cache in."""
 
-    cleanup: bool = True
+    cleanup: bool = TEMP_FILE_CLEANUP
     """Whether to clean up the cache after use."""
 
-    _deployed_api_root: Optional[str] = PrivateAttr(default=None)
-    _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
-    _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
+    _name: str = PrivateAttr()
+
+    _deployed_api_root: str | None = PrivateAttr(default=None)
+    _deployed_workspace_id: str | None = PrivateAttr(default=None)
+    _deployed_destination_id: str | None = PrivateAttr(default=None)
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _read_processor: SqlProcessorBase = PrivateAttr()
@@ -98,14 +101,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
-
-    @property
-    def name(self) -> str:
-        """Return the name of the cache.
-
-        By default, this is the class name.
-        """
-        return type(self).__name__
 
     @final
     @property

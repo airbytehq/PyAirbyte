@@ -7,10 +7,10 @@ import datetime
 import io
 import sys
 from collections.abc import Iterator
-from typing import IO, TYPE_CHECKING, Any, Callable, Literal, cast
+from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
-from typing_extensions import final
+from typing_extensions import Literal, final
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -19,10 +19,11 @@ from airbyte_protocol.models import (
 )
 
 from airbyte.constants import AB_EXTRACTED_AT_COLUMN
+from airbyte.progress import _new_stream_success_message
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Callable, Generator, Iterable, Iterator
     from pathlib import Path
 
     from airbyte.results import ReadResult
@@ -114,6 +115,8 @@ class AirbyteMessageIterator:
                         type=Type.STATE,
                         state=state_provider.get_stream_state(stream_name),
                     )
+
+                yield _new_stream_success_message(stream_name)
 
         return cls(generator())
 

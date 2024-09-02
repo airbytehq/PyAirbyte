@@ -10,7 +10,7 @@ from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, cast, final
+from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
 import sqlalchemy
@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._future_cdk.catalog_providers import CatalogProvider
     from airbyte._future_cdk.state_writers import StateWriterBase
-    from airbyte._processors.file.base import FileWriterBase
+    from airbyte._writers.jsonl import FileWriterBase
     from airbyte.progress import ProgressTracker
     from airbyte.secrets.base import SecretString
 
@@ -86,7 +86,7 @@ class SqlConfig(BaseModel, abc.ABC):
     schema_name: str = Field(default="airbyte_raw")
     """The name of the schema to write to."""
 
-    table_prefix: Optional[str] = ""
+    table_prefix: str | None = ""
     """A prefix to add to created table names."""
 
     @abc.abstractmethod
@@ -174,13 +174,6 @@ class SqlProcessorBase(abc.ABC):
 
         self._known_schemas_list: list[str] = []
         self._ensure_schema_exists()
-
-    # Inherited methods
-
-    # @property
-    # def expected_streams(self) -> set[str]:
-    #     """Return the expected stream names."""
-    #     return set(self.catalog_provider.stream_names)
 
     @property
     def catalog_provider(
@@ -288,14 +281,14 @@ class SqlProcessorBase(abc.ABC):
 
         # We've finished processing input data.
         # Finalize all received records and state messages:
-        self.write_all_stream_data(
+        self._write_all_stream_data(
             write_strategy=write_strategy,
             progress_tracker=progress_tracker,
         )
 
         self.cleanup_all()
 
-    def write_all_stream_data(
+    def _write_all_stream_data(
         self,
         write_strategy: WriteStrategy,
         progress_tracker: ProgressTracker,
@@ -465,13 +458,13 @@ class SqlProcessorBase(abc.ABC):
     def _ensure_schema_exists(
         self,
     ) -> None:
-        """Return a new (unique) temporary table name."""
-        schema_name = self.sql_config.schema_name
-
-        if self._known_schemas_list and self.sql_config.schema_name in self._known_schemas_list:
+        schema_name = self.normalizer.normalize(self.sql_config.schema_name)
+        known_schemas_list = self.normalizer.normalize_list(self._known_schemas_list)
+        if known_schemas_list and schema_name in known_schemas_list:
             return  # Already exists
 
-        if schema_name in self._get_schemas_list():
+        schemas_list = self.normalizer.normalize_list(self._get_schemas_list())
+        if schema_name in schemas_list:
             return
 
         sql = f"CREATE SCHEMA IF NOT EXISTS {schema_name}"
@@ -484,7 +477,7 @@ class SqlProcessorBase(abc.ABC):
                 raise
 
         if DEBUG_MODE:
-            found_schemas = self._get_schemas_list()
+            found_schemas = schemas_list
             assert (
                 schema_name in found_schemas
             ), f"Schema {schema_name} was not created. Found: {found_schemas}"

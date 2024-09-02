@@ -19,9 +19,7 @@ def test_deploy_source(
     """Test deploying a source to a workspace."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={"count": 100},
-        install_if_missing=False,
     )
     source.check()
     source_id: str = cloud_workspace._deploy_source(source)
@@ -51,9 +49,7 @@ def test_deploy_connection(
     """Test deploying a source and cache to a workspace as a new connection."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={"count": 100},
-        install_if_missing=False,
     )
     source.check()
 

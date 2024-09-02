@@ -51,6 +51,7 @@ from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
+    from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
@@ -244,7 +245,7 @@ class DestinationTelemetryInfo:
                 version=destination.executor.reported_version,
             )
 
-        return cls(  # type: ignore [unreachable]
+        return cls(
             name=repr(destination),
             executor_type=UNKNOWN,
             version=UNKNOWN,

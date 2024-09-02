@@ -7,9 +7,7 @@ For usage examples, see the `airbyte.destinations` module documentation.
 from __future__ import annotations
 
 import warnings
-from typing import IO, TYPE_CHECKING, Any, cast
-
-from typing_extensions import Literal
+from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 from airbyte_protocol.models import (
     Type,
@@ -26,6 +24,7 @@ from airbyte._future_cdk.state_providers import (
 from airbyte._future_cdk.state_writers import NoOpStateWriter, StdOutStateWriter
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
@@ -100,7 +99,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         a known destination state, the destination-specific state will be used. If neither are
         available, a full refresh will be performed.
         """
-        if not isinstance(source_data, (ReadResult, Source)):
+        if not isinstance(source_data, ReadResult | Source):
             raise exc.PyAirbyteInputError(
                 message="Invalid source_data type for `source_data` arg.",
                 context={
@@ -299,7 +298,8 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                 raise exc.AirbyteConnectorWriteError(
                     connector_name=self.name,
                     log_text=self._last_log_messages,
-                ) from ex
+                    original_exception=ex,
+                ) from None
 
 
 __all__ = [

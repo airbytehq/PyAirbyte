@@ -3,12 +3,10 @@
 
 from __future__ import annotations
 
-from typing import Union
-
 from overrides import overrides
 
 from airbyte._future_cdk.sql_processor import SqlConfig, SqlProcessorBase
-from airbyte._processors.file import JsonlWriter
+from airbyte._writers.jsonl import JsonlWriter
 from airbyte.secrets.base import SecretString
 
 
@@ -22,7 +20,7 @@ class PostgresConfig(SqlConfig):
     port: int
     database: str
     username: str
-    password: Union[SecretString, str]
+    password: SecretString | str
 
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
