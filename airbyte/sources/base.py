@@ -552,6 +552,7 @@ class Source(ConnectorBase):
                     "--state",
                     state_file,
                 ],
+                progress_tracker=progress_tracker,
             )
             yield from progress_tracker.tally_records_read(message_generator)
         progress_tracker.log_read_complete()
