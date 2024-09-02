@@ -281,14 +281,14 @@ class SqlProcessorBase(abc.ABC):
 
         # We've finished processing input data.
         # Finalize all received records and state messages:
-        self.write_all_stream_data(
+        self._write_all_stream_data(
             write_strategy=write_strategy,
             progress_tracker=progress_tracker,
         )
 
         self.cleanup_all()
 
-    def write_all_stream_data(
+    def _write_all_stream_data(
         self,
         write_strategy: WriteStrategy,
         progress_tracker: ProgressTracker,
