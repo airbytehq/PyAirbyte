@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
     from airbyte.sources.base import Source
-    from airbyte.writers import AirbyteWriterInterface
 
 
 class ReadResult(Mapping[str, CachedDataset]):

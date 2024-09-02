@@ -59,7 +59,6 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
-    from airbyte.writers import AirbyteWriterInterface
 
 IS_REPL = hasattr(sys, "ps1")  # True if we're in a Python REPL, in which case we can use Rich.
 HORIZONTAL_LINE = "------------------------------------------------\n"
