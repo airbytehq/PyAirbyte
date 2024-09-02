@@ -41,7 +41,6 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
-from airbyte._future_cdk.state_writers import StdOutStateWriter
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
@@ -50,6 +49,7 @@ from airbyte.constants import (
     DEBUG_MODE,
 )
 from airbyte.records import StreamRecordHandler
+from airbyte.shared.state_writers import StdOutStateWriter
 from airbyte.strategies import WriteMethod, WriteStrategy
 from airbyte.types import SQLTypeConverter
 
@@ -64,14 +64,16 @@ if TYPE_CHECKING:
     from sqlalchemy.sql.type_api import TypeEngine
 
     from airbyte._batch_handles import BatchHandle
-    from airbyte._future_cdk.catalog_providers import CatalogProvider
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._writers.jsonl import FileWriterBase
     from airbyte.progress import ProgressTracker
     from airbyte.secrets.base import SecretString
+    from airbyte.shared.catalog_providers import CatalogProvider
+    from airbyte.shared.state_writers import StateWriterBase
 
 
 class RecordDedupeMode(enum.Enum):
+    """The deduplication mode to use when writing records."""
+
     APPEND = "append"
     REPLACE = "replace"
 
@@ -146,6 +148,7 @@ class SqlProcessorBase(abc.ABC):
         temp_dir: Path | None = None,
         temp_file_cleanup: bool,
     ) -> None:
+        """Create a new SQL processor."""
         if not temp_dir and not file_writer:
             raise exc.PyAirbyteInternalError(
                 message="Either `temp_dir` or `file_writer` must be provided.",
@@ -323,6 +326,7 @@ class SqlProcessorBase(abc.ABC):
 
     @property
     def sql_config(self) -> SqlConfig:
+        """Return the SQL configuration."""
         return self._sql_config
 
     def get_sql_alchemy_url(self) -> SecretString:

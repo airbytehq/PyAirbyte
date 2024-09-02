@@ -12,10 +12,10 @@ from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
 
-from airbyte._future_cdk import SqlProcessorBase
-from airbyte._future_cdk.sql_processor import SqlConfig
 from airbyte._writers.jsonl import JsonlWriter
 from airbyte.secrets.base import SecretString
+from airbyte.shared import SqlProcessorBase
+from airbyte.shared.sql_processor import SqlConfig
 
 
 if TYPE_CHECKING:

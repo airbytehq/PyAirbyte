@@ -24,7 +24,7 @@ from airbyte_protocol.models import (
     SyncMode,
 )
 
-from airbyte._future_cdk.catalog_providers import CatalogProvider
+from airbyte.shared.catalog_providers import CatalogProvider
 
 
 if TYPE_CHECKING:

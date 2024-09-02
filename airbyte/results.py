@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Engine
 
-    from airbyte._future_cdk.catalog_providers import CatalogProvider
-    from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.progress import ProgressTracker
+    from airbyte.shared.catalog_providers import CatalogProvider
+    from airbyte.shared.state_providers import StateProviderBase
+    from airbyte.shared.state_writers import StateWriterBase
     from airbyte.sources.base import Source
     from airbyte.writers import AirbyteWriterInterface
 

@@ -67,10 +67,12 @@ class CatalogProvider:
 
     @property
     def configured_catalog(self) -> ConfiguredAirbyteCatalog:
+        """Return the configured catalog."""
         return self._catalog
 
     @property
     def stream_names(self) -> list[str]:
+        """Return the names of the streams in the catalog."""
         return list({stream.stream.name for stream in self.configured_catalog.streams})
 
     def get_configured_stream_info(
@@ -142,6 +144,7 @@ class CatalogProvider:
         self,
         stream_name: str,
     ) -> list[str]:
+        """Return the primary keys for the given stream."""
         pks = self.get_configured_stream_info(stream_name).primary_key
         if not pks:
             return []
@@ -158,6 +161,7 @@ class CatalogProvider:
         self,
         stream_name: str,
     ) -> str | None:
+        """Return the cursor key for the given stream."""
         return self.get_configured_stream_info(stream_name).cursor_field
 
     def resolve_write_method(

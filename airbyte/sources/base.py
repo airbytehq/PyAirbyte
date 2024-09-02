@@ -24,7 +24,6 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
-from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
@@ -32,6 +31,7 @@ from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
+from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.strategies import WriteStrategy
 
 
@@ -42,10 +42,10 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executors.base import Executor
-    from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
+    from airbyte.shared.state_providers import StateProviderBase
+    from airbyte.shared.state_writers import StateWriterBase
 
 
 class Source(ConnectorBase):
@@ -552,6 +552,7 @@ class Source(ConnectorBase):
                     "--state",
                     state_file,
                 ],
+                progress_tracker=progress_tracker,
             )
             yield from progress_tracker.tally_records_read(message_generator)
         progress_tracker.log_read_complete()

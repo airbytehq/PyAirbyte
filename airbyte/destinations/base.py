@@ -15,19 +15,19 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
-from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._future_cdk.state_providers import (
-    JoinedStateProvider,
-    StateProviderBase,
-    StaticInputState,
-)
-from airbyte._future_cdk.state_writers import NoOpStateWriter, StdOutStateWriter
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
+from airbyte.shared.catalog_providers import CatalogProvider
+from airbyte.shared.state_providers import (
+    JoinedStateProvider,
+    StateProviderBase,
+    StaticInputState,
+)
+from airbyte.shared.state_writers import NoOpStateWriter, StdOutStateWriter
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
 from airbyte.writers import AirbyteWriterInterface
@@ -35,8 +35,8 @@ from airbyte.writers import AirbyteWriterInterface
 
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches.base import CacheBase
+    from airbyte.shared.state_writers import StateWriterBase
 
 
 class Destination(ConnectorBase, AirbyteWriterInterface):
