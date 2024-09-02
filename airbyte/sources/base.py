@@ -626,9 +626,9 @@ class Source(ConnectorBase):
             state_provider: StateProviderBase | None = None
         else:
             state_provider = cache.get_state_provider(
-                source_name=self.name,
+                source_name=self._name,
             )
-        state_writer = cache.get_state_writer(source_name=self.name)
+        state_writer = cache.get_state_writer(source_name=self._name)
 
         if streams:
             self.select_streams(streams)

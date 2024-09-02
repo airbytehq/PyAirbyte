@@ -56,6 +56,8 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     cleanup: bool = TEMP_FILE_CLEANUP
     """Whether to clean up the cache after use."""
 
+    _name: str = PrivateAttr()
+
     _deployed_api_root: str | None = PrivateAttr(default=None)
     _deployed_workspace_id: str | None = PrivateAttr(default=None)
     _deployed_destination_id: str | None = PrivateAttr(default=None)
@@ -98,14 +100,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
-
-    @property
-    def name(self) -> str:
-        """Return the name of the cache.
-
-        By default, this is the class name.
-        """
-        return type(self).__name__
 
     @final
     @property

@@ -61,14 +61,19 @@ class ConnectorBase(abc.ABC):
         If config is provided, it will be validated against the spec if validate is True.
         """
         self.executor = executor
-        self.name = name
+        self._name = name
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._spec: ConnectorSpecification | None = None
         self._selected_stream_names: list[str] = []
-        self._file_logger: logging.Logger = new_passthrough_file_logger(self.name)
+        self._file_logger: logging.Logger = new_passthrough_file_logger(self._name)
         if config is not None:
             self.set_config(config, validate=validate)
+
+    @property
+    def name(self) -> str:
+        """Get the name of the connector."""
+        return self._name
 
     def _print_info_message(
         self,

@@ -24,6 +24,9 @@ class AirbyteWriterInterface(abc.ABC):
 
         This is used for logging and state tracking.
         """
+        if hasattr(self, "_name"):
+            return self._name
+
         return self.__class__.__name__
 
     def _write_airbyte_io_stream(
