@@ -295,7 +295,8 @@ class Destination(ConnectorBase):
                 raise exc.AirbyteConnectorWriteError(
                     connector_name=self.name,
                     log_text=self._last_log_messages,
-                ) from ex
+                    original_exception=ex,
+                ) from None
 
 
 __all__ = [
