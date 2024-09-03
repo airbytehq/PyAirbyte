@@ -49,6 +49,7 @@ pyiceberg = "^0.6.1"
 uuid7 = "^0.1.0"
 grpcio = "<=1.65.0"
 structlog = "^24.4.0"
+click = "*"
 
 [tool.poetry.group.dev.dependencies]
 docker = "^7.0.0"
@@ -307,6 +308,7 @@ venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
 [tool.poetry.scripts]
+ab-test-source = "airbyte.cli:test_source"
 airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
