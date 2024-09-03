@@ -8,13 +8,16 @@ streams as they are discovered, providing a thin layer of abstraction over the c
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING, Any, final
 
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte_protocol.models import (
     ConfiguredAirbyteCatalog,
 )
 
 from airbyte import exceptions as exc
+from airbyte.strategies import WriteMethod, WriteStrategy
 
 
 if TYPE_CHECKING:
@@ -65,10 +68,12 @@ class CatalogProvider:
 
     @property
     def configured_catalog(self) -> ConfiguredAirbyteCatalog:
+        """Return the configured catalog."""
         return self._catalog
 
     @property
     def stream_names(self) -> list[str]:
+        """Return the names of the streams in the catalog."""
         return list({stream.stream.name for stream in self.configured_catalog.streams})
 
     def get_configured_stream_info(
@@ -135,3 +140,74 @@ class CatalogProvider:
                 ]
             )
         )
+
+    def get_primary_keys(
+        self,
+        stream_name: str,
+    ) -> list[str]:
+        """Return the primary keys for the given stream."""
+        pks = self.get_configured_stream_info(stream_name).primary_key
+        if not pks:
+            return []
+
+        normalized_pks = [[LowerCaseNormalizer.normalize(c) for c in pk] for pk in pks]
+        joined_pks = [".".join(pk) for pk in normalized_pks]
+
+        for pk in joined_pks:
+            if "." in pk:
+                msg = f"Nested primary keys are not yet supported. Found: {pk}"
+                raise NotImplementedError(msg)
+
+        return joined_pks
+
+    def get_cursor_key(
+        self,
+        stream_name: str,
+    ) -> str | None:
+        """Return the cursor key for the given stream."""
+        return self.get_configured_stream_info(stream_name).cursor_field
+
+    def resolve_write_method(
+        self,
+        stream_name: str,
+        write_strategy: WriteStrategy,
+    ) -> WriteMethod:
+        """Return the write method for the given stream."""
+        has_pks: bool = bool(self.get_primary_keys(stream_name))
+        has_incremental_key: bool = bool(self.get_cursor_key(stream_name))
+        if write_strategy == WriteStrategy.MERGE and not has_pks:
+            raise exc.PyAirbyteInputError(
+                message="Cannot use merge strategy on a stream with no primary keys.",
+                context={
+                    "stream_name": stream_name,
+                },
+            )
+
+        if write_strategy != WriteStrategy.AUTO:
+            return WriteMethod(write_strategy)
+
+        if has_pks:
+            return WriteMethod.MERGE
+
+        if has_incremental_key:
+            return WriteMethod.APPEND
+
+        return WriteMethod.REPLACE
+
+    def with_write_strategy(
+        self,
+        write_strategy: WriteStrategy,
+    ) -> CatalogProvider:
+        """Return a new catalog provider with the specified write strategy applied.
+
+        The original catalog provider is not modified.
+        """
+        new_catalog: ConfiguredAirbyteCatalog = copy.deepcopy(self.configured_catalog)
+        for stream in new_catalog.streams:
+            write_method = self.resolve_write_method(
+                stream_name=stream.stream.name,
+                write_strategy=write_strategy,
+            )
+            stream.destination_sync_mode = write_method.destination_sync_mode
+
+        return CatalogProvider(new_catalog)
