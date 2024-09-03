@@ -8,12 +8,12 @@ import pytest
 from airbyte import get_source
 from airbyte._executors.base import Executor
 from airbyte._executors.util import get_connector_executor
-from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte.caches.util import new_local_cache
 from airbyte.destinations.base import Destination
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
+from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
 from airbyte_cdk import AirbyteMessage, AirbyteRecordMessage, Type
@@ -89,6 +89,7 @@ def test_duckdb_destination_write_components(
         catalog_provider=CatalogProvider(
             configured_catalog=new_source_faker.configured_catalog
         ),
+        write_strategy=WriteStrategy.AUTO,
         progress_tracker=ProgressTracker(
             source=None,
             cache=None,

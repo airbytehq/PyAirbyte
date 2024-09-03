@@ -84,8 +84,12 @@ def test_faker_pks(
     read_result = source_docker_faker_seed_a.read(
         new_duckdb_cache, write_strategy="append"
     )
-    assert read_result.cache.processor._get_primary_keys("products") == ["id"]
-    assert read_result.cache.processor._get_primary_keys("purchases") == ["id"]
+    assert read_result.cache.processor.catalog_provider.get_primary_keys(
+        "products"
+    ) == ["id"]
+    assert read_result.cache.processor.catalog_provider.get_primary_keys(
+        "purchases"
+    ) == ["id"]
 
 
 @pytest.mark.slow

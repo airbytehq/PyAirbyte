@@ -65,6 +65,23 @@ sample_catalog = {
                     },
                 },
             },
+                        {
+                "name": "primary-key-with-dot",
+                "description": "This stream has a primary key with dot similar what is there in GAds.",
+                "source_defined_primary_key": [["table1.Column1"]],
+                "source_defined_cursor": False,
+                "supported_sync_modes": ["full_refresh"],
+                "json_schema": {
+                    "$schema": "http://json-schema.org/draft-07/schema#",
+                    "type": "object",
+                    "properties": {
+                        "table1.Column1": {"type": "string"},
+                        "table1.Column2": {"type": "number"},
+                        "table1.empty_column": {"type": "string"},
+                        "table1.big_number": {"type": "number"},
+                    },
+                },
+            },
         ]
     },
 }
@@ -137,6 +154,19 @@ sample_record_stream2 = {
         "emitted_at": 1704067200,
     },
 }
+sample_record_primary_key_with_dot = {
+    "type": "RECORD"
+    "record": {
+        "data": {
+            "table1.Column1": "value1",
+            "table1.Column2": 1,
+            "table1.empty_column": None,
+            "table1.big_number": 1234567890123456,
+        },
+        "stream": "primary-key-with-dot",
+        "emitted_at": 1704067200,
+    },
+}
 
 
 def parse_args():
@@ -184,3 +214,5 @@ def run():
                 print(json.dumps(sample_record2_stream1))
             elif stream["stream"]["name"] == "stream2":
                 print(json.dumps(sample_record_stream2))
+            elif stream['stream']['name'] == "sample_record_primary_key_with_dot":
+                print(json.dumps(sample_record_primary_key_with_dot))
