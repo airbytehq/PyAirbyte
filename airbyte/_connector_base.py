@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
     from airbyte._executors.base import Executor
     from airbyte._message_iterators import AirbyteMessageIterator
+    from airbyte.progress import ProgressTracker
 
 
 MAX_LOG_LINES = 20
@@ -352,6 +353,8 @@ class ConnectorBase(abc.ABC):
         self,
         args: list[str],
         stdin: IO[str] | AirbyteMessageIterator | None = None,
+        *,
+        progress_tracker: ProgressTracker | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Execute the connector with the given arguments.
 
@@ -371,6 +374,11 @@ class ConnectorBase(abc.ABC):
             for line in self.executor.execute(args, stdin=stdin):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
+                    if progress_tracker and message.record:
+                        progress_tracker.tally_bytes_read(
+                            len(line),
+                            stream_name=message.record.stream,
+                        )
                     self._peek_airbyte_message(message)
                     yield message
 

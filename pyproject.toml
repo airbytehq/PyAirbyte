@@ -307,7 +307,6 @@ venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
 [tool.poetry.scripts]
-generate-docs = "docs.generate:run"
 airbyte-lib-validate-source = "airbyte.validate:run"
 
 [tool.poe.tasks]
@@ -321,7 +320,8 @@ coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && mypy . && pytest --collect-only -qq" }
 
-docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, shell = "generate-docs && open docs/generated/index.html" }
+docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
+docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
 
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
