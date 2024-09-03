@@ -327,7 +327,7 @@ docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
 
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
-fix-and-check = { shell = "poe fix && poe check"  }
+fix-and-check = { shell = "poe fix && poe check" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
