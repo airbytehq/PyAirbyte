@@ -11,12 +11,12 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING, Any, final
 
-from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte_protocol.models import (
     ConfiguredAirbyteCatalog,
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.strategies import WriteMethod, WriteStrategy
 
 
