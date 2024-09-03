@@ -31,7 +31,7 @@ jobs:
 
     - name: Generate documentation
       run: |
-        poetry run generate-docs
+        poetry run poe docs-generate
 
     - name: Upload artifact
       uses: actions/upload-pages-artifact@v3

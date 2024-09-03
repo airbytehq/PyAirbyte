@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.filterwarnings("ignore")
 def test_docs_generation():
     """
-    Docs need to be able to be generated via `poetry run generate-docs`.
+    Docs need to be able to be generated via `poetry run poe docs-generate`.
 
     This test runs the docs generation and ensures that it can complete successfully.
 
@@ -24,4 +24,4 @@ def test_docs_generation():
     # if there is a diff, fail the test
     assert (
         diff == 0
-    ), "Docs are out of date. Please run `poetry run generate-docs` and commit the changes."
+    ), "Docs are out of date. Please run `poetry run poe docs-generate` and commit the changes."
