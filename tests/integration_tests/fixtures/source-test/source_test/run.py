@@ -155,7 +155,7 @@ sample_record_stream2 = {
     },
 }
 sample_record_primary_key_with_dot = {
-    "type": "RECORD"
+    "type": "RECORD",
     "record": {
         "data": {
             "table1.Column1": "value1",
