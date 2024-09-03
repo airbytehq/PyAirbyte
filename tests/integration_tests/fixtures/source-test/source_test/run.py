@@ -214,5 +214,5 @@ def run():
                 print(json.dumps(sample_record2_stream1))
             elif stream["stream"]["name"] == "stream2":
                 print(json.dumps(sample_record_stream2))
-            elif stream['stream']['name'] == "sample_record_primary_key_with_dot":
+            elif stream['stream']['name'] == "primary-key-with-dot":
                 print(json.dumps(sample_record_primary_key_with_dot))
