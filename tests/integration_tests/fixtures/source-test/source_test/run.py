@@ -65,7 +65,7 @@ sample_catalog = {
                     },
                 },
             },
-                        {
+            {
                 "name": "primary-key-with-dot",
                 "description": "This stream has a primary key with dot similar what is there in GAds.",
                 "source_defined_primary_key": [["table1.Column1"]],
@@ -214,5 +214,5 @@ def run():
                 print(json.dumps(sample_record2_stream1))
             elif stream["stream"]["name"] == "stream2":
                 print(json.dumps(sample_record_stream2))
-            elif stream['stream']['name'] == "primary-key-with-dot":
+            elif stream["stream"]["name"] == "primary-key-with-dot":
                 print(json.dumps(sample_record_primary_key_with_dot))
