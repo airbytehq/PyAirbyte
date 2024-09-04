@@ -150,15 +150,24 @@ class CatalogProvider:
         if not pks:
             return []
 
-        normalized_pks = [[LowerCaseNormalizer.normalize(c) for c in pk] for pk in pks]
-        joined_pks = [".".join(pk) for pk in normalized_pks]
+        normalized_pks: list[list[str]] = [
+            [LowerCaseNormalizer.normalize(c) for c in pk] for pk in pks
+        ]
 
-        for pk in joined_pks:
-            if "." in pk:
-                msg = f"Nested primary keys are not yet supported. Found: {pk}"
-                raise NotImplementedError(msg)
+        for pk_nodes in normalized_pks:
+            if len(pk_nodes) != 1:
+                raise exc.AirbyteError(
+                    message=(
+                        "Nested primary keys are not supported. "
+                        "Each PK column should have exactly one node. "
+                    ),
+                    context={
+                        "stream_name": stream_name,
+                        "primary_key_nodes": pk_nodes,
+                    },
+                )
 
-        return joined_pks
+        return [pk_nodes[0] for pk_nodes in normalized_pks]
 
     def get_cursor_key(
         self,
