@@ -12,6 +12,7 @@ from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 SCALE = 100
 
+
 def get_secret_config() -> dict:
     AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
     secret_mgr = GoogleGSMSecretManager(
