@@ -16,6 +16,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.strategies import WriteMethod, WriteStrategy
 
 
@@ -149,13 +150,24 @@ class CatalogProvider:
         if not pks:
             return []
 
-        joined_pks = [".".join(pk) for pk in pks]
-        for pk in joined_pks:
-            if "." in pk:
-                msg = f"Nested primary keys are not yet supported. Found: {pk}"
-                raise NotImplementedError(msg)
+        normalized_pks: list[list[str]] = [
+            [LowerCaseNormalizer.normalize(c) for c in pk] for pk in pks
+        ]
 
-        return joined_pks
+        for pk_nodes in normalized_pks:
+            if len(pk_nodes) != 1:
+                raise exc.AirbyteError(
+                    message=(
+                        "Nested primary keys are not supported. "
+                        "Each PK column should have exactly one node. "
+                    ),
+                    context={
+                        "stream_name": stream_name,
+                        "primary_key_nodes": pk_nodes,
+                    },
+                )
+
+        return [pk_nodes[0] for pk_nodes in normalized_pks]
 
     def get_cursor_key(
         self,

@@ -211,6 +211,7 @@ def test_case_insensitive_w_pretty_keys(
         ("", "", True),
         ("*", "", True),
         ("!@$", "", True),
+        ("some.col", "some_col", False),
     ],
 )
 def test_lower_case_normalizer(
