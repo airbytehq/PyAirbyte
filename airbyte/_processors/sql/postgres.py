@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import functools
 
 from overrides import overrides
 
@@ -49,10 +50,11 @@ class PostgresNormalizer(LowerCaseNormalizer):
     additionally truncates column and table names to 63 characters.
     """
 
-    @lru_cache
-    def normalize(self, name: str) -> str:
+    @staticmethod
+    @functools.cache
+    def normalize(name: str) -> str:
         """Normalize the name, truncating to 63 characters."""
-        return super().normalize(name)[:63]
+        return LowerCaseNormalizer.normalize(name)[:63]
 
 
 class PostgresSqlProcessor(SqlProcessorBase):
