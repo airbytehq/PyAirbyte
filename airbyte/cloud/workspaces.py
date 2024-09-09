@@ -215,10 +215,10 @@ class CloudWorkspace:
         source_id: str
         if isinstance(source, Source):
             selected_streams = selected_streams or source.get_selected_streams()
-            if source._deployed_source_id:  # noqa: SLF001
-                source_id = source._deployed_source_id  # noqa: SLF001
-            else:
-                source_id = self._deploy_source(source)
+            source_id = (
+                source._deployed_source_id  # noqa: SLF001  # Access to non-public API
+                or self._deploy_source(source)
+            )
         else:
             source_id = source
             if not selected_streams:

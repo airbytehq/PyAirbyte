@@ -500,12 +500,13 @@ class SqlProcessorBase(abc.ABC):
         if not batch_id:
             batch_id = str(ulid.ULID())
 
-        if len(batch_id) > 9:
-            # Use the first 6 and last 3 characters of the ULID. This gives great uniqueness while
-            # limiting the table name suffix to 10 characters, including the underscore.
-            suffix = f"{batch_id[:6]}{batch_id[-3:]}"
-        else:
-            suffix = batch_id
+        # Use the first 6 and last 3 characters of the ULID. This gives great uniqueness while
+        # limiting the table name suffix to 10 characters, including the underscore.
+        suffix = (
+            f"{batch_id[:6]}{batch_id[-3:]}"
+            if len(batch_id) > 9  # noqa: PLR2004  # Allow magic int value
+            else batch_id
+        )
 
         # Note: The normalizer may truncate the table name if the database has a name length limit.
         # For instance, the Postgres normalizer will enforce a 63-character limit on table names.

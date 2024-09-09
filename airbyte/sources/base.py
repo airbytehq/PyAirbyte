@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 from rich.syntax import Syntax
 
 from airbyte_protocol.models import (

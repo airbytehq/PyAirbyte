@@ -10,7 +10,7 @@ from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
 from overrides import overrides
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
