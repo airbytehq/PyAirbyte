@@ -130,7 +130,14 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             },
         ],
         "always-empty-stream": [],
-        "primary-key-with-dot": [],
+        "primary-key-with-dot": [
+            {
+                "table1.Column1": "value1",
+                "table1.Column2": 1,
+                "table1.empty_column": None,
+                "table1.big_number": 1234567890123456,
+            }
+        ],
     }
 
 
@@ -343,7 +350,9 @@ def test_sync_to_duckdb(
 
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(expected_test_stream_data, cache)
 
 
@@ -553,7 +562,7 @@ def test_sync_with_merge_to_duckdb(
     result: ReadResult = source.read(cache)
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == 4
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -757,7 +766,9 @@ def test_sync_with_merge_to_postgres(
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(
         expected_test_stream_data=expected_test_stream_data,
         cache=new_postgres_cache,
@@ -781,7 +792,9 @@ def test_sync_to_postgres(
 
     result: ReadResult = source.read(new_postgres_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -805,7 +818,9 @@ def test_sync_to_snowflake(
 
     result: ReadResult = source.read(new_snowflake_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
