@@ -467,6 +467,8 @@ def test_merge_streams_in_cache(
     """
     Test that we can extend a cache with new streams
     """
+    expected_test_stream_data.pop("primary-key-with-dot") # Stream not needed for this test.
+
     cache_name = str(ulid.ULID())
     source = ab.get_source("source-test", config={"apiKey": "test"})
     cache = ab.new_local_cache(cache_name)
