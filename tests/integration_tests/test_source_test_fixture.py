@@ -367,7 +367,12 @@ def test_read_result_mapping():
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream", "primary-key-with-dot"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_dataset_list_and_len(expected_test_stream_data):
@@ -392,7 +397,12 @@ def test_dataset_list_and_len(expected_test_stream_data):
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream", "primary-key-with-dot"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_read_from_cache(
@@ -467,7 +477,9 @@ def test_merge_streams_in_cache(
     """
     Test that we can extend a cache with new streams
     """
-    expected_test_stream_data.pop("primary-key-with-dot") # Stream not needed for this test.
+    expected_test_stream_data.pop(
+        "primary-key-with-dot"
+    )  # Stream not needed for this test.
 
     cache_name = str(ulid.ULID())
     source = ab.get_source("source-test", config={"apiKey": "test"})
