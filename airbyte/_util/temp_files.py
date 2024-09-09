@@ -23,7 +23,7 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
     try:
         for content in files_contents:
             use_json = isinstance(content, dict)
-            temp_file = tempfile.NamedTemporaryFile(
+            temp_file = tempfile.NamedTemporaryFile(  # noqa: SIM115  # Avoiding context manager
                 mode="w+t",
                 delete=False,
                 encoding="utf-8",

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal, cast
 import requests
 import yaml
 from requests import HTTPError
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor

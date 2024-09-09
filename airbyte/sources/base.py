@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 from rich.syntax import Syntax
 
 from airbyte_protocol.models import (
@@ -405,8 +405,24 @@ class Source(ConnectorBase):
 
         return found[0].json_schema
 
-    def get_records(self, stream: str) -> LazyDataset:
+    def get_records(
+        self,
+        stream: str,
+        *,
+        normalize_field_names: bool = False,
+        prune_undeclared_fields: bool = True,
+    ) -> LazyDataset:
         """Read a stream from the connector.
+
+        Args:
+            stream: The name of the stream to read.
+            normalize_field_names: When `True`, field names will be normalized to lower case, with
+                special characters removed. This matches the behavior of PyAirbyte caches and most
+                Airbyte destinations.
+            prune_undeclared_fields: When `True`, undeclared fields will be pruned from the records,
+                which generally matches the behavior of PyAirbyte caches and most Airbyte
+                destinations, specifically when you expect the catalog may be stale. You can disable
+                this to keep all fields in the records.
 
         This involves the following steps:
         * Call discover to get the catalog
@@ -445,8 +461,8 @@ class Source(ConnectorBase):
 
         stream_record_handler = StreamRecordHandler(
             json_schema=self.get_stream_json_schema(stream),
-            prune_extra_fields=True,
-            normalize_keys=False,
+            prune_extra_fields=prune_undeclared_fields,
+            normalize_keys=normalize_field_names,
         )
 
         # This method is non-blocking, so we use "PLAIN" to avoid a live progress display

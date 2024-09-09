@@ -130,6 +130,15 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             },
         ],
         "always-empty-stream": [],
+        "primary-key-with-dot": [
+            # Expect field names lowercase, with '.' replaced by '_':
+            {
+                "table1_column1": "value1",
+                "table1_column2": 1,
+                "table1_empty_column": None,
+                "table1_big_number": 1234567890123456,
+            }
+        ],
     }
 
 
@@ -325,7 +334,7 @@ def test_file_write_and_cleanup() -> None:
 
     # There are three streams, but only two of them have data:
     assert (
-        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2
+        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 3
     ), "Expected files to exist"
 
     with suppress(Exception):
@@ -342,7 +351,9 @@ def test_sync_to_duckdb(
 
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(expected_test_stream_data, cache)
 
 
@@ -350,13 +361,18 @@ def test_read_result_mapping():
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
     result: ReadResult = source.read(ab.new_local_cache())
-    assert len(result) == 3
+    assert len(result) == 4
     assert isinstance(result, Mapping)
     assert "stream1" in result
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_dataset_list_and_len(expected_test_stream_data):
@@ -381,7 +397,12 @@ def test_dataset_list_and_len(expected_test_stream_data):
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_read_from_cache(
@@ -456,6 +477,10 @@ def test_merge_streams_in_cache(
     """
     Test that we can extend a cache with new streams
     """
+    expected_test_stream_data.pop(
+        "primary-key-with-dot"
+    )  # Stream not needed for this test.
+
     cache_name = str(ulid.ULID())
     source = ab.get_source("source-test", config={"apiKey": "test"})
     cache = ab.new_local_cache(cache_name)
@@ -552,7 +577,7 @@ def test_sync_with_merge_to_duckdb(
     result: ReadResult = source.read(cache)
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == 4
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -713,7 +738,10 @@ def test_lazy_dataset_from_source(
     for stream_name in source.get_available_streams():
         assert isinstance(stream_name, str)
 
-        lazy_dataset: LazyDataset = source.get_records(stream_name)
+        lazy_dataset: LazyDataset = source.get_records(
+            stream_name,
+            normalize_field_names=True,
+        )
         assert isinstance(lazy_dataset, LazyDataset)
 
         list_data = list(lazy_dataset)
@@ -756,7 +784,9 @@ def test_sync_with_merge_to_postgres(
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(
         expected_test_stream_data=expected_test_stream_data,
         cache=new_postgres_cache,
@@ -780,7 +810,9 @@ def test_sync_to_postgres(
 
     result: ReadResult = source.read(new_postgres_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -804,7 +836,9 @@ def test_sync_to_snowflake(
 
     result: ReadResult = source.read(new_snowflake_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(

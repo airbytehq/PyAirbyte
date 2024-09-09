@@ -59,7 +59,7 @@ pdoc = "^14.3.0"
 pytest = "^8.2.0"
 pytest-docker = "^3.1.1"
 pytest-mypy = "^0.10.3"
-ruff = "0.4.1"
+ruff = "^0.6.4"
 types-jsonschema = "^4.20.0.0"
 types-requests = "2.31.0.4"
 freezegun = "^1.4.0"
@@ -188,7 +188,7 @@ ignore = [
     "S",       # flake8-bandit (noisy, security related)
     "SIM910",  # Allow "None" as second argument to Dict.get(). "Explicit is better than implicit."
     "TD002",   # Require author for TODOs
-    "TRIO",    # flake8-trio (opinionated, noisy)
+    "ASYNC1",  # flake8-trio (opinionated, noisy)
     "INP001",  # Dir 'examples' is part of an implicit namespace package. Add an __init__.py.
 
     # TODO: Consider re-enabling these before release:
