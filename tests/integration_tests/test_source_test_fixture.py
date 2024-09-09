@@ -130,6 +130,7 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             },
         ],
         "always-empty-stream": [],
+        "primary-key-with-dot": [],
     }
 
 
@@ -325,7 +326,7 @@ def test_file_write_and_cleanup() -> None:
 
     # There are three streams, but only two of them have data:
     assert (
-        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2
+        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 3
     ), "Expected files to exist"
 
     with suppress(Exception):
