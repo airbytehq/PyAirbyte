@@ -497,8 +497,19 @@ class SqlProcessorBase(abc.ABC):
         batch_id: str | None = None,  # ULID of the batch
     ) -> str:
         """Return a new (unique) temporary table name."""
-        batch_id = batch_id or str(ulid.ULID())
-        return self.normalizer.normalize(f"{stream_name}_{batch_id}")
+        if not batch_id:
+            batch_id = str(ulid.ULID())
+
+        if len(batch_id) > 9:
+            # Use the first 6 and last 3 characters of the ULID. This gives great uniqueness while
+            # limiting the table name suffix to 10 characters, including the underscore.
+            suffix = f"{batch_id[:6]}{batch_id[-3:]}"
+        else:
+            suffix = batch_id
+
+        # Note: The normalizer may truncate the table name if the database has a name length limit.
+        # For instance, the Postgres normalizer will enforce a 63-character limit on table names.
+        return self.normalizer.normalize(f"{stream_name}_{suffix}")
 
     def _fully_qualified(
         self,
