@@ -131,11 +131,12 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
         ],
         "always-empty-stream": [],
         "primary-key-with-dot": [
+            # Expect field names lowercase, with '.' replaced by '_':
             {
-                "table1.Column1": "value1",
-                "table1.Column2": 1,
-                "table1.empty_column": None,
-                "table1.big_number": 1234567890123456,
+                "table1_column1": "value1",
+                "table1_column2": 1,
+                "table1_empty_column": None,
+                "table1_big_number": 1234567890123456,
             }
         ],
     }
@@ -360,13 +361,13 @@ def test_read_result_mapping():
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
     result: ReadResult = source.read(ab.new_local_cache())
-    assert len(result) == 3
+    assert len(result) == 4
     assert isinstance(result, Mapping)
     assert "stream1" in result
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {"stream1", "stream2", "always-empty-stream", "primary-key-with-dot"}
 
 
 def test_dataset_list_and_len(expected_test_stream_data):
@@ -391,7 +392,7 @@ def test_dataset_list_and_len(expected_test_stream_data):
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {"stream1", "stream2", "always-empty-stream", "primary-key-with-dot"}
 
 
 def test_read_from_cache(
