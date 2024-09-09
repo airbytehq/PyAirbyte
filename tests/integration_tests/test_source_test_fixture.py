@@ -726,7 +726,10 @@ def test_lazy_dataset_from_source(
     for stream_name in source.get_available_streams():
         assert isinstance(stream_name, str)
 
-        lazy_dataset: LazyDataset = source.get_records(stream_name)
+        lazy_dataset: LazyDataset = source.get_records(
+            stream_name,
+            normalize_field_names=True,
+        )
         assert isinstance(lazy_dataset, LazyDataset)
 
         list_data = list(lazy_dataset)
