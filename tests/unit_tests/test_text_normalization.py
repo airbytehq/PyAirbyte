@@ -5,6 +5,7 @@ from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte._processors.sql.postgres import PostgresNormalizer
 
+
 @pytest.fixture
 def stream_json_schema() -> dict:
     return {
