@@ -22,6 +22,8 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.connector_info import ConnectorRuntimeInfo
+from airbyte._util.hashing import one_way_hash
 from airbyte._util.telemetry import (
     EventState,
     log_config_validation_result,
@@ -76,6 +78,15 @@ class ConnectorBase(abc.ABC):
         """Get the name of the connector."""
         return self._name
 
+    def _get_connector_runtime_info(self) -> ConnectorRuntimeInfo:
+        """Get metadata for telemetry and performance logging."""
+        return ConnectorRuntimeInfo(
+            name=self.name,
+            version=self.connector_version,
+            executor_type=type(self.executor).__name__,
+            config_hash=self.config_hash,
+        )
+
     def _print_info_message(
         self,
         message: str,
@@ -123,6 +134,22 @@ class ConnectorBase(abc.ABC):
                 guidance="Provide via get_destination() or set_config()",
             )
         return self._config_dict
+
+    @property
+    def config_hash(self) -> str | None:
+        """Get a hash of the current config.
+
+        Returns None if the config is not set.
+        """
+        if self._config_dict is None:
+            return None
+
+        try:
+            return one_way_hash(self._config_dict)
+        except Exception:
+            # This can fail if there are unhashable values in the config,
+            # or unexpected data types. In this case, return None.
+            return None
 
     def validate_config(self, config: dict[str, Any] | None = None) -> None:
         """Validate the config against the spec.
@@ -262,7 +289,11 @@ class ConnectorBase(abc.ABC):
 
         Returns None if the version cannot be determined.
         """
-        return self.executor.get_installed_version()
+        try:
+            return self.executor.get_installed_version()
+        except Exception:
+            # Version not detected, so return None.
+            return None
 
     def check(self) -> None:
         """Call check on the connector.

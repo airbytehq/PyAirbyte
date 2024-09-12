@@ -41,6 +41,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.hashing import one_way_hash
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
@@ -49,6 +50,7 @@ from airbyte.constants import (
     DEBUG_MODE,
 )
 from airbyte.records import StreamRecordHandler
+from airbyte.secrets.base import SecretString
 from airbyte.shared.state_writers import StdOutStateWriter
 from airbyte.strategies import WriteMethod, WriteStrategy
 from airbyte.types import SQLTypeConverter
@@ -66,7 +68,6 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._writers.jsonl import FileWriterBase
     from airbyte.progress import ProgressTracker
-    from airbyte.secrets.base import SecretString
     from airbyte.shared.catalog_providers import CatalogProvider
     from airbyte.shared.state_writers import StateWriterBase
 
@@ -100,6 +101,28 @@ class SqlConfig(BaseModel, abc.ABC):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         ...
+
+    @property
+    def config_hash(self) -> str | None:
+        """Return a unique one-way hash of the configuration.
+
+        The generic implementation uses the SQL Alchemy URL, schema name, and table prefix. Some
+        inputs may be redundant with the SQL Alchemy URL, but this does not hurt the hash
+        uniqueness.
+
+        In most cases, subclasses do not need to override this method.
+        """
+        return one_way_hash(
+            SecretString(
+                ":".join(
+                    [
+                        str(self.get_sql_alchemy_url()),
+                        self.schema_name or "",
+                        self.table_prefix or "",
+                    ]
+                )
+            )
+        )
 
     def get_sql_engine(self) -> Engine:
         """Return a new SQL engine to use."""

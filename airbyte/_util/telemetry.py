@@ -32,14 +32,12 @@ Here is what is tracked:
 from __future__ import annotations
 
 import datetime
-import hashlib
 import os
 from contextlib import suppress
-from dataclasses import asdict, dataclass
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import requests
 import ulid
@@ -47,22 +45,16 @@ import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import meta
+from airbyte._util.connector_info import (
+    ConnectorRuntimeInfo,
+    WriterRuntimeInfo,
+)
+from airbyte._util.hashing import one_way_hash
 from airbyte.version import get_version
-
-
-if TYPE_CHECKING:
-    from airbyte._writers.base import AirbyteWriterInterface
-    from airbyte.caches.base import CacheBase
-    from airbyte.destinations.base import Destination
-    from airbyte.sources.base import Source
 
 
 DEBUG = True
 """Enable debug mode for telemetry code."""
-
-
-HASH_SEED = "PyAirbyte:"
-"""Additional seed for randomizing one-way hashed strings."""
 
 
 PYAIRBYTE_APP_TRACKING_KEY = (
@@ -185,83 +177,6 @@ class EventType(str, Enum):
     CHECK = "check"
 
 
-@dataclass
-class CacheTelemetryInfo:
-    type: str
-
-    @classmethod
-    def from_cache(cls, cache: CacheBase | None) -> CacheTelemetryInfo:
-        if not cache:
-            return cls(type="streaming")
-
-        return cls(type=type(cache).__name__)
-
-
-@dataclass
-class SourceTelemetryInfo:
-    name: str
-    executor_type: str
-    version: str | None
-
-    @classmethod
-    def from_source(cls, source: Source | str) -> SourceTelemetryInfo:
-        if isinstance(source, str):
-            return cls(
-                name=str(source),
-                executor_type=UNKNOWN,
-                version=UNKNOWN,
-            )
-
-        # Else, `source` should be a `Source` object at this point
-        return cls(
-            name=source.name,
-            executor_type=type(source.executor).__name__,
-            version=source.executor.reported_version,
-        )
-
-
-@dataclass
-class DestinationTelemetryInfo:
-    name: str
-    executor_type: str
-    version: str | None
-
-    @classmethod
-    def from_destination(
-        cls,
-        destination: Destination | AirbyteWriterInterface | str | None,
-    ) -> DestinationTelemetryInfo:
-        if not destination:
-            return cls(name=UNKNOWN, executor_type=UNKNOWN, version=UNKNOWN)
-
-        if isinstance(destination, str):
-            return cls(name=destination, executor_type=UNKNOWN, version=UNKNOWN)
-
-        if hasattr(destination, "executor"):
-            return cls(
-                name=destination.name,
-                executor_type=type(destination.executor).__name__,
-                version=destination.executor.reported_version,
-            )
-
-        return cls(
-            name=repr(destination),
-            executor_type=UNKNOWN,
-            version=UNKNOWN,
-        )
-
-
-def one_way_hash(
-    string_to_hash: Any,  # noqa: ANN401  # Allow Any type
-    /,
-) -> str:
-    """Return a one-way hash of the given string.
-
-    To ensure a unique domain of hashes, we prepend a seed to the string before hashing.
-    """
-    return hashlib.sha256((HASH_SEED + str(string_to_hash)).encode()).hexdigest()
-
-
 @lru_cache
 def get_env_flags() -> dict[str, Any]:
     flags: dict[str, bool | str] = {
@@ -283,9 +198,9 @@ def get_env_flags() -> dict[str, Any]:
 
 def send_telemetry(
     *,
-    source: Source | str | None,
-    destination: Destination | AirbyteWriterInterface | str | None,
-    cache: CacheBase | None,
+    source: ConnectorRuntimeInfo | None,
+    destination: ConnectorRuntimeInfo | None,
+    cache: WriterRuntimeInfo | None,
     state: EventState,
     event_type: EventType,
     number_of_records: int | None = None,
@@ -297,8 +212,6 @@ def send_telemetry(
 
     payload_props: dict[str, str | int | dict] = {
         "session_id": PYAIRBYTE_SESSION_ID,
-        "cache": asdict(CacheTelemetryInfo.from_cache(cache)),
-        "destination": asdict(DestinationTelemetryInfo.from_destination(destination)),
         "state": state,
         "version": get_version(),
         "python_version": meta.get_python_version(),
@@ -308,7 +221,13 @@ def send_telemetry(
     }
 
     if source:
-        payload_props["source"] = asdict(SourceTelemetryInfo.from_source(source))
+        payload_props["source"] = source.to_dict()
+
+    if destination:
+        payload_props["destination"] = destination.to_dict()
+
+    if cache:
+        payload_props["cache"] = cache.to_dict()
 
     if exception:
         if isinstance(exception, exc.AirbyteError):
@@ -345,8 +264,8 @@ def log_config_validation_result(
     treated as a source name.
     """
     send_telemetry(
-        source=name if not name.startswith("destination-") else None,
-        destination=name if name.startswith("destination-") else None,
+        source=ConnectorRuntimeInfo(name=name) if not name.startswith("destination-") else None,
+        destination=ConnectorRuntimeInfo(name=name) if name.startswith("destination-") else None,
         cache=None,
         state=state,
         event_type=EventType.VALIDATE,
@@ -365,8 +284,8 @@ def log_connector_check_result(
     treated as a source name.
     """
     send_telemetry(
-        source=name if not name.startswith("destination-") else None,
-        destination=name if name.startswith("destination-") else None,
+        source=ConnectorRuntimeInfo(name=name) if not name.startswith("destination-") else None,
+        destination=ConnectorRuntimeInfo(name=name) if name.startswith("destination-") else None,
         cache=None,
         state=state,
         event_type=EventType.CHECK,
@@ -381,7 +300,7 @@ def log_install_state(
 ) -> None:
     """Log an install event."""
     send_telemetry(
-        source=name,
+        source=ConnectorRuntimeInfo(name=name),
         destination=None,
         cache=None,
         state=state,

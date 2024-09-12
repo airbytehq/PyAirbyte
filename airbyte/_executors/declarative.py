@@ -64,6 +64,16 @@ class DeclarativeExecutor(Executor):
 
         self.reported_version: str | None = self._manifest_dict.get("version", None)
 
+    def get_installed_version(
+        self,
+        *,
+        raise_on_error: bool = False,
+        recheck: bool = False,
+    ) -> str | None:
+        """Detect the version of the connector installed."""
+        _ = raise_on_error, recheck  # Not used
+        return self.reported_version
+
     def _validate_manifest(self, manifest_dict: dict) -> None:
         """Validate the manifest."""
         manifest_text = yaml.safe_dump(manifest_dict)
