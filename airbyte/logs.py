@@ -192,6 +192,81 @@ def get_global_file_logger() -> logging.Logger | None:
     return logger
 
 
+def get_global_stats_log_path() -> Path | None:
+    """Return the path to the performance log file."""
+    if AIRBYTE_LOGGING_ROOT is None:
+        return None
+
+    folder = AIRBYTE_LOGGING_ROOT
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
+        )
+        return None
+
+    return folder / "airbyte-stats.log"
+
+
+@lru_cache
+def get_global_stats_logger() -> structlog.BoundLogger:
+    """Create a stats logger for performance metrics."""
+    logger = logging.getLogger("airbyte.stats")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    # Configure structlog
+    structlog.configure(
+        processors=[
+            structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+            structlog.stdlib.PositionalArgumentsFormatter(),
+            structlog.processors.JSONRenderer(),
+        ],
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        wrapper_class=structlog.stdlib.BoundLogger,
+        cache_logger_on_first_use=True,
+    )
+
+    logfile_path: Path | None = get_global_stats_log_path()
+    if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
+        # No temp directory available, so return no-op logger without handlers
+        return structlog.get_logger("airbyte.stats")
+
+    print(f"Writing PyAirbyte performance logs to file: {logfile_path!s}")
+
+    # Remove any existing handlers
+    for handler in logger.handlers:
+        logger.removeHandler(handler)
+
+    folder = AIRBYTE_LOGGING_ROOT
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
+        )
+        return structlog.get_logger("airbyte.stats")
+
+    file_handler = logging.FileHandler(
+        filename=logfile_path,
+        encoding="utf-8",
+    )
+
+    # Create a formatter and set it for the handler
+    formatter = logging.Formatter("%(message)s")
+    file_handler.setFormatter(formatter)
+
+    # Add the file handler to the logger
+    logger.addHandler(file_handler)
+
+    # Create a logger
+    return structlog.get_logger("airbyte.stats")
+
+
 def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     """Create a logger from logging module."""
     logger = logging.getLogger(f"airbyte.{connector_name}")

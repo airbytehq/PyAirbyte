@@ -25,6 +25,7 @@ import sys
 import time
 from collections import defaultdict
 from contextlib import suppress
+from dataclasses import asdict
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
@@ -45,7 +46,14 @@ from airbyte_protocol.models import (
 
 from airbyte import logs
 from airbyte._util import meta
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import (
+    CacheTelemetryInfo,
+    DestinationTelemetryInfo,
+    EventState,
+    EventType,
+    SourceTelemetryInfo,
+    send_telemetry,
+)
 from airbyte.logs import get_global_file_logger
 
 
@@ -53,6 +61,8 @@ if TYPE_CHECKING:
     import logging
     from collections.abc import Generator, Iterable
     from types import ModuleType
+
+    from structlog import BoundLogger
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte._writers.base import AirbyteWriterInterface
@@ -423,24 +433,37 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
         self.stream_read_end_times[stream_name] = time.time()
 
+    @property
+    def _job_info(self) -> dict[str, Any]:
+        """Return a dictionary of job information."""
+        job_info: dict[str, str | dict] = {
+            "description": self.job_description,
+        }
+        if self._source:
+            job_info["source"] = asdict(SourceTelemetryInfo.from_source(self._source))
+
+        if self._cache:
+            job_info["cache"] = asdict(CacheTelemetryInfo.from_cache(self._cache))
+
+        if self._destination:
+            job_info["destination"] = asdict(
+                DestinationTelemetryInfo.from_destination(self._destination)
+            )
+
+        return job_info
+
     def _log_read_metrics(self) -> None:
         """Log read performance metrics."""
         # Source performance metrics
         if not self.total_records_read or not self._file_logger:
             return
 
-        perf_metrics: dict[str, Any] = {
-            "job_description": {
-                "description": self.job_description,
-            }
+        log_dict = {
+            "job_type": "read",
+            "job_info": self._job_info,
         }
-        if self._source:
-            perf_metrics["job_description"]["source"] = self._source.name
-        if self._cache:
-            perf_metrics["job_description"]["cache"] = type(self._cache).__name__
-        if self._destination:
-            perf_metrics["job_description"]["destination"] = self._destination.name
 
+        perf_metrics: dict[str, Any] = {}
         perf_metrics["records_read"] = self.total_records_read
         perf_metrics["read_time_seconds"] = self.elapsed_read_seconds
         perf_metrics["read_start_time"] = self.read_start_time
@@ -486,8 +509,12 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                         stream_metrics[stream_name]["mb_per_second"] = round(mb_read / duration, 4)
 
         perf_metrics["stream_metrics"] = stream_metrics
+        log_dict["performance_metrics"] = perf_metrics
 
-        self._file_logger.info(json.dumps({"read_performance_metrics": perf_metrics}))
+        self._file_logger.info(json.dumps(log_dict))
+
+        perf_logger: BoundLogger = logs.get_global_stats_logger()
+        perf_logger.info(**log_dict)
 
     @property
     def _unclosed_stream_names(self) -> list[str]:
