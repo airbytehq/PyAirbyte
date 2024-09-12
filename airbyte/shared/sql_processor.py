@@ -50,6 +50,7 @@ from airbyte.constants import (
     DEBUG_MODE,
 )
 from airbyte.records import StreamRecordHandler
+from airbyte.secrets.base import SecretString
 from airbyte.shared.state_writers import StdOutStateWriter
 from airbyte.strategies import WriteMethod, WriteStrategy
 from airbyte.types import SQLTypeConverter
@@ -67,7 +68,6 @@ if TYPE_CHECKING:
     from airbyte._batch_handles import BatchHandle
     from airbyte._writers.jsonl import FileWriterBase
     from airbyte.progress import ProgressTracker
-    from airbyte.secrets.base import SecretString
     from airbyte.shared.catalog_providers import CatalogProvider
     from airbyte.shared.state_writers import StateWriterBase
 
