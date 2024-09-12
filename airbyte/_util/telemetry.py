@@ -32,7 +32,6 @@ Here is what is tracked:
 from __future__ import annotations
 
 import datetime
-import hashlib
 import os
 from contextlib import suppress
 from dataclasses import asdict, dataclass
@@ -46,23 +45,21 @@ import ulid
 import yaml
 
 from airbyte import exceptions as exc
+from airbyte._executors.base import Executor
 from airbyte._util import meta
+from airbyte._util.hashing import one_way_hash
+from airbyte.destinations.base import Destination
 from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
     from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches.base import CacheBase
-    from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
 
 DEBUG = True
 """Enable debug mode for telemetry code."""
-
-
-HASH_SEED = "PyAirbyte:"
-"""Additional seed for randomizing one-way hashed strings."""
 
 
 PYAIRBYTE_APP_TRACKING_KEY = (
@@ -202,6 +199,7 @@ class SourceTelemetryInfo:
     name: str
     executor_type: str
     version: str | None
+    config_hash: str | None = None
 
     @classmethod
     def from_source(cls, source: Source | str) -> SourceTelemetryInfo:
@@ -215,6 +213,7 @@ class SourceTelemetryInfo:
         # Else, `source` should be a `Source` object at this point
         return cls(
             name=source.name,
+            config_hash=source.config_hash,
             executor_type=type(source.executor).__name__,
             version=source.executor.reported_version,
         )
@@ -225,6 +224,7 @@ class DestinationTelemetryInfo:
     name: str
     executor_type: str
     version: str | None
+    config_hash: str | None = None
 
     @classmethod
     def from_destination(
@@ -232,16 +232,32 @@ class DestinationTelemetryInfo:
         destination: Destination | AirbyteWriterInterface | str | None,
     ) -> DestinationTelemetryInfo:
         if not destination:
-            return cls(name=UNKNOWN, executor_type=UNKNOWN, version=UNKNOWN)
+            return cls(
+                name=UNKNOWN,
+                executor_type=UNKNOWN,
+                version=UNKNOWN,
+            )
 
         if isinstance(destination, str):
-            return cls(name=destination, executor_type=UNKNOWN, version=UNKNOWN)
+            return cls(
+                name=destination,
+                executor_type=UNKNOWN,
+                version=UNKNOWN,
+            )
+
+        if isinstance(destination, Destination):
+            return cls(
+                name=destination.name,
+                config_hash=destination.config_hash,
+                executor_type=type(destination).__name__,
+                version=destination.connector_version,
+            )
 
         if hasattr(destination, "executor"):
             return cls(
                 name=destination.name,
                 executor_type=type(destination.executor).__name__,
-                version=destination.executor.reported_version,
+                version=cast(destination.executor, Executor).reported_version,
             )
 
         return cls(
@@ -249,17 +265,6 @@ class DestinationTelemetryInfo:
             executor_type=UNKNOWN,
             version=UNKNOWN,
         )
-
-
-def one_way_hash(
-    string_to_hash: Any,  # noqa: ANN401  # Allow Any type
-    /,
-) -> str:
-    """Return a one-way hash of the given string.
-
-    To ensure a unique domain of hashes, we prepend a seed to the string before hashing.
-    """
-    return hashlib.sha256((HASH_SEED + str(string_to_hash)).encode()).hexdigest()
 
 
 @lru_cache

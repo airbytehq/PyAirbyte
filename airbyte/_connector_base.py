@@ -22,6 +22,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.hashing import one_way_hash
 from airbyte._util.telemetry import (
     EventState,
     log_config_validation_result,
@@ -123,6 +124,22 @@ class ConnectorBase(abc.ABC):
                 guidance="Provide via get_destination() or set_config()",
             )
         return self._config_dict
+
+    @property
+    def config_hash(self) -> str | None:
+        """Get a hash of the current config.
+
+        Returns None if the config is not set.
+        """
+        if self._config_dict is None:
+            return None
+
+        try:
+            return one_way_hash(self._config_dict)
+        except Exception:
+            # This can fail if there are unhashable values in the config,
+            # or unexpected data types. In this case, return None.
+            return None
 
     def validate_config(self, config: dict[str, Any] | None = None) -> None:
         """Validate the config against the spec.
