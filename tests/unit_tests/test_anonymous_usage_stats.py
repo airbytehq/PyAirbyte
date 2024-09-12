@@ -29,9 +29,9 @@ def test_telemetry_track(monkeypatch, source_test_registry):
     responses.add(responses.POST, "https://api.segment.io/v1/track", status=200)
 
     telemetry.send_telemetry(
-        source=source_test,
+        source=source_test._get_connector_runtime_info(),
         destination=None,
-        cache=cache,
+        cache=cache._get_writer_runtime_info(),
         state=telemetry.EventState.STARTED,
         number_of_records=0,
         event_type=telemetry.EventType.SYNC,
@@ -89,9 +89,9 @@ def test_do_not_track(
     responses.add(responses.GET, re.compile(".*"), status=200)
 
     telemetry.send_telemetry(
-        source=source_test,
+        source=source_test._get_connector_runtime_info(),
         destination=None,
-        cache=cache,
+        cache=cache._get_writer_runtime_info(),
         state=telemetry.EventState.STARTED,
         number_of_records=0,
         event_type=telemetry.EventType.SYNC,
