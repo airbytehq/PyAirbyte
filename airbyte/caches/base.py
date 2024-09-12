@@ -103,8 +103,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
     @property
     def config_hash(self) -> str | None:
-        """Return a hash of the cache configuration."""
-        pass
+        """Return a hash of the cache configuration.
+
+        This is the same as the SQLConfig hash from the superclass.
+        """
+        return super(SqlConfig, self).config_hash
 
     @final
     @property

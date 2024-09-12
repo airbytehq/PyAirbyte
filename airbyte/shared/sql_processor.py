@@ -41,6 +41,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.hashing import one_way_hash
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import (
     AB_EXTRACTED_AT_COLUMN,
@@ -100,6 +101,28 @@ class SqlConfig(BaseModel, abc.ABC):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         ...
+
+    @property
+    def config_hash(self) -> str | None:
+        """Return a unique one-way hash of the configuration.
+
+        The generic implementation uses the SQL Alchemy URL, schema name, and table prefix. Some
+        inputs may be redundant with the SQL Alchemy URL, but this does not hurt the hash
+        uniqueness.
+
+        In most cases, subclasses do not need to override this method.
+        """
+        return one_way_hash(
+            SecretString(
+                ":".join(
+                    [
+                        str(self.get_sql_alchemy_url()),
+                        self.schema_name or "",
+                        self.table_prefix or "",
+                    ]
+                )
+            )
+        )
 
     def get_sql_engine(self) -> Engine:
         """Return a new SQL engine to use."""
