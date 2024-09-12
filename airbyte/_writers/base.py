@@ -6,6 +6,8 @@ from __future__ import annotations
 import abc
 from typing import IO, TYPE_CHECKING
 
+from airbyte._util.connector_info import WriterRuntimeInfo
+
 
 if TYPE_CHECKING:
     from airbyte._message_iterators import AirbyteMessageIterator
@@ -28,6 +30,21 @@ class AirbyteWriterInterface(abc.ABC):
             return self._name
 
         return self.__class__.__name__
+
+    def _get_writer_runtime_info(self) -> WriterRuntimeInfo:
+        """Get metadata for telemetry and performance logging."""
+        return WriterRuntimeInfo(
+            type=type(self).__name__,
+            config_hash=self.config_hash,
+        )
+
+    @property
+    def config_hash(self) -> str | None:
+        """Return a hash of the writer configuration.
+
+        This is used for logging and state tracking.
+        """
+        return None
 
     def _write_airbyte_io_stream(
         self,

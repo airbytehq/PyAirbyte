@@ -101,6 +101,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_file_cleanup=self.cleanup,
         )
 
+    @property
+    def config_hash(self) -> str | None:
+        """Return a hash of the cache configuration."""
+        pass
+
     @final
     @property
     def processor(self) -> SqlProcessorBase:

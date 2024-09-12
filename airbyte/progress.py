@@ -25,7 +25,6 @@ import sys
 import time
 from collections import defaultdict
 from contextlib import suppress
-from dataclasses import asdict
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
@@ -37,21 +36,15 @@ from rich.markdown import Markdown as RichMarkdown
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteStreamStatus,
-    AirbyteStreamStatusTraceMessage,
-    AirbyteTraceMessage,
-    StreamDescriptor,
-    TraceType,
     Type,
 )
 
 from airbyte import logs
+from airbyte._message_iterators import _new_stream_success_message
 from airbyte._util import meta
 from airbyte._util.telemetry import (
-    CacheTelemetryInfo,
-    DestinationTelemetryInfo,
     EventState,
     EventType,
-    SourceTelemetryInfo,
     send_telemetry,
 )
 from airbyte.logs import get_global_file_logger
@@ -65,7 +58,6 @@ if TYPE_CHECKING:
     from structlog import BoundLogger
 
     from airbyte._message_iterators import AirbyteMessageIterator
-    from airbyte._writers.base import AirbyteWriterInterface
     from airbyte.caches.base import CacheBase
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
@@ -89,24 +81,6 @@ except ImportError:
     # If IPython is not installed, then we're definitely not in a notebook.
     ipy_display = None
     IS_NOTEBOOK = False
-
-
-def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
-    """Return a new stream success message."""
-    return AirbyteMessage(
-        type=Type.TRACE,
-        trace=AirbyteTraceMessage(
-            type=TraceType.STREAM_STATUS,
-            stream=stream_name,
-            emitted_at=pendulum.now().float_timestamp,
-            stream_status=AirbyteStreamStatusTraceMessage(
-                stream_descriptor=StreamDescriptor(
-                    name=stream_name,
-                ),
-                status=AirbyteStreamStatus.COMPLETE,
-            ),
-        ),
-    )
 
 
 class ProgressStyle(Enum):
@@ -189,7 +163,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         *,
         source: Source | None,
         cache: CacheBase | None,
-        destination: AirbyteWriterInterface | Destination | None,
+        destination: Destination | None,
         expected_streams: list[str] | None = None,
     ) -> None:
         """Initialize the progress tracker."""
@@ -408,15 +382,38 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         return " -> ".join(steps)
 
+    def _send_telemetry(
+        self,
+        state: EventState,
+        number_of_records: int | None = None,
+        event_type: EventType = EventType.SYNC,
+        exception: Exception | None = None,
+    ) -> None:
+        """Send telemetry for the current job state.
+
+        A thin wrapper around `send_telemetry` that includes the job description.
+        """
+        send_telemetry(
+            source=self._source._get_connector_runtime_info() if self._source else None,  # noqa: SLF001
+            cache=self._cache._get_writer_runtime_info() if self._cache else None,  # noqa: SLF001
+            destination=(
+                self._destination._get_connector_runtime_info()  # noqa: SLF001
+                if self._destination
+                else None
+            ),
+            state=state,
+            number_of_records=number_of_records,
+            event_type=event_type,
+            exception=exception,
+        )
+
     def _log_sync_start(self) -> None:
         """Log the start of a sync operation."""
         self._print_info_message(
             f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`..."
         )
-        send_telemetry(
-            source=self._source,
-            cache=self._cache,
-            destination=self._destination,
+        # We access a non-public API here (noqa: SLF001) to get the runtime info for participants.
+        self._send_telemetry(
             state=EventState.STARTED,
             event_type=EventType.SYNC,
         )
@@ -440,15 +437,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             "description": self.job_description,
         }
         if self._source:
-            job_info["source"] = asdict(SourceTelemetryInfo.from_source(self._source))
+            job_info["source"] = self._source._get_connector_runtime_info().to_dict()  # noqa: SLF001
 
         if self._cache:
-            job_info["cache"] = asdict(CacheTelemetryInfo.from_cache(self._cache))
+            job_info["cache"] = self._cache._get_writer_runtime_info().to_dict()  # noqa: SLF001
 
         if self._destination:
-            job_info["destination"] = asdict(
-                DestinationTelemetryInfo.from_destination(self._destination)
-            )
+            job_info["destination"] = self._destination._get_connector_runtime_info().to_dict()  # noqa: SLF001
 
         return job_info
 
@@ -540,10 +535,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
         )
         self._log_read_metrics()
-        send_telemetry(
-            source=self._source,
-            cache=self._cache,
-            destination=self._destination,
+        self._send_telemetry(
             state=EventState.SUCCEEDED,
             number_of_records=self.total_records_read,
             event_type=EventType.SYNC,
@@ -559,11 +551,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._print_info_message(
             f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
         )
-        send_telemetry(
+        self._send_telemetry(
             state=EventState.FAILED,
-            source=self._source,
-            cache=self._cache,
-            destination=self._destination,
             number_of_records=self.total_records_read,
             exception=exception,
             event_type=EventType.SYNC,

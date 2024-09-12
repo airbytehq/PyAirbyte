@@ -22,6 +22,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import exceptions as exc
+from airbyte._util.connector_info import ConnectorRuntimeInfo
 from airbyte._util.hashing import one_way_hash
 from airbyte._util.telemetry import (
     EventState,
@@ -76,6 +77,15 @@ class ConnectorBase(abc.ABC):
     def name(self) -> str:
         """Get the name of the connector."""
         return self._name
+
+    def _get_connector_runtime_info(self) -> ConnectorRuntimeInfo:
+        """Get metadata for telemetry and performance logging."""
+        return ConnectorRuntimeInfo(
+            name=self.name,
+            version=self.connector_version,
+            executor_type=type(self.executor).__name__,
+            config_hash=self.config_hash,
+        )
 
     def _print_info_message(
         self,

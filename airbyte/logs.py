@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import platform
 import tempfile
 import warnings
 from functools import lru_cache
@@ -82,7 +83,11 @@ def _get_logging_root() -> Path | None:
     """
     if "AIRBYTE_LOGGING_ROOT" in os.environ:
         log_root = Path(os.environ["AIRBYTE_LOGGING_ROOT"])
+    elif platform.system() == "Darwin" or platform.system() == "Linux":
+        # Use /tmp on macOS and Linux
+        log_root = Path("/tmp") / "airbyte" / "logs"
     else:
+        # Use the default temp directory on Windows or any other OS
         log_root = Path(tempfile.gettempdir()) / "airbyte" / "logs"
 
     try:
