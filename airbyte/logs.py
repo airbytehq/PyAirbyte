@@ -240,7 +240,7 @@ def get_global_stats_logger() -> structlog.BoundLogger:
         # No temp directory available, so return no-op logger without handlers
         return structlog.get_logger("airbyte.stats")
 
-    print(f"Writing PyAirbyte performance logs to file: {logfile_path!s}")
+    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}")
 
     # Remove any existing handlers
     for handler in logger.handlers:

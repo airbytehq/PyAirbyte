@@ -289,7 +289,11 @@ class ConnectorBase(abc.ABC):
 
         Returns None if the version cannot be determined.
         """
-        return self.executor.get_installed_version()
+        try:
+            return self.executor.get_installed_version()
+        except Exception:
+            # Version not detected, so return None.
+            return None
 
     def check(self) -> None:
         """Call check on the connector.
