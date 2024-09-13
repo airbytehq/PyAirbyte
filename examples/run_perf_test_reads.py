@@ -176,6 +176,21 @@ def get_source(
             },
         )
 
+    if source_alias in ["postgres", "pg"]:
+        pg_secret_config = get_gsm_secret_json(
+            secret_name="SECRET_SOURCE_POSTGRES_PERFORMANCE_TEST_CREDS",
+        )
+        pg_secret_config["schemas"] = ["postgres"]
+        pg_secret_config["replication_method"] = {"method": "Standard"}
+        source = ab.get_source(
+            "source-postgres",
+            config=pg_secret_config,
+            # streams=["dummy_fields"],
+        )
+        # TODO: Deleteme after debugging:
+        source.print_config_spec()
+        return source
+
     raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
 
 
@@ -266,7 +281,7 @@ if __name__ == "__main__":
             "while the `faker` source runs natively in Python. The 'hardcoded' source is "
             "similar to the 'e2e' source, but written in Python."
         ),
-        choices=["faker", "e2e", "hardcoded"],
+        choices=["faker", "e2e", "hardcoded", "pg", "postgres"],
         default="hardcoded",
     )
     parser.add_argument(
