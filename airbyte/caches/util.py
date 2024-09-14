@@ -143,7 +143,6 @@ def get_colab_cache(
         raise ImportError(msg) from None
 
     drive.mount(mount_path)
-    print(f"Successfully mounted Google Drive at `{mount_path}`.")
     drive_root = (
         Path(mount_path) / drive_name
         if drive_name == _MY_DRIVE
