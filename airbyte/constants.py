@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
@@ -39,6 +40,20 @@ DEFAULT_CACHE_SCHEMA_NAME = "airbyte_raw"
 """The default schema name to use for caches.
 
 Specific caches may override this value with a different schema name.
+"""
+
+DEFAULT_CACHE_ROOT: Path = (
+    Path() / ".cache"
+    if "AIRBYTE_CACHE_ROOT" not in os.environ
+    else Path(os.environ["AIRBYTE_CACHE_ROOT"])
+)
+"""Default cache root is `.cache` in the current working directory.
+
+The default location can be overridden by setting the `AIRBYTE_CACHE_ROOT` environment variable.
+
+Overriding this can be useful if you always want to store cache files in a specific location.
+For example, in ephemeral environments like Google Colab, you might want to store cache files in
+your mounted Google Drive by setting this to a path like `/content/drive/MyDrive/Airbyte/cache`.
 """
 
 DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000

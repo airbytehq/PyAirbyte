@@ -126,6 +126,7 @@ from __future__ import annotations
 from airbyte import (
     caches,
     cloud,
+    constants,
     datasets,
     destinations,
     documents,
@@ -154,8 +155,9 @@ from airbyte.sources.util import get_source
 
 __all__ = [
     # Modules
-    "cloud",
     "caches",
+    "cloud",
+    "constants",
     "datasets",
     "destinations",
     "documents",
