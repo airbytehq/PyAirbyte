@@ -51,7 +51,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     to the SQL backend specified in the `SqlConfig` class.
     """
 
-    cache_dir: Path = Field(default_factory=lambda: constants.DEFAULT_CACHE_ROOT)
+    cache_dir: Path = Field(default=constants.DEFAULT_CACHE_ROOT)
     """The directory to store the cache in."""
 
     cleanup: bool = TEMP_FILE_CLEANUP
