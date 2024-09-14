@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, final
 
 import pandas as pd
@@ -29,6 +28,7 @@ from airbyte.shared.state_writers import StdOutStateWriter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from pathlib import Path
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
