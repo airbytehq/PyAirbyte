@@ -126,6 +126,7 @@ from __future__ import annotations
 from airbyte import (
     caches,
     cloud,
+    constants,
     datasets,
     destinations,
     documents,
@@ -139,7 +140,7 @@ from airbyte import (
 )
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.util import get_default_cache, new_local_cache
+from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import get_destination
@@ -154,8 +155,9 @@ from airbyte.sources.util import get_source
 
 __all__ = [
     # Modules
-    "cloud",
     "caches",
+    "cloud",
+    "constants",
     "datasets",
     "destinations",
     "documents",
@@ -169,6 +171,7 @@ __all__ = [
     "sources",
     # Factories
     "get_available_connectors",
+    "get_colab_cache",
     "get_default_cache",
     "get_destination",
     "get_secret",

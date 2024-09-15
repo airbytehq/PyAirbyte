@@ -13,6 +13,7 @@ from pydantic import Field, PrivateAttr
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
+from airbyte import constants
 from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
@@ -50,7 +51,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     to the SQL backend specified in the `SqlConfig` class.
     """
 
-    cache_dir: Path = Field(default=Path(".cache"))
+    cache_dir: Path = Field(default=Path(constants.DEFAULT_CACHE_ROOT))
     """The directory to store the cache in."""
 
     cleanup: bool = TEMP_FILE_CLEANUP
