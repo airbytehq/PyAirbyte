@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, final
 
 import pandas as pd
@@ -28,7 +29,6 @@ from airbyte.shared.state_writers import StdOutStateWriter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
-    from pathlib import Path
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
@@ -51,7 +51,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     to the SQL backend specified in the `SqlConfig` class.
     """
 
-    cache_dir: Path = Field(default=constants.DEFAULT_CACHE_ROOT)
+    cache_dir: Path = Field(default=Path(constants.DEFAULT_CACHE_ROOT))
     """The directory to store the cache in."""
 
     cleanup: bool = TEMP_FILE_CLEANUP
