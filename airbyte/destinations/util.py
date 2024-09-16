@@ -55,11 +55,6 @@ def get_destination(
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
     """
-    if not pip_url and not local_executable:
-        # Destination connectors are not yet published to PyPI.
-        # Default to Docker-based execution if no other method is explicitly requested.
-        docker_image = docker_image or True
-
     return Destination(
         name=name,
         config=config,
