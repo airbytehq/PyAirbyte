@@ -402,6 +402,8 @@ class ConnectorBase(abc.ABC):
         self.executor.ensure_installation(auto_fix=False)
 
         # When calculating MB read, we need to account for the envelope size.
+        # Note our priority is to keep performance up, while providing at least rough
+        # alignment with comparable metrics in Airbyte Cloud.
         envelope_size = (
             len('{"type": "RECORD", "record": }')
             + len('{"stream": "", "data": {}, "emitted_at": 1234567890}')
