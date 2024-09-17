@@ -404,10 +404,18 @@ class ConnectorBase(abc.ABC):
         # When calculating MB read, we need to account for the envelope size.
         # Note our priority is to keep performance up, while providing at least rough
         # alignment with comparable metrics in Airbyte Cloud.
-        envelope_size = (
-            len('{"type": "RECORD", "record": }')
-            + len('{"stream": "", "data": {}, "emitted_at": 1234567890}')
-            # + len('"namespace": "", ')  # We're knowingly omitting this to keep perf impact low.
+        envelope_size = len(
+            json.dumps(
+                {
+                    "type": "RECORD",
+                    "record": {
+                        "stream": "",
+                        "data": {},
+                        "emitted_at": 1234567890,
+                        # "namespace": "",  # We're knowingly omitting this to keep perf impact low.
+                    },
+                }
+            )
         )
 
         try:
@@ -415,9 +423,10 @@ class ConnectorBase(abc.ABC):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:
+                        stream_name = message.record.stream
                         progress_tracker.tally_bytes_read(
-                            bytes_read=len(line) - envelope_size - len(message.record.stream),
-                            stream_name=message.record.stream,
+                            bytes_read=len(line) - envelope_size - len(stream_name),
+                            stream_name=stream_name,
                         )
                     self._peek_airbyte_message(message)
                     yield message
