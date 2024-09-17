@@ -17,6 +17,7 @@ from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
+from airbyte.constants import OVERRIDE_TEMP_DIR
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 
 
@@ -203,7 +204,8 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913 # Too complex
         if ":" not in docker_image:
             docker_image = f"{docker_image}:{version or 'latest'}"
 
-        temp_dir = tempfile.gettempdir()
+        temp_dir = OVERRIDE_TEMP_DIR or Path(tempfile.gettempdir())
+
         local_mount_dir = Path().absolute() / name
         local_mount_dir.mkdir(exist_ok=True)
 
