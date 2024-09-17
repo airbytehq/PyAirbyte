@@ -65,6 +65,19 @@ def _str_to_bool(value: str) -> bool:
     return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
 
 
+OVERRIDE_TEMP_DIR: Path | None = (
+    Path(os.environ["AIRBYTE_TEMP_DIR"]) if os.getenv("AIRBYTE_TEMP_DIR") else None
+)
+"""The directory to use for temporary files.
+
+This value is read from the `AIRBYTE_TEMP_DIR` environment variable. If the variable is not set,
+Tempfile will use the system's default temporary directory.
+
+This can be useful if you want to store temporary files in a specific location (or) when you
+need your temporary files to exist in user level directories, and not in system level
+directories for permissions reasons.
+"""
+
 TEMP_FILE_CLEANUP = _str_to_bool(
     os.getenv(
         key="AIRBYTE_TEMP_FILE_CLEANUP",
