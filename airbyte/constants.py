@@ -65,7 +65,7 @@ def _str_to_bool(value: str) -> bool:
     return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
 
 
-OVERRIDE_TEMP_DIR: Path | None = (
+TEMP_DIR_OVERRIDE: Path | None = (
     Path(os.environ["AIRBYTE_TEMP_DIR"]) if os.getenv("AIRBYTE_TEMP_DIR") else None
 )
 """The directory to use for temporary files.
