@@ -401,13 +401,20 @@ class ConnectorBase(abc.ABC):
         # Fail early if the connector is not installed.
         self.executor.ensure_installation(auto_fix=False)
 
+        # When calculating MB read, we need to account for the envelope size.
+        envelope_size = (
+            len('{"type": "RECORD", "record": }')
+            + len('{"stream": "", "data": {}, "emitted_at": 1234567890}')
+            # + len('"namespace": "", ')  # We're knowingly omitting this to keep perf impact low.
+        )
+
         try:
             for line in self.executor.execute(args, stdin=stdin):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:
                         progress_tracker.tally_bytes_read(
-                            len(line),
+                            bytes_read=len(line) - envelope_size - len(message.record.stream),
                             stream_name=message.record.stream,
                         )
                     self._peek_airbyte_message(message)
