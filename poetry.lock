@@ -2,13 +2,13 @@
 
 [[package]]
 name = "airbyte-api"
-version = "0.49.4"
+version = "0.52.0"
 description = "Python Client SDK for Airbyte API"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "airbyte-api-0.49.4.tar.gz", hash = "sha256:070aee2312ac97ff30259a143ee45af3b0a0a6ead7a7d0361ff754ca4778c4e5"},
-    {file = "airbyte_api-0.49.4-py3-none-any.whl", hash = "sha256:d5ac5c117cd928784e7c164fbbad315a84d660f42db30d238528988b062f6750"},
+    {file = "airbyte-api-0.52.0.tar.gz", hash = "sha256:78a1429d1f61bf58a878c4a18cf16577cf32afa8b197fbd36b6f3d13eb7fd4b0"},
+    {file = "airbyte_api-0.52.0-py3-none-any.whl", hash = "sha256:71624df858bf0ac6eb80cb17d65db5366f1f5e3515c7180b4b1169004a9ba959"},
 ]
 
 [package.dependencies]
@@ -3666,4 +3666,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<4.0"
-content-hash = "6be92e6d85a72b9a9745638df95bc8138a22ccd3762f36b21e705bbe247966bc"
+content-hash = "4bed890e1078681539f8b178cf949eee8dc4401822773f1054e17ef0ea826fe7"
