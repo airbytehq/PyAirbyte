@@ -275,7 +275,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             try:
                 # We call the connector to write the data, tallying the inputs and outputs
                 for destination_message in progress_tracker.tally_confirmed_writes(
-                    messages=self._execute(
+                    messages=self._execute_and_parse(
                         args=[
                             "write",
                             "--config",

@@ -139,6 +139,47 @@ files = [
 ]
 
 [[package]]
+name = "boto3"
+version = "1.34.155"
+description = "The AWS SDK for Python"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "boto3-1.34.155-py3-none-any.whl", hash = "sha256:445239ea2ba7f4084ddbd71f721c14d0a6d08e06f6ba51b5403a16b6544b3f1e"},
+    {file = "boto3-1.34.155.tar.gz", hash = "sha256:e8d2e128c74e84199edccdc3a6b4b1c6fb36d6fdb5688eb92931827f02c6fa5b"},
+]
+
+[package.dependencies]
+botocore = ">=1.34.155,<1.35.0"
+jmespath = ">=0.7.1,<2.0.0"
+s3transfer = ">=0.10.0,<0.11.0"
+
+[package.extras]
+crt = ["botocore[crt] (>=1.21.0,<2.0a0)"]
+
+[[package]]
+name = "botocore"
+version = "1.34.155"
+description = "Low-level, data-driven core of boto 3."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "botocore-1.34.155-py3-none-any.whl", hash = "sha256:f2696c11bb0cad627d42512937befd2e3f966aedd15de00d90ee13cf7a16b328"},
+    {file = "botocore-1.34.155.tar.gz", hash = "sha256:3aa88abfef23909f68d3e6679a3d4b4bb3c6288a6cfbf9e253aa68dac8edad64"},
+]
+
+[package.dependencies]
+jmespath = ">=0.7.1,<2.0.0"
+python-dateutil = ">=2.1,<3.0.0"
+urllib3 = [
+    {version = ">=1.25.4,<2.2.0 || >2.2.0,<3", markers = "python_version >= \"3.10\""},
+    {version = ">=1.25.4,<1.27", markers = "python_version < \"3.10\""},
+]
+
+[package.extras]
+crt = ["awscrt (==0.21.2)"]
+
+[[package]]
 name = "bracex"
 version = "2.5"
 description = "Bash style brace expander."
@@ -1367,8 +1408,8 @@ files = [
 [package.dependencies]
 orjson = ">=3.9.14,<4.0.0"
 pydantic = [
-    {version = ">=2.7.4,<3.0.0", markers = "python_full_version >= \"3.12.4\""},
     {version = ">=1,<3", markers = "python_full_version < \"3.12.4\""},
+    {version = ">=2.7.4,<3.0.0", markers = "python_full_version >= \"3.12.4\""},
 ]
 requests = ">=2,<3"
 
@@ -1801,8 +1842,8 @@ files = [
 
 [package.dependencies]
 numpy = [
-    {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
     {version = ">=1.23.2,<2", markers = "python_version == \"3.11\""},
+    {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
     {version = ">=1.22.4,<2", markers = "python_version < \"3.11\""},
 ]
 python-dateutil = ">=2.8.2"
@@ -1960,6 +2001,47 @@ tomli = ">=1.2.2"
 
 [package.extras]
 poetry-plugin = ["poetry (>=1.0,<2.0)"]
+
+[[package]]
+name = "polars"
+version = "1.4.1"
+description = "Blazingly fast DataFrame library"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "polars-1.4.1-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:f02fc6a5c63dd86cfeb159caa66112e477c69fc7800a28e64609ac2780554865"},
+    {file = "polars-1.4.1-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:bd2acd8b1977f61b9587c8d47d16f101e7e73edd8cdeb3a8a725f15f181cd120"},
+    {file = "polars-1.4.1-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7cf834a328e292c31c06eb606496becb6d8a795e927c826e26e2af27087950f1"},
+    {file = "polars-1.4.1-cp38-abi3-manylinux_2_24_aarch64.whl", hash = "sha256:64eabf0ef7ac0d17fe15361e7daaeb4425a875d2d760c17d96803e9ac8bee244"},
+    {file = "polars-1.4.1-cp38-abi3-win_amd64.whl", hash = "sha256:2313d63ecfa1d9f1e740b9fcabb8ae45d9d0b5acf1ddb401951daba4c0f3f74f"},
+    {file = "polars-1.4.1.tar.gz", hash = "sha256:ed8009aff8cf91f94db5a38d947185603ad5bee48a28b764cf5a52048c7c4756"},
+]
+
+[package.extras]
+adbc = ["adbc-driver-manager[dbapi]", "adbc-driver-sqlite[dbapi]"]
+all = ["polars[async,cloudpickle,database,deltalake,excel,fsspec,graph,iceberg,numpy,pandas,plot,pyarrow,pydantic,style,timezone]"]
+async = ["gevent"]
+calamine = ["fastexcel (>=0.9)"]
+cloudpickle = ["cloudpickle"]
+connectorx = ["connectorx (>=0.3.2)"]
+database = ["nest-asyncio", "polars[adbc,connectorx,sqlalchemy]"]
+deltalake = ["deltalake (>=0.15.0)"]
+excel = ["polars[calamine,openpyxl,xlsx2csv,xlsxwriter]"]
+fsspec = ["fsspec"]
+gpu = ["cudf-polars-cu12"]
+graph = ["matplotlib"]
+iceberg = ["pyiceberg (>=0.5.0)"]
+numpy = ["numpy (>=1.16.0)"]
+openpyxl = ["openpyxl (>=3.0.0)"]
+pandas = ["pandas", "polars[pyarrow]"]
+plot = ["hvplot (>=0.9.1)", "polars[pandas]"]
+pyarrow = ["pyarrow (>=7.0.0)"]
+pydantic = ["pydantic"]
+sqlalchemy = ["polars[pandas]", "sqlalchemy"]
+style = ["great-tables (>=0.8.0)"]
+timezone = ["backports-zoneinfo", "tzdata"]
+xlsx2csv = ["xlsx2csv (>=0.8.0)"]
+xlsxwriter = ["xlsxwriter"]
 
 [[package]]
 name = "proto-plus"
@@ -2178,8 +2260,8 @@ files = [
 annotated-types = ">=0.4.0"
 pydantic-core = "2.20.1"
 typing-extensions = [
-    {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
     {version = ">=4.6.1", markers = "python_version < \"3.13\""},
+    {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
 ]
 
 [package.extras]
@@ -3073,6 +3155,23 @@ files = [
     {file = "ruff-0.6.4-py3-none-win_arm64.whl", hash = "sha256:ac4b75e898ed189b3708c9ab3fc70b79a433219e1e87193b4f2b77251d058d14"},
     {file = "ruff-0.6.4.tar.gz", hash = "sha256:ac3b5bfbee99973f80aa1b7cbd1c9cbce200883bdd067300c22a6cc1c7fba212"},
 ]
+
+[[package]]
+name = "s3transfer"
+version = "0.10.2"
+description = "An Amazon S3 Transfer Manager"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "s3transfer-0.10.2-py3-none-any.whl", hash = "sha256:eca1c20de70a39daee580aef4986996620f365c4e0fda6a86100231d62f1bf69"},
+    {file = "s3transfer-0.10.2.tar.gz", hash = "sha256:0711534e9356d3cc692fdde846b4a1e4b0cb6519971860796e6bc4c7aea00ef6"},
+]
+
+[package.dependencies]
+botocore = ">=1.33.2,<2.0a.0"
+
+[package.extras]
+crt = ["botocore[crt] (>=1.33.2,<2.0a.0)"]
 
 [[package]]
 name = "setuptools"

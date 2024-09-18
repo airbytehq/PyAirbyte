@@ -196,7 +196,7 @@ class ConnectorBase(abc.ABC):
         """
         if force_refresh or self._spec is None:
             try:
-                for msg in self._execute(["spec"]):
+                for msg in self._execute_and_parse(["spec"]):
                     if msg.type == Type.SPEC and msg.spec:
                         self._spec = msg.spec
                         break
@@ -306,7 +306,7 @@ class ConnectorBase(abc.ABC):
         """
         with as_temp_files([self._config]) as [config_file]:
             try:
-                for msg in self._execute(["check", "--config", config_file]):
+                for msg in self._execute_and_parse(["check", "--config", config_file]):
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
                             rich.print(f"Connection check succeeded for `{self.name}`.")
@@ -380,7 +380,7 @@ class ConnectorBase(abc.ABC):
                 )
             return
 
-    def _execute(
+    def _execute_and_parse(
         self,
         args: list[str],
         stdin: IO[str] | AirbyteMessageIterator | None = None,
@@ -419,7 +419,7 @@ class ConnectorBase(abc.ABC):
         )
 
         try:
-            for line in self.executor.execute(args, stdin=stdin):
+            for line in self._execute(args, stdin=stdin):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:
@@ -451,6 +451,33 @@ class ConnectorBase(abc.ABC):
                 log_text=self._last_log_messages,
                 original_exception=e,
             ) from None
+
+    def _execute(
+        self,
+        args: list[str],
+        stdin: IO[str] | AirbyteMessageIterator | None = None,
+    ) -> Generator[str, None, None]:
+        """Execute the connector with the given arguments.
+
+        This involves the following steps:
+        * Locate the right venv. It is called ".venv-<connector_name>"
+        * Spawn a subprocess with .venv-<connector_name>/bin/<connector-name> <args>
+        * Read the output line by line of the subprocess and yield (unparsed) strings.
+
+        Raises:
+            AirbyteConnectorFailedError: If the process returns a failure status (non-zero).
+        """
+        # Fail early if the connector is not installed.
+        self.executor.ensure_installation(auto_fix=False)
+
+        try:
+            yield from self.executor.execute(args, stdin=stdin)
+
+        except Exception as e:
+            raise exc.AirbyteConnectorFailedError(
+                connector_name=self.name,
+                log_text=self._last_log_messages,
+            ) from e
 
 
 __all__ = [

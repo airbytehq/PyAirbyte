@@ -206,7 +206,7 @@ class Source(ConnectorBase):
         - Make sure the subprocess is killed when the function returns.
         """
         with as_temp_files([self._config]) as [config_file]:
-            for msg in self._execute(["discover", "--config", config_file]):
+            for msg in self._execute_and_parse(["discover", "--config", config_file]):
                 if msg.type == Type.CATALOG and msg.catalog:
                     return msg.catalog
             raise exc.AirbyteConnectorMissingCatalogError(
@@ -235,7 +235,7 @@ class Source(ConnectorBase):
         * Make sure the subprocess is killed when the function returns.
         """
         if force_refresh or self._spec is None:
-            for msg in self._execute(["spec"]):
+            for msg in self._execute_and_parse(["spec"]):
                 if msg.type == Type.SPEC and msg.spec:
                     self._spec = msg.spec
                     break
@@ -558,7 +558,7 @@ class Source(ConnectorBase):
             catalog_file,
             state_file,
         ]:
-            message_generator = self._execute(
+            message_generator = self._execute_and_parse(
                 [
                     "read",
                     "--config",

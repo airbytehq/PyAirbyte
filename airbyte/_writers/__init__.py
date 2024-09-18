@@ -11,4 +11,5 @@ __all__ = [
     "BatchHandle",
     "FileWriterBase",
     "JsonlWriter",
+    "ParquetWriter",
 ]
