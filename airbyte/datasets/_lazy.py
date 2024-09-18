@@ -11,7 +11,7 @@ from airbyte.datasets import DatasetBase
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from airbyte_protocol.models import ConfiguredAirbyteStream
+    from airbyte_protocol_dataclasses.models import ConfiguredAirbyteStream
 
 
 class LazyDataset(DatasetBase):

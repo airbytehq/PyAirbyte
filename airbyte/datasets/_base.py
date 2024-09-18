@@ -15,7 +15,7 @@ from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 if TYPE_CHECKING:
     from pyarrow.dataset import Dataset
 
-    from airbyte_protocol.models import ConfiguredAirbyteStream
+    from airbyte_protocol_dataclasses.models import ConfiguredAirbyteStream
 
     from airbyte.documents import Document
 

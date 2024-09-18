@@ -18,7 +18,7 @@ from airbyte.records import StreamRecord, StreamRecordHandler
 
 
 if TYPE_CHECKING:
-    from airbyte_protocol.models import (
+    from airbyte_protocol_dataclasses.models import (
         AirbyteRecordMessage,
     )
 

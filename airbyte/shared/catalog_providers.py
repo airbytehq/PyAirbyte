@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from typing import TYPE_CHECKING, Any, final
 
-from airbyte_protocol.models import (
+from airbyte_protocol_dataclasses.models import (
     ConfiguredAirbyteCatalog,
 )
 
@@ -21,7 +21,7 @@ from airbyte.strategies import WriteMethod, WriteStrategy
 
 
 if TYPE_CHECKING:
-    from airbyte_protocol.models import (
+    from airbyte_protocol_dataclasses.models import (
         ConfiguredAirbyteStream,
     )
 

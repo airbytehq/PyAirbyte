@@ -30,7 +30,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.sql.elements import TextClause
 
-from airbyte_protocol.models import (
+from airbyte_protocol_dataclasses.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStateMessage,

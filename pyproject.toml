@@ -216,7 +216,7 @@ airbyte = "ab"
 [tool.ruff.lint.isort]
 force-sort-within-sections = false
 lines-after-imports = 2
-known-first-party = ["airbyte_cdk", "airbyte_protocol"]
+known-first-party = ["airbyte_cdk", "airbyte_protocol_dataclasses"]
 known-local-folder = ["airbyte"]
 required-imports = ["from __future__ import annotations"]
 known-third-party = []
@@ -296,7 +296,7 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["airbyte_protocol", "airbyte_protocol.models"]
+module = ["airbyte_protocol_dataclasses", "airbyte_protocol_dataclasses.models"]
 ignore_missing_imports = true                            # No stubs yet (😢)
 
 [tool.pyright]

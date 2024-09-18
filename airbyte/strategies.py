@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from enum import Enum
 
-from airbyte_protocol.models import DestinationSyncMode
+from airbyte_protocol_dataclasses.models import DestinationSyncMode
 
 
 _MERGE = "merge"

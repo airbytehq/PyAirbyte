@@ -7,11 +7,11 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Literal
 
-from airbyte_protocol.models import (
+from airbyte_protocol_dataclasses.models import (
     AirbyteStateMessage,
     AirbyteStateType,
+    AirbyteStreamState,
 )
-from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
 
 from airbyte import exceptions as exc
 
@@ -19,7 +19,7 @@ from airbyte import exceptions as exc
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from airbyte_protocol.models import (
+    from airbyte_protocol_dataclasses.models import (
         AirbyteStateMessage,
         AirbyteStreamState,
     )
