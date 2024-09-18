@@ -47,7 +47,7 @@ airbyte-api = "^0.49.2"
 google-cloud-bigquery-storage = "^2.25.0"
 pyiceberg = "^0.6.1"
 uuid7 = "^0.1.0"
-grpcio = "<=1.66.1"
+grpcio = "<=1.65.0"  # Restricted due to spammy logging: https://github.com/grpc/grpc/issues/37162
 structlog = "^24.4.0"
 
 [tool.poetry.group.dev.dependencies]
