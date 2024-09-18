@@ -30,7 +30,7 @@ jobs:
         echo "sha=$(cat pr-info.json | jq -r .head.sha)" >> $GITHUB_OUTPUT
         echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
     - name: Upload PR details as artifact
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v4
       with:
         name: pr-info
         path: pr-info.json
@@ -74,7 +74,7 @@ jobs:
     - name: Download PR info
       # This puts the `pr-info.json` file in the current directory.
       # We need this to get the PR's SHA at the time of the workflow run.
-      uses: actions/download-artifact@v2
+      uses: actions/download-artifact@v4
       with:
         name: pr-info
 
