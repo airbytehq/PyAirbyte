@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from pydantic import PrivateAttr
 
-from airbyte._future_cdk.sql_processor import RecordDedupeMode
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
 from airbyte.caches.base import CacheBase
+from airbyte.shared.sql_processor import RecordDedupeMode
 
 
 class SnowflakeCache(SnowflakeConfig, CacheBase):

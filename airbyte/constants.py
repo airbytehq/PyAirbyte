@@ -4,9 +4,6 @@
 from __future__ import annotations
 
 import os
-import tempfile
-import warnings
-from functools import lru_cache
 from pathlib import Path
 
 
@@ -45,60 +42,47 @@ DEFAULT_CACHE_SCHEMA_NAME = "airbyte_raw"
 Specific caches may override this value with a different schema name.
 """
 
+DEFAULT_CACHE_ROOT: Path = (
+    Path() / ".cache"
+    if "AIRBYTE_CACHE_ROOT" not in os.environ
+    else Path(os.environ["AIRBYTE_CACHE_ROOT"])
+)
+"""Default cache root is `.cache` in the current working directory.
+
+The default location can be overridden by setting the `AIRBYTE_CACHE_ROOT` environment variable.
+
+Overriding this can be useful if you always want to store cache files in a specific location.
+For example, in ephemeral environments like Google Colab, you might want to store cache files in
+your mounted Google Drive by setting this to a path like `/content/drive/MyDrive/Airbyte/cache`.
+"""
+
 DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
 
 
-@lru_cache
-def _get_logging_root() -> Path | None:
-    """Return the root directory for logs.
-
-    Returns `None` if no valid path can be found.
-
-    This is the directory where logs are stored.
-    """
-    if "AIRBYTE_LOGGING_ROOT" in os.environ:
-        log_root = Path(os.environ["AIRBYTE_LOGGING_ROOT"])
-    else:
-        log_root = Path(tempfile.gettempdir()) / "airbyte" / "logs"
-
-    try:
-        # Attempt to create the log root directory if it does not exist
-        log_root.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        # Handle the error by returning None
-        warnings.warn(
-            (
-                f"Failed to create PyAirbyte logging directory at `{log_root}`. "
-                "You can override the default path by setting the `AIRBYTE_LOGGING_ROOT` "
-                "environment variable."
-            ),
-            category=UserWarning,
-            stacklevel=0,
-        )
-        return None
-    else:
-        return log_root
+def _str_to_bool(value: str) -> bool:
+    """Convert a string value of an environment values to a boolean value."""
+    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
 
 
-AIRBYTE_LOGGING_ROOT: Path | None = _get_logging_root()
-"""The root directory for Airbyte logs.
+TEMP_DIR_OVERRIDE: Path | None = (
+    Path(os.environ["AIRBYTE_TEMP_DIR"]) if os.getenv("AIRBYTE_TEMP_DIR") else None
+)
+"""The directory to use for temporary files.
 
-This value can be overridden by setting the `AIRBYTE_LOGGING_ROOT` environment variable.
+This value is read from the `AIRBYTE_TEMP_DIR` environment variable. If the variable is not set,
+Tempfile will use the system's default temporary directory.
 
-If not provided, PyAirbyte will use `/tmp/airbyte/logs/` where `/tmp/` is the OS's default
-temporary directory. If the directory cannot be created, PyAirbyte will log a warning and
-set this value to `None`.
+This can be useful if you want to store temporary files in a specific location (or) when you
+need your temporary files to exist in user level directories, and not in system level
+directories for permissions reasons.
 """
 
-TEMP_FILE_CLEANUP = bool(
+TEMP_FILE_CLEANUP = _str_to_bool(
     os.getenv(
         key="AIRBYTE_TEMP_FILE_CLEANUP",
         default="true",
     )
-    .lower()
-    .replace("false", "")
-    .replace("0", "")
 )
 """Whether to clean up temporary files after use.
 

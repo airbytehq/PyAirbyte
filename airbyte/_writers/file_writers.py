@@ -13,6 +13,7 @@ import ulid
 from airbyte import exceptions as exc
 from airbyte import progress
 from airbyte._batch_handles import BatchHandle
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.records import StreamRecord, StreamRecordHandler
 
 
@@ -21,14 +22,18 @@ if TYPE_CHECKING:
         AirbyteRecordMessage,
     )
 
+    from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.progress import ProgressTracker
+    from airbyte.shared.catalog_providers import CatalogProvider
+    from airbyte.shared.state_writers import StateWriterBase
+    from airbyte.strategies import WriteStrategy
 
 
 DEFAULT_BATCH_SIZE = 100_000
 
 
-class FileWriterBase(abc.ABC):
-    """A generic base implementation for a file-based cache."""
+class FileWriterBase(AirbyteWriterInterface):
+    """A generic abstract implementation for a file-based writer."""
 
     default_cache_file_suffix: str = ".batch"
     prune_extra_fields: bool = False
@@ -185,6 +190,25 @@ class FileWriterBase(abc.ABC):
             open_file_writer=batch_handle.open_file_writer,
         )
         batch_handle.increment_record_count()
+
+    def _write_airbyte_message_stream(
+        self,
+        stdin: IO[str] | AirbyteMessageIterator,
+        *,
+        catalog_provider: CatalogProvider,
+        write_strategy: WriteStrategy,
+        state_writer: StateWriterBase | None = None,
+        progress_tracker: ProgressTracker,
+    ) -> None:
+        """Read from the connector and write to the cache.
+
+        This is not implemented for file writers, as they should be wrapped by another writer that
+        handles state tracking and other logic.
+        """
+        _ = stdin, catalog_provider, write_strategy, state_writer, progress_tracker
+        raise exc.PyAirbyteInternalError from NotImplementedError(
+            "File writers should be wrapped by another AirbyteWriterInterface."
+        )
 
     def flush_active_batches(
         self,

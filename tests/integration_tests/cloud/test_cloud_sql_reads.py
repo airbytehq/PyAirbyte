@@ -17,9 +17,7 @@ from sqlalchemy.engine.base import Engine
 def deployable_source() -> ab.Source:
     return ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={"count": 100},
-        install_if_missing=False,
     )
 
 

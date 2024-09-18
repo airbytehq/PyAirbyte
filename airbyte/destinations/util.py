@@ -24,6 +24,7 @@ def get_destination(
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
     docker_image: str | bool | None = None,
+    use_host_network: bool = False,
     install_if_missing: bool = True,
 ) -> Destination:
     """Get a connector by name and version.
@@ -47,14 +48,13 @@ def get_destination(
             to use the default image for the connector, or you can specify a custom image name.
             If `version` is specified and your image name does not already contain a tag
             (e.g. `my-image:latest`), the version will be appended as a tag (e.g. `my-image:0.1.0`).
+        use_host_network: If set, along with docker_image, the connector will be executed using
+            the host network. This is useful for connectors that need to access resources on
+            the host machine, such as a local database. This parameter is ignored when
+            `docker_image` is not set.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
     """
-    if not pip_url and not local_executable:
-        # Destination connectors are not yet published to PyPI.
-        # Default to Docker-based execution if no other method is explicitly requested.
-        docker_image = docker_image or True
-
     return Destination(
         name=name,
         config=config,
@@ -64,6 +64,7 @@ def get_destination(
             pip_url=pip_url,
             local_executable=local_executable,
             docker_image=docker_image,
+            use_host_network=use_host_network,
             install_if_missing=install_if_missing,
         ),
     )

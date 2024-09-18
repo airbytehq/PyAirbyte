@@ -9,9 +9,9 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 import ulid
-from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+from airbyte.shared.state_writers import StateWriterBase
 from airbyte_protocol import models
 
 # Product count is always the same, regardless of faker scale.
@@ -31,13 +31,11 @@ def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_A,
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users", "products", "purchases"],
     )
     return source
@@ -48,13 +46,11 @@ def source_faker_seed_b() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_B,
             "seed": SEED_B,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users", "products", "purchases"],
     )
     return source

@@ -103,7 +103,7 @@ class CloudWorkspace:
 
         You can pass either the source ID `str` or a deployed `Source` object.
         """
-        if not isinstance(source, (str, Source)):
+        if not isinstance(source, str | Source):
             raise ValueError(f"Invalid source type: {type(source)}")  # noqa: TRY004, TRY003
 
         if isinstance(source, Source):
@@ -215,10 +215,10 @@ class CloudWorkspace:
         source_id: str
         if isinstance(source, Source):
             selected_streams = selected_streams or source.get_selected_streams()
-            if source._deployed_source_id:  # noqa: SLF001
-                source_id = source._deployed_source_id  # noqa: SLF001
-            else:
-                source_id = self._deploy_source(source)
+            source_id = (
+                source._deployed_source_id  # noqa: SLF001  # Access to non-public API
+                or self._deploy_source(source)
+            )
         else:
             source_id = source
             if not selected_streams:

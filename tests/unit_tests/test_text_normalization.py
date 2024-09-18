@@ -3,6 +3,7 @@ from airbyte import exceptions as exc
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.records import StreamRecord, StreamRecordHandler
+from airbyte._processors.sql.postgres import PostgresNormalizer
 
 
 @pytest.fixture
@@ -187,39 +188,50 @@ def test_case_insensitive_w_pretty_keys(
 
 
 @pytest.mark.parametrize(
-    "raw_value, expected_result, should_raise",
+    "raw_value, expected_result, should_raise, normalizer_class",
     [
-        ("_airbyte_meta", "_airbyte_meta", False),
-        ("Test_String", "test_string", False),
-        ("ANOTHER-TEST", "another_test", False),
-        ("another.test", "another_test", False),
-        ("sales(%)", "sales___", False),
-        ("something_-_-_-_else", "something_______else", False),
-        ("sales (%)", "sales____", False),
-        ("sales-%", "sales__", False),
-        ("sales(#)", "sales___", False),
-        ("sales (#)", "sales____", False),
-        ("sales--(#)", "sales_____", False),
-        ("sales-#", "sales__", False),
-        ("+1", "_1", False),
-        ("1", "_1", False),
-        ("2", "_2", False),
-        ("3", "_3", False),
-        ("-1", "_1", False),
-        ("+#$", "", True),
-        ("+", "", True),
-        ("", "", True),
-        ("*", "", True),
-        ("!@$", "", True),
+        ("_airbyte_meta", "_airbyte_meta", False, LowerCaseNormalizer),
+        ("Test_String", "test_string", False, LowerCaseNormalizer),
+        ("ANOTHER-TEST", "another_test", False, LowerCaseNormalizer),
+        ("another.test", "another_test", False, LowerCaseNormalizer),
+        ("sales(%)", "sales___", False, LowerCaseNormalizer),
+        ("something_-_-_-_else", "something_______else", False, LowerCaseNormalizer),
+        ("sales (%)", "sales____", False, LowerCaseNormalizer),
+        ("sales-%", "sales__", False, LowerCaseNormalizer),
+        ("sales(#)", "sales___", False, LowerCaseNormalizer),
+        ("sales (#)", "sales____", False, LowerCaseNormalizer),
+        ("sales--(#)", "sales_____", False, LowerCaseNormalizer),
+        ("sales-#", "sales__", False, LowerCaseNormalizer),
+        ("+1", "_1", False, LowerCaseNormalizer),
+        ("1", "_1", False, LowerCaseNormalizer),
+        ("2", "_2", False, LowerCaseNormalizer),
+        ("3", "_3", False, LowerCaseNormalizer),
+        ("-1", "_1", False, LowerCaseNormalizer),
+        ("+#$", "", True, LowerCaseNormalizer),
+        ("+", "", True, LowerCaseNormalizer),
+        ("", "", True, LowerCaseNormalizer),
+        ("*", "", True, LowerCaseNormalizer),
+        ("!@$", "", True, LowerCaseNormalizer),
+        ("some.col", "some_col", False, LowerCaseNormalizer),
+        # Check that the default normalizer doesn't truncate:
+        ("a" * 60, "a" * 60, False, LowerCaseNormalizer),
+        ("a" * 70, "a" * 70, False, LowerCaseNormalizer),
+        ("a" * 100, "a" * 100, False, LowerCaseNormalizer),
+        # Check that postgres normalizer truncates to 63 characters:
+        ("a" * 60, "a" * 60, False, PostgresNormalizer),
+        ("a" * 70, "a" * 63, False, PostgresNormalizer),
+        ("a" * 100, "a" * 63, False, PostgresNormalizer),
+        # Check that postgres also properly inherits special characters and casing:
+        ("Test.String", "test_string", False, PostgresNormalizer),
     ],
 )
 def test_lower_case_normalizer(
     raw_value,
     expected_result,
     should_raise,
+    normalizer_class,
 ):
-    normalizer = LowerCaseNormalizer()
-
+    normalizer = normalizer_class()
     if should_raise:
         with pytest.raises(exc.PyAirbyteNameNormalizationError):
             assert normalizer.normalize(raw_value) == expected_result

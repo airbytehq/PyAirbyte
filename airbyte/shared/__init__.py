@@ -8,7 +8,7 @@ TODO!: Add GitHub link here before merging.
 
 from __future__ import annotations
 
-from airbyte._future_cdk.sql_processor import SqlProcessorBase
+from airbyte.shared.sql_processor import SqlProcessorBase
 
 
 __all__ = [

@@ -11,6 +11,8 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from airbyte.constants import TEMP_DIR_OVERRIDE
+
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -23,10 +25,11 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
     try:
         for content in files_contents:
             use_json = isinstance(content, dict)
-            temp_file = tempfile.NamedTemporaryFile(
+            temp_file = tempfile.NamedTemporaryFile(  # noqa: SIM115  # Avoiding context manager
                 mode="w+t",
                 delete=False,
                 encoding="utf-8",
+                dir=TEMP_DIR_OVERRIDE or None,
                 suffix=".json" if use_json else ".txt",
             )
             temp_file.write(

@@ -16,12 +16,15 @@ import pytest
 import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
-from airbyte._future_cdk.sql_processor import SqlProcessorBase
+from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.local import PathExecutor
+from airbyte._executors.python import VenvExecutor
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
 from airbyte.results import ReadResult
+from airbyte.shared.sql_processor import SqlProcessorBase
 from airbyte.sources import registry
 from airbyte.version import get_version
 from sqlalchemy import column, text
@@ -127,6 +130,15 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             },
         ],
         "always-empty-stream": [],
+        "primary-key-with-dot": [
+            # Expect field names lowercase, with '.' replaced by '_':
+            {
+                "table1_column1": "value1",
+                "table1_column2": 1,
+                "table1_empty_column": None,
+                "table1_big_number": 1234567890123456,
+            }
+        ],
     }
 
 
@@ -137,7 +149,28 @@ def test_registry_get():
 
 
 def test_registry_list() -> None:
-    assert registry.get_available_connectors() == ["source-test"]
+    assert set(registry.get_available_connectors(install_type="docker")) == {
+        "source-test",
+        "source-docker-only",
+    }
+    assert registry.get_available_connectors(install_type="python") == [
+        "source-test",
+    ]
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=False,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+        }
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=True,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+            "source-docker-only",
+        }
 
 
 def test_list_streams(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
@@ -179,17 +212,28 @@ def test_source_yaml_spec():
     source = ab.get_source(
         "source-test", config={"apiKey": 1234}, install_if_missing=False
     )
+    assert isinstance(source.executor, VenvExecutor), "Expected VenvExecutor."
     assert source._yaml_spec.startswith("connectionSpecification:\n  $schema:")
 
 
 def test_non_existing_connector():
-    with pytest.raises(Exception):
+    with pytest.raises(exc.AirbyteConnectorNotRegisteredError):
         ab.get_source("source-not-existing", config={"apiKey": "abc"})
 
 
-def test_non_enabled_connector():
-    with pytest.raises(exc.AirbyteConnectorNotPyPiPublishedError):
-        ab.get_source("source-non-published", config={"apiKey": "abc"})
+def test_non_existing_connector_with_local_exe():
+    # We should not complain about the missing source if we provide a local executable
+    source = ab.get_source(
+        "source-not-existing",
+        local_executable=Path("dummy-exe-path"),
+        config={"apiKey": "abc"},
+    )
+    assert isinstance(source.executor, PathExecutor), "Expected PathExecutor."
+
+
+def test_docker_only_connector():
+    source = ab.get_source("source-docker-only", config={"apiKey": "abc"})
+    assert isinstance(source.executor, DockerExecutor), "Expected DockerExecutor."
 
 
 @pytest.mark.parametrize(
@@ -290,7 +334,7 @@ def test_file_write_and_cleanup() -> None:
 
     # There are three streams, but only two of them have data:
     assert (
-        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2
+        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 3
     ), "Expected files to exist"
 
     with suppress(Exception):
@@ -307,7 +351,9 @@ def test_sync_to_duckdb(
 
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(expected_test_stream_data, cache)
 
 
@@ -315,13 +361,18 @@ def test_read_result_mapping():
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
     result: ReadResult = source.read(ab.new_local_cache())
-    assert len(result) == 3
+    assert len(result) == 4
     assert isinstance(result, Mapping)
     assert "stream1" in result
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_dataset_list_and_len(expected_test_stream_data):
@@ -346,7 +397,12 @@ def test_dataset_list_and_len(expected_test_stream_data):
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_read_from_cache(
@@ -421,6 +477,10 @@ def test_merge_streams_in_cache(
     """
     Test that we can extend a cache with new streams
     """
+    expected_test_stream_data.pop(
+        "primary-key-with-dot"
+    )  # Stream not needed for this test.
+
     cache_name = str(ulid.ULID())
     source = ab.get_source("source-test", config={"apiKey": "test"})
     cache = ab.new_local_cache(cache_name)
@@ -517,7 +577,7 @@ def test_sync_with_merge_to_duckdb(
     result: ReadResult = source.read(cache)
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == 4
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -678,7 +738,10 @@ def test_lazy_dataset_from_source(
     for stream_name in source.get_available_streams():
         assert isinstance(stream_name, str)
 
-        lazy_dataset: LazyDataset = source.get_records(stream_name)
+        lazy_dataset: LazyDataset = source.get_records(
+            stream_name,
+            normalize_field_names=True,
+        )
         assert isinstance(lazy_dataset, LazyDataset)
 
         list_data = list(lazy_dataset)
@@ -721,7 +784,9 @@ def test_sync_with_merge_to_postgres(
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(
         expected_test_stream_data=expected_test_stream_data,
         cache=new_postgres_cache,
@@ -745,7 +810,9 @@ def test_sync_to_postgres(
 
     result: ReadResult = source.read(new_postgres_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -769,7 +836,9 @@ def test_sync_to_snowflake(
 
     result: ReadResult = source.read(new_snowflake_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -813,16 +882,10 @@ def test_failing_path_connector():
 def test_succeeding_path_connector(monkeypatch):
     venv_bin_path = str(get_bin_dir(Path(".venv-source-test")))
 
-    # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-
-    # Patch the PATH env var to include the test venv bin folder
-    monkeypatch.setenv("PATH", new_path)
-
     source = ab.get_source(
         "source-test",
         config={"apiKey": "test"},
-        local_executable="source-test",
+        local_executable=Path(venv_bin_path) / "source-test",
     )
     source.check()
 

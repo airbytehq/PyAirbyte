@@ -16,12 +16,20 @@ Regular documentation lives in the `/docs` folder. Based on the doc strings of p
 To generate the documentation, run:
 
 ```console
-poe generate-docs
+poe docs-generate
 ```
 
-or `poetry run poe generate-docs` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
+Or to build and open in one step:
 
-The `generate-docs` CLI command is mapped to the `run()` function of `docs/generate.py`.
+
+```console
+poe docs-preview
+```
+
+
+or `poetry run poe docs-preview` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
+
+The `docs-generate` Poe task is mapped to the `run()` function of `docs/generate.py`.
 
 Documentation pages will be generated in the `docs/generated` folder. The `test_docs.py` test in pytest will automatically update generated content. This updates must be manually committed before docs tests will pass.
 

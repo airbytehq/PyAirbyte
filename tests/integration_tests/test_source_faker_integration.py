@@ -59,13 +59,11 @@ def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_A,
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users", "products", "purchases"],
     )
     return source
@@ -76,13 +74,11 @@ def source_faker_seed_b() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_B,
             "seed": SEED_B,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users", "products", "purchases"],
     )
     return source
@@ -114,6 +110,7 @@ def all_cache_types(
     ]
 
 
+@pytest.mark.xfail(reason="Source is no longer auto-installed in virtualenv.")
 def test_which_source_faker() -> None:
     """Test that source-faker is available on PATH."""
     assert shutil.which(
@@ -133,8 +130,12 @@ def test_faker_pks(
     assert catalog.streams[1].primary_key
 
     read_result = source_faker_seed_a.read(duckdb_cache, write_strategy="append")
-    assert read_result.cache.processor._get_primary_keys("products") == ["id"]
-    assert read_result.cache.processor._get_primary_keys("purchases") == ["id"]
+    assert read_result.cache.processor.catalog_provider.get_primary_keys(
+        "products"
+    ) == ["id"]
+    assert read_result.cache.processor.catalog_provider.get_primary_keys(
+        "purchases"
+    ) == ["id"]
 
 
 @pytest.mark.slow

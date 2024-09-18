@@ -6,12 +6,11 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 from rich.syntax import Syntax
-from typing_extensions import Literal
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -25,7 +24,6 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
-from airbyte._future_cdk.catalog_providers import CatalogProvider
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
@@ -33,6 +31,7 @@ from airbyte.datasets._lazy import LazyDataset
 from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
+from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.strategies import WriteStrategy
 
 
@@ -43,10 +42,10 @@ if TYPE_CHECKING:
     from airbyte_protocol.models.airbyte_protocol import AirbyteStream
 
     from airbyte._executors.base import Executor
-    from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._future_cdk.state_writers import StateWriterBase
     from airbyte.caches import CacheBase
     from airbyte.documents import Document
+    from airbyte.shared.state_providers import StateProviderBase
+    from airbyte.shared.state_writers import StateWriterBase
 
 
 class Source(ConnectorBase):
@@ -406,8 +405,24 @@ class Source(ConnectorBase):
 
         return found[0].json_schema
 
-    def get_records(self, stream: str) -> LazyDataset:
+    def get_records(
+        self,
+        stream: str,
+        *,
+        normalize_field_names: bool = False,
+        prune_undeclared_fields: bool = True,
+    ) -> LazyDataset:
         """Read a stream from the connector.
+
+        Args:
+            stream: The name of the stream to read.
+            normalize_field_names: When `True`, field names will be normalized to lower case, with
+                special characters removed. This matches the behavior of PyAirbyte caches and most
+                Airbyte destinations.
+            prune_undeclared_fields: When `True`, undeclared fields will be pruned from the records,
+                which generally matches the behavior of PyAirbyte caches and most Airbyte
+                destinations, specifically when you expect the catalog may be stale. You can disable
+                this to keep all fields in the records.
 
         This involves the following steps:
         * Call discover to get the catalog
@@ -446,8 +461,8 @@ class Source(ConnectorBase):
 
         stream_record_handler = StreamRecordHandler(
             json_schema=self.get_stream_json_schema(stream),
-            prune_extra_fields=True,
-            normalize_keys=False,
+            prune_extra_fields=prune_undeclared_fields,
+            normalize_keys=normalize_field_names,
         )
 
         # This method is non-blocking, so we use "PLAIN" to avoid a live progress display
@@ -553,6 +568,7 @@ class Source(ConnectorBase):
                     "--state",
                     state_file,
                 ],
+                progress_tracker=progress_tracker,
             )
             yield from progress_tracker.tally_records_read(message_generator)
         progress_tracker.log_read_complete()
@@ -627,9 +643,9 @@ class Source(ConnectorBase):
             state_provider: StateProviderBase | None = None
         else:
             state_provider = cache.get_state_provider(
-                source_name=self.name,
+                source_name=self._name,
             )
-        state_writer = cache.get_state_writer(source_name=self.name)
+        state_writer = cache.get_state_writer(source_name=self._name)
 
         if streams:
             self.select_streams(streams)
@@ -718,23 +734,20 @@ class Source(ConnectorBase):
             if incremental_streams:
                 self._log_incremental_streams(incremental_streams=incremental_streams)
 
-        airbyte_message_iterator: Iterator[AirbyteMessage] = self._read_with_catalog(
-            catalog=catalog_provider.configured_catalog,
-            state=state_provider,
-            progress_tracker=progress_tracker,
+        airbyte_message_iterator = AirbyteMessageIterator(
+            self._read_with_catalog(
+                catalog=catalog_provider.configured_catalog,
+                state=state_provider,
+                progress_tracker=progress_tracker,
+            )
         )
-        cache_processor = cache.get_record_processor(
-            source_name=self.name,
+        cache._write_airbyte_message_stream(  # noqa: SLF001  # Non-public API
+            stdin=airbyte_message_iterator,
             catalog_provider=catalog_provider,
-            state_writer=state_writer,
-        )
-        cache_processor.process_airbyte_messages(
-            messages=airbyte_message_iterator,
             write_strategy=write_strategy,
+            state_writer=state_writer,
             progress_tracker=progress_tracker,
         )
-        progress_tracker.log_cache_processing_complete()
-
         return ReadResult(
             source_name=self.name,
             progress_tracker=progress_tracker,
