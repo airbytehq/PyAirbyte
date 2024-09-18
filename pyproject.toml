@@ -15,9 +15,9 @@ enable = true
 [tool.poetry.dependencies]
 python = ">=3.10,<4.0"
 
-airbyte-cdk = "^4.6.2"
-duckdb = "^1.0.0"
-duckdb-engine = "^0.13.0"
+airbyte-cdk = "^5.6.0"
+duckdb = "^1.1.0"
+duckdb-engine = "^0.13.2"
 google-auth = ">=2.27.0,<3.0"
 google-cloud-bigquery = ">=3.12.0,<4.0"
 google-cloud-secret-manager = "^2.17.0"
@@ -25,24 +25,22 @@ jsonschema = ">=3.2.0,<5.0"
 numpy = "<2.0"  # v2.0 causes "ValueError: numpy.dtype size changed" error
 orjson = "^3.10"
 overrides = "^7.4.0"
-pandas = ">=1.5.3,<=2.1.4"              # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
+pandas = ">=2.2.0"
 pendulum = "<=3.0.0"
 psycopg2-binary = "^2.9.9"
-# psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
-# Psycopg3 is not supported in SQLAlchemy 1.x:
+psycopg = {extras = ["binary", "pool"], version = "^3.2.2"}
 pyarrow = "^16.1.0"
 pydantic = ">=2.0,<=3.0"
 python-dotenv = "^1.0.1"
 python-ulid = "^2.2.0"
 requests = "<=2.31.0"  # 3.32.0 breaks docker tests
 rich = "^13.7.0"
-snowflake-connector-python = "^3.10.0"
-snowflake-sqlalchemy = "^1.5.1"
+snowflake-connector-python = "^3.12.2"
+snowflake-sqlalchemy = "^1.6.1"
 sqlalchemy = "1.4.51"
 types-pyyaml = "^6.0.12.12"
 
-# TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
-sqlalchemy-bigquery = { version = "1.11.0", python = "<3.13" }
+sqlalchemy-bigquery = "1.11.0"
 airbyte-api = "^0.49.2"
 google-cloud-bigquery-storage = "^2.25.0"
 pyiceberg = "^0.6.1"
@@ -51,9 +49,9 @@ grpcio = "<=1.65.0"  # Restricted due to spammy logging: https://github.com/grpc
 structlog = "^24.4.0"
 
 [tool.poetry.group.dev.dependencies]
-docker = "^7.0.0"
+docker = "^7.1.0"
 faker = "^21.0.0"
-mypy = "^1.7.1"
+mypy = "^1.11.2"
 pandas-stubs = "^2.1.4.231218"
 pdoc = "^14.3.0"
 pytest = "^8.2.0"
