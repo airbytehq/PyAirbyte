@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from overrides import overrides
 from sqlalchemy import and_, func, select, text
 
-from airbyte_protocol_dataclasses.models import ConfiguredAirbyteStream
+from airbyte_protocol.models import ConfiguredAirbyteStream
 
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.datasets._base import DatasetBase
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql import ClauseElement
     from sqlalchemy.sql.selectable import Selectable
 
-    from airbyte_protocol_dataclasses.models import ConfiguredAirbyteStream
+    from airbyte_protocol.models import ConfiguredAirbyteStream
 
     from airbyte.caches.base import CacheBase
 

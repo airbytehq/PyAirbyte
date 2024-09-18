@@ -12,7 +12,7 @@ import ulid
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
 from airbyte.shared.state_writers import StateWriterBase
-from airbyte_protocol_dataclasses import models
+from airbyte_protocol import models
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100

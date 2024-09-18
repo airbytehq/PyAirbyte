@@ -13,7 +13,7 @@ import rich
 import yaml
 from rich.syntax import Syntax
 
-from airbyte_protocol_dataclasses.models import (
+from airbyte_protocol.models import (
     AirbyteMessage,
     ConnectorSpecification,
     Status,

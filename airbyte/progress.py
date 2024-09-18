@@ -33,7 +33,7 @@ from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
-from airbyte_protocol_dataclasses.models import (
+from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteStreamStatus,
     Type,

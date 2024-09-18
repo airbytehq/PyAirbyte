@@ -12,7 +12,7 @@ from sqlalchemy import Column, DateTime, PrimaryKeyConstraint, String, and_
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import Session
 
-from airbyte_protocol_dataclasses.models import (
+from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
 )

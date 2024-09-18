@@ -12,7 +12,7 @@ import pendulum
 import pydantic
 from typing_extensions import final
 
-from airbyte_protocol_dataclasses.models import (
+from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStreamStatus,

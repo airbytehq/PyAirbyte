@@ -9,7 +9,7 @@ from __future__ import annotations
 import warnings
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
-from airbyte_protocol_dataclasses.models import (
+from airbyte_protocol.models import (
     Type,
 )
 

@@ -86,6 +86,20 @@ files = [
 ]
 
 [[package]]
+name = "airbyte-protocol-models-pdv2"
+version = "0.13.0"
+description = "Declares the Airbyte Protocol."
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "airbyte_protocol_models_pdv2-0.13.0-py3-none-any.whl", hash = "sha256:f98aa0e483c505457b4dfbda5502111a3cf0f8d17a27087255b5e44595edde5f"},
+    {file = "airbyte_protocol_models_pdv2-0.13.0.tar.gz", hash = "sha256:44a70edd27b79e58ff753460307245a73a4c7fa453bd97c3a0caca995847876e"},
+]
+
+[package.dependencies]
+pydantic = ">=2.7.2,<3.0.0"
+
+[[package]]
 name = "annotated-types"
 version = "0.7.0"
 description = "Reusable constraint types to use with typing.Annotated"
@@ -1428,8 +1442,8 @@ files = [
 httpx = ">=0.23.0,<1"
 orjson = ">=3.9.14,<4.0.0"
 pydantic = [
-    {version = ">=1,<3", markers = "python_full_version < \"3.12.4\""},
     {version = ">=2.7.4,<3.0.0", markers = "python_full_version >= \"3.12.4\""},
+    {version = ">=1,<3", markers = "python_full_version < \"3.12.4\""},
 ]
 requests = ">=2,<3"
 
@@ -1866,8 +1880,8 @@ files = [
 
 [package.dependencies]
 numpy = [
-    {version = ">=1.23.2,<2", markers = "python_version == \"3.11\""},
     {version = ">=1.26.0,<2", markers = "python_version >= \"3.12\""},
+    {version = ">=1.23.2,<2", markers = "python_version == \"3.11\""},
     {version = ">=1.22.4,<2", markers = "python_version < \"3.11\""},
 ]
 python-dateutil = ">=2.8.2"
@@ -2274,8 +2288,8 @@ files = [
 annotated-types = ">=0.6.0"
 pydantic-core = "2.23.4"
 typing-extensions = [
-    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
     {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
+    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
 ]
 
 [package.extras]
@@ -3847,4 +3861,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<4.0"
-content-hash = "f41edfffc1484025668eb7ee5f70e7a0e97b56bdbd57976a3516e611fe6c62d9"
+content-hash = "293c9c34c11e523f35cf945e9a06156091497c2441ced817d016acad64dfb7e0"

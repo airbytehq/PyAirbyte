@@ -86,7 +86,7 @@ from airbyte.constants import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte_protocol_dataclasses.models import (
+    from airbyte_protocol.models import (
         AirbyteRecordMessage,
     )
 

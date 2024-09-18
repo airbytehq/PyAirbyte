@@ -11,7 +11,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 
-from airbyte_protocol_dataclasses.models import ConfiguredAirbyteCatalog
+from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
 from airbyte import constants
 from airbyte._writers.base import AirbyteWriterInterface
