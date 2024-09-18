@@ -15,7 +15,7 @@ from pathlib import Path
 
 import airbyte
 import docker
-import psycopg2 as psycopg
+import psycopg
 import pytest
 import ulid
 from _pytest.nodes import Item
