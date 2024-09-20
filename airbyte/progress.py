@@ -36,7 +36,6 @@ from rich.markdown import Markdown as RichMarkdown
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteStreamStatus,
-    Type,
 )
 
 from airbyte import logs
