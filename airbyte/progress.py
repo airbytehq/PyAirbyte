@@ -422,7 +422,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """Log that a stream has started reading."""
         if stream_name not in self.stream_read_start_times:
             self._print_info_message(
-                f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
+                f"Read started on stream `{stream_name}` at "
+                f"`{pendulum.now().format('HH:mm:ss')}`..."
             )
             self.stream_read_start_times[stream_name] = time.time()
 
