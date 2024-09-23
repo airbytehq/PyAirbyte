@@ -18,6 +18,7 @@ from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.constants import TEMP_DIR_OVERRIDE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
@@ -51,12 +52,16 @@ def _try_get_source_manifest(
 
     # If manifest URL was provided, we'll use the default URL from the public GCS bucket.
 
+    cleaned_version = (version or VERSION_LATEST).removeprefix("v")
     manifest_url = manifest_url or DEFAULT_MANIFEST_URL.format(
         source_name=source_name,
-        version=(version or VERSION_LATEST).removeprefix("v"),
+        version=cleaned_version,
     )
 
-    response = requests.get(url=manifest_url)
+    response = requests.get(
+        url=manifest_url,
+        headers={"User-Agent": f"PyAirbyte/{get_version()}"},
+    )
     response.raise_for_status()  # Raise HTTPError exception if the download failed
     try:
         return cast(dict, yaml.safe_load(response.text))
