@@ -14,6 +14,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 from overrides import overrides
 from pydantic import Field
+from sqlalchemy import types as sqlalchemy_types
 from sqlalchemy.engine import make_url
 
 from airbyte import exceptions as exc
@@ -98,7 +99,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
     @classmethod
     def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
         """Return the string type for BigQuery."""
-        return "String"
+        return sqlalchemy.types.String(length=None)  # Consider using an explicit max length
 
     @overrides
     def to_sql_type(
@@ -115,9 +116,9 @@ class BigQueryTypeConverter(SQLTypeConverter):
         if isinstance(sql_type, sqlalchemy.types.VARCHAR):
             return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
-            return "INT64"
+            return sqlalchemy_types.Integer()
 
-        return sql_type.__class__.__name__
+        return sql_type
 
 
 class BigQuerySqlProcessor(SqlProcessorBase):

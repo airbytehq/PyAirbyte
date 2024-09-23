@@ -849,7 +849,7 @@ class SqlProcessorBase(abc.ABC):
                 schema=self.sql_config.schema_name,
                 if_exists="append",
                 index=False,
-                dtype=sql_column_definitions,
+                dtype=sql_column_definitions,  # type: ignore[arg-type]
             )
         return temp_table_name
 
