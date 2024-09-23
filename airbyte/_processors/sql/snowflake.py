@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from textwrap import dedent, indent
+from textwrap import indent
 from typing import TYPE_CHECKING
 
 import sqlalchemy

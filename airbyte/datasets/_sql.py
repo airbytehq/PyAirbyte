@@ -7,7 +7,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from overrides import overrides
-from sqlalchemy import and_, func, select, text
+from sqlalchemy import Selectable, and_, func, select, text
 
 from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
 
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from pyarrow.dataset import Dataset
     from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
-    from sqlalchemy.sql.selectable import Selectable
 
     from airbyte_protocol.models import ConfiguredAirbyteStream
 
@@ -94,7 +93,7 @@ class SQLDataset(DatasetBase):
         This method caches the length of the dataset after the first call.
         """
         if self._length is None:
-            count_query = select(func.count()).select_from(self._query_statement.alias())
+            count_query = select(func.count()).select_from(self._query_statement.subquery())
             with self._cache.processor.get_sql_connection() as conn:
                 self._length = conn.execute(count_query).scalar()
 

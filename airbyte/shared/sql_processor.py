@@ -28,7 +28,6 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.sql.elements import TextClause
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -63,6 +62,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
     from sqlalchemy.sql.base import Executable
+    from sqlalchemy.sql.elements import TextClause
     from sqlalchemy.sql.type_api import TypeEngine
 
     from airbyte._batch_handles import BatchHandle

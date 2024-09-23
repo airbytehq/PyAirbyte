@@ -277,7 +277,7 @@ class SyncResult:
 
     def get_sql_engine(self) -> sqlalchemy.engine.Engine:
         """Return a SQL Engine for querying a SQL-based destination."""
-        self.get_sql_cache().get_sql_engine()
+        return self.get_sql_cache().get_sql_engine()
 
     def get_sql_table_name(self, stream_name: str) -> str:
         """Return the SQL table name of the named stream."""
@@ -288,7 +288,7 @@ class SyncResult:
         stream_name: str,
     ) -> sqlalchemy.Table:
         """Return a SQLAlchemy table object for the named stream."""
-        self.get_sql_cache().processor.get_sql_table(stream_name)
+        return self.get_sql_cache().processor.get_sql_table(stream_name)
 
     def get_dataset(self, stream_name: str) -> CachedDataset:
         """Retrieve an `airbyte.datasets.CachedDataset` object for a given stream name.
