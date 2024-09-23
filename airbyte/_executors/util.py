@@ -38,7 +38,7 @@ def _try_get_source_manifest(
 ) -> dict:
     """Try to get a source manifest from a URL.
 
-    If the URL is not provided, we'll try the default URL in the public GCS bucket.
+    If the URL is not provided, we'll try the default URL in the Airbyte registry.
 
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
@@ -50,7 +50,7 @@ def _try_get_source_manifest(
             message="Param 'source_name' is required.",
         )
 
-    # If manifest URL was provided, we'll use the default URL from the public GCS bucket.
+    # If manifest URL was provided, we'll use the default URL from the Airbyte registry.
 
     cleaned_version = (version or VERSION_LATEST).removeprefix("v")
     manifest_url = manifest_url or DEFAULT_MANIFEST_URL.format(
