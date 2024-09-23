@@ -42,6 +42,7 @@ def _try_get_source_manifest(
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
         - `HTTPError`: If fetching the URL was unsuccessful.
+        - `YAMLError`: If parsing the YAML failed.
     """
     if source_name is None:
         raise exc.PyAirbyteInputError(
