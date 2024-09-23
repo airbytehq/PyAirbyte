@@ -16,7 +16,7 @@ from airbyte.results import ReadResult, WriteResult
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
-from airbyte_cdk import AirbyteMessage, AirbyteRecordMessage, Type
+from airbyte_protocol.models import AirbyteMessage, AirbyteRecordMessage, Type
 
 
 @pytest.fixture
