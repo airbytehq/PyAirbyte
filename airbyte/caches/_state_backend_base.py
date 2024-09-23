@@ -7,7 +7,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING
 
-from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
+from airbyte_protocol.models import AirbyteStreamState
 
 
 if TYPE_CHECKING:

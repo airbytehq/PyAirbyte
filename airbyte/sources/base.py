@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
     from airbyte_cdk import ConnectorSpecification
-    from airbyte_protocol.models.airbyte_protocol import AirbyteStream
+    from airbyte_protocol.models import AirbyteStream
 
     from airbyte._executors.base import Executor
     from airbyte.caches import CacheBase

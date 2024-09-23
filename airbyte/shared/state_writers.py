@@ -11,7 +11,7 @@ from airbyte.shared.state_providers import StateProviderBase
 
 
 if TYPE_CHECKING:
-    from airbyte_protocol.models.airbyte_protocol import AirbyteStateMessage
+    from airbyte_protocol.models import AirbyteStateMessage
 
 
 class StateWriterBase(StateProviderBase, abc.ABC):

@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Literal
 from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
+    AirbyteStreamState,
 )
-from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
 
 from airbyte import exceptions as exc
 

@@ -12,7 +12,7 @@ from airbyte.progress import (
     _get_elapsed_time_str,
     _to_time_str,
 )
-from airbyte_cdk import AirbyteMessage, AirbyteRecordMessage, Type
+from airbyte_protocol.models import AirbyteMessage, AirbyteRecordMessage, Type
 from dateutil.tz import tzlocal
 from freezegun import freeze_time
 from rich.errors import LiveError
