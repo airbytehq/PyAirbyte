@@ -12,6 +12,7 @@ from overrides import overrides
 from pydantic import Field
 from snowflake import connector
 from snowflake.sqlalchemy import URL, VARIANT
+from sqlalchemy import text
 
 from airbyte import exceptions as exc
 from airbyte._writers.jsonl import JsonlWriter
@@ -146,8 +147,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
         variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
-        copy_statement = dedent(
-            f"""
+        copy_statement = f"""
             COPY INTO {temp_table_name}
             (
                 {columns_list_str}
@@ -160,8 +160,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
             FILE_FORMAT = ( TYPE = JSON, COMPRESSION = GZIP )
             ;
             """
-        )
-        self._execute_sql(copy_statement)
+        self._execute_sql(text(copy_statement))
         return temp_table_name
 
     @overrides
@@ -175,9 +174,11 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         This also sets MULTI_STATEMENT_COUNT to 0, which allows multi-statement commands.
         """
         connection.execute(
-            """
-            ALTER SESSION SET
-            QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE
-            MULTI_STATEMENT_COUNT = 0
-            """
+            text(
+                """
+                ALTER SESSION SET
+                QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE
+                MULTI_STATEMENT_COUNT = 0
+                """
+            )
         )

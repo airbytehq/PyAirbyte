@@ -94,7 +94,7 @@ class SQLDataset(DatasetBase):
         This method caches the length of the dataset after the first call.
         """
         if self._length is None:
-            count_query = select([func.count()]).select_from(self._query_statement.alias())
+            count_query = select(func.count()).select_from(self._query_statement.alias())
             with self._cache.processor.get_sql_connection() as conn:
                 self._length = conn.execute(count_query).scalar()
 
