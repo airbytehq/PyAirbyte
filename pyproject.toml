@@ -90,8 +90,6 @@ markers = [
 filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Treat python warnings as errors in pytest
     "error",
-    # TODO: Remove these ignores once we are able to fix the warnings:
-    "ignore::sqlalchemy.exc.MovedIn20Warning",
     # Snowflake reregisters its functions, which is fine.
     "ignore::sqlalchemy.exc.SAWarning",  # "GenericFunction is already registered and is going to be overridden.""
     # Ignore these, specifically on Windows because of file cleanup and locking issues:
