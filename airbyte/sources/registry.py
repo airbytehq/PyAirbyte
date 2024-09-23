@@ -235,7 +235,8 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
     registry_url = _get_registry_url()
     if registry_url.startswith("http"):
         response = requests.get(
-            registry_url, headers={"User-Agent": f"airbyte-lib-{get_version()}"}
+            registry_url,
+            headers={"User-Agent": f"PyAirbyte/{get_version()}"},
         )
         response.raise_for_status()
         data = response.json()
