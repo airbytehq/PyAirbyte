@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING
 
 from pytz import utc
 from sqlalchemy import Column, DateTime, PrimaryKeyConstraint, String, and_
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 from airbyte_protocol.models import (
     AirbyteStateMessage,
@@ -39,11 +38,11 @@ LEGACY_STATE_STREAM_NAME = "_LEGACY"
 GLOBAL_STATE_STREAM_NAMES = [GLOBAL_STATE_STREAM_NAME, LEGACY_STATE_STREAM_NAME]
 
 
-SqlAlchemyModel = declarative_base()
+SqlAlchemyModel: type = declarative_base()
 """A base class to use for SQLAlchemy ORM models."""
 
 
-class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,misc]
+class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
     """A SQLAlchemy ORM model to store state metadata for internal caches."""
 
     __tablename__ = CACHE_STATE_TABLE_NAME
@@ -66,7 +65,7 @@ class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     """The last time the state was updated."""
 
 
-class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,misc]
+class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
     """A SQLAlchemy ORM model to store state metadata for destinations.
 
     This is a separate table from the cache state table. The destination state table
@@ -127,7 +126,7 @@ class SqlStateWriter(StateWriterBase):
             stream_name = GLOBAL_STATE_STREAM_NAME
         if state_message.type == AirbyteStateType.LEGACY:
             stream_name = LEGACY_STATE_STREAM_NAME
-        elif state_message.type == AirbyteStateType.STREAM:
+        elif state_message.type == AirbyteStateType.STREAM and state_message.stream:
             stream_name = state_message.stream.stream_descriptor.name
         else:
             raise PyAirbyteInternalError(
@@ -199,7 +198,7 @@ class SqlStateBackend(StateBackendBase):
     def _ensure_internal_tables(self) -> None:
         """Ensure the internal tables exist in the SQL database."""
         engine = self._engine
-        SqlAlchemyModel.metadata.create_all(engine)
+        SqlAlchemyModel.metadata.create_all(engine)  # type: ignore[attr-defined]
 
     def get_state_provider(
         self,

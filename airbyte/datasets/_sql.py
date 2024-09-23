@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from pyarrow.dataset import Dataset
     from sqlalchemy import Table
     from sqlalchemy.sql import ClauseElement
-    from sqlalchemy.sql.selectable import Selectable
+    from sqlalchemy.sql.expression import Select
 
     from airbyte_protocol.models import ConfiguredAirbyteStream
 
@@ -40,7 +40,7 @@ class SQLDataset(DatasetBase):
         self,
         cache: CacheBase,
         stream_name: str,
-        query_statement: Selectable,
+        query_statement: Select,
         stream_configuration: ConfiguredAirbyteStream | None | Literal[False] = None,
     ) -> None:
         """Initialize the dataset with a cache, stream name, and query statement.
@@ -60,7 +60,7 @@ class SQLDataset(DatasetBase):
         self._length: int | None = None
         self._cache: CacheBase = cache
         self._stream_name: str = stream_name
-        self._query_statement: Selectable = query_statement
+        self._query_statement: Select = query_statement
         if stream_configuration is None:
             try:
                 stream_configuration = cache.processor.catalog_provider.get_configured_stream_info(
@@ -72,8 +72,8 @@ class SQLDataset(DatasetBase):
                     stacklevel=2,
                 )
 
-            # Coalesce False to None
-            stream_configuration = stream_configuration or None
+        # Coalesce False to None
+        stream_configuration = stream_configuration or None
 
         super().__init__(stream_metadata=stream_configuration)
 
@@ -94,11 +94,11 @@ class SQLDataset(DatasetBase):
         This method caches the length of the dataset after the first call.
         """
         if self._length is None:
-            count_query = select([func.count()]).select_from(self._query_statement.alias())
+            count_query = select(func.count()).select_from(self._query_statement.subquery())
             with self._cache.processor.get_sql_connection() as conn:
                 self._length = conn.execute(count_query).scalar()
 
-        return self._length
+        return cast(int, self._length)
 
     def to_pandas(self) -> DataFrame:
         return self._cache.get_pandas_dataframe(self._stream_name)

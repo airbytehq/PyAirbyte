@@ -17,6 +17,7 @@ import airbyte as ab
 import pytest
 from airbyte import get_source
 from airbyte._util.venv_util import get_bin_dir
+from sqlalchemy import text
 from viztracer import VizTracer
 
 # Product count is always the same, regardless of faker scale.
@@ -246,10 +247,13 @@ def test_auto_add_columns(
 
     # Ensure that the raw ID column is present. Then delete it and confirm it's gone.
     assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
-    new_generic_cache.get_sql_engine().execute(
-        f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
-        "DROP COLUMN _airbyte_raw_id",
-    )
+    with new_generic_cache.processor.get_sql_connection() as conn:
+        conn.execute(
+            text(
+                f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
+                "DROP COLUMN _airbyte_raw_id"
+            ),
+        )
     new_generic_cache.processor._invalidate_table_cache(table_name)
 
     assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns
