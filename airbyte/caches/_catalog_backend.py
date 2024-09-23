@@ -13,8 +13,7 @@ import json
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 from airbyte_protocol.models import (
     AirbyteStream,
