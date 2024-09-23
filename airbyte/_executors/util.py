@@ -26,8 +26,7 @@ if TYPE_CHECKING:
 
 VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
-    "https://storage.googleapis.com/prod-airbyte-cloud-connector-metadata-service/"
-    "metadata/airbyte/{source_name}/{version}/manifest.yaml"
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
 )
 
 
