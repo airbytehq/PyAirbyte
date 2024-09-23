@@ -2,23 +2,21 @@
 """Fixtures for integration tests."""
 
 from __future__ import annotations
-from contextlib import suppress
-import os
 
+import os
+from contextlib import suppress
+
+import airbyte as ab
 import pytest
 import ulid
-from sqlalchemy import create_engine
-
 from airbyte._util import meta
+from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
 from airbyte.secrets import GoogleGSMSecretManager, SecretHandle
-from airbyte._util.temp_files import as_temp_files
-
-import airbyte as ab
-
+from sqlalchemy import create_engine, text
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
@@ -92,9 +90,12 @@ def new_snowflake_cache(snowflake_creds: dict):
 
     yield config
 
-    engine = create_engine(config.get_sql_alchemy_url())
-    with engine.begin() as connection:
-        connection.execute(f"DROP SCHEMA IF EXISTS {config.schema_name}")
+    engine = create_engine(
+        config.get_sql_alchemy_url(),
+        future=True,
+    )
+    with engine.connect() as connection:
+        connection.execute(text(f"DROP SCHEMA IF EXISTS {config.schema_name}"))
 
 
 @pytest.fixture
@@ -114,10 +115,13 @@ def new_bigquery_cache(ci_secret_manager: GoogleGSMSecretManager):
         yield cache
 
         url = cache.get_sql_alchemy_url()
-        engine = create_engine(url)
+        engine = create_engine(
+            url,
+            future=True,
+        )
         with suppress(Exception):
             with engine.begin() as connection:
-                connection.execute(f"DROP SCHEMA IF EXISTS {cache.schema_name}")
+                connection.execute(text(f"DROP SCHEMA IF EXISTS {cache.schema_name}"))
 
 
 @pytest.fixture(autouse=True, scope="session")

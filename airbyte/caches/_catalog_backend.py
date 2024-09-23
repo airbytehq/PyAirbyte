@@ -13,8 +13,7 @@ import json
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 from airbyte_protocol.models import (
     AirbyteStream,
@@ -127,7 +126,7 @@ class SqlCatalogBackend(CatalogBackendBase):
 
     def _ensure_internal_tables(self) -> None:
         engine = self._engine
-        SqlAlchemyModel.metadata.create_all(engine)
+        SqlAlchemyModel.metadata.create_all(engine)  # type: ignore[attr-defined]
 
     def register_source(
         self,
@@ -232,7 +231,7 @@ class SqlCatalogBackend(CatalogBackendBase):
             ConfiguredAirbyteStream(
                 stream=AirbyteStream(
                     name=stream.stream_name,
-                    json_schema=json.loads(stream.catalog_metadata),
+                    json_schema=json.loads(stream.catalog_metadata),  # type: ignore[arg-type]
                     supported_sync_modes=[SyncMode.full_refresh],
                 ),
                 sync_mode=SyncMode.full_refresh,

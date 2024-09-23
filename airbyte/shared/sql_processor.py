@@ -28,7 +28,6 @@ from sqlalchemy import (
     text,
     update,
 )
-from sqlalchemy.sql.elements import TextClause
 
 from airbyte_protocol.models import (
     AirbyteMessage,
@@ -63,6 +62,7 @@ if TYPE_CHECKING:
     from sqlalchemy.engine.cursor import CursorResult
     from sqlalchemy.engine.reflection import Inspector
     from sqlalchemy.sql.base import Executable
+    from sqlalchemy.sql.elements import TextClause
     from sqlalchemy.sql.type_api import TypeEngine
 
     from airbyte._batch_handles import BatchHandle
@@ -132,6 +132,7 @@ class SqlConfig(BaseModel, abc.ABC):
             execution_options={
                 "schema_translate_map": {None: self.schema_name},
             },
+            future=True,
         )
 
     def get_vendor_client(self) -> object:
@@ -782,10 +783,6 @@ class SqlProcessorBase(abc.ABC):
         """Execute the given SQL statement."""
         if isinstance(sql, str):
             sql = text(sql)
-        if isinstance(sql, TextClause):
-            sql = sql.execution_options(
-                autocommit=True,
-            )
 
         with self.get_sql_connection() as conn:
             try:
@@ -852,7 +849,7 @@ class SqlProcessorBase(abc.ABC):
                 schema=self.sql_config.schema_name,
                 if_exists="append",
                 index=False,
-                dtype=sql_column_definitions,
+                dtype=sql_column_definitions,  # type: ignore[arg-type]
             )
         return temp_table_name
 
@@ -1117,7 +1114,7 @@ class SqlProcessorBase(abc.ABC):
 
         # Select records from temp_table that are not in final_table
         select_new_records_stmt = (
-            select([temp_table]).select_from(joined_table).where(where_not_exists_clause)
+            select(temp_table).select_from(joined_table).where(where_not_exists_clause)
         )
 
         # Craft the INSERT statement using the select statement
