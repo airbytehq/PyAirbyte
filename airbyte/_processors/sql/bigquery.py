@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, final
+from typing import TYPE_CHECKING, cast, final
 
 import google.oauth2
 import sqlalchemy
@@ -99,7 +99,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
     @classmethod
     def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
         """Return the string type for BigQuery."""
-        return sqlalchemy.types.String(length=None)  # Consider using an explicit max length
+        return cast(sqlalchemy.types.TypeEngine, "String")  # BigQuery uses STRING for all strings
 
     @overrides
     def to_sql_type(
@@ -116,7 +116,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
         if isinstance(sql_type, sqlalchemy.types.VARCHAR):
             return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
-            return sqlalchemy_types.Integer()
+            return sqlalchemy_types.Integer()  # All integers are 64-bit in BigQuery
 
         return sql_type
 
