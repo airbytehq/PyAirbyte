@@ -28,9 +28,10 @@ from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
+from airbyte.destinations.base import Destination
 from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
-from airbyte.results import ReadResult
+from airbyte.results import ReadResult, WriteResult
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.strategies import WriteStrategy
 
@@ -376,6 +377,10 @@ class Source(ConnectorBase):
                     destination_sync_mode=DestinationSyncMode.overwrite,
                     primary_key=stream.source_defined_primary_key,
                     sync_mode=SyncMode.incremental,
+                    cursor_field=stream.default_cursor_field,
+                    generation_id=0,
+                    minimum_generation_id=0,
+                    sync_id=0,
                 )
                 for stream in self.discovered_catalog.streams
                 if stream.name in selected_streams
@@ -605,17 +610,20 @@ class Source(ConnectorBase):
 
     def read(
         self,
-        cache: CacheBase | None = None,
+        to: CacheBase | Destination | None = None,
         *,
+        cache: CacheBase | Literal[False] | None = None,
         streams: str | list[str] | None = None,
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
         skip_validation: bool = False,
-    ) -> ReadResult:
+    ) -> ReadResult | WriteResult:
         """Read from the connector and write to the cache.
 
         Args:
-            cache: The cache to write to. If not set, a default cache will be used.
+            to: The cache or destination to write to. You may set this or `cache`, but not both.
+            cache: The cache to write to. If not set, and if `to` is omitted, a default cache will
+                be used.
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
@@ -630,11 +638,62 @@ class Source(ConnectorBase):
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
         """
-        cache = cache or get_default_cache()
+        if to and cache:
+            raise exc.PyAirbyteInputError(
+                message="Both 'to' and 'cache' arguments are set.",
+                context={
+                    "to": to,
+                    "cache": cache,
+                },
+            )
+        if not to and cache is False:
+            raise exc.PyAirbyteInputError(
+                message="If 'to' is not set, then 'cache' must not be `False`.",
+                context={
+                    "to": to,
+                    "cache": cache,
+                },
+            )
+
+        destination: Destination | None = to if isinstance(to, Destination) else None
+        cache = to if isinstance(to, CacheBase) else cache
+
+        if streams:
+            self.select_streams(streams)
+
+        if not self._selected_stream_names:
+            raise exc.PyAirbyteNoStreamsSelectedError(
+                connector_name=self.name,
+                available_streams=self.get_available_streams(),
+            )
+
+        if isinstance(write_strategy, str):
+            try:
+                write_strategy = WriteStrategy(write_strategy)
+            except ValueError:
+                raise exc.PyAirbyteInputError(
+                    message="Invalid write strategy",
+                    context={
+                        "write_strategy": write_strategy,
+                        "available_strategies": [s.value for s in WriteStrategy],
+                    },
+                ) from None
+
+        if destination:
+            return destination.write(
+                source_data=self,
+                cache=cache,
+                streams=self._selected_stream_names,
+                write_strategy=write_strategy,
+                force_full_refresh=force_full_refresh,
+            )
+
+        assert cache, "Cache must be set or default cache must be used."
+
         progress_tracker = ProgressTracker(
             source=self,
-            cache=cache,
-            destination=None,
+            cache=cache or None,
+            destination=destination,
             expected_streams=None,  # Will be set later
         )
 
@@ -646,15 +705,6 @@ class Source(ConnectorBase):
                 source_name=self._name,
             )
         state_writer = cache.get_state_writer(source_name=self._name)
-
-        if streams:
-            self.select_streams(streams)
-
-        if not self._selected_stream_names:
-            raise exc.PyAirbyteNoStreamsSelectedError(
-                connector_name=self.name,
-                available_streams=self.get_available_streams(),
-            )
 
         try:
             result = self._read_to_cache(
