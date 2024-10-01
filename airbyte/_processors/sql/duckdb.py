@@ -163,16 +163,22 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         self._execute_sql(insert_statement)
         return temp_table_name
 
-    def _close_connection(
+    def _do_checkpoint(
         self,
-        connection: Connection,
+        connection: Connection | None,
     ) -> None:
-        """Close the given connection.
+        """Checkpoint the given connection.
 
-        We override this method to ensure that the DuckDB WAL is checkpointed before closing.
+        We override this method to ensure that the DuckDB WAL is checkpointed explicitly.
+        Otherwise DuckDB will lazily flush the WAL to disk, which can cause issues for users
+        who want to manipulate the DB files after writing them.
 
         For more info:
         - https://duckdb.org/docs/sql/statements/checkpoint.html
         """
-        connection.execute(text("CHECKPOINT"))
-        super()._close_connection(connection)
+        if connection is not None:
+            connection.execute(text("CHECKPOINT"))
+            return
+
+        with self.get_sql_connection() as new_conn:
+            new_conn.execute(text("CHECKPOINT"))

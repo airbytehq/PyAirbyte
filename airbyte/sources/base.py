@@ -748,6 +748,10 @@ class Source(ConnectorBase):
             state_writer=state_writer,
             progress_tracker=progress_tracker,
         )
+
+        # Flush the WAL, if applicable
+        cache.processor._do_checkpoint()  # noqa: SLF001  # Non-public API
+
         return ReadResult(
             source_name=self.name,
             progress_tracker=progress_tracker,

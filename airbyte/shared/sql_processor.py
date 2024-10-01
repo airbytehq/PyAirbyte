@@ -346,6 +346,19 @@ class SqlProcessorBase(abc.ABC):
         """
         pass
 
+    def _do_checkpoint(  # noqa: B027  # Intentionally empty, not abstract
+        self,
+        connection: Connection | None,
+    ) -> None:
+        """Checkpoint the given connection.
+
+        If the WAL log needs to be, it will be flushed.
+
+        For most SQL databases, this is a no-op. However, it exists so that
+        subclasses can override this method to perform a checkpoint operation.
+        """
+        pass
+
     # Public interface:
 
     @property
@@ -368,17 +381,6 @@ class SqlProcessorBase(abc.ABC):
         """Return a new SQL engine to use."""
         return self.sql_config.get_sql_engine()
 
-    def _close_connection(
-        self,
-        connection: Connection,
-    ) -> None:
-        """Close the given connection.
-
-        Subclasses can override this method to perform additional cleanup, such
-        as WAL checkpointing.
-        """
-        connection.close()
-
     @contextmanager
     def get_sql_connection(self) -> Generator[sqlalchemy.engine.Connection, None, None]:
         """A context manager which returns a new SQL connection for running queries.
@@ -389,7 +391,6 @@ class SqlProcessorBase(abc.ABC):
             self._init_connection_settings(connection)
             yield connection
 
-        self._close_connection(connection)
         del connection
 
     def get_sql_table_name(
