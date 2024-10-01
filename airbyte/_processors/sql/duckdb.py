@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
+from sqlalchemy import text
 
 from airbyte._writers.jsonl import JsonlWriter
 from airbyte.secrets.base import SecretString
@@ -19,7 +20,7 @@ from airbyte.shared.sql_processor import SqlConfig
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    from sqlalchemy.engine import Connection, Engine
 
 
 # @dataclass
@@ -161,3 +162,17 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         )
         self._execute_sql(insert_statement)
         return temp_table_name
+
+    def _close_connection(
+        self,
+        connection: Connection,
+    ) -> None:
+        """Close the given connection.
+
+        We override this method to ensure that the DuckDB WAL is checkpointed before closing.
+
+        For more info:
+        - https://duckdb.org/docs/sql/statements/checkpoint.html
+        """
+        connection.execute(text("CHECKPOINT"))
+        super()._close_connection(connection)
