@@ -165,7 +165,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
 
     def _do_checkpoint(
         self,
-        connection: Connection | None,
+        connection: Connection | None = None,
     ) -> None:
         """Checkpoint the given connection.
 
