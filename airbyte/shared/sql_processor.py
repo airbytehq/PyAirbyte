@@ -348,7 +348,7 @@ class SqlProcessorBase(abc.ABC):
 
     def _do_checkpoint(  # noqa: B027  # Intentionally empty, not abstract
         self,
-        connection: Connection | None,
+        connection: Connection | None = None,
     ) -> None:
         """Checkpoint the given connection.
 
