@@ -391,6 +391,7 @@ class SqlProcessorBase(abc.ABC):
             self._init_connection_settings(connection)
             yield connection
 
+        connection.close()
         del connection
 
     def get_sql_table_name(
