@@ -10,6 +10,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
+from sqlalchemy import text
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
@@ -109,6 +110,30 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         This is the same as the SQLConfig hash from the superclass.
         """
         return super(SqlConfig, self).config_hash
+
+    def execute_sql(self, sql: str | list[str]) -> None:
+        """Execute one or more SQL statements against the cache's SQL backend.
+
+        If multiple SQL statements are given, they are executed in order,
+        within the same transaction.
+
+        This method is useful for creating tables, indexes, and other
+        schema objects in the cache. It does not return any results and it
+        automatically closes the connection after executing all statements.
+
+        This method is not intended for querying data. For that, use the `get_records`
+        method - or for a low-level interface, use the `get_sql_engine` method.
+
+        If any of the statements fail, the transaction is canceled and an exception
+        is raised. Most databases will rollback the transaction in this case.
+        """
+        if isinstance(sql, str):
+            # Coerce to a list if a single string is given
+            sql = [sql]
+
+        with self.processor.get_sql_connection() as connection:
+            for sql_statement in sql:
+                connection.execute(text(sql_statement))
 
     @final
     @property

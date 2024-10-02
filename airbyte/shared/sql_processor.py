@@ -346,6 +346,19 @@ class SqlProcessorBase(abc.ABC):
         """
         pass
 
+    def _do_checkpoint(  # noqa: B027  # Intentionally empty, not abstract
+        self,
+        connection: Connection | None = None,
+    ) -> None:
+        """Checkpoint the given connection.
+
+        If the WAL log needs to be, it will be flushed.
+
+        For most SQL databases, this is a no-op. However, it exists so that
+        subclasses can override this method to perform a checkpoint operation.
+        """
+        pass
+
     # Public interface:
 
     @property
