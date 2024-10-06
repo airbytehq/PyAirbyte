@@ -131,7 +131,10 @@ def _resolve_source_job(
         source_executable = Path(source)
         if not source_executable.exists():
             raise PyAirbyteInputError(
-                message=f"Source executable not found: {source}",
+                message="Source executable not found.",
+                context={
+                    "source": source,
+                },
             )
         source_obj = get_source(
             name=source_executable.stem,
@@ -186,7 +189,10 @@ def _resolve_destination_job(
         destination_executable = Path(destination)
         if not destination_executable.exists():
             raise PyAirbyteInputError(
-                message=f"Destination executable not found: {destination}",
+                message="Destination executable not found.",
+                context={
+                    "destination": destination,
+                },
             )
         return get_destination(
             name=destination_executable.stem,
@@ -246,7 +252,10 @@ def validate(
         local_executable = Path(connector)
         if not local_executable.exists():
             raise PyAirbyteInputError(
-                message=f"Connector executable not found: {connector}",
+                message="Connector executable not found.",
+                context={
+                    "connector": connector,
+                },
             )
         connector_name = local_executable.stem
     else:
