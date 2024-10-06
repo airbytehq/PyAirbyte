@@ -228,7 +228,10 @@ def validate(
 
     if not connector_name.startswith("source-") and not connector_name.startswith("destination-"):
         raise PyAirbyteInputError(
-            message="Expected a connector name or path to executable.",
+            message=(
+                "Expected a connector name or path to executable. "
+                "Connector names are expected to begin with 'source-' or 'destination-'."
+            ),
             input_value=connector,
         )
 

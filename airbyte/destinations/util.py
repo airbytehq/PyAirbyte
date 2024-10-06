@@ -77,7 +77,7 @@ def get_noop_destination() -> Destination:
     adding the overhead of writing data to a real destination.
     """
     return get_destination(
-        "destination-e2e-test",  # TODO: Replace with new 'devnull' destination
+        "destination-dev-null",
         config={
             "test_destination": {
                 "test_destination_type": "LOGGING",
