@@ -5,14 +5,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import click
-import dpath
 import yaml
 
 from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.secrets.util import get_secret
 from airbyte.sources.util import get_benchmark_source, get_source
 
 
@@ -21,12 +21,72 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
+CLI_GUIDANCE = """
+----------------------
+
+PyAirbyte CLI Guidance
+
+Providing connector configuration:
+
+When providing configuration via `--config`, you can providing any of the following:
+
+1. A path to a configuration file, in yaml or json format.
+
+2. An inline yaml string, e.g. `--config='{key: value}'`, --config='{key: {nested: value}}'.
+
+When providing an inline yaml string, it is recommended to use single quotes to avoid shell
+interpolation.
+
+Providing secrets:
+
+You can provide secrets in your configuration file by prefixing the secret value with `SECRET:`.
+For example, --config='{password: "SECRET:my_password"'} will look for a secret named `my_password`
+in the secret store. By default, PyAirbyte will look for secrets in environment variables and
+dotenv (.env) files. If a secret is not found, you'll be prompted to provide the secret value
+interactively in the terminal.
+
+It is highly recommended to use secrets when using inline yaml strings, in order to avoid
+exposing secrets in plain text in the terminal history. Secrets provided interactively will
+not be echoed to the terminal.
+"""
+
+
+def _resolve_config(
+    config: str,
+) -> dict[str, Any]:
+    """Resolve the configuration file into a dictionary."""
+
+    def _inject_secrets(config_dict: dict[str, Any]) -> None:
+        """Inject secrets into the configuration dictionary."""
+        for key, value in config_dict.items():
+            if isinstance(value, dict):
+                _inject_secrets(value)
+            elif isinstance(value, str) and value.startswith("SECRET:"):
+                config_dict[key] = get_secret(value.removeprefix("SECRET:").strip())
+
+    config_dict: dict[str, Any]
+    if config.startswith("{"):
+        # Treat this as an inline yaml string:
+        config_dict = yaml.safe_load(config)
+    else:
+        # Treat this as a path to a config file:
+        config_path = Path(config)
+        if not config_path.exists():
+            raise PyAirbyteInputError(
+                message="Config file not found.",
+                input_value=str(config_path),
+            )
+        config_dict = json.loads(config_path.read_text(encoding="utf-8"))
+
+    _inject_secrets(config_dict)
+    return config_dict
+
+
 def _resolve_source_job(
     *,
     source: str | None = None,
-    config: Path | None = None,
-    job_file: str | None = None,
-    job_dpath: str | None = None,
+    config: str | None = None,
+    streams: str | None = None,
 ) -> Source:
     """Resolve the source job into a configured Source object.
 
@@ -36,9 +96,8 @@ def _resolve_source_job(
             If the string `'.'` is provided, the source will be loaded from the current
             working directory.
         config: The path to a configuration file for the named source or destination.
-            If `config` is provided, the `job_file` and `job_dpath` options will be ignored.
-        job_file: A yaml file containing the job definition.
-        job_dpath: The dpath expression pointing to a job definition within the job file.
+        streams: A comma-separated list of stream names to select for reading. If set to "*",
+            all streams will be selected. If not provided, all streams will be selected.
     """
     source_obj: Source
     if source and (source.startswith(".") or "/" in source):
@@ -53,64 +112,32 @@ def _resolve_source_job(
             local_executable=source_executable,
         )
         return source_obj
-
+    if not config:
+        raise PyAirbyteInputError(
+            message="No configuration found.",
+        )
     if not source or not source.startswith("source-"):
         raise PyAirbyteInputError(
             message="Expected a source name or path to executable.",
             input_value=source,
         )
+
     source_name: str = source
+    streams_list: str | list[str] = streams or "*"
+    if isinstance(streams, str) and streams != "*":
+        streams_list = [stream.strip() for stream in streams.split(",")]
 
-    config_dict: dict[str, Any] = {}
-    if config:
-        config_dict = yaml.safe_load(config.read_text(encoding="utf-8"))
-
-    elif job_file and job_file.endswith(".json"):
-        # Treat the job file as a config file.
-        config_dict = json.loads(
-            Path(job_file).read_text(encoding="utf-8"),
-        )
-
-    elif job_file and job_file.endswith(".yaml"):
-        # Load the source from the job file.
-        job_file_data = yaml.safe_load(job_file)
-        if job_dpath:
-            job_data = dpath.get(
-                obj=job_file_data,
-                glob=job_dpath,
-            )
-            if not isinstance(job_data, dict):
-                raise PyAirbyteInputError(
-                    message="Invalid job definition.",
-                    input_value=str(job_data),
-                )
-            config_path = Path(job_data["config_path"])
-            if not config_path.exists():
-                raise PyAirbyteInputError(
-                    message="Config file not found.",
-                    input_value=str(config_path),
-                )
-            config_dict = yaml.safe_load(
-                config_path.read_text(encoding="utf-8"),
-            )
-
-    if not config_dict:
-        raise PyAirbyteInputError(
-            message="No configuration found.",
-        )
-
-    source_obj = get_source(
+    return get_source(
         name=source_name,
-        config=config_dict,
-        streams="*",
+        config=_resolve_config(config) if config else {},
+        streams=streams_list,
     )
-    return source_obj
 
 
 def _resolve_destination_job(
     *,
     destination: str,
-    config: Path | None = None,
+    config: str | None = None,
 ) -> Destination:
     """Resolve the destination job into a configured Destination object.
 
@@ -125,10 +152,8 @@ def _resolve_destination_job(
         raise PyAirbyteInputError(
             message="No configuration found.",
         )
-    config_dict = cast(
-        dict,
-        json.loads(config.read_text(encoding="utf-8")),
-    )
+
+    config_dict = _resolve_config(config)
 
     if destination and (destination.startswith(".") or "/" in destination):
         # Treat the destination as a path.
@@ -155,7 +180,7 @@ def _resolve_destination_job(
     help=(
         "Validate the connector has a valid CLI and is able to run `spec`. "
         "If 'config' is provided, we will also run a `check` on the connector "
-        "with the provided config."
+        "with the provided config.\n\n" + CLI_GUIDANCE
     ),
 )
 @click.option(
@@ -165,7 +190,7 @@ def _resolve_destination_job(
 )
 @click.option(
     "--config",
-    type=Path,
+    type=str,
     required=False,
     help="The path to a configuration file for the named source or destination.",
 )
@@ -180,7 +205,7 @@ def _resolve_destination_job(
 )
 def validate(
     connector: str | None = None,
-    config: Path | None = None,
+    config: str | None = None,
     *,
     install: bool = False,
 ) -> None:
@@ -226,7 +251,8 @@ def validate(
 
     if config:
         print("Running connector check...")
-        connector_obj.set_config(json.loads(config.read_text(encoding="utf-8")))
+        config_dict: dict[str, Any] = _resolve_config(config)
+        connector_obj.set_config(config_dict)
         connector_obj.check()
 
 
@@ -237,7 +263,7 @@ def validate(
     help=(
         "The source name, with an optional version declaration. If a path is provided, the "
         "source will be loaded from the local path. If the string '.' is provided, the source "
-        "will be loaded from the current working directory."
+        "will be loaded from the current working directory.\n\n" + CLI_GUIDANCE
     ),
 )
 @click.option(
@@ -265,32 +291,24 @@ def validate(
 )
 @click.option(
     "--config",
-    type=Path,
-    help=(
-        "The path to a configuration file for the named source or destination. "
-        "If `--config` is provided, the `--job-file` and `--job-dpath` options "
-        "will be ignored."
-    ),
-)
-@click.option(
-    "--job-file",
-    type=Path,
-    help="A yaml file containing the job definition.",
-)
-@click.option(
-    "--job-dpath",
     type=str,
-    help="The dpath expression pointing to a job definition within the job file.",
+    help=("The path to a configuration file for the named source or destination. "),
 )
 def benchmark(
     source: str | None = None,
     num_records: int | str = "5e5",  # 500,000 records
     destination: str | None = None,
-    config: Path | None = None,
-    job_file: str | None = None,
-    job_dpath: str | None = None,
+    config: str | None = None,
 ) -> None:
-    """Run benchmarks."""
+    """Run benchmarks.
+
+    You can provide either a source or a destination, but not both. If a destination is being
+    benchmarked, you can use `--num-records` to specify the number of records to generate for the
+    benchmark.
+
+    If a source is being benchmarked, you can provide a configuration file or a job
+    definition file to run the source job.
+    """
     if source and destination:
         raise PyAirbyteInputError(
             message="For benchmarking, source or destination can be provided, but not both.",
@@ -302,8 +320,6 @@ def benchmark(
         _resolve_source_job(
             source=source,
             config=config,
-            job_file=job_file,
-            job_dpath=job_dpath,
         )
         if source
         else get_benchmark_source(
@@ -313,6 +329,7 @@ def benchmark(
     destination_obj = (
         _resolve_destination_job(
             destination=destination,
+            config=config,
         )
         if destination
         else get_noop_destination()
