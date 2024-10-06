@@ -270,6 +270,15 @@ def validate(
     ),
 )
 @click.option(
+    "--streams",
+    type=str,
+    default="*",
+    help=(
+        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
+        "will be selected. Defaults to '*'."
+    ),
+)
+@click.option(
     "--num-records",
     type=str,
     default="5e5",
@@ -299,6 +308,7 @@ def validate(
 )
 def benchmark(
     source: str | None = None,
+    streams: str = "*",
     num_records: int | str = "5e5",  # 500,000 records
     destination: str | None = None,
     config: str | None = None,
@@ -323,6 +333,7 @@ def benchmark(
         _resolve_source_job(
             source=source,
             config=config,
+            streams=streams,
         )
         if source
         else get_benchmark_source(
