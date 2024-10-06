@@ -151,10 +151,83 @@ def _resolve_destination_job(
     )
 
 
-@click.command()
-def validate() -> None:
-    """Validate the data."""
-    click.echo("Validating data...")
+@click.command(
+    help=(
+        "Validate the connector has a valid CLI and is able to run `spec`. "
+        "If 'config' is provided, we will also run a `check` on the connector "
+        "with the provided config."
+    ),
+)
+@click.option(
+    "--connector",
+    type=str,
+    help="The connector name or path.",
+)
+@click.option(
+    "--config",
+    type=Path,
+    required=False,
+    help="The path to a configuration file for the named source or destination.",
+)
+@click.option(
+    "--install",
+    is_flag=True,
+    default=False,
+    help=(
+        "Whether to install the connector if it is not available locally. "
+        "Defaults to False, meaning the connector is expected to be already be installed."
+    ),
+)
+def validate(
+    connector: str | None = None,
+    config: Path | None = None,
+    *,
+    install: bool = False,
+) -> None:
+    """Validate the connector."""
+    local_executable: Path | None = None
+    if not connector:
+        raise PyAirbyteInputError(
+            message="No connector provided.",
+        )
+    if connector.startswith(".") or "/" in connector:
+        # Treat the connector as a path.
+        local_executable = Path(connector)
+        if not local_executable.exists():
+            raise PyAirbyteInputError(
+                message=f"Connector executable not found: {connector}",
+            )
+        connector_name = local_executable.stem
+    else:
+        connector_name = connector
+
+    if not connector_name.startswith("source-") and not connector_name.startswith("destination-"):
+        raise PyAirbyteInputError(
+            message="Expected a connector name or path to executable.",
+            input_value=connector,
+        )
+
+    connector_obj: Source | Destination
+    if connector_name.startswith("source-"):
+        connector_obj = get_source(
+            name=connector_name,
+            local_executable=local_executable,
+            install_if_missing=install,
+        )
+    else:  # destination
+        connector_obj = get_destination(
+            name=connector_name,
+            local_executable=local_executable,
+            install_if_missing=install,
+        )
+
+    print("Getting `spec` output from connector...")
+    connector_obj.print_config_spec()
+
+    if config:
+        print("Running connector check...")
+        connector_obj.set_config(json.loads(config.read_text(encoding="utf-8")))
+        connector_obj.check()
 
 
 @click.command()
