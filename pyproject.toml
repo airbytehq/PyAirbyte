@@ -313,8 +313,8 @@ venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
 [tool.poetry.scripts]
-pyairbyte = "airbyte.cli:main"
-pyab = "airbyte.cli:main"
+pyairbyte = "airbyte.cli:cli"
+pyab = "airbyte.cli:cli"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }

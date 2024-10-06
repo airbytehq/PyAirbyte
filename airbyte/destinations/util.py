@@ -77,7 +77,15 @@ def get_noop_destination() -> Destination:
     adding the overhead of writing data to a real destination.
     """
     return get_destination(
-        "destination-devnull-test",
-        config={},
+        "destination-e2e-test",  # TODO: Replace with new 'devnull' destination
+        config={
+            "test_destination": {
+                "test_destination_type": "LOGGING",
+                "logging_config": {
+                    "logging_type": "FirstN",
+                    "max_entry_count": 100,
+                },
+            }
+        },
         docker_image=True,
     )

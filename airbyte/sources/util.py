@@ -147,7 +147,7 @@ def get_benchmark_source(
             ) from None
 
     return get_source(
-        name="source-e2e",
+        name="source-e2e-test",
         docker_image=True,
         # docker_image="airbyte/source-e2e-test:latest",
         config={

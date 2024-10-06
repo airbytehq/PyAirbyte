@@ -46,9 +46,9 @@ def validate() -> None:
 
 @click.command()
 def benchmark(
-    source: str,
-    destination: str,
-    source_job: str,
+    source: str | None = None,
+    destination: str | None = None,
+    source_job: str | None = None,
 ) -> None:
     """Run benchmarks.
 
@@ -97,6 +97,7 @@ def benchmark(
 
 @click.group()
 def cli() -> None:
+    """PyAirbyte CLI."""
     pass
 
 
