@@ -67,6 +67,14 @@ not be echoed to the terminal.
 # Add the CLI guidance to the module docstring.
 globals()["__doc__"] = globals().get("__doc__", "") + CLI_GUIDANCE
 
+CONFIG_HELP = (
+    "Either a path to a configuration file for the named source or destination, "
+    "or an inline yaml string. If providing an inline yaml string, use single quotes "
+    "to avoid shell interpolation. For example, --config='{key: value}' or "
+    "--config='{key: {nested: value}}'. \n"
+    "PyAirbyte secrets can be accessed by prefixing the secret name with 'SECRET:'. "
+    """For example, --config='{password: "SECRET:MY_PASSWORD"}'."""
+)
 
 def _resolve_config(
     config: str,
@@ -203,13 +211,13 @@ def _resolve_destination_job(
 @click.option(
     "--connector",
     type=str,
-    help="The connector name or path.",
+    help="The connector name or a path to the local executable.",
 )
 @click.option(
     "--config",
     type=str,
     required=False,
-    help="The path to a configuration file for the named source or destination.",
+    help=CONFIG_HELP,
 )
 @click.option(
     "--install",
@@ -281,9 +289,8 @@ def validate(
     "--source",
     type=str,
     help=(
-        "The source name, with an optional version declaration. If a path is provided, the "
-        "source will be loaded from the local path. If the string '.' is provided, the source "
-        "will be loaded from the current working directory.\n\n" + CLI_GUIDANCE
+        "The source name, with an optional version declaration. "
+        "If a path is provided, it will be interpreted as a path to the local executable. "
     ),
 )
 @click.option(
@@ -301,7 +308,7 @@ def validate(
     default="5e5",
     help=(
         "The number of records to generate for the benchmark. Ignored if a source is provided. "
-        "You can specify the number of records to generate using scientific notation."
+        "You can specify the number of records to generate using scientific notation. "
         "For example, `5e6` will generate 5 million records. By default, 500,000 records will "
         "be generated (`5e5` records). If underscores are providing within a numeric a string, "
         "they will be ignored."
@@ -312,16 +319,13 @@ def validate(
     type=str,
     help=(
         "The destination name, with an optional version declaration. "
-        "If a path is provided, the destination will be loaded from the local path. "
-        "If the string '.' is provided, the destination will be loaded from the current "
-        "working directory. Destination can be omitted - in which case the source will be run "
-        "in isolation."
+        "If a path is provided, it will be interpreted as a path to the local executable. "
     ),
 )
 @click.option(
     "--config",
     type=str,
-    help=("The path to a configuration file for the named source or destination. "),
+    help=CONFIG_HELP,
 )
 def benchmark(
     source: str | None = None,
