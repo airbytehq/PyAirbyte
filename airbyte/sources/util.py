@@ -140,7 +140,7 @@ def get_benchmark_source(
     if isinstance(num_records, str):
         try:
             num_records = int(Decimal(num_records.replace("_", "")))
-        except ValueError as ex:
+        except InvalidOperation as ex:
             raise PyAirbyteInputError(
                 message="Invalid number format.",
                 original_exception=ex,
