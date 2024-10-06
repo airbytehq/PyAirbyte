@@ -165,4 +165,5 @@ def get_benchmark_source(
 
 __all__ = [
     "get_source",
+    "get_benchmark_source",
 ]

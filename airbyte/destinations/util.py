@@ -89,3 +89,9 @@ def get_noop_destination() -> Destination:
         },
         docker_image=True,
     )
+
+
+__all__ = [
+    "get_destination",
+    "get_noop_destination",
+]

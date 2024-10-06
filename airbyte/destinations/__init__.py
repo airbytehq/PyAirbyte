@@ -79,6 +79,7 @@ from airbyte.destinations import util
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import (
     get_destination,
+    get_noop_destination,
 )
 
 
@@ -87,6 +88,7 @@ __all__ = [
     "util",
     # Methods
     "get_destination",
+    "get_noop_destination",
     # Classes
     "Destination",
 ]
