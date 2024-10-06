@@ -234,31 +234,47 @@ def validate(
 @click.option(
     "--source",
     type=str,
-    help="The source name, with an optional version declaration. If a path is provided, the source will be loaded from the local path. If the string `'.'` is provided, the source will be loaded from the current working directory.",
+    help=(
+        "The source name, with an optional version declaration. If a path is provided, the "
+        "source will be loaded from the local path. If the string '.' is provided, the source "
+        "will be loaded from the current working directory."
+    ),
 )
 @click.option(
     "--num-records",
     type=str,
     default="5e5",
-    help="The number of records to generate for the benchmark. Ignored if a source is provided. You can specify the number of records to generate using scientific notation. For example, `5e6` will generate 5 million records. By default, 500,000 records will be generated (`5e5` records). If underscores are providing within a numeric a string, they will be ignored.",
+    help=(
+        "The number of records to generate for the benchmark. Ignored if a source is provided. "
+        "You can specify the number of records to generate using scientific notation."
+        "For example, `5e6` will generate 5 million records. By default, 500,000 records will "
+        "be generated (`5e5` records). If underscores are providing within a numeric a string, "
+        "they will be ignored."
+    ),
 )
 @click.option(
     "--destination",
     type=str,
-    help="The destination name, with an optional version declaration. If a path is provided, the destination will be loaded from the local path. If the string `'.'` is provided, the destination will be loaded from the current working directory. Destination can be omitted - in which case the source will be run in isolation.",
+    help=(
+        "The destination name, with an optional version declaration. "
+        "If a path is provided, the destination will be loaded from the local path. "
+        "If the string '.' is provided, the destination will be loaded from the current "
+        "working directory. Destination can be omitted - in which case the source will be run "
+        "in isolation."
+    ),
 )
 @click.option(
     "--config",
     type=Path,
     help=(
-        "The path to a configuration file for the named source or destination."
+        "The path to a configuration file for the named source or destination. "
         "If `--config` is provided, the `--job-file` and `--job-dpath` options "
         "will be ignored."
     ),
 )
 @click.option(
     "--job-file",
-    type=str,
+    type=Path,
     help="A yaml file containing the job definition.",
 )
 @click.option(
@@ -274,25 +290,7 @@ def benchmark(
     job_file: str | None = None,
     job_dpath: str | None = None,
 ) -> None:
-    """Run benchmarks.
-
-    Args:
-        source: The source name, with an optional version declaration.
-            If a path is provided, the source will be loaded from the local path.
-            If the string `'.'` is provided, the source will be loaded from the current
-            working directory.
-        num_records: The number of records to generate for the benchmark. Ignored if a source
-            is provided. You can specify the number of records to generate using scientific
-            notation. For example, `"5e6"` will generate 5 million records. By default, 500,000
-            records will be generated ("5e5" records).
-            If underscores are providing within a numeric a string, they will be ignored.
-        destination: The destination name, with an optional version declaration.
-            If a path is provided, the destination will be loaded from the local path.
-            If the string `'.'` is provided, the destination will be loaded from the current
-            working directory.
-            Destination can be omitted - in which case the source will be run in isolation.
-        source_job: The source job reference.
-    """
+    """Run benchmarks."""
     if source and destination:
         raise PyAirbyteInputError(
             message="For benchmarking, source or destination can be provided, but not both.",
