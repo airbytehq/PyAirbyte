@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import warnings
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
@@ -138,7 +139,7 @@ def get_benchmark_source(
     """
     if isinstance(num_records, str):
         try:
-            num_records = int(float(num_records.replace("_", "")))
+            num_records = int(Decimal(num_records.replace("_", "")))
         except ValueError as ex:
             raise PyAirbyteInputError(
                 message="Invalid number format.",
