@@ -1,5 +1,19 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""CLI for PyAirbyte."""
+"""CLI for PyAirbyte.
+
+The PyAirbyte CLI provides a command-line interface for testing connectors and running benchmarks.
+
+PyAirbyte CLI can be invoked with the `pyairbyte` CLI executable, or the
+shorter `pyab` alias.
+
+These are equivalent:
+
+    ```bash
+    python -m airbyte.cli --help
+    pyairbyte --help
+    pyab --help
+    ```
+"""
 
 from __future__ import annotations
 
@@ -49,6 +63,9 @@ It is highly recommended to use secrets when using inline yaml strings, in order
 exposing secrets in plain text in the terminal history. Secrets provided interactively will
 not be echoed to the terminal.
 """
+
+# Add the CLI guidance to the module docstring.
+globals()["__doc__"] = globals().get("__doc__", "") + CLI_GUIDANCE
 
 
 def _resolve_config(

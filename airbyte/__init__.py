@@ -125,6 +125,7 @@ from __future__ import annotations
 
 from airbyte import (
     caches,
+    # cli,  # Causes circular import if included
     cloud,
     constants,
     datasets,
@@ -156,6 +157,7 @@ from airbyte.sources.util import get_source
 __all__ = [
     # Modules
     "caches",
+    # "cli",  # Causes circular import if included
     "cloud",
     "constants",
     "datasets",
@@ -187,6 +189,7 @@ __all__ = [
     "Source",
     "StreamRecord",
     "WriteResult",
+    "cli",
 ]
 
 __docformat__ = "google"
