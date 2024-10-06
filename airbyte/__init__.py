@@ -189,7 +189,6 @@ __all__ = [
     "Source",
     "StreamRecord",
     "WriteResult",
-    "cli",
 ]
 
 __docformat__ = "google"
