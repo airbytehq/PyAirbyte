@@ -13,6 +13,16 @@ These are equivalent:
     pyairbyte --help
     pyab --help
     ```
+
+You can also use the fast and powerful `uv` tool to run the CLI without pre-installing:
+
+    ```
+    # Install `uv` if you haven't already:
+    brew install uv
+
+    # Run the PyAirbyte CLI using `uvx`:
+    uvx --from=airbyte pyab --help
+    ```
 """
 
 from __future__ import annotations
