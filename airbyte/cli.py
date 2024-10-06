@@ -76,6 +76,7 @@ CONFIG_HELP = (
     """For example, --config='{password: "SECRET:MY_PASSWORD"}'."""
 )
 
+
 def _resolve_config(
     config: str,
 ) -> dict[str, Any]:
