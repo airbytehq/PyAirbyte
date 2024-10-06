@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import warnings
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
@@ -119,7 +119,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
 
 
 def get_benchmark_source(
-    num_records: int | str = 1000,
+    num_records: int | str = "5e5",
 ) -> Source:
     """Get a source for benchmarking.
 
@@ -130,9 +130,10 @@ def get_benchmark_source(
     within a numeric a string, they will be ignored.
 
     Args:
-        num_records (int | str): The number of records to generate.
-        Can be an integer (`1000`) or a string in scientific notation.
-        For example, `"5e6"` will generate 5 million records.
+        num_records (int | str): The number of records to generate. Defaults to "5e5", or
+            500,000 records.
+            Can be an integer (`1000`) or a string in scientific notation.
+            For example, `"5e6"` will generate 5 million records.
 
     Returns:
         Source: The source object for benchmarking.
