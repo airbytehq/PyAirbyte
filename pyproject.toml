@@ -44,7 +44,7 @@ types-pyyaml = "^6.0.12.12"
 sqlalchemy-bigquery = { version = "1.11.0", python = "<3.13" }
 airbyte-api = "^0.49.2"
 google-cloud-bigquery-storage = "^2.25.0"
-pyiceberg = "^0.6.1"
+pyiceberg = ">=0.6.1,<0.8.0"
 uuid7 = "^0.1.0"
 grpcio = "^1.65.0"
 structlog = "^24.4.0"
