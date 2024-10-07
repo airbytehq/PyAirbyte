@@ -10,7 +10,10 @@ from airbyte.sources.registry import (
     get_available_connectors,
     get_connector_metadata,
 )
-from airbyte.sources.util import get_source
+from airbyte.sources.util import (
+    get_benchmark_source,
+    get_source,
+)
 
 
 __all__ = [
@@ -19,6 +22,7 @@ __all__ = [
     "util",
     # Factories
     "get_source",
+    "get_benchmark_source",
     # Helper Functions
     "get_available_connectors",
     "get_connector_metadata",

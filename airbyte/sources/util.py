@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import warnings
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.sources.base import Source
 
 
@@ -116,6 +118,53 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     )
 
 
+def get_benchmark_source(
+    num_records: int | str = "5e5",
+) -> Source:
+    """Get a source for benchmarking.
+
+    This source will generate dummy records for performance benchmarking purposes.
+    You can specify the number of records to generate using the `num_records` parameter.
+    The `num_records` parameter can be an integer or a string in scientific notation.
+    For example, `"5e6"` will generate 5 million records. If underscores are providing
+    within a numeric a string, they will be ignored.
+
+    Args:
+        num_records (int | str): The number of records to generate. Defaults to "5e5", or
+            500,000 records.
+            Can be an integer (`1000`) or a string in scientific notation.
+            For example, `"5e6"` will generate 5 million records.
+
+    Returns:
+        Source: The source object for benchmarking.
+    """
+    if isinstance(num_records, str):
+        try:
+            num_records = int(Decimal(num_records.replace("_", "")))
+        except InvalidOperation as ex:
+            raise PyAirbyteInputError(
+                message="Invalid number format.",
+                original_exception=ex,
+                input_value=str(num_records),
+            ) from None
+
+    return get_source(
+        name="source-e2e-test",
+        docker_image=True,
+        # docker_image="airbyte/source-e2e-test:latest",
+        config={
+            "type": "BENCHMARK",
+            "schema": "FIVE_STRING_COLUMNS",
+            "terminationCondition": {
+                "type": "MAX_RECORDS",
+                "max": num_records,
+            },
+        },
+        streams="*",
+    )
+
+
 __all__ = [
     "get_source",
+    "get_benchmark_source",
 ]

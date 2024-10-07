@@ -68,3 +68,30 @@ def get_destination(
             install_if_missing=install_if_missing,
         ),
     )
+
+
+def get_noop_destination() -> Destination:
+    """Get a devnull (no-op) destination.
+
+    This is useful for performance benchmarking of sources, without
+    adding the overhead of writing data to a real destination.
+    """
+    return get_destination(
+        "destination-dev-null",
+        config={
+            "test_destination": {
+                "test_destination_type": "LOGGING",
+                "logging_config": {
+                    "logging_type": "FirstN",
+                    "max_entry_count": 100,
+                },
+            }
+        },
+        docker_image=True,
+    )
+
+
+__all__ = [
+    "get_destination",
+    "get_noop_destination",
+]
