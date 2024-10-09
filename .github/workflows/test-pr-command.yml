@@ -63,6 +63,9 @@ jobs:
         ]
       fail-fast: false
     runs-on: "${{ matrix.os }}-latest"
+    permissions:
+      actions: read
+      statuses: write
     env:
       # Enforce UTF-8 encoding so Windows runners don't fail inside the connector code.
       # TODO: See if we can fully enforce this within PyAirbyte itself.
@@ -78,14 +81,42 @@ jobs:
       with:
         name: pr-info
 
-    - name: Checkout PR
+    - name: Checkout Repo
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
     - name: Checkout PR (${{ github.event.inputs.pr }})
+      id: checkout-pr
       uses: dawidd6/action-checkout-pr@v1
       with:
         pr: ${{ github.event.inputs.pr }}
+
+    # - name: Get SHA of checked-out PR
+    #   id: get-sha
+    #   run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+    - id: get-sha
+      uses: hudsonm62/short-sha@v1
+      with:
+        length: 40
+
+    # - name: Get SHA of checked-out PR
+    #   id: get-sha-2
+    #   uses: actions/github-script@v6
+    #   with:
+    #     script: |
+    #       const sha = await github.rest.repos.getCommit({
+    #         owner: context.repo.owner,
+    #         repo: context.repo.repo,
+    #         ref: context.sha
+    #       });
+    #       return { sha: sha.data.sha };
+
+    - name: CI job status tracker (commit ${{ steps.get-sha.outputs.sha }})
+      uses: aaronsteers/action-job-status@feat/allow-job-name-override
+      with:
+        commit_sha: ${{ steps.get-sha.outputs.sha }}
+        job_name: On-Demand PR Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
 
     # Same as the `python_pytest.yml` file:
 
@@ -119,18 +150,6 @@ jobs:
         poetry run pytest
         --verbose
         -m "flaky and not super_slow"
-
-    - name: Post CI Success to GitHub
-      run: |
-        curl --request POST \
-        --url https://api.github.com/repos/${{ github.repository }}/statuses/$(cat pr-info.json | jq -r .head.sha) \
-        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-        --header 'content-type: application/json' \
-        --data '{
-          "state": "success",
-          "context": "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})",
-          "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-          }' \
 
   log-success-comment:
     name: Append 'Success' Comment
