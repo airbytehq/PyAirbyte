@@ -34,7 +34,7 @@ Example `benchmark` Usage:
     # Source Benchmark:
     pyab benchmark --source=source-hardcoded-records --config='{count: 400000}'
     pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams='*'
-    pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams=dummy_fields
+    pyab benchmark --source=source-hardcoded-records --config='{count: 4000}' --streams=dummy_fields
 
     # Source Benchmark from Docker Image:
     pyab benchmark --source=airbyte/source-hardcoded-records:latest --config='{count: 400_000}'
