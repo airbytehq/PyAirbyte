@@ -43,7 +43,17 @@ Example `benchmark` Usage:
     # Destination Benchmark:
     pyab benchmark --destination=destination-dev-null --config=/path/to/config.json
 
+    # Benchmark a Local Python Source (source-s3):
+    pyab benchmark --source=$(poetry run which source-s3) --config=./secrets/config.json
+    # Equivalent to:
+    LOCAL_EXECUTABLE=$(poetry run which source-s3)
+    CONFIG_PATH=$(realpath ./secrets/config.json)
+    pyab benchmark --source=$LOCAL_EXECUTABLE --config=$CONFIG_PATH
     ```
+
+Example Usage with `uv`:
+
+
 
 Example `validate` Usage:
 
