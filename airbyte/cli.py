@@ -188,11 +188,7 @@ def _resolve_source_job(
         streams: A comma-separated list of stream names to select for reading. If set to "*",
             all streams will be selected. If not provided, all streams will be selected.
     """
-    if not config:
-        raise PyAirbyteInputError(
-            message="No configuration found.",
-        )
-    config_dict = _resolve_config(config) if config else {}
+    config_dict = _resolve_config(config) if config else None
     streams_list: str | list[str] = streams or "*"
     if isinstance(streams, str) and streams != "*":
         streams_list = [stream.strip() for stream in streams.split(",")]
