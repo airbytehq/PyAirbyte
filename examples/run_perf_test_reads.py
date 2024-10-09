@@ -23,25 +23,25 @@ To run without profiling, prefix script name with `poetry run python`:
 
 ```
 # Run with 5_000 records
-poetry run python ./examples/run_perf_test_reads.py -n=1e3
+poetry run python ./examples/run_perf_test_reads.py -n=5e3
 # Run with 500_000 records
-poetry run python ./examples/run_perf_test_reads.py -n=1e5
+poetry run python ./examples/run_perf_test_reads.py -n=5e5
 
 # Load 1 million records to Snowflake cache
-poetry run python ./examples/run_perf_test_reads.py -n=1e3 --cache=snowflake
+poetry run python ./examples/run_perf_test_reads.py -n=1e6 --cache=snowflake
 
 # Load 1 million records to Snowflake destination
-poetry run python ./examples/run_perf_test_reads.py -n=1e3 --destination=snowflake
+poetry run python ./examples/run_perf_test_reads.py -n=1e6 --destination=snowflake
 
 # Load 5_000 records to BigQuery
-poetry run python ./examples/run_perf_test_reads.py -n=1e3 --cache=bigquery
+poetry run python ./examples/run_perf_test_reads.py -n=5e3 --cache=bigquery
 ```
 
 You can also use this script to test destination load performance:
 
 ```bash
 # Load 5_000 records to BigQuery
-poetry run python ./examples/run_perf_test_reads.py -n=1e3 --destination=e2e
+poetry run python ./examples/run_perf_test_reads.py -n=5e3 --destination=e2e
 ```
 
 Testing raw PyAirbyte throughput with and without caching:
