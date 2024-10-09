@@ -14,7 +14,7 @@ These are equivalent:
     pyab --help
     ```
 
-You can also use the fast and powerful `uv` tool to run the CLI without pre-installing:
+You can also use the fast and powerful `uv` tool to run the PyAirbyte CLI without pre-installing:
 
     ```
     # Install `uv` if you haven't already:
