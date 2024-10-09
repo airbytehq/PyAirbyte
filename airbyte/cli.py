@@ -31,13 +31,18 @@ Example `benchmark` Usage:
     # PyAirbyte System Benchmark (no-op):
     pyab benchmark --num-records=2.4e6
 
-    # PyAirbyte Source Benchmark (hardcoded records):
+    # Source Benchmark:
     pyab benchmark --source=source-hardcoded-records --config='{count: 400000}'
     pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams='*'
     pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams=dummy_fields
 
-    # PyAirbyte Source Benchmark (from docker image):
+    # Source Benchmark from Docker Image:
     pyab benchmark --source=airbyte/source-hardcoded-records:latest --config='{count: 400_000}'
+    pyab benchmark --source=airbyte/source-hardcoded-records:dev --config='{count: 400_000}'
+
+    # Destination Benchmark:
+    pyab benchmark --source=destination-dev-null --config=/path/to/config.json
+
     ```
 
 Example `validate` Usage:
