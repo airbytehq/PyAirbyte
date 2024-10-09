@@ -1,11 +1,12 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import resource
 import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from threading import Event, Thread
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, Callable, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
@@ -61,10 +62,41 @@ def _stream_from_subprocess(
     *,
     stdin: IO[str] | AirbyteMessageIterator | None = None,
     log_file: IO[str] | None = None,
+    max_mem_mb: int | None = None,
+    max_cores: int | None = None,
 ) -> Generator[Iterable[str], None, None]:
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
     exception_holder = ExceptionHolder()
+
+    def set_memory_limit(
+        max_mem_mb: int | None,
+        max_cores: int | None,
+    ) -> None:
+        """Set resource constraints for the process.
+
+        This runs within the new process thread before the process is created.
+        """
+        if max_mem_mb is not None:
+            max_mem_bytes = max_mem_mb * 1024 * 1024  # Convert MB to bytes
+            resource.setrlimit(resource.RLIMIT_AS, (max_mem_bytes, max_mem_bytes))
+
+        if max_cores is not None:
+            resource.setrlimit(resource.RLIMIT_NPROC, (max_cores, max_cores))
+
+    preexec_fn: None | Callable = None
+    if max_mem_mb is not None or max_cores is not None:
+        preexec_fn = lambda: set_memory_limit(max_mem_mb, max_cores)  # noqa: E731
+
+    process = subprocess.Popen(
+        args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=log_file,
+        universal_newlines=True,
+        encoding="utf-8",
+        preexec_fn=preexec_fn,  # noqa: PLW1509  # Unsafe when using threads
+    )
     if isinstance(stdin, AirbyteMessageIterator):
         process = subprocess.Popen(
             args,
