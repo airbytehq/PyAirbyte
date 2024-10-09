@@ -177,6 +177,7 @@ def _resolve_source_job(
     source: str | None = None,
     config: str | None = None,
     streams: str | None = None,
+    pip_url: str | None = None,
 ) -> Source:
     """Resolve the source job into a configured Source object.
 
@@ -187,6 +188,7 @@ def _resolve_source_job(
         config: The path to a configuration file for the named source or destination.
         streams: A comma-separated list of stream names to select for reading. If set to "*",
             all streams will be selected. If not provided, all streams will be selected.
+        pip_url: Optional. A location from which to install the connector.
     """
     config_dict = _resolve_config(config) if config else None
     streams_list: str | list[str] = streams or "*"
@@ -200,6 +202,7 @@ def _resolve_source_job(
             docker_image=source,
             config=config_dict,
             streams=streams_list,
+            pip_url=pip_url,
         )
         return source_obj
 
@@ -218,6 +221,7 @@ def _resolve_source_job(
             local_executable=source_executable,
             config=config_dict,
             streams=streams_list,
+            pip_url=pip_url,
         )
         return source_obj
 
@@ -233,6 +237,7 @@ def _resolve_source_job(
         name=source_name,
         config=config_dict,
         streams=streams_list,
+        pip_url=pip_url,
     )
 
 
@@ -240,6 +245,7 @@ def _resolve_destination_job(
     *,
     destination: str,
     config: str | None = None,
+    pip_url: str | None = None,
 ) -> Destination:
     """Resolve the destination job into a configured Destination object.
 
@@ -249,6 +255,7 @@ def _resolve_destination_job(
             If the destination contains a colon (':'), it will be interpreted as a docker image
             and tag.
         config: The path to a configuration file for the named source or destination.
+        pip_url: Optional. A location from which to install the connector.
     """
     if not config:
         raise PyAirbyteInputError(
@@ -271,6 +278,7 @@ def _resolve_destination_job(
             name=destination_executable.stem,
             local_executable=destination_executable,
             config=config_dict,
+            pip_url=pip_url,
         )
 
     # else: # Treat the destination as a name.
@@ -278,6 +286,7 @@ def _resolve_destination_job(
     return get_destination(
         name=destination,
         config=config_dict,
+        pip_url=pip_url,
     )
 
 
@@ -294,6 +303,15 @@ def _resolve_destination_job(
     help="The connector name or a path to the local executable.",
 )
 @click.option(
+    "--pip-url",
+    type=str,
+    help=(
+        "Optional. The location from which to install the connector. "
+        "This can be a anything pip accepts, including: a PyPI package name, a local path, "
+        "a git repository, a git branch ref, etc."
+    ),
+)
+@click.option(
     "--config",
     type=str,
     required=False,
@@ -302,6 +320,7 @@ def _resolve_destination_job(
 def validate(
     connector: str | None = None,
     config: str | None = None,
+    pip_url: str | None = None,
 ) -> None:
     """Validate the connector."""
     if not connector:
@@ -315,11 +334,13 @@ def validate(
             source=connector,
             config=None,
             streams=None,
+            pip_url=pip_url,
         )
     else:  # destination
         connector_obj = _resolve_destination_job(
             destination=connector,
             config=None,
+            pip_url=pip_url,
         )
 
     print("Getting `spec` output from connector...")
