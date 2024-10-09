@@ -41,7 +41,7 @@ Example `benchmark` Usage:
     pyab benchmark --source=airbyte/source-hardcoded-records:dev --config='{count: 400_000}'
 
     # Destination Benchmark:
-    pyab benchmark --source=destination-dev-null --config=/path/to/config.json
+    pyab benchmark --destination=destination-dev-null --config=/path/to/config.json
 
     ```
 
