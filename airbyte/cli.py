@@ -473,17 +473,10 @@ def benchmark(
 @click.option(
     "--streams",
     type=str,
-    default="*",
     help=(
         "A comma-separated list of stream names to select for reading. If set to '*', all streams "
         "will be selected. Defaults to '*'."
     ),
-)
-@click.option(
-    "--Spip-url",
-    "source_pip_url",
-    type=str,
-    help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
 )
 @click.option(
     "--Sconfig",
@@ -498,19 +491,16 @@ def benchmark(
     help="The destination config. " + CONFIG_HELP,
 )
 @click.option(
+    "--Spip-url",
+    "source_pip_url",
+    type=str,
+    help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
+)
+@click.option(
     "--Dpip-url",
     "destination_pip_url",
     type=str,
     help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--streams",
-    type=str,
-    default="*",
-    help=(
-        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
-        "will be selected. Defaults to '*'."
-    ),
 )
 def sync(
     *,
@@ -520,7 +510,7 @@ def sync(
     destination: str,
     destination_config: str | None = None,
     destination_pip_url: str | None = None,
-    streams: str = "*",
+    streams: str | None = None,
 ) -> None:
     """Run a sync operation.
 
