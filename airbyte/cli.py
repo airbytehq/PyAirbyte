@@ -503,6 +503,15 @@ def benchmark(
     type=str,
     help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
 )
+@click.option(
+    "--streams",
+    type=str,
+    default="*",
+    help=(
+        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
+        "will be selected. Defaults to '*'."
+    ),
+)
 def sync(
     *,
     source: str,
