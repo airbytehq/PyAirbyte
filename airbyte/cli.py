@@ -65,7 +65,6 @@ Example `validate` Usage:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -156,7 +155,7 @@ def _resolve_config(
                 message="Config file not found.",
                 input_value=str(config_path),
             )
-        config_dict = json.loads(config_path.read_text(encoding="utf-8"))
+        config_dict = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     _inject_secrets(config_dict)
     return config_dict
