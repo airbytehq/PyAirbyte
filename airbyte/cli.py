@@ -125,7 +125,7 @@ CONFIG_HELP = (
 )
 
 PIP_URL_HELP = (
-    "This can be a anything pip accepts, including: a PyPI package name, a local path, "
+    "This can be anything pip accepts, including: a PyPI package name, a local path, "
     "a git repository, a git branch ref, etc. Use '.' to install from the current local "
     "directory."
 )
