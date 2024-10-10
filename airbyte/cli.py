@@ -447,6 +447,94 @@ def benchmark(
     )
 
 
+@click.command()
+@click.option(
+    "--source",
+    type=str,
+    help=(
+        "The source name, with an optional version declaration. "
+        "If the name contains a colon (':'), it will be interpreted as a docker image and tag. "
+    ),
+)
+@click.option(
+    "--destination",
+    type=str,
+    help=(
+        "The destination name, with an optional version declaration. "
+        "If a path is provided, it will be interpreted as a path to the local executable. "
+    ),
+)
+@click.option(
+    "--streams",
+    type=str,
+    default="*",
+    help=(
+        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
+        "will be selected. Defaults to '*'."
+    ),
+)
+@click.option(
+    "--Spip-url",
+    "source_pip_url",
+    type=str,
+    help=CONFIG_HELP,
+)
+@click.option(
+    "--Sconfig",
+    "source_config",
+    type=str,
+    help=CONFIG_HELP,
+)
+@click.option(
+    "--Dconfig",
+    "destination_config",
+    type=str,
+    help=CONFIG_HELP,
+)
+@click.option(
+    "--Dpip-url",
+    "destination_pip_url",
+    type=str,
+    help=CONFIG_HELP,
+)
+def sync(
+    *,
+    source: str,
+    source_config: str | None = None,
+    source_pip_url: str | None = None,
+    destination: str,
+    destination_config: str | None = None,
+    destination_pip_url: str | None = None,
+    streams: str = "*",
+) -> None:
+    """Run a sync operation.
+
+    Currently, this only supports full refresh syncs. Incremental syncs are not yet supported.
+    Custom catalog syncs are not yet supported.
+    """
+    destination_obj: Destination
+    source_obj: Source
+
+    source_obj = _resolve_source_job(
+        source=source,
+        config=source_config,
+        streams=streams,
+        pip_url=source_pip_url,
+    )
+    destination_obj = _resolve_destination_job(
+        destination=destination,
+        config=destination_config,
+        pip_url=destination_pip_url,
+    )
+
+    click.echo("Running sync...")
+    destination_obj.write(
+        source_data=source_obj,
+        cache=False,
+        state_cache=False,
+    )
+
+
 @click.group()
 def cli() -> None:
     """PyAirbyte CLI."""
@@ -455,6 +543,7 @@ def cli() -> None:
 
 cli.add_command(validate)
 cli.add_command(benchmark)
+cli.add_command(sync)
 
 if __name__ == "__main__":
     cli()
