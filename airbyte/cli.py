@@ -124,6 +124,12 @@ CONFIG_HELP = (
     """For example, --config='{password: "SECRET:MY_PASSWORD"}'."""
 )
 
+PIP_URL_HELP = (
+    "This can be a anything pip accepts, including: a PyPI package name, a local path, "
+    "a git repository, a git branch ref, etc. Use '.' to install from the current local "
+    "directory."
+)
+
 
 def _resolve_config(
     config: str,
@@ -477,25 +483,25 @@ def benchmark(
     "--Spip-url",
     "source_pip_url",
     type=str,
-    help=CONFIG_HELP,
+    help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
 )
 @click.option(
     "--Sconfig",
     "source_config",
     type=str,
-    help=CONFIG_HELP,
+    help="The source config. " + CONFIG_HELP,
 )
 @click.option(
     "--Dconfig",
     "destination_config",
     type=str,
-    help=CONFIG_HELP,
+    help="The destination config. " + CONFIG_HELP,
 )
 @click.option(
     "--Dpip-url",
     "destination_pip_url",
     type=str,
-    help=CONFIG_HELP,
+    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
 )
 def sync(
     *,
