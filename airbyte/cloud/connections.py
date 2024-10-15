@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from airbyte._util import api_util
+from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
 
 
@@ -69,6 +70,14 @@ class CloudConnection:
         return cast(str, self._source_id)
 
     @property
+    def source(self) -> CloudSource:
+        """Get the source object."""
+        return CloudSource(
+            workspace=self.workspace,
+            connector_id=self.source_id,
+        )
+
+    @property
     def destination_id(self) -> str:
         """The ID of the destination."""
         if not self._destination_id:
@@ -80,12 +89,20 @@ class CloudConnection:
         return cast(str, self._destination_id)
 
     @property
+    def destination(self) -> CloudDestination:
+        """Get the source object."""
+        return CloudDestination(
+            workspace=self.workspace,
+            connector_id=self.destination_id,
+        )
+
+    @property
     def stream_names(self) -> list[str]:
         """The stream names."""
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
-        return [stream.name for stream in self._connection_info.configurations.streams]
+        return [stream.name for stream in self._connection_info.configurations.streams or []]
 
     @property
     def table_prefix(self) -> str:
@@ -93,7 +110,7 @@ class CloudConnection:
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
-        return self._connection_info.prefix
+        return self._connection_info.prefix or ""
 
     @property
     def connection_url(self) -> str | None:
@@ -154,7 +171,7 @@ class CloudConnection:
             SyncResult(
                 workspace=self.workspace,
                 connection=self,
-                job_id=sync_log.job_id,
+                job_id=str(sync_log.job_id),
                 _latest_job_info=sync_log,
             )
             for sync_log in sync_logs
@@ -189,28 +206,22 @@ class CloudConnection:
 
     # Deletions
 
-    def _permanently_delete(
+    def permanently_delete(
         self,
         *,
-        delete_source: bool = False,
-        delete_destination: bool = False,
+        cascade_delete_source: bool = False,
+        cascade_delete_destination: bool = False,
     ) -> None:
         """Delete the connection.
 
         Args:
-            delete_source: Whether to also delete the source.
-            delete_destination: Whether to also delete the destination.
+            cascade_delete_source: Whether to also delete the source.
+            cascade_delete_destination: Whether to also delete the destination.
         """
-        self.workspace._permanently_delete_connection(  # noqa: SLF001  # Non-public API (for now)
-            connection=self
-        )
+        self.workspace.permanently_delete_connection(self)
 
-        if delete_source:
-            self.workspace._permanently_delete_source(  # noqa: SLF001  # Non-public API (for now)
-                source=self.source_id
-            )
+        if cascade_delete_source:
+            self.workspace.permanently_delete_source(self.source_id)
 
-        if delete_destination:
-            self.workspace._permanently_delete_destination(  # noqa: SLF001  # Non-public API
-                destination=self.destination_id,
-            )
+        if cascade_delete_destination:
+            self.workspace.permanently_delete_destination(self.destination_id)
