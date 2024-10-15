@@ -487,6 +487,15 @@ class AirbyteMissingResourceError(AirbyteError):
 
 
 @dataclass
+class AirbyteDuplicateResourcesError(AirbyteError):
+    """Process failed because resource name was not unique."""
+
+    resource_type: str | None = None
+    resource_name: str | None = None
+
+
+# Custom Warnings
+@dataclass
 class AirbyteMultipleResourcesError(AirbyteError):
     """Could not locate the resource because multiple matching resources were found."""
 
