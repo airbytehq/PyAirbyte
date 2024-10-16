@@ -14,9 +14,11 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
+import requests
 from airbyte_api import api, models
 
 from airbyte.exceptions import (
@@ -26,6 +28,8 @@ from airbyte.exceptions import (
     AirbyteMultipleResourcesError,
     PyAirbyteInputError,
 )
+from airbyte.secrets.base import SecretString
+from airbyte.sources.util import get_connector
 
 
 if TYPE_CHECKING:
@@ -35,6 +39,19 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
+"""The Airbyte Cloud API root URL.
+
+This is the root URL for the Airbyte Cloud API. It is used to interact with the Airbyte Cloud API
+and is the default API root for the `CloudWorkspace` class.
+- https://reference.airbyte.com/reference/getting-started
+"""
+CLOUD_CONFIG_API_ROOT = "https://cloud.airbyte.com/api/v1"
+"""Internal-Use API Root, aka Airbyte "Config API".
+
+Documentation:
+- https://docs.airbyte.com/api-documentation#configuration-api-deprecated
+- https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+"""
 
 # Helper functions
 
@@ -639,6 +656,119 @@ def delete_connection(
                 "response": response,
             },
         )
+
+
+# Functions for leveraging the Airbyte Config API (may not be supported or stable)
+
+
+@dataclass
+class DockerImageOverride:
+    """Defines a connector image override."""
+
+    docker_image_override: str
+    override_level: Literal["workspace", "actor"] = "actor"
+
+
+def set_actor_override(
+    *,
+    workspace_id: str,
+    actor_id: str,
+    actor_type: Literal["source", "destination"],
+    override: DockerImageOverride,
+    config_api_root: str = CLOUD_CONFIG_API_ROOT,
+    api_key: str | SecretString,
+) -> None:
+    """Override the docker image and tag for a specific connector.
+
+    https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7234
+
+    """
+    path = config_api_root + "/v1/scoped_configuration/create"
+    headers: dict[str, Any] = {
+        "Content-Type": "application",
+        "Authorization": SecretString(f"Bearer {api_key}"),
+    }
+    request_body: dict[str, str] = {
+        "config_key": "docker_image",  # TODO: Fix this.
+        "value": override.docker_image_override,
+        "scope_id": actor_id,
+        "scope_type": actor_type,
+        "resource_id": "",  # TODO: Need to call something like get_actor_definition
+        "resource_type": "ACTOR_DEFINITION",
+        "origin": "",  # TODO: Need to get user ID somehow or use another origin type
+        "origin_type": "USER",
+    }
+    response = requests.request(
+        method="POST",
+        url=path,
+        headers=headers,
+        json=request_body,
+    )
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "actor_id": actor_id,
+                "actor_type": actor_type,
+                "response": response,
+            },
+        )
+
+
+def get_connector_image_override(
+    *,
+    workspace_id: str,
+    actor_id: str,
+    actor_type: Literal["source", "destination"],
+    config_api_root: str = CLOUD_CONFIG_API_ROOT,
+    api_key: str,
+) -> DockerImageOverride | None:
+    """Get the docker image and tag for a specific connector.
+
+    Result is a tuple of two values:
+    - A boolean indicating if an override is set.
+    - The docker image and tag, either from the override if set, or from the .
+    """
+    path = config_api_root + "/v1/scoped_configuration/list"
+    headers: dict[str, Any] = {
+        "Content-Type": "application",
+        "Authorization": SecretString(f"Bearer {api_key}"),
+    }
+    request_body: dict[str, str] = {
+        "config_key": "docker_image",  # TODO: Fix this.
+    }
+    response = requests.request(
+        method="GET",
+        url=path,
+        headers=headers,
+        json=request_body,
+    )
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "actor_id": actor_id,
+                "actor_type": actor_type,
+                "response": response,
+            },
+        )
+    if not response.json():
+        return None
+
+    overrides = [
+        DockerImageOverride(
+            docker_image_override=entry["value"],
+            override_level=entry["scope_type"],
+        )
+        for entry in response.json()
+    ]
+    if not overrides:
+        return None
+    if len(overrides) > 1:
+        raise NotImplementedError(
+            "Multiple overrides found. This is not yet supported.",
+        )
+    return overrides[0]
 
 
 # Not yet implemented
