@@ -21,10 +21,7 @@ from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
 from airbyte.shared.catalog_providers import CatalogProvider
-from airbyte.shared.sql_processor import (
-    SqlConfig,
-    SqlProcessorBase,
-)
+from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_writers import StdOutStateWriter
 
 
