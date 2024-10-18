@@ -33,7 +33,7 @@ PYTEST_POSTGRES_IMAGE = "postgres:13"
 PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
-LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
+LOCAL_TEST_REGISTRY_URL = "./../integration_tests/fixtures/registry.json"
 
 
 def pytest_configure(config):
