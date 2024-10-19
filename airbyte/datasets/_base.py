@@ -6,7 +6,6 @@ from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
-from pyarrow.dataset import Dataset
 
 from airbyte._util.document_rendering import DocumentRenderer
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
