@@ -124,6 +124,10 @@ class SqlConfig(BaseModel, abc.ABC):
             )
         )
 
+    def get_create_table_extra_clauses(self) -> list[str]:
+        """Return a list of clauses to append on CREATE TABLE statements."""
+        return []
+
     def get_sql_engine(self) -> Engine:
         """Return a new SQL engine to use."""
         return create_engine(
@@ -653,10 +657,13 @@ class SqlProcessorBase(abc.ABC):
             pk_str = ", ".join(primary_keys)
             column_definition_str += f",\n  PRIMARY KEY ({pk_str})"
 
+        extra_clauses = "\n".join(self.sql_config.get_create_table_extra_clauses())
+
         cmd = f"""
         CREATE TABLE {self._fully_qualified(table_name)} (
             {column_definition_str}
         )
+        {extra_clauses}
         """
         _ = self._execute_sql(cmd)
 
