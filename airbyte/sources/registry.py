@@ -16,8 +16,9 @@ import requests
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
+from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.version import get_version
-
+from airbyte.logs import warn_once
 
 __cache: dict[str, ConnectorMetadata] | None = None
 
@@ -233,7 +234,14 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
         return __cache
 
     registry_url = _get_registry_url()
+    if registry_url.upper() in ["0", "F", "FALSE"]:
+        # User has disabled the registry. Return an empty dictionary:
+        return {}
     if registry_url.startswith("http"):
+        if AIRBYTE_OFFLINE_MODE:
+            # Remote requests dissalowed. Return an empty dictionary:
+            return {}
+
         response = requests.get(
             registry_url,
             headers={"User-Agent": f"PyAirbyte/{get_version()}"},
@@ -256,11 +264,11 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
         new_cache[connector_metadata.name] = connector_metadata
 
     if len(new_cache) == 0:
-        raise exc.PyAirbyteInternalError(
-            message="Connector registry is empty.",
-            context={
-                "registry_url": _get_registry_url(),
-            },
+        # This isn't necessarily fatal, since users can bring their own
+        # connector definitions.
+        warn_once(
+            message=f"Connector registry is empty: {registry_url}",
+            with_stack=False,
         )
 
     __cache = new_cache
