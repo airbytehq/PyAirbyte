@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in

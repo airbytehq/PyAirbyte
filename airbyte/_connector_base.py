@@ -6,7 +6,7 @@ from __future__ import annotations
 import abc
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import jsonschema
 import rich

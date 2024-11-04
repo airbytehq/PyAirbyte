@@ -6,7 +6,7 @@ For usage examples, see the `airbyte.destinations` module documentation.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from airbyte._executors.util import get_connector_executor
 from airbyte.destinations.base import Destination

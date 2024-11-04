@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 
 from airbyte._executors.util import get_connector_executor
 from airbyte.exceptions import PyAirbyteInputError
