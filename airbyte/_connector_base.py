@@ -56,6 +56,7 @@ class ConnectorBase(abc.ABC):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
+        config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
         *,
         validate: bool = False,
     ) -> None:
@@ -63,6 +64,7 @@ class ConnectorBase(abc.ABC):
 
         If config is provided, it will be validated against the spec if validate is True.
         """
+        self.config_change_callback = config_change_callback
         self.executor = executor
         self._name = name
         self._config_dict: dict[str, Any] | None = None
@@ -361,7 +363,8 @@ class ConnectorBase(abc.ABC):
 
         This method handles reading Airbyte messages and taking action, if needed, based on the
         message type. For instance, log messages are logged, records are tallied, and errors are
-        raised as exceptions if `raise_on_error` is True.
+        raised as exceptions if `raise_on_error` is True. If a config change message is received,
+        the config change callback is called.
 
         Raises:
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
@@ -378,6 +381,16 @@ class ConnectorBase(abc.ABC):
                     message=message.trace.error.message,
                     log_text=self._last_log_messages,
                 )
+            return
+
+        if (
+            message.type == "CONTROL"
+            and message.control.type == "CONNECTOR_CONFIG"
+            and self.config_change_callback is not None
+        ):
+            self.config_change_callback(
+                message.control.config, message.control.emitted_at
+            )
             return
 
     def _execute(

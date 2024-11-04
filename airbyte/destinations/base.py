@@ -48,6 +48,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
+        config_change_callback: Callable[[dict[str, Any]], None] | None = None,
         *,
         validate: bool = False,
     ) -> None:
@@ -59,6 +60,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             executor=executor,
             name=name,
             config=config,
+            config_change_callback=config_change_callback,
             validate=validate,
         )
 
