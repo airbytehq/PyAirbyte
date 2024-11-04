@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 def get_destination(
     name: str,
     config: dict[str, Any] | None = None,
+    config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
     *,
     version: str | None = None,
     pip_url: str | None = None,
@@ -58,6 +59,7 @@ def get_destination(
     return Destination(
         name=name,
         config=config,
+        config_change_callback=config_change_callback,
         executor=get_connector_executor(
             name=name,
             version=version,

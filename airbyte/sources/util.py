@@ -45,6 +45,7 @@ def get_connector(
 def get_source(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
+    config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
     *,
     streams: str | list[str] | None = None,
     version: str | None = None,
@@ -103,6 +104,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     return Source(
         name=name,
         config=config,
+        config_change_callback=config_change_callback,
         streams=streams,
         executor=get_connector_executor(
             name=name,
