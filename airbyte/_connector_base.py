@@ -5,8 +5,9 @@ from __future__ import annotations
 
 import abc
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import jsonschema
 import rich
@@ -388,9 +389,7 @@ class ConnectorBase(abc.ABC):
             and message.control.type == "CONNECTOR_CONFIG"
             and self.config_change_callback is not None
         ):
-            self.config_change_callback(
-                message.control.config, message.control.emitted_at
-            )
+            self.config_change_callback(message.control.config, message.control.emitted_at)
             return
 
     def _execute(

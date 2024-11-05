@@ -7,7 +7,8 @@ For usage examples, see the `airbyte.destinations` module documentation.
 from __future__ import annotations
 
 import warnings
-from typing import IO, TYPE_CHECKING, Any, Callable, Literal, cast
+from collections.abc import Callable
+from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 from airbyte_protocol.models import (
     Type,

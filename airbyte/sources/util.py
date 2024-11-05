@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
 from airbyte.exceptions import PyAirbyteInputError
