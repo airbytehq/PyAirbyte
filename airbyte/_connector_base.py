@@ -56,7 +56,7 @@ class ConnectorBase(abc.ABC):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
+        config_change_callback: Callable[[dict[str, Any]], None] | None = None,
         *,
         validate: bool = False,
     ) -> None:
@@ -388,7 +388,7 @@ class ConnectorBase(abc.ABC):
             and message.control.type == "CONNECTOR_CONFIG"
             and self.config_change_callback is not None
         ):
-            self.config_change_callback(message.control.config, message.control.emitted_at)
+            self.config_change_callback(message.control.config)
             return
 
     def _execute(

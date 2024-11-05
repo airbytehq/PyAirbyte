@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 def get_destination(
     name: str,
     config: dict[str, Any] | None = None,
-    config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
+    config_change_callback: Callable[[dict[str, Any]], None] | None = None,
     *,
     version: str | None = None,
     pip_url: str | None = None,

@@ -58,7 +58,7 @@ class Source(ConnectorBase):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
+        config_change_callback: Callable[[dict[str, Any]], None] | None = None,
         streams: str | list[str] | None = None,
         *,
         validate: bool = False,

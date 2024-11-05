@@ -50,7 +50,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        config_change_callback: Callable[[dict[str, Any], int], None] | None = None,
+        config_change_callback: Callable[[dict[str, Any]], None] | None = None,
         *,
         validate: bool = False,
     ) -> None:
