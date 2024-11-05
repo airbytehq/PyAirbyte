@@ -16,6 +16,7 @@ from rich.syntax import Syntax
 from airbyte_protocol.models import (
     AirbyteMessage,
     ConnectorSpecification,
+    OrchestratorType,
     Status,
     TraceType,
     Type,
@@ -384,11 +385,11 @@ class ConnectorBase(abc.ABC):
             return
 
         if (
-            message.type == "CONTROL"
-            and message.control.type == "CONNECTOR_CONFIG"
+            message.type == Type.CONTROL
+            and message.control.type == OrchestratorType.CONNECTOR_CONFIG
             and self.config_change_callback is not None
         ):
-            self.config_change_callback(message.control.config)
+            self.config_change_callback(message.control.connectorConfig.config)
             return
 
     def _execute(
