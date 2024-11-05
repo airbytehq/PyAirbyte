@@ -28,7 +28,7 @@ def get_destination(
     docker_image: str | bool | None = None,
     use_host_network: bool = False,
     install_if_missing: bool = True,
-) -> Destination:
+) -> Destination: # pylint: disable=too-many-arguments
     """Get a connector by name and version.
 
     Args:
