@@ -7,7 +7,6 @@ For usage examples, see the `airbyte.destinations` module documentation.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 from airbyte_protocol.models import (
@@ -34,6 +33,8 @@ from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from airbyte._executors.base import Executor
     from airbyte.caches.base import CacheBase
     from airbyte.shared.state_writers import StateWriterBase

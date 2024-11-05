@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import warnings
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -37,7 +36,7 @@ from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Callable, Generator, Iterable, Iterator
 
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models import AirbyteStream

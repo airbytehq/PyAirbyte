@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +13,7 @@ from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 

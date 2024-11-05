@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import abc
 import json
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -36,7 +35,7 @@ from airbyte.logs import new_passthrough_file_logger
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
     from typing import IO
 
     from airbyte._executors.base import Executor
