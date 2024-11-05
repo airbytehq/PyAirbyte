@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def get_destination(
+def get_destination(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
     config_change_callback: Callable[[dict[str, Any]], None] | None = None,
@@ -28,7 +28,7 @@ def get_destination(
     docker_image: str | bool | None = None,
     use_host_network: bool = False,
     install_if_missing: bool = True,
-) -> Destination: # pylint: disable=too-many-arguments
+) -> Destination:
     """Get a connector by name and version.
 
     Args:

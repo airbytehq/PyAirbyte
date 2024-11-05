@@ -9,7 +9,6 @@ import pytest
 from typing import Any
 from unittest.mock import patch
 from airbyte import get_source, get_destination, Source, Destination
-from airbyte.destinations.base import Destination
 from airbyte_protocol.models import AirbyteMessage, Type, AirbyteControlMessage, OrchestratorType, AirbyteControlConnectorConfigMessage
 
 
