@@ -35,6 +35,7 @@ def get_destination(
         name: connector name
         config: connector config - if not provided, you need to set it later via the set_config
             method.
+        config_change_callback: callback function to be called when the connector config changes.
         streams: list of stream names to select for reading. If set to "*", all streams will be
             selected. If not provided, you can set it later via the `select_streams()` or
             `select_all_streams()` method.
