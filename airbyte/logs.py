@@ -7,6 +7,26 @@ files within the same directory, under a subfolder with the name of the connecto
 
 PyAirbyte supports structured JSON logging, which is disabled by default. To enable structured
 logging in JSON, set `AIRBYTE_STRUCTURED_LOGGING` to `True`.
+
+You can add your own log handlers to the global logger by calling `get_global_file_logger()` and
+then adding your own handlers to the logger object. For example, to add a STDERR handler, you can
+use the following code:
+
+```python
+import sys
+import logging
+
+from airbyte.logs import get_global_file_logger
+
+logger = get_global_file_logger()
+if logger:
+    stderr_handler = logging.StreamHandler(sys.stderr)
+    stderr_handler.setLevel(logging.INFO)
+    logger.addHandler(stderr_handler)
+```
+
+By default, connector logs are isolated to their own files. To disable this behavior and write all
+connector logs to the main log file, set `ISOLATED_CONNECTOR_LOGS` to `False`.
 """
 
 from __future__ import annotations
@@ -42,6 +62,22 @@ not set, the default value is `False`.
 """
 
 _warned_messages: set[str] = set()
+
+ISOLATED_CONNECTOR_LOGS: bool = _str_to_bool(
+    os.getenv(
+        key="AIRBYTE_ISOLATED_CONNECTOR_LOGS",
+        default="true",
+    )
+)
+""""Whether to write logs for each connector to a separate file.
+
+This value is read from the `AIRBYTE_ISOLATED_CONNECTOR_LOGS` environment variable. If the variable
+is not set, the default value is `True`.
+
+If set to `True`, PyAirbyte will write logs for each connector to a separate file in the
+`AIRBYTE_LOGGING_ROOT` directory. If set to `False`, all connector logs will be written to the same
+file as the main log - including .
+"""
 
 
 def warn_once(
@@ -277,8 +313,12 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     logger = logging.getLogger(f"airbyte.{connector_name}")
     logger.setLevel(logging.INFO)
 
-    # Prevent logging to stderr by stopping propagation to the root logger
-    logger.propagate = False
+    if ISOLATED_CONNECTOR_LOGS:
+        # Prevent double-logging to global logger by disabling propagation to the parent logger(s)
+        logger.propagate = False
+    else:
+        # Enable propagation to the global (parent) logger
+        logger.propagate = True
 
     if AIRBYTE_LOGGING_ROOT is None:
         # No temp directory available, so return a basic logger
