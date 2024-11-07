@@ -75,8 +75,7 @@ This value is read from the `AIRBYTE_ISOLATED_CONNECTOR_LOGS` environment variab
 is not set, the default value is `True`.
 
 If set to `True`, PyAirbyte will write logs for each connector to a separate file in the
-`AIRBYTE_LOGGING_ROOT` directory. If set to `False`, all connector logs will be written to the same
-file as the main log - including .
+`AIRBYTE_LOGGING_ROOT` directory. If set to `False`, connector logs will also be processed by the global log handler(s).
 """
 
 
