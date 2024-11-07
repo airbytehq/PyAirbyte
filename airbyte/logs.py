@@ -69,7 +69,7 @@ ISOLATED_CONNECTOR_LOGS: bool = _str_to_bool(
         default="true",
     )
 )
-""""Whether to write logs for each connector to a separate file.
+"""Whether to keep connector logs isolated from the global logger.
 
 This value is read from the `AIRBYTE_ISOLATED_CONNECTOR_LOGS` environment variable. If the variable
 is not set, the default value is `True`.
