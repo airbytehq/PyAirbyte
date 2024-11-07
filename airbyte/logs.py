@@ -314,7 +314,7 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     logger.setLevel(logging.INFO)
 
     if ISOLATED_CONNECTOR_LOGS:
-        # Prevent double-logging to global logger by disabling propagation to the parent logger(s)
+        # Prevent double-logging to global logger by disabling propagation to the parent log's handler(s)
         logger.propagate = False
     else:
         # Enable propagation to the global (parent) logger
