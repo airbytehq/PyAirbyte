@@ -25,8 +25,8 @@ if logger:
     logger.addHandler(stderr_handler)
 ```
 
-By default, connector logs are isolated to their own files. To disable this behavior and write all
-connector logs to the main log file, set `ISOLATED_CONNECTOR_LOGS` to `False`.
+By default, connector logs are isolated from the global logger. To disable this behavior and write all
+connector logs to the main logger as well, set `ISOLATED_CONNECTOR_LOGS` to `False`.
 """
 
 from __future__ import annotations
