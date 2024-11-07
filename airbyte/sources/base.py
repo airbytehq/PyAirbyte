@@ -741,13 +741,20 @@ class Source(ConnectorBase):
                 progress_tracker=progress_tracker,
             )
         )
-        cache._write_airbyte_message_stream(  # noqa: SLF001  # Non-public API
-            stdin=airbyte_message_iterator,
+
+        cache_record_processor = cache.get_record_processor(
+            source_name=self.name,
             catalog_provider=catalog_provider,
-            write_strategy=write_strategy,
             state_writer=state_writer,
+        )
+
+        cache_record_processor.process_airbyte_messages(
+            messages=airbyte_message_iterator,
+            write_strategy=write_strategy,
             progress_tracker=progress_tracker,
         )
+
+        progress_tracker.log_cache_processing_complete()
 
         # Flush the WAL, if applicable
         cache.processor._do_checkpoint()  # noqa: SLF001  # Non-public API
