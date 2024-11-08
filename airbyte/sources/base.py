@@ -36,7 +36,7 @@ from airbyte.strategies import WriteStrategy
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    from collections.abc import Callable, Generator, Iterable, Iterator
 
     from airbyte_cdk import ConnectorSpecification
     from airbyte_protocol.models import AirbyteStream
@@ -58,6 +58,7 @@ class Source(ConnectorBase):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
+        config_change_callback: Callable[[dict[str, Any]], None] | None = None,
         streams: str | list[str] | None = None,
         *,
         validate: bool = False,
@@ -73,6 +74,7 @@ class Source(ConnectorBase):
             executor=executor,
             name=name,
             config=config,
+            config_change_callback=config_change_callback,
             validate=validate,
         )
         self._config_dict: dict[str, Any] | None = None
