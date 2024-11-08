@@ -44,7 +44,7 @@ source = get_source(
 source.read()
 ```
 
-For more information on the underlying Airbyte protocol, please see documentation on
-the [`CONNECTOR_CONFIG` control messages]
-(https://docs.airbyte.com/understanding-airbyte/airbyte-protocol#airbytecontrolconnectorconfigmessage).
+For more information on the underlying Airbyte protocol, please see documentation on the
+[`CONNECTOR_CONFIG`](https://docs.airbyte.com/understanding-airbyte/airbyte-protocol#airbytecontrolconnectorconfigmessage)
+control messages.
 """
