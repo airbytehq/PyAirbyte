@@ -10,8 +10,8 @@ from typing import Any
 ConfigChangeCallback = Callable[[dict[str, Any]], None]
 """Callback for when the configuration changes while the connector is running.
 
-This callback can be passed to supporting functions like `airbyte.sources.util.get_source()` and
-`airbyte.destinations.util.get_destination()` to take action whenever configuration changes.
+This callback can be passed to supporting functions like `airbyte.get_source()` and
+`airbyte.get_destination()` to take action whenever configuration changes.
 The callback will be called with the new configuration as the only argument.
 
 The most common use case for this callback is for connectors with OAuth APIs to pass updated
