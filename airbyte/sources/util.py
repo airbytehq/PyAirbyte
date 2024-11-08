@@ -13,8 +13,9 @@ from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
+
+    from airbyte.callbacks import ConfigChangeCallback
 
 
 def get_connector(
@@ -46,8 +47,8 @@ def get_connector(
 def get_source(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
-    config_change_callback: Callable[[dict[str, Any]], None] | None = None,
     *,
+    config_change_callback: ConfigChangeCallback | None = None,
     streams: str | list[str] | None = None,
     version: str | None = None,
     pip_url: str | None = None,

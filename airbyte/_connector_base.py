@@ -36,11 +36,12 @@ from airbyte.logs import new_passthrough_file_logger
 
 if TYPE_CHECKING:
     import logging
-    from collections.abc import Callable, Generator
+    from collections.abc import Generator
     from typing import IO
 
     from airbyte._executors.base import Executor
     from airbyte._message_iterators import AirbyteMessageIterator
+    from airbyte.callbacks import ConfigChangeCallback
     from airbyte.progress import ProgressTracker
 
 
@@ -57,7 +58,7 @@ class ConnectorBase(abc.ABC):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        config_change_callback: Callable[[dict[str, Any]], None] | None = None,
+        config_change_callback: ConfigChangeCallback | None = None,
         *,
         validate: bool = False,
     ) -> None:

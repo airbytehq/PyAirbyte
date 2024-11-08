@@ -13,15 +13,16 @@ from airbyte.destinations.base import Destination
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from pathlib import Path
+
+    from airbyte.callbacks import ConfigChangeCallback
 
 
 def get_destination(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
-    config_change_callback: Callable[[dict[str, Any]], None] | None = None,
     *,
+    config_change_callback: ConfigChangeCallback | None = None,
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
