@@ -2838,13 +2838,13 @@ cli = ["click (>=5.0)"]
 
 [[package]]
 name = "python-ulid"
-version = "2.7.0"
+version = "3.0.0"
 description = "Universally unique lexicographically sortable identifier"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "python_ulid-2.7.0-py3-none-any.whl", hash = "sha256:c81658e382f69bad8c6d365155c4ae21843ae4226b94f72c12d7adcbb545a251"},
-    {file = "python_ulid-2.7.0.tar.gz", hash = "sha256:18eb595885140851a490a95b0da4447911ff69fa9f434732067b97f6956f9fe9"},
+    {file = "python_ulid-3.0.0-py3-none-any.whl", hash = "sha256:e4c4942ff50dbd79167ad01ac725ec58f924b4018025ce22c858bfcff99a5e31"},
+    {file = "python_ulid-3.0.0.tar.gz", hash = "sha256:e50296a47dc8209d28629a22fc81ca26c00982c78934bd7766377ba37ea49a9f"},
 ]
 
 [package.extras]
@@ -4029,4 +4029,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<4.0"
-content-hash = "b19fe8b37f7e74977c2f4c3f8e2fb1879fb2c7aeb85e08262ad34f30257128a2"
+content-hash = "06123aa84d47d963a88385496cb9e9d1deca7a435feacdaedc8a5ad384ba67f8"
