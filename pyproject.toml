@@ -72,6 +72,7 @@ coverage = "^7.5.1"
 pytest-timeout = "^2.3.1"
 viztracer = "^0.16.3"
 sqlalchemy2-stubs = "^0.0.2a38"
+vulture = "^2.13"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
