@@ -29,7 +29,7 @@ class PostgresConfig(SqlConfig):
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
         return SecretString(
-            f"postgresql://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+            f"postgresql+psycopg://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
         )
 
     @overrides

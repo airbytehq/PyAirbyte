@@ -137,7 +137,9 @@ def remove_postgres_container():
 
 
 def test_pg_connection(host) -> bool:
-    pg_url = f"postgresql://postgres:postgres@{host}:{PYTEST_POSTGRES_PORT}/postgres"
+    pg_url = (
+        f"postgresql+psycopg://postgres:postgres@{host}:{PYTEST_POSTGRES_PORT}/postgres"
+    )
 
     max_attempts = 120
     for attempt in range(max_attempts):
