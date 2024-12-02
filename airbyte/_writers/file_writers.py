@@ -65,7 +65,7 @@ class FileWriterBase(AirbyteWriterInterface):
         # If a stream contains a special Character, the temporary jsonl.gz
         # file can't be created, because of OS restrictions. Therefore, we
         # remove the special characters.
-        cleaned_stream_name = re.sub(r"[^a-zA-Z0-9\s]", "", stream_name)
+        cleaned_stream_name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "", stream_name)
         return target_dir / f"{cleaned_stream_name}_{batch_id}{self.default_cache_file_suffix}"
 
     def _open_new_file(
