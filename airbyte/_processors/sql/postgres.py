@@ -6,6 +6,7 @@ from __future__ import annotations
 import functools
 
 from overrides import overrides
+from sqlalchemy import URL
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte._writers.jsonl import JsonlWriter
@@ -28,9 +29,15 @@ class PostgresConfig(SqlConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return SecretString(
-            f"postgresql+psycopg://{self.username}:{self.password}@{self.host}:{self.port}/{self.database}"
+        url = URL.create(
+            drivername="postgresql+psycopg",
+            username=self.username,
+            password=self.password,
+            host=self.host,
+            port=self.port,  # defaults to 5432
+            database=self.database,
         )
+        return SecretString(str(url))
 
     @overrides
     def get_database_name(self) -> str:

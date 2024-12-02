@@ -13,6 +13,8 @@ import time
 import warnings
 from pathlib import Path
 
+from sqlalchemy import URL
+
 import airbyte
 import docker
 import psycopg
@@ -137,8 +139,15 @@ def remove_postgres_container():
 
 
 def test_pg_connection(host) -> bool:
-    pg_url = (
-        f"postgresql+psycopg://postgres:postgres@{host}:{PYTEST_POSTGRES_PORT}/postgres"
+    pg_url = str(
+        URL.create(
+            drivername="postgresql+psycopg",
+            username="postgres",
+            password="postgres",
+            host=host,
+            port=PYTEST_POSTGRES_PORT,  # defaults to 5432
+            database="postgres",
+        )
     )
 
     max_attempts = 120
