@@ -62,6 +62,9 @@ class FileWriterBase(AirbyteWriterInterface):
         batch_id = batch_id or str(ulid.ULID())
         target_dir = Path(self._cache_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
+        # If a stream contains a special Character, the temporary jsonl.gz
+        # file can't be created, because of OS restrictions. Therefore, we
+        # remove the special characters.
         cleaned_stream_name = re.sub(r"[^a-zA-Z0-9\s]", "", stream_name)
         return target_dir / f"{cleaned_stream_name}_{batch_id}{self.default_cache_file_suffix}"
 
