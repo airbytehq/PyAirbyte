@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import abc
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, final
@@ -61,7 +62,8 @@ class FileWriterBase(AirbyteWriterInterface):
         batch_id = batch_id or str(ulid.ULID())
         target_dir = Path(self._cache_dir)
         target_dir.mkdir(parents=True, exist_ok=True)
-        return target_dir / f"{stream_name}_{batch_id}{self.default_cache_file_suffix}"
+        cleaned_stream_name = re.sub(r"[^a-zA-Z0-9\s]", "", stream_name)
+        return target_dir / f"{cleaned_stream_name}_{batch_id}{self.default_cache_file_suffix}"
 
     def _open_new_file(
         self,
