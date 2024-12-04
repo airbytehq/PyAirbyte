@@ -15,14 +15,17 @@ enable = true
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
 
+airbyte-api = "^0.49.2"
 airbyte-cdk = "^6.6.4,!=6.7.0rc1,!=6.7.0rc2"
+airbyte-protocol-models-pdv2 = "^0.13.0"
+click = "^8.1.7"
 duckdb = "^1.1.0"
 duckdb-engine = "^0.13.2"
 google-auth = ">=2.27.0,<3.0"
 google-cloud-bigquery = ">=3.12.0,<4.0"
+google-cloud-bigquery-storage = "^2.25.0"
 google-cloud-secret-manager = "^2.17.0"
 jsonschema = ">=3.2.0,<5.0"
-numpy = "<2.0"  # v2.0 causes "ValueError: numpy.dtype size changed" error
 orjson = "^3.10"
 overrides = "^7.4.0"
 pandas = { version = ">=1.5.3,<3.0" }
@@ -31,47 +34,47 @@ psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
 psycopg2-binary =  "^2.9.9"
 pyarrow = ">=16.1,<18.0"
 pydantic = ">=2.0,<=3.0"
+pydantic-core = "*"
 python-dotenv = "^1.0.1"
 python-ulid = "^3.0.0"
+pytz = "*"
+pyyaml = "^6.0.2"
 requests = "<=2.32.2,!=3.32.0"  # 3.32.0 breaks docker tests
 rich = "^13.7.0"
 snowflake-connector-python = "^3.12.2"
 snowflake-sqlalchemy = "^1.6.1"
+structlog = "^24.4.0"
 # TODO: Remove SQLAlchemy version constraint once DuckDB engine bug is fixed (issue #423)
 sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
-types-pyyaml = "^6.0.12.12"
 
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }
-airbyte-api = "^0.49.2"
-google-cloud-bigquery-storage = "^2.25.0"
-pyiceberg = "^0.6.1"
+typing-extensions = "*"
 uuid7 = "^0.1.0"
-grpcio = "^1.65.0"
-structlog = "^24.4.0"
-airbyte-protocol-models-pdv2 = "^0.13.0"
 
 [tool.poetry.group.dev.dependencies]
+coverage = "^7.5.1"
+deptry = "^0.21.1"
 docker = "^7.1.0"
 faker = "^21.0.0"
+freezegun = "^1.4.0"
 mypy = "^1.11.2"
 pandas-stubs = "^2.1.4.231218"
 pdoc = "^14.3.0"
+poethepoet = "^0.26.1"
 pytest = "^8.2.0"
 pytest-docker = "^3.1.1"
-pytest-mypy = "^0.10.3"
-ruff = "^0.6.4"
-types-jsonschema = "^4.20.0.0"
-types-requests = "2.31.0.4"
-freezegun = "^1.4.0"
-tomli = "^2.0"
-responses = "^0.25.0"
 pytest-mock = "^3.14.0"
-poethepoet = "^0.26.1"
-coverage = "^7.5.1"
+pytest-mypy = "^0.10.3"
 pytest-timeout = "^2.3.1"
-viztracer = "^0.16.3"
+responses = "^0.25.0"
+ruff = "^0.6.4"
 sqlalchemy2-stubs = "^0.0.2a38"
+tomli = "^2.0"
+types-jsonschema = "^4.20.0.0"
+types-pyyaml = "^6.0.12.12"
+types-requests = "2.31.0.4"
+viztracer = "^0.16.3"
 
 [build-system]
 requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
@@ -340,3 +343,19 @@ extra_poetry_groups = ["dev"]
 poe_tasks = ["test"]
 required_environment_variables = ["GCP_GSM_CREDENTIALS"]
 side_car_docker_engine = true
+
+[tool.deptry.per_rule_ignores]
+# This is a mapping of rules and package names to be ignored for that rule.
+DEP001 = [
+  "IPython"  # Optional dependency, used for detecting Notebook environments
+]
+DEP004 = [
+  "pdoc"  # Only used for generating documentation. Not a runtime dependency.
+]
+DEP002 = [
+  # Only used for SQLAlchemy engine. Not imported directly:
+  "duckdb",
+  "psycopg",
+  "psycopg2-binary",
+  "sqlalchemy-bigquery",
+]
