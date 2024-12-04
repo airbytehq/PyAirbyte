@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import abc
-import re
 from collections import defaultdict
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, final
@@ -14,6 +13,7 @@ import ulid
 from airbyte import exceptions as exc
 from airbyte import progress
 from airbyte._batch_handles import BatchHandle
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.records import StreamRecord, StreamRecordHandler
 
@@ -64,11 +64,12 @@ class FileWriterBase(AirbyteWriterInterface):
         target_dir.mkdir(parents=True, exist_ok=True)
         # If a stream contains a special Character, the temporary jsonl.gz
         # file can't be created, because of OS restrictions. Therefore, we
-        # remove the special characters.
+        # remove the special characters, using the `LowerCaseNormalizer`.
         # Specifically: we remove any of these characters: `<>:"/\|?*`
         # and we remove characters in the ASCII range from 0 to 31.
-        cleaned_stream_name = re.sub(r'[<>:"/\\|?*\x00-\x1F]', "", stream_name)
-        return target_dir / f"{cleaned_stream_name}_{batch_id}{self.default_cache_file_suffix}"
+        normalizer = LowerCaseNormalizer()
+        normalized_stream_name = normalizer.normalize(stream_name)
+        return target_dir / f"{normalized_stream_name}_{batch_id}{self.default_cache_file_suffix}"
 
     def _open_new_file(
         self,
