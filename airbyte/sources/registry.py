@@ -16,6 +16,8 @@ import requests
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
+from airbyte.constants import AIRBYTE_OFFLINE_MODE
+from airbyte.logs import warn_once
 from airbyte.version import get_version
 
 
@@ -180,6 +182,10 @@ def _get_registry_url() -> str:
     return _REGISTRY_URL
 
 
+def _is_registry_disabled(url: str) -> bool:
+    return url.upper() in {"0", "F", "FALSE"} or AIRBYTE_OFFLINE_MODE
+
+
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
     latest_version: str | None = entry.get("dockerImageTag")
@@ -233,6 +239,10 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
         return __cache
 
     registry_url = _get_registry_url()
+
+    if _is_registry_disabled(registry_url):
+        return {}
+
     if registry_url.startswith("http"):
         response = requests.get(
             registry_url,
@@ -256,23 +266,29 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
         new_cache[connector_metadata.name] = connector_metadata
 
     if len(new_cache) == 0:
-        raise exc.PyAirbyteInternalError(
-            message="Connector registry is empty.",
-            context={
-                "registry_url": _get_registry_url(),
-            },
+        # This isn't necessarily fatal, since users can bring their own
+        # connector definitions.
+        warn_once(
+            message=f"Connector registry is empty: {registry_url}",
+            with_stack=False,
         )
 
     __cache = new_cache
     return __cache
 
 
-def get_connector_metadata(name: str) -> ConnectorMetadata:
+def get_connector_metadata(name: str) -> None | ConnectorMetadata:
     """Check the cache for the connector.
 
     If the cache is empty, populate by calling update_cache.
     """
+    registry_url = _get_registry_url()
+
+    if _is_registry_disabled(registry_url):
+        return None
+
     cache = copy(_get_registry_cache())
+
     if not cache:
         raise exc.PyAirbyteInternalError(
             message="Connector registry could not be loaded.",

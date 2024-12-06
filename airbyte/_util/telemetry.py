@@ -50,6 +50,7 @@ from airbyte._util.connector_info import (
     WriterRuntimeInfo,
 )
 from airbyte._util.hashing import one_way_hash
+from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.version import get_version
 
 
@@ -89,7 +90,7 @@ def _setup_analytics() -> str | bool:
     anonymous_user_id: str | None = None
     issues: list[str] = []
 
-    if os.environ.get(DO_NOT_TRACK):
+    if os.environ.get(DO_NOT_TRACK) or AIRBYTE_OFFLINE_MODE:
         # User has opted out of tracking.
         return False
 
@@ -207,7 +208,7 @@ def send_telemetry(
     exception: Exception | None = None,
 ) -> None:
     # If DO_NOT_TRACK is set, we don't send any telemetry
-    if os.environ.get(DO_NOT_TRACK):
+    if os.environ.get(DO_NOT_TRACK) or AIRBYTE_OFFLINE_MODE:
         return
 
     payload_props: dict[str, str | int | dict] = {

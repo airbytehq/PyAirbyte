@@ -89,3 +89,23 @@ TEMP_FILE_CLEANUP = _str_to_bool(
 This value is read from the `AIRBYTE_TEMP_FILE_CLEANUP` environment variable. If the variable is
 not set, the default value is `True`.
 """
+
+AIRBYTE_OFFLINE_MODE = _str_to_bool(
+    os.getenv(
+        key="AIRBYTE_OFFLINE_MODE",
+        default="false",
+    )
+)
+"""Enable or disable offline mode.
+
+When offline mode is enabled, PyAirbyte will attempt to fetch metadata for connectors from the
+Airbyte registry but will not raise an error if the registry is unavailable. This can be useful in
+environments without internet access or with air-gapped networks.
+
+Offline mode also disables telemetry, similar to a `DO_NOT_TRACK` setting, ensuring no usage data
+is sent from your environment. You may also specify a custom registry URL via the`_REGISTRY_ENV_VAR`
+environment variable if you prefer to use a different registry source for metadata.
+
+This setting helps you make informed choices about data privacy and operation in restricted and
+air-gapped environments.
+"""

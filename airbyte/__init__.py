@@ -125,6 +125,7 @@ from __future__ import annotations
 
 from airbyte import (
     caches,
+    callbacks,
     # cli,  # Causes circular import if included
     cloud,
     constants,
@@ -157,6 +158,7 @@ from airbyte.sources.util import get_source
 __all__ = [
     # Modules
     "caches",
+    "callbacks",
     # "cli",  # Causes circular import if included
     "cloud",
     "constants",

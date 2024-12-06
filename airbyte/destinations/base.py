@@ -35,6 +35,7 @@ from airbyte.strategies import WriteStrategy
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
     from airbyte.caches.base import CacheBase
+    from airbyte.callbacks import ConfigChangeCallback
     from airbyte.shared.state_writers import StateWriterBase
 
 
@@ -49,6 +50,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         name: str,
         config: dict[str, Any] | None = None,
         *,
+        config_change_callback: ConfigChangeCallback | None = None,
         validate: bool = False,
     ) -> None:
         """Initialize the source.
@@ -59,6 +61,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             executor=executor,
             name=name,
             config=config,
+            config_change_callback=config_change_callback,
             validate=validate,
         )
 

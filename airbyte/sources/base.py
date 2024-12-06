@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
     from airbyte._executors.base import Executor
     from airbyte.caches import CacheBase
+    from airbyte.callbacks import ConfigChangeCallback
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
@@ -58,8 +59,9 @@ class Source(ConnectorBase):
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        streams: str | list[str] | None = None,
         *,
+        config_change_callback: ConfigChangeCallback | None = None,
+        streams: str | list[str] | None = None,
         validate: bool = False,
     ) -> None:
         """Initialize the source.
@@ -73,6 +75,7 @@ class Source(ConnectorBase):
             executor=executor,
             name=name,
             config=config,
+            config_change_callback=config_change_callback,
             validate=validate,
         )
         self._config_dict: dict[str, Any] | None = None
