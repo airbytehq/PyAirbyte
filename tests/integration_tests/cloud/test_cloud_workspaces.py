@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import airbyte as ab
 import pytest
-from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudSource
+from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
 
 
@@ -32,20 +32,6 @@ def test_deploy_source(
     cloud_workspace.permanently_delete_source(cloud_source)
 
 
-def test_deploy_cache_as_destination(
-    cloud_workspace: CloudWorkspace,
-    motherduck_api_key: str,
-) -> None:
-    """Test deploying a cache to a workspace as a destination."""
-    cache = MotherDuckCache(
-        api_key=SecretString(motherduck_api_key),
-        database="new_db",
-        schema_name="public",
-    )
-    destination_id: str = cloud_workspace.deploy_cache_as_destination(cache=cache)
-    cloud_workspace.permanently_delete_destination(destination=destination_id)
-
-
 @pytest.mark.skip("This test is flaky/failing and needs to be fixed.")
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
@@ -58,18 +44,27 @@ def test_deploy_connection(
     )
     source.check()
 
-    cache = MotherDuckCache(
-        api_key=SecretString(motherduck_api_key),
+    destination = DestinationMotherDuck(
+        motherduck_api_key=SecretString(motherduck_api_key),
         database="new_db",
         schema_name="public",
         table_prefix="abc_deleteme_",
     )
-    desination = cloud.
+    destination.check()
+
+    cloud_source = cloud_workspace.deploy_source(
+        name="test-source",
+        source=source,
+    )
+    cloud_destination = cloud_workspace.deploy_destination(
+        name="test-destination",
+        destination=destination,
+    )
 
     connection: CloudConnection = cloud_workspace.deploy_connection(
         connection_name="test-connection",
-        source=source,
-        cache=cache,
+        source=cloud_source,
+        destination=cloud_destination,
     )
     assert set(connection.stream_names) == set(["users", "products", "purchases"])
     assert connection.table_prefix == "abc_deleteme_"

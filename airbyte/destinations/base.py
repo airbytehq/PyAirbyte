@@ -9,10 +9,6 @@ from __future__ import annotations
 import warnings
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
-from airbyte_protocol.models import (
-    Type,
-)
-
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._message_iterators import AirbyteMessageIterator
@@ -42,7 +38,7 @@ if TYPE_CHECKING:
 class Destination(ConnectorBase, AirbyteWriterInterface):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination"] = "destination"
+    connector_type = "destination"
 
     def __init__(
         self,
@@ -293,7 +289,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                         ),
                     )
                 ):
-                    if destination_message.type is Type.STATE:
+                    if destination_message.state:
                         state_writer.write_state(state_message=destination_message.state)
 
             except exc.AirbyteConnectorFailedError as ex:
@@ -302,21 +298,6 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                     log_text=self._last_log_messages,
                     original_exception=ex,
                 ) from None
-
-    @classmethod
-    def from_cache(
-        cls,
-        new_name: str,
-        *,
-        cache: CacheBase,
-    ) -> Destination:
-        """Create a destination from a cache."""
-        return cls(
-            executor=...,
-            name=new_name,
-            config=cache.get_destination_config(),
-            validate=False,
-        )
 
 
 __all__ = [
