@@ -3,15 +3,16 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from airbyte_api.models import (
+    BatchedStandardInserts,
     DestinationBigquery,
     DestinationDuckdb,
     DestinationPostgres,
     DestinationSnowflake,
-    StandardInserts,
     UsernameAndPassword,
 )
 
@@ -77,52 +78,60 @@ def get_duckdb_destination_config(
     cache: DuckDBCache,
 ) -> dict[str, str]:
     """Get the destination configuration from the DuckDB cache."""
-    return DestinationDuckdb(
-        destination_path=str(cache.db_path),
-        schema=cache.schema_name,
-    ).to_dict()
+    return asdict(
+        DestinationDuckdb(
+            destination_path=str(cache.db_path),
+            schema=cache.schema_name,
+        )
+    )
 
 
 def get_motherduck_destination_config(
     cache: MotherDuckCache,
 ) -> dict[str, str]:
     """Get the destination configuration from the DuckDB cache."""
-    return DestinationDuckdb(
-        destination_path=cache.db_path,
-        schema=cache.schema_name,
-        motherduck_api_key=cache.api_key,
-    ).to_dict()
+    return asdict(
+        DestinationDuckdb(
+            destination_path=cache.db_path,
+            schema=cache.schema_name,
+            motherduck_api_key=cache.api_key,
+        )
+    )
 
 
 def get_postgres_destination_config(
     cache: PostgresCache,
 ) -> dict[str, str]:
     """Get the destination configuration from the Postgres cache."""
-    return DestinationPostgres(
-        database=cache.database,
-        host=cache.host,
-        password=cache.password,
-        port=cache.port,
-        schema=cache.schema_name,
-        username=cache.username,
-    ).to_dict()
+    return asdict(
+        DestinationPostgres(
+            database=cache.database,
+            host=cache.host,
+            password=cache.password,
+            port=cache.port,
+            schema=cache.schema_name,
+            username=cache.username,
+        )
+    )
 
 
 def get_snowflake_destination_config(
     cache: SnowflakeCache,
 ) -> dict[str, str]:
     """Get the destination configuration from the Snowflake cache."""
-    return DestinationSnowflake(
-        host=f"{cache.account}.snowflakecomputing.com",
-        database=cache.get_database_name().upper(),
-        schema=cache.schema_name.upper(),
-        warehouse=cache.warehouse,
-        role=cache.role,
-        username=cache.username,
-        credentials=UsernameAndPassword(
-            password=cache.password,
-        ),
-    ).to_dict()
+    return asdict(
+        DestinationSnowflake(
+            host=f"{cache.account}.snowflakecomputing.com",
+            database=cache.get_database_name().upper(),
+            schema=cache.schema_name.upper(),
+            warehouse=cache.warehouse,
+            role=cache.role,
+            username=cache.username,
+            credentials=UsernameAndPassword(
+                password=cache.password,
+            ),
+        )
+    )
 
 
 def get_bigquery_destination_config(
@@ -137,16 +146,19 @@ def get_bigquery_destination_config(
         dataset_id=cache.dataset_name,
         dataset_location="US",
         credentials_json=credentials_json,
-        loading_method=StandardInserts,
+        loading_method=BatchedStandardInserts(),
     )
-    return destination.to_dict()
+    return asdict(destination)
 
 
 def create_bigquery_cache(
-    destination_configuration: DestinationBigquery,
+    destination_configuration: DestinationBigquery | dict[str, Any],
 ) -> BigQueryCache:
     """Create a new BigQuery cache from the destination configuration."""
     credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
+    if isinstance(destination_configuration, dict):
+        destination_configuration = DestinationBigquery(**destination_configuration)
+
     return BigQueryCache(
         project_name=destination_configuration.project_id,
         dataset_name=destination_configuration.dataset_id,
@@ -196,10 +208,13 @@ def create_postgres_cache(
 
 
 def create_snowflake_cache(
-    destination_configuration: DestinationSnowflake,
+    destination_configuration: DestinationSnowflake | dict[str, Any],
     password_secret_name: str = SNOWFLAKE_PASSWORD_SECRET_NAME,
 ) -> SnowflakeCache:
     """Create a new Snowflake cache from the destination configuration."""
+    if isinstance(destination_configuration, dict):
+        destination_configuration = DestinationSnowflake(**destination_configuration)
+
     return SnowflakeCache(
         account=destination_configuration.host.split(".snowflakecomputing")[0],
         database=destination_configuration.database,
@@ -215,19 +230,33 @@ def create_cache_from_destination_config(
     destination_configuration: DestinationBigquery
     | DestinationDuckdb
     | DestinationPostgres
-    | DestinationSnowflake,
+    | DestinationSnowflake
+    | dict[str, Any],
 ) -> CacheBase:
     """Create a new cache from the destination."""
     conversion_fn_map: dict[str, Callable[[dict[str, str]], CacheBase]] = {
         "DestinationBigquery": create_bigquery_cache,
+        "bigquery": create_bigquery_cache,
         "DestinationDuckdb": create_duckdb_cache,
+        "motherduck": create_motherduck_cache,
         "DestinationPostgres": create_postgres_cache,
+        "postgres": create_postgres_cache,
         "DestinationSnowflake": create_snowflake_cache,
+        "snowflake": create_snowflake_cache,
     }
-    destination_class_name = type(destination_configuration).__name__
+
+    if isinstance(destination_configuration, dict):
+        if "DESTINATION_TYPE" not in destination_configuration:
+            raise ValueError("Destination configuration is missing 'DESTINATION_TYPE' field.")
+
+        destination_class_name = destination_configuration["DESTINATION_TYPE"]._value_
+    else:
+        destination_class_name = type(destination_configuration).__name__
+
     if destination_class_name not in conversion_fn_map:
         raise ValueError(  # noqa: TRY003
-            "Cannot convert destination configuration to cache. Destination type not supported. ",
+            "Cannot convert destination configuration to cache. "
+            f"Destination type '{destination_class_name}' not supported. ",
             f"Supported destination types: {list(conversion_fn_map.keys())}",
         )
 

@@ -23,8 +23,8 @@ def deployable_source() -> ab.Source:
 
 
 @pytest.fixture
-def previous_job_run_id() -> str:
-    return "10136196"
+def previous_job_run_id() -> int:
+    return 10136196
 
 
 @pytest.mark.super_slow
@@ -144,14 +144,15 @@ def test_read_from_deployed_connection(
 def test_read_from_previous_job(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
-    previous_job_run_id: str,
+    previous_job_run_id: int,
 ) -> None:
     """Test reading from a cache."""
     # Run sync and get result:
-    sync_result: SyncResult = cloud_workspace.get_sync_result(
+    sync_result: SyncResult | None = cloud_workspace.get_sync_result(
         connection_id=deployed_connection_id,
         job_id=previous_job_run_id,
     )
+    assert sync_result, f"Failed to get sync result for job {previous_job_run_id}"
 
     # Test sync result:
     assert sync_result.is_job_complete()

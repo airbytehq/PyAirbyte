@@ -161,7 +161,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
         return full_name
 
-    def get_secret(self, secret_name: str) -> SecretString | None:
+    def get_secret(self, secret_name: str) -> SecretString:
         """Get a named secret from Google Colab user secrets."""
         return SecretString(
             self.secret_client.access_secret_version(

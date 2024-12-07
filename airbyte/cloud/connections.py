@@ -53,7 +53,8 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
 
     # Properties
@@ -134,8 +135,9 @@ class CloudConnection:
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             workspace_id=self.workspace.workspace_id,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -163,15 +165,16 @@ class CloudConnection:
         sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         return [
             SyncResult(
                 workspace=self.workspace,
                 connection=self,
-                job_id=str(sync_log.job_id),
+                job_id=sync_log.job_id,
                 _latest_job_info=sync_log,
             )
             for sync_log in sync_logs
@@ -179,7 +182,7 @@ class CloudConnection:
 
     def get_sync_result(
         self,
-        job_id: str | None = None,
+        job_id: int | None = None,
     ) -> SyncResult | None:
         """Get the sync result for the connection.
 

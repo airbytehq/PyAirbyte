@@ -20,6 +20,8 @@ from airbyte._util.venv_util import get_bin_dir
 from sqlalchemy import text
 from viztracer import VizTracer
 
+from airbyte.results import ReadResult
+
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
 
@@ -174,6 +176,7 @@ def test_append_strategy(
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
+    result: ReadResult
     for _ in range(2):
         result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="append", force_full_refresh=True
@@ -188,6 +191,7 @@ def test_replace_strategy(
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
+    result: ReadResult
     for _ in range(2):
         result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True

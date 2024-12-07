@@ -431,7 +431,7 @@ class AirbyteConnectionError(AirbyteError):
     connection_id: str | None = None
     """The connection ID where the error occurred."""
 
-    job_id: str | None = None
+    job_id: int | None = None
     """The job ID where the error occurred (if applicable)."""
 
     job_status: str | None = None

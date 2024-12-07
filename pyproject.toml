@@ -15,7 +15,7 @@ enable = true
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
 
-airbyte-api = "^0.49.2"
+airbyte-api = "^0.52.1"
 airbyte-cdk = "^6.6.4,!=6.7.0rc1,!=6.7.0rc2"
 airbyte-protocol-models-pdv2 = "^0.13.0"
 click = "^8.1.7"
