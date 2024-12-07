@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from airbyte.caches import base, bigquery, duckdb, motherduck, postgres, snowflake, util
+from typing import TYPE_CHECKING
+
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
@@ -12,6 +13,11 @@ from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.snowflake import SnowflakeCache
 from airbyte.caches.util import get_default_cache, new_local_cache
 
+
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TCH004
+    from airbyte.caches import base, bigquery, duckdb, motherduck, postgres, snowflake, util
 
 # We export these classes for easy access: `airbyte.caches...`
 __all__ = [

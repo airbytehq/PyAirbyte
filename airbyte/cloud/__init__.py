@@ -56,11 +56,18 @@ These additional features are subject to change and may not be available in all 
 
 from __future__ import annotations
 
-from airbyte.cloud import connections, constants, sync_results, workspaces
+from typing import TYPE_CHECKING
+
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
+
+
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TCH004
+    from airbyte.cloud import connections, constants, sync_results, workspaces
 
 
 __all__ = [
