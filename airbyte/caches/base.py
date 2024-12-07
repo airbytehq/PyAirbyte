@@ -56,6 +56,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     """Whether to clean up the cache after use."""
 
     _name: str = PrivateAttr()
+    _paired_destination_name: str
 
     _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
     _read_processor: SqlProcessorBase = PrivateAttr()

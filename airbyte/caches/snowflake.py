@@ -34,6 +34,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
     dedupe_mode: RecordDedupeMode = RecordDedupeMode.APPEND
 
     _sql_processor_class = PrivateAttr(default=SnowflakeSqlProcessor)
+    _paired_destination_name: str = "destination-snowflake"
 
 
 # Expose the Cache class and also the Config class.

@@ -34,6 +34,7 @@ class MotherDuckConfig(DuckDBConfig):
     database: str = Field()
     api_key: SecretString = Field()
     db_path: str = Field(default="md:")
+    _paired_destination_name: str = "destination-motherduck"
 
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:

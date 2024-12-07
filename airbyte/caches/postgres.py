@@ -32,6 +32,7 @@ class PostgresCache(PostgresConfig, CacheBase):
     """
 
     _sql_processor_class = PrivateAttr(default=PostgresSqlProcessor)
+    _paired_destination_name: str = "destination-postgres"
 
 
 # Expose the Cache class and also the Config class.
