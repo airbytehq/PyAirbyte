@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from airbyte.sources import base, util
+from typing import TYPE_CHECKING
+
 from airbyte.sources.base import Source
 from airbyte.sources.registry import (
     ConnectorMetadata,
@@ -15,6 +16,14 @@ from airbyte.sources.util import (
     get_source,
 )
 
+
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TCH004  # imports used for more than type checking
+    from airbyte.sources import (
+        base,
+        util,
+    )
 
 __all__ = [
     # Submodules
