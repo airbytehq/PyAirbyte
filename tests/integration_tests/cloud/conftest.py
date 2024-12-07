@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from pydoc import cli
 import sys
 from pathlib import Path
 
@@ -19,7 +20,7 @@ AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
 
 ENV_MOTHERDUCK_API_KEY = "PYAIRBYTE_MOTHERDUCK_API_KEY"
 AIRBYTE_CLOUD_API_KEY_SECRET_NAME = "PYAIRBYTE_CLOUD_INTEROP_API_KEY"
-
+AIRBYTE_CLOUD_CREDS_SECRET_NAME = "PYAIRBYTE_CLOUD_INTEROP_CREDS"
 
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,7 +34,7 @@ def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def cloud_workspace_id() -> str:
+def workspace_id() -> str:
     return AIRBYTE_CLOUD_WORKSPACE_ID
 
 
@@ -41,15 +42,30 @@ def cloud_workspace_id() -> str:
 def airbyte_cloud_api_root() -> str:
     return CLOUD_API_ROOT
 
+CloudAPICreds = tuple[SecretString, SecretString]
+
 
 @pytest.fixture
-def airbyte_cloud_api_key(ci_secret_manager: GoogleGSMSecretManager) -> SecretString:
-    secret: SecretString | None = ci_secret_manager.get_secret(
-        AIRBYTE_CLOUD_API_KEY_SECRET_NAME
-    )
-    assert secret, f"Secret '{AIRBYTE_CLOUD_API_KEY_SECRET_NAME}' not found."
-    return secret
+def airbyte_cloud_credentials(
+    ci_secret_manager: GoogleGSMSecretManager,
+) -> CloudAPICreds:
+    secret = ci_secret_manager.get_secret(
+        AIRBYTE_CLOUD_CREDS_SECRET_NAME,
+    ).parse_json()
+    return SecretString(secret["client_id"]), SecretString(secret["client_secret"])
 
+
+@pytest.fixture
+def airbyte_cloud_client_id(
+    airbyte_cloud_credentials: CloudAPICreds,
+) -> SecretString:
+    return airbyte_cloud_credentials[0]
+
+@pytest.fixture
+def airbyte_cloud_client_secret(
+    airbyte_cloud_credentials: CloudAPICreds,
+) -> SecretString:
+    return airbyte_cloud_credentials[1]
 
 @pytest.fixture
 def motherduck_api_key(motherduck_secrets: dict) -> SecretString:
@@ -58,14 +74,16 @@ def motherduck_api_key(motherduck_secrets: dict) -> SecretString:
 
 @pytest.fixture
 def cloud_workspace(
-    cloud_workspace_id: str,
-    airbyte_cloud_api_key: SecretString,
+    workspace_id: str,
     airbyte_cloud_api_root: str,
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
 ) -> CloudWorkspace:
     return CloudWorkspace(
-        cloud_workspace_id=cloud_workspace_id,
-        api_key=airbyte_cloud_api_key,
+        workspace_id=workspace_id,
         api_root=airbyte_cloud_api_root,
+        client_id=airbyte_cloud_client_id,
+        client_secret=airbyte_cloud_client_secret,
     )
 
 

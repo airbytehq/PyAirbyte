@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, cast
 
 from airbyte._util import api_util
+from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
 
 
@@ -52,7 +53,8 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
 
     # Properties
@@ -69,6 +71,14 @@ class CloudConnection:
         return cast(str, self._source_id)
 
     @property
+    def source(self) -> CloudSource:
+        """Get the source object."""
+        return CloudSource(
+            workspace=self.workspace,
+            connector_id=self.source_id,
+        )
+
+    @property
     def destination_id(self) -> str:
         """The ID of the destination."""
         if not self._destination_id:
@@ -80,12 +90,20 @@ class CloudConnection:
         return cast(str, self._destination_id)
 
     @property
+    def destination(self) -> CloudDestination:
+        """Get the source object."""
+        return CloudDestination(
+            workspace=self.workspace,
+            connector_id=self.destination_id,
+        )
+
+    @property
     def stream_names(self) -> list[str]:
         """The stream names."""
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
-        return [stream.name for stream in self._connection_info.configurations.streams]
+        return [stream.name for stream in self._connection_info.configurations.streams or []]
 
     @property
     def table_prefix(self) -> str:
@@ -93,7 +111,7 @@ class CloudConnection:
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
-        return self._connection_info.prefix
+        return self._connection_info.prefix or ""
 
     @property
     def connection_url(self) -> str | None:
@@ -117,8 +135,9 @@ class CloudConnection:
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             workspace_id=self.workspace.workspace_id,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -146,9 +165,10 @@ class CloudConnection:
         sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         return [
             SyncResult(
@@ -162,7 +182,7 @@ class CloudConnection:
 
     def get_sync_result(
         self,
-        job_id: str | None = None,
+        job_id: int | None = None,
     ) -> SyncResult | None:
         """Get the sync result for the connection.
 
@@ -189,28 +209,22 @@ class CloudConnection:
 
     # Deletions
 
-    def _permanently_delete(
+    def permanently_delete(
         self,
         *,
-        delete_source: bool = False,
-        delete_destination: bool = False,
+        cascade_delete_source: bool = False,
+        cascade_delete_destination: bool = False,
     ) -> None:
         """Delete the connection.
 
         Args:
-            delete_source: Whether to also delete the source.
-            delete_destination: Whether to also delete the destination.
+            cascade_delete_source: Whether to also delete the source.
+            cascade_delete_destination: Whether to also delete the destination.
         """
-        self.workspace._permanently_delete_connection(  # noqa: SLF001  # Non-public API (for now)
-            connection=self
-        )
+        self.workspace.permanently_delete_connection(self)
 
-        if delete_source:
-            self.workspace._permanently_delete_source(  # noqa: SLF001  # Non-public API (for now)
-                source=self.source_id
-            )
+        if cascade_delete_source:
+            self.workspace.permanently_delete_source(self.source_id)
 
-        if delete_destination:
-            self.workspace._permanently_delete_destination(  # noqa: SLF001  # Non-public API
-                destination=self.destination_id,
-            )
+        if cascade_delete_destination:
+            self.workspace.permanently_delete_destination(self.destination_id)

@@ -9,10 +9,6 @@ from __future__ import annotations
 import warnings
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
-from airbyte_protocol.models import (
-    Type,
-)
-
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._message_iterators import AirbyteMessageIterator
@@ -42,7 +38,7 @@ if TYPE_CHECKING:
 class Destination(ConnectorBase, AirbyteWriterInterface):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination"] = "destination"
+    connector_type = "destination"
 
     def __init__(
         self,
@@ -293,7 +289,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                         ),
                     )
                 ):
-                    if destination_message.type is Type.STATE:
+                    if destination_message.state:
                         state_writer.write_state(state_message=destination_message.state)
 
             except exc.AirbyteConnectorFailedError as ex:

@@ -32,6 +32,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
     """The BigQuery cache implementation."""
 
     _sql_processor_class: type[BigQuerySqlProcessor] = PrivateAttr(default=BigQuerySqlProcessor)
+    _paired_destination_name: str = "destination-bigquery"
 
     def get_arrow_dataset(
         self,

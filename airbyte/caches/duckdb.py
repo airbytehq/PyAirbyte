@@ -38,6 +38,7 @@ class DuckDBCache(DuckDBConfig, CacheBase):
     """A DuckDB cache."""
 
     _sql_processor_class: type[DuckDBSqlProcessor] = PrivateAttr(default=DuckDBSqlProcessor)
+    _paired_destination_name: str = "destination-duckdb"
 
 
 # Expose the Cache class and also the Config class.
