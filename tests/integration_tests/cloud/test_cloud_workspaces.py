@@ -11,9 +11,11 @@ import pytest
 from airbyte.caches import MotherDuckCache
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connectors import CloudSource
+from airbyte.secrets.base import SecretString
 
 
-esdef test_deploy_source(
+def test_deploy_source(
     cloud_workspace: CloudWorkspace,
 ) -> None:
     """Test deploying a source to a workspace."""
@@ -22,9 +24,12 @@ esdef test_deploy_source(
         config={"count": 100},
     )
     source.check()
-    source_id: str = cloud_workspace.deploy_source(source)
+    cloud_source: CloudSource = cloud_workspace.deploy_source(
+        name="test-source",
+        source=source,
+    )
 
-    cloud_workspace.permanently_delete_source(source=source_id)
+    cloud_workspace.permanently_delete_source(cloud_source)
 
 
 def test_deploy_cache_as_destination(
@@ -33,7 +38,7 @@ def test_deploy_cache_as_destination(
 ) -> None:
     """Test deploying a cache to a workspace as a destination."""
     cache = MotherDuckCache(
-        api_key=motherduck_api_key,
+        api_key=SecretString(motherduck_api_key),
         database="new_db",
         schema_name="public",
     )
@@ -54,13 +59,15 @@ def test_deploy_connection(
     source.check()
 
     cache = MotherDuckCache(
-        api_key=motherduck_api_key,
+        api_key=SecretString(motherduck_api_key),
         database="new_db",
         schema_name="public",
         table_prefix="abc_deleteme_",
     )
+    desination = cloud.
 
     connection: CloudConnection = cloud_workspace.deploy_connection(
+        connection_name="test-connection",
         source=source,
         cache=cache,
     )

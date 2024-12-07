@@ -303,6 +303,21 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                     original_exception=ex,
                 ) from None
 
+    @classmethod
+    def from_cache(
+        cls,
+        new_name: str,
+        *,
+        cache: CacheBase,
+    ) -> Destination:
+        """Create a destination from a cache."""
+        return cls(
+            executor=...,
+            name=new_name,
+            config=cache.get_destination_config(),
+            validate=False,
+        )
+
 
 __all__ = [
     "Destination",

@@ -17,21 +17,38 @@ from airbyte_api.models import (
 
 from airbyte.caches import (
     BigQueryCache,
+    CacheBase,
     DuckDBCache,
     MotherDuckCache,
     PostgresCache,
     SnowflakeCache,
 )
 from airbyte.secrets import get_secret
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from airbyte.caches.base import CacheBase
+    from airbyte.destinations import Destination
 
 
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
+
+
+def cache_class_to_destination_class(
+    cache_class: type[CacheBase],
+) -> type[DestinationSnowflake]:
+    # TODO: Fixme
+    return DestinationSnowflake
+
+
+def destination_class_to_cache_class(
+    destination_class: type[Destination],
+) -> type[CacheBase]:
+    # TODO: Fixme
+    return SnowflakeCache
 
 
 def get_destination_config_from_cache(
@@ -61,7 +78,7 @@ def get_duckdb_destination_config(
 ) -> dict[str, str]:
     """Get the destination configuration from the DuckDB cache."""
     return DestinationDuckdb(
-        destination_path=cache.db_path,
+        destination_path=str(cache.db_path),
         schema=cache.schema_name,
     ).to_dict()
 
@@ -143,7 +160,7 @@ def create_duckdb_cache(
     """Create a new DuckDB cache from the destination configuration."""
     return DuckDBCache(
         db_path=destination_configuration.destination_path,
-        schema_name=destination_configuration.schema,
+        schema_name=destination_configuration.schema or "main",
     )
 
 
@@ -151,10 +168,13 @@ def create_motherduck_cache(
     destination_configuration: DestinationDuckdb,
 ) -> MotherDuckCache:
     """Create a new DuckDB cache from the destination configuration."""
+    if not destination_configuration.motherduck_api_key:
+        raise ValueError("MotherDuck API key is required for MotherDuck cache.")
+
     return MotherDuckCache(
         database=destination_configuration.destination_path,
-        schema_name=destination_configuration.schema,
-        api_key=destination_configuration.motherduck_api_key,
+        schema_name=destination_configuration.schema or "main",
+        api_key=SecretString(destination_configuration.motherduck_api_key),
     )
 
 
@@ -162,13 +182,15 @@ def create_postgres_cache(
     destination_configuration: DestinationPostgres,
 ) -> PostgresCache:
     """Create a new Postgres cache from the destination configuration."""
-    port: int = int(destination_configuration.port) if "port" in destination_configuration else 5432
+    port: int = int(destination_configuration.port) if destination_configuration.port else 5432
+    if not destination_configuration.password:
+        raise ValueError("Password is required for Postgres cache.")
     return PostgresCache(
         database=destination_configuration.database,
         host=destination_configuration.host,
         password=destination_configuration.password,
         port=port,
-        schema_name=destination_configuration.schema,
+        schema_name=destination_configuration.schema or "public",
         username=destination_configuration.username,
     )
 
