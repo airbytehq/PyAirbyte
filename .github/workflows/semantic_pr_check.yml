@@ -25,6 +25,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # Configure which types are allowed (newline-delimited).
+          # These are intentionally case-insensitive, allowing title casing or all lowercase.
           # See: https://github.com/commitizen/conventional-commit-types/blob/master/index.json
           types: |
             fix
@@ -46,12 +47,3 @@ jobs:
           # scopes: |
           #   core
           #   ui
-          #   JIRA-\d+
-
-          # Require capitalization for the first letter of the subject.
-          subjectPattern: ^[A-Z].*$
-          # The variables `subject` and `title` can be used within the message.
-          subjectPatternError: |
-            The subject "{subject}" found in the pull request title "{title}"
-            didn't match the configured pattern. Please ensure that the subject
-            start with an uppercase character.
