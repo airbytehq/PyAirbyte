@@ -13,7 +13,7 @@ from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
 
 
-def test_deploy_source(
+esdef test_deploy_source(
     cloud_workspace: CloudWorkspace,
 ) -> None:
     """Test deploying a source to a workspace."""
@@ -22,9 +22,9 @@ def test_deploy_source(
         config={"count": 100},
     )
     source.check()
-    source_id: str = cloud_workspace._deploy_source(source)
+    source_id: str = cloud_workspace.deploy_source(source)
 
-    cloud_workspace._permanently_delete_source(source=source_id)
+    cloud_workspace.permanently_delete_source(source=source_id)
 
 
 def test_deploy_cache_as_destination(
@@ -37,8 +37,8 @@ def test_deploy_cache_as_destination(
         database="new_db",
         schema_name="public",
     )
-    destination_id: str = cloud_workspace._deploy_cache_as_destination(cache=cache)
-    cloud_workspace._permanently_delete_destination(destination=destination_id)
+    destination_id: str = cloud_workspace.deploy_cache_as_destination(cache=cache)
+    cloud_workspace.permanently_delete_destination(destination=destination_id)
 
 
 @pytest.mark.skip("This test is flaky/failing and needs to be fixed.")
@@ -60,13 +60,13 @@ def test_deploy_connection(
         table_prefix="abc_deleteme_",
     )
 
-    connection: CloudConnection = cloud_workspace._deploy_connection(
+    connection: CloudConnection = cloud_workspace.deploy_connection(
         source=source,
         cache=cache,
     )
     assert set(connection.stream_names) == set(["users", "products", "purchases"])
     assert connection.table_prefix == "abc_deleteme_"
-    cloud_workspace._permanently_delete_connection(
+    cloud_workspace.permanently_delete_connection(
         connection=connection,
         delete_source=True,
         delete_destination=True,
