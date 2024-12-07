@@ -37,15 +37,15 @@ if TYPE_CHECKING:
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 
-def cache_class_to_destination_class(
-    cache_class: type[CacheBase],
-) -> type[DestinationSnowflake]:
+def cache_type_to_destination_type(
+    cache_type: type[CacheBase],
+) -> type[Destination]:
     # TODO: Fixme
     return DestinationSnowflake
 
 
-def destination_class_to_cache_class(
-    destination_class: type[Destination],
+def destination_type_to_cache_type(
+    destination_type: type[Destination],
 ) -> type[CacheBase]:
     # TODO: Fixme
     return SnowflakeCache
