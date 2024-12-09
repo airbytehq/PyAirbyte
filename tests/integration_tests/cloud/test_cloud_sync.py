@@ -12,6 +12,7 @@ import pytest
 from airbyte._util import text_util
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.sync_results import SyncResult
+from airbyte.destinations.base import Destination
 
 @pytest.fixture
 def pre_created_connection_id() -> str:
@@ -60,8 +61,14 @@ def test_deploy_and_run_connection(
         name=f"test-source-{text_util.generate_random_suffix()}",
         source=source,
     )
-    if not isinstance(new_deployable_destination, dict):
-        new_deployable_destination = asdict(new_deployable_destination)
+    if not isinstance(new_deployable_destination, (dict, Destination)):
+        try:
+            new_deployable_destination = asdict(new_deployable_destination)
+        except Exception as ex:
+            raise ValueError(
+                "new_deployable_destination must be a dictionary or a dataclass. "
+                f"Instead, it is a {type(new_deployable_destination)}."
+            ) from ex
 
     cloud_destination = cloud_workspace.deploy_destination(
         name=f"test-destination-{text_util.generate_random_suffix()}",
@@ -71,6 +78,7 @@ def test_deploy_and_run_connection(
         connection_name=f"test-connection-{text_util.generate_random_suffix()}",
         source=cloud_source,
         destination=cloud_destination,
+        selected_streams=source.get_available_streams(),
     )
     sync_result = connection.run_sync()
     _ = sync_result

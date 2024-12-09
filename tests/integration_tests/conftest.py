@@ -68,6 +68,17 @@ def new_motherduck_cache(
     )
 
 
+@pytest.fixture
+def new_motherduck_destination(
+    motherduck_secrets,
+) -> Destination:
+    return ab.get_destination(
+        "destination-motherduck",
+        config=motherduck_secrets,
+        install_if_missing=False,
+    )
+
+
 @pytest.fixture(scope="session")
 def new_snowflake_destination_config(ci_secret_manager: GoogleGSMSecretManager) -> dict:
     config = ci_secret_manager.get_secret(
@@ -102,6 +113,19 @@ def new_snowflake_cache(
         connection.execute(
             text(f"DROP SCHEMA IF EXISTS {cache.schema_name}"),
         )
+
+
+@pytest.fixture
+def new_snowflake_destination(
+    new_snowflake_destination_config: dict[str, Any],
+) -> Destination:
+    dest_config = new_snowflake_destination_config.copy()
+    _ = dest_config.pop("destinationType", None)
+    return ab.get_destination(
+        "destination-snowflake",
+        config=dest_config,
+        install_if_missing=False,
+    )
 
 
 @pytest.fixture

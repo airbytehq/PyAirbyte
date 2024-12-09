@@ -30,11 +30,13 @@ if TYPE_CHECKING:
 
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
-DestinationConfiguration = Any
+DestinationConfiguration = (
+    DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake
+)
 
 
 def destination_to_cache(
-    destination_configuration: DestinationConfiguration,
+    destination_configuration: DestinationConfiguration | dict[str, Any],
 ) -> CacheBase:
     """Get the destination configuration from the cache."""
     conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {
@@ -44,7 +46,22 @@ def destination_to_cache(
         "postgres": postgres_destination_to_cache,
         "snowflake": snowflake_destination_to_cache,
     }
-    destination_type: str = destination_configuration.DESTINATION_TYPE
+    if isinstance(destination_configuration, dict):
+        try:
+            destination_type = (
+                destination_configuration.get("DESTINATION_TYPE")
+                or destination_configuration["destinationType"]
+            )
+            if hasattr(destination_configuration, "value"):
+                destination_type = destination_type.value
+            else:
+                destination_type = str(destination_type)
+        except KeyError as ex:
+            raise ValueError(
+                f"Missing 'destinationType' in keys {list(destination_configuration.keys())}."
+            ) from ex
+    else:
+        destination_type = str(destination_configuration.DESTINATION_TYPE)
 
     conversion_fn = conversion_fn_map[destination_type]
     return conversion_fn(destination_configuration)

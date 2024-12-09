@@ -888,10 +888,12 @@ def test_read_stream_nonexisting() -> None:
 
 def test_failing_path_connector() -> None:
     with pytest.raises(Exception):
-        ab.get_source(
+        source = ab.get_source(
             "source-test",
             config={"apiKey": "test"},
+            local_executable=Path("non-existing"),
         )
+        source.check()
 
 
 def test_succeeding_path_connector(monkeypatch) -> None:

@@ -134,10 +134,10 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """
     deployable_destination_fixtures: dict[str, str] = {
         # Ordered by priority (fastest first)
-        "MotherDuck": "new_motherduck_cache",
+        # "MotherDuck": "new_motherduck_destination",
         # "Postgres": "new_remote_postgres_cache",
-        "BigQuery": "new_bigquery_cache",
-        "Snowflake": "new_snowflake_cache",
+        "BigQuery": "new_bigquery_destination",
+        "Snowflake": "new_snowflake_destination",
     }
 
     if "new_deployable_destination" in metafunc.fixturenames:

@@ -110,14 +110,6 @@ def all_cache_types(
     ]
 
 
-@pytest.mark.xfail(reason="Source is no longer auto-installed in virtualenv.")
-def test_which_source_faker() -> None:
-    """Test that source-faker is available on PATH."""
-    assert shutil.which(
-        "source-faker"
-    ), f"Can't find source-faker on PATH: {os.environ['PATH']}"
-
-
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
     duckdb_cache: DuckDBCache,
