@@ -41,10 +41,24 @@ def test_deploy_source(
     cloud_workspace.permanently_delete_source(cloud_source)
 
 
+def test_deploy_dummy_source(
+    deployable_dummy_source: ab.Source,
+    cloud_workspace: CloudWorkspace,
+) -> None:
+    """Test deploying a source to a workspace."""
+    deployable_dummy_source.check()
+
+    cloud_source: CloudSource = cloud_workspace.deploy_source(
+        name="test-source",
+        source=deployable_dummy_source,
+    )
+    cloud_workspace.permanently_delete_source(cloud_source)
+
+
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
-    deployable_dummy_source,
-    deployable_dummy_destination,
+    deployable_dummy_source: ab.Source,
+    deployable_dummy_destination: ab.Destination,
 ) -> None:
     """Test deploying a source and cache to a workspace as a new connection."""
     cloud_source = cloud_workspace.deploy_source(
@@ -62,6 +76,7 @@ def test_deploy_connection(
         connection_name="test-connection",
         source=cloud_source,
         destination=cloud_destination,
+        selected_streams=deployable_dummy_source.get_selected_streams(),
     )
     # assert set(connection.stream_names) == set(["users", "products", "purchases"])
     # assert connection.table_prefix == "abc_deleteme_"

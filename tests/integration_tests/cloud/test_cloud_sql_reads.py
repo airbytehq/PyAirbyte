@@ -27,59 +27,61 @@ def previous_job_run_id() -> int:
     return 10136196
 
 
-@pytest.mark.super_slow
-def test_deploy_and_run_and_read(
-    cloud_workspace: cloud.CloudWorkspace,
-    deployable_dummy_destination: ab.Destination,
-    deployable_dummy_source: ab.Source,
-) -> None:
-    """Test reading from a cache."""
+# This test is redundant with the other tests, and auto-retries in Cloud make the test untenable
+# for us to have multiple tests running the sync operation for now.
+# @pytest.mark.super_slow
+# def test_deploy_and_run_and_read(
+#     cloud_workspace: cloud.CloudWorkspace,
+#     deployable_dummy_destination: ab.Destination,
+#     deployable_dummy_source: ab.Source,
+# ) -> None:
+#     """Test reading from a cache."""
 
-    # Deploy source, destination, and connection:
-    cloud_source: CloudSource = cloud_workspace.deploy_source(
-        name="test-source",
-        source=deployable_dummy_source,
-        random_name_suffix=True,
-    )
-    cloud_destination = cloud_workspace.deploy_destination(
-        name="test-destination",
-        destination=deployable_dummy_destination,
-        random_name_suffix=True,
-    )
-    connection: cloud.CloudConnection = cloud_workspace.deploy_connection(
-        connection_name="test-connection-{text_util.generate_random_suffix()}",
-        source=cloud_source,
-        destination=cloud_destination,
-        # selected_streams=deployable_source.get_selected_streams(),
-    )
+#     # Deploy source, destination, and connection:
+#     cloud_source: CloudSource = cloud_workspace.deploy_source(
+#         name="test-source",
+#         source=deployable_dummy_source,
+#         random_name_suffix=True,
+#     )
+#     cloud_destination = cloud_workspace.deploy_destination(
+#         name="test-destination",
+#         destination=deployable_dummy_destination,
+#         random_name_suffix=True,
+#     )
+#     connection: cloud.CloudConnection = cloud_workspace.deploy_connection(
+#         connection_name="test-connection-{text_util.generate_random_suffix()}",
+#         source=cloud_source,
+#         destination=cloud_destination,
+#         selected_streams=deployable_source.get_selected_streams(),
+#     )
 
-    # Run sync and get result:
-    sync_result: SyncResult = connection.run_sync()
+#     # Run sync and get result:
+#     sync_result: SyncResult = connection.run_sync()
 
-    # TODO: Remove this second run after Destination bug is resolved:
-    #       https://github.com/airbytehq/airbyte/issues/36875
-    sync_result: SyncResult = connection.run_sync()
+#     # TODO: Remove this second run after Destination bug is resolved:
+#     #       https://github.com/airbytehq/airbyte/issues/36875
+#     sync_result: SyncResult = connection.run_sync()
 
-    # Check sync result:
-    assert sync_result.is_job_complete()
-    assert set(sync_result.stream_names) == set(["users", "products", "purchases"])
+#     # Check sync result:
+#     assert sync_result.is_job_complete()
+#     assert set(sync_result.stream_names) == set(["users", "products", "purchases"])
 
-    dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
-    assert dataset.stream_name == "users"
-    data_as_list = list(dataset)
-    assert len(data_as_list) == 100
+#     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
+#     assert dataset.stream_name == "users"
+#     data_as_list = list(dataset)
+#     assert len(data_as_list) == 100
 
-    # Cleanup
-    with suppress(Exception):
-        cloud_workspace.permanently_delete_connection(
-            connection=connection,
-            cascade_delete_source=True,
-            cascade_delete_destination=True,
-        )
-    with suppress(Exception):
-        cloud_workspace.permanently_delete_source(source=cloud_source)
-    with suppress(Exception):
-        cloud_workspace.permanently_delete_destination(destination=cloud_destination)
+#     # Cleanup
+#     with suppress(Exception):
+#         cloud_workspace.permanently_delete_connection(
+#             connection=connection,
+#             cascade_delete_source=True,
+#             cascade_delete_destination=True,
+#         )
+#     with suppress(Exception):
+#         cloud_workspace.permanently_delete_source(source=cloud_source)
+#     with suppress(Exception):
+#         cloud_workspace.permanently_delete_destination(destination=cloud_destination)
 
 
 @pytest.mark.parametrize(
@@ -100,6 +102,8 @@ def test_deploy_and_run_and_read(
 def test_read_from_deployed_connection(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
+    with_snowflake_password_env_var,
+    with_bigquery_credentials_env_vars,
 ) -> None:
     """Test reading from a cache."""
     # Run sync and get result:
@@ -152,6 +156,8 @@ def test_translate_cloud_job_to_sql_cache(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
     previous_job_run_id: int,
+    with_bigquery_credentials_env_vars,
+    with_snowflake_password_env_var,
 ) -> None:
     """Test reading from a cache."""
     # Run sync and get result:
@@ -189,6 +195,8 @@ def test_read_from_previous_job(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
     previous_job_run_id: int,
+    with_bigquery_credentials_env_vars,
+    with_snowflake_password_env_var,
 ) -> None:
     """Test reading from a cache."""
     # Run sync and get result:

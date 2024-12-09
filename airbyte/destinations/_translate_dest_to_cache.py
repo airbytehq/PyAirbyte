@@ -18,6 +18,7 @@ from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.snowflake import SnowflakeCache
+from airbyte.exceptions import PyAirbyteSecretNotFoundError
 from airbyte.secrets import get_secret
 from airbyte.secrets.base import SecretString
 
@@ -54,7 +55,7 @@ def destination_to_cache(
             )
             if hasattr(destination_type, "value"):
                 destination_type = destination_type.value
-            if hasattr(destination_type, "_value_"):
+            elif hasattr(destination_type, "_value_"):
                 destination_type = destination_type._value_
             else:
                 destination_type = str(destination_type)
@@ -142,6 +143,25 @@ def snowflake_destination_to_cache(
     if isinstance(destination_configuration, dict):
         destination_configuration = DestinationSnowflake(**destination_configuration)
 
+    snowflake_password: str | None = None
+    if (
+        destination_configuration.credentials
+        and hasattr(destination_configuration.credentials, "password")
+        and isinstance(destination_configuration.credentials.password, str)  # type: ignore [attr-defined]
+    ):
+        destination_password = str(destination_configuration.credentials.password)  # type: ignore [attr-defined]
+        if "****" in destination_password:
+            try:
+                snowflake_password = get_secret(password_secret_name)
+            except ValueError as ex:
+                raise PyAirbyteSecretNotFoundError(
+                    "Password is required for Snowflake cache, but it was not available."
+                ) from ex
+        else:
+            snowflake_password = get_secret(destination_password)
+    else:
+        snowflake_password = get_secret(password_secret_name)
+
     return SnowflakeCache(
         account=destination_configuration.host.split(".snowflakecomputing")[0],
         database=destination_configuration.database,
@@ -149,5 +169,5 @@ def snowflake_destination_to_cache(
         warehouse=destination_configuration.warehouse,
         role=destination_configuration.role,
         username=destination_configuration.username,
-        password=get_secret(password_secret_name),
+        password=snowflake_password,
     )

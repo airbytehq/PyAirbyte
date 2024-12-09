@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+from enum import auto
+import json
 import os
 import sys
 from pathlib import Path
+from typing import Any, Generator
 
 import pytest
 from airbyte._util.api_util import CLOUD_API_ROOT
+from airbyte._util.temp_files import as_temp_files
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.cloud import CloudWorkspace
 from airbyte.destinations.base import Destination
@@ -22,7 +26,7 @@ from airbyte_api.models import (
 )
 
 from airbyte.sources.base import Source
-from airbyte.sources.util import get_benchmark_source
+from airbyte.sources.util import get_source
 
 AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
 
@@ -97,9 +101,17 @@ def cloud_workspace(
 
 @pytest.fixture
 def deployable_dummy_source() -> Source:
-    """A local PyAirbyte `Source` object."""
-    return get_benchmark_source(
-        install_if_missing=False,
+    """A local PyAirbyte `Source` object.
+
+    For some reason `source-hardcoded-records` and `source-e2e-tests` are not working.
+    """
+    return get_source(
+        "source-faker",
+        streams=["products"],
+        config={
+            "count": 100,
+        },
+        # install_if_missing=False,
     )
 
 
@@ -148,3 +160,46 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             indirect=True,
             scope="function",
         )
+
+@pytest.fixture(scope="session")
+def with_bigquery_credentials_env_vars(
+    ci_secret_manager: GoogleGSMSecretManager,
+) -> Generator[None, Any, None]:
+    """This fixture sets up the BigQuery credentials file for the session.
+
+    This is needed because when retrieving config from the REST API, the credentials are
+    obfuscated.
+    """
+    dest_bigquery_config = ci_secret_manager.get_secret(
+        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
+    ).parse_json()
+
+    credentials_json = dest_bigquery_config["credentials_json"]
+    with as_temp_files(files_contents=[credentials_json]) as (credentials_path,):
+        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
+        os.environ["BIGQUERY_CREDENTIALS_JSON"] = json.dumps(credentials_json)
+
+        yield
+
+    return
+
+
+@pytest.fixture(scope="session")
+def snowflake_creds(ci_secret_manager: GoogleGSMSecretManager) -> dict:
+    return ci_secret_manager.get_secret(
+        "AIRBYTE_LIB_SNOWFLAKE_CREDS",
+    ).parse_json()
+
+
+@pytest.fixture(scope="session")
+def with_snowflake_password_env_var(snowflake_creds: dict):
+    """This fixture sets up Snowflake credentials for tests.
+
+    This is needed because when retrieving config from the REST API, the credentials are
+    obfuscated.
+    """
+    os.environ["SNOWFLAKE_PASSWORD"] = snowflake_creds["password"]
+
+    yield
+
+    return
