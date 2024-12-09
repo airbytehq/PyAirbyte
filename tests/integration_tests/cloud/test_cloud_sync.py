@@ -20,6 +20,12 @@ def pre_created_connection_id() -> str:
 
 
 @pytest.mark.super_slow
+@pytest.mark.parametrize(
+    "pre_created_connection_id",
+    [
+        "80857d37-1f21-4500-a802-f5ac08d1a3dd",
+    ],
+)
 def test_run_connection(
     cloud_workspace: CloudWorkspace,
     pre_created_connection_id: str,
@@ -32,7 +38,6 @@ def test_run_connection(
     assert sync_result.stream_names
 
 
-@pytest.mark.super_slow
 def test_get_previous_sync_result(
     cloud_workspace: CloudWorkspace,
     pre_created_connection_id: str,
@@ -51,6 +56,8 @@ def test_get_previous_sync_result(
 def test_deploy_and_run_connection(
     cloud_workspace: CloudWorkspace,
     new_deployable_destination,
+    with_bigquery_credentials_env_vars,
+    with_snowflake_password_env_var,
 ) -> None:
     """Test deploying a source and cache to a workspace as a new connection."""
     source = ab.get_source(
