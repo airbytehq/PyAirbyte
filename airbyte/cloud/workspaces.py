@@ -297,7 +297,7 @@ class CloudWorkspace:
     ) -> None:
         """Delete a deployed connection from the workspace."""
         if connection is None:
-            raise ValueError("No connection ID provided.")  # noqa: TRY003
+            raise ValueError("No connection ID provided.")
 
         if isinstance(connection, str):
             connection = CloudConnection(

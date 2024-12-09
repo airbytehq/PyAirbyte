@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
 
 import airbyte as ab
 import pandas as pd
 import pytest
 from airbyte import cloud
-from airbyte.cloud.connectors import CloudSource
 from airbyte.cloud.sync_results import SyncResult
 from sqlalchemy.engine.base import Engine
 

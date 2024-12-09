@@ -613,7 +613,7 @@ def delete_destination(
 # Create and delete connections
 
 
-def create_connection(
+def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
     source_id: str,

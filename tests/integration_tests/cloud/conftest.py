@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from enum import auto
 import json
 import os
 import sys
@@ -34,6 +33,7 @@ ENV_MOTHERDUCK_API_KEY = "PYAIRBYTE_MOTHERDUCK_API_KEY"
 AIRBYTE_CLOUD_API_KEY_SECRET_NAME = "PYAIRBYTE_CLOUD_INTEROP_API_KEY"
 AIRBYTE_CLOUD_CREDS_SECRET_NAME = "PYAIRBYTE_CLOUD_INTEROP_CREDS"
 
+
 @pytest.fixture(autouse=True)
 def add_venv_bin_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Patch the PATH to include the virtual environment's bin directory."""
@@ -54,6 +54,7 @@ def workspace_id() -> str:
 def airbyte_cloud_api_root() -> str:
     return CLOUD_API_ROOT
 
+
 CloudAPICreds = tuple[SecretString, SecretString]
 
 
@@ -73,11 +74,13 @@ def airbyte_cloud_client_id(
 ) -> SecretString:
     return airbyte_cloud_credentials[0]
 
+
 @pytest.fixture
 def airbyte_cloud_client_secret(
     airbyte_cloud_credentials: CloudAPICreds,
 ) -> SecretString:
     return airbyte_cloud_credentials[1]
+
 
 @pytest.fixture
 def motherduck_api_key(motherduck_secrets: dict) -> SecretString:
@@ -160,6 +163,7 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             indirect=True,
             scope="function",
         )
+
 
 @pytest.fixture(scope="session")
 def with_bigquery_credentials_env_vars(

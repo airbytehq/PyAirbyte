@@ -54,7 +54,7 @@ def cache_to_destination_configuration(
     }
     cache_class_name = cache.__class__.__name__
     if cache_class_name not in conversion_fn_map:
-        raise ValueError(  # noqa: TRY003
+        raise ValueError(
             "Cannot convert cache type to destination configuration. Cache type not supported. ",
             f"Supported cache types: {list(conversion_fn_map.keys())}",
         )

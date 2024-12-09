@@ -14,6 +14,7 @@ from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.destinations.base import Destination
 
+
 @pytest.fixture
 def pre_created_connection_id() -> str:
     return "80857d37-1f21-4500-a802-f5ac08d1a3dd"

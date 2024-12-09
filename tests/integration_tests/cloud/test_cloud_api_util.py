@@ -28,6 +28,7 @@ def test_get_workspace(
     )
     assert workspace.workspace_id == workspace_id
 
+
 def test_list_workspaces(
     workspace_id: str,
     airbyte_cloud_api_root: str,
