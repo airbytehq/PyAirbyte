@@ -9,7 +9,6 @@ import enum
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
-from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
@@ -57,6 +56,7 @@ from airbyte.types import SQLTypeConverter
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable
+    from pathlib import Path
 
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.cursor import CursorResult
@@ -197,7 +197,7 @@ class SqlProcessorBase(abc.ABC):
 
         self._setup()
         self.file_writer = file_writer or self.file_writer_class(
-            cache_dir=cast(Path, temp_dir),
+            cache_dir=cast("Path", temp_dir),
             cleanup=temp_file_cleanup,
         )
         self.type_converter = self.type_converter_class()
@@ -267,7 +267,7 @@ class SqlProcessorBase(abc.ABC):
         # Process messages, writing to batches as we go
         for message in messages:
             if message.type is Type.RECORD:
-                record_msg = cast(AirbyteRecordMessage, message.record)
+                record_msg = cast("AirbyteRecordMessage", message.record)
                 stream_name = record_msg.stream
 
                 if stream_name not in stream_record_handlers:
@@ -286,16 +286,16 @@ class SqlProcessorBase(abc.ABC):
                 )
 
             elif message.type is Type.STATE:
-                state_msg = cast(AirbyteStateMessage, message.state)
+                state_msg = cast("AirbyteStateMessage", message.state)
                 if state_msg.type in {AirbyteStateType.GLOBAL, AirbyteStateType.LEGACY}:
                     self._pending_state_messages[f"_{state_msg.type}"].append(state_msg)
                 else:
-                    stream_state = cast(AirbyteStreamState, state_msg.stream)
+                    stream_state = cast("AirbyteStreamState", state_msg.stream)
                     stream_name = stream_state.stream_descriptor.name
                     self._pending_state_messages[stream_name].append(state_msg)
 
             elif message.type is Type.TRACE:
-                trace_msg: AirbyteTraceMessage = cast(AirbyteTraceMessage, message.trace)
+                trace_msg: AirbyteTraceMessage = cast("AirbyteTraceMessage", message.trace)
                 if trace_msg.stream_status and trace_msg.stream_status.status == "SUCCEEDED":
                     # This stream has completed successfully, so go ahead and write the data.
                     # This will also finalize any pending state messages.

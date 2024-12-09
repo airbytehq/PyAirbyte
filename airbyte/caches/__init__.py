@@ -16,7 +16,7 @@ from airbyte.caches.util import get_default_cache, new_local_cache
 
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
 if TYPE_CHECKING:
-    # ruff: noqa: TCH004
+    # ruff: noqa: TC004
     from airbyte.caches import base, bigquery, duckdb, motherduck, postgres, snowflake, util
 
 # We export these classes for easy access: `airbyte.caches...`

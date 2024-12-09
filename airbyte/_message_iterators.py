@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import datetime
 import sys
 from collections.abc import Iterator
 from typing import IO, TYPE_CHECKING, cast
@@ -27,6 +26,7 @@ from airbyte.constants import AB_EXTRACTED_AT_COLUMN
 
 
 if TYPE_CHECKING:
+    import datetime
     from collections.abc import Callable, Generator, Iterable, Iterator
     from pathlib import Path
 
@@ -98,7 +98,7 @@ class AirbyteMessageIterator:
                             data=record,
                             emitted_at=int(
                                 cast(
-                                    datetime.datetime, record.get(AB_EXTRACTED_AT_COLUMN)
+                                    "datetime.datetime", record.get(AB_EXTRACTED_AT_COLUMN)
                                 ).timestamp()
                             ),
                             # `meta` and `namespace` are not handled:

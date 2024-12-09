@@ -45,12 +45,12 @@ def pop_internal_columns_from_dataset(
             if not isinstance(record, dict):
                 record = dict(record)
 
-            assert (
-                internal_column in record
-            ), f"Column '{internal_column}' should exist in stream data."
-            assert (
-                record[internal_column] is not None
-            ), f"Column '{internal_column}' should not contain null values."
+            assert internal_column in record, (
+                f"Column '{internal_column}' should exist in stream data."
+            )
+            assert record[internal_column] is not None, (
+                f"Column '{internal_column}' should not contain null values."
+            )
 
             record.pop(internal_column, None)
 
@@ -61,13 +61,13 @@ def pop_internal_columns_from_dataset(
 
 def pop_internal_columns_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for internal_column in AB_INTERNAL_COLUMNS:
-        assert (
-            internal_column in df.columns
-        ), f"Column '{internal_column}' should exist in stream data."
+        assert internal_column in df.columns, (
+            f"Column '{internal_column}' should exist in stream data."
+        )
 
-        assert (
-            df[internal_column].notnull().all()
-        ), f"Column '{internal_column}' should not contain null values "
+        assert df[internal_column].notnull().all(), (
+            f"Column '{internal_column}' should not contain null values "
+        )
 
     return df.drop(columns=AB_INTERNAL_COLUMNS)
 
@@ -193,13 +193,13 @@ def test_invalid_config() -> None:
 
 def test_ensure_installation_detection() -> None:
     """Assert that install isn't called, since the connector is already installed by the fixture."""
-    with patch(
-        "airbyte._executors.python.VenvExecutor.install"
-    ) as mock_venv_install, patch(
-        "airbyte.sources.base.Source.install"
-    ) as mock_source_install, patch(
-        "airbyte._executors.python.VenvExecutor.ensure_installation"
-    ) as mock_ensure_installed:
+    with (
+        patch("airbyte._executors.python.VenvExecutor.install") as mock_venv_install,
+        patch("airbyte.sources.base.Source.install") as mock_source_install,
+        patch(
+            "airbyte._executors.python.VenvExecutor.ensure_installation"
+        ) as mock_ensure_installed,
+    ):
         source = ab.get_source(
             "source-test",
             config={"apiKey": 1234},
@@ -331,14 +331,14 @@ def test_file_write_and_cleanup() -> None:
     _ = source.read(cache_wo_cleanup)
 
     # We expect all files to be cleaned up:
-    assert (
-        len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0
-    ), "Expected files to be cleaned up"
+    assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, (
+        "Expected files to be cleaned up"
+    )
 
     # There are three streams, but only two of them have data:
-    assert (
-        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 3
-    ), "Expected files to exist"
+    assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 3, (
+        "Expected files to exist"
+    )
 
     with suppress(Exception):
         shutil.rmtree(str(temp_dir_root))
@@ -703,21 +703,21 @@ def test_cached_dataset_filter() -> None:
         filtered_records: list[Mapping[str, Any]] = [row for row in filtered_dataset]
 
         # Check that the filter worked
-        assert (
-            len(filtered_records) == 1
-        ), f"Case '{case}' had incorrect number of records."
+        assert len(filtered_records) == 1, (
+            f"Case '{case}' had incorrect number of records."
+        )
 
         # Assert the stream name still matches
-        assert (
-            filtered_dataset.stream_name == stream_name
-        ), f"Case '{case}' had incorrect stream name."
+        assert filtered_dataset.stream_name == stream_name, (
+            f"Case '{case}' had incorrect stream name."
+        )
 
         # Check that chaining filters works
         chained_dataset = filtered_dataset.with_filter("column1 == 'value1'")
         chained_records = [row for row in chained_dataset]
-        assert (
-            len(chained_records) == 1
-        ), f"Case '{case}' had incorrect number of records after chaining filters."
+        assert len(chained_records) == 1, (
+            f"Case '{case}' had incorrect number of records after chaining filters."
+        )
 
 
 def test_lazy_dataset_from_source(

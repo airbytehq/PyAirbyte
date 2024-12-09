@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from airbyte_api.models import (
     DestinationBigquery,
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
-DestinationConfiguration = (
+DestinationConfiguration: TypeAlias = (
     DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake
 )
 
@@ -147,9 +147,9 @@ def snowflake_destination_to_cache(
     if (
         destination_configuration.credentials
         and hasattr(destination_configuration.credentials, "password")
-        and isinstance(destination_configuration.credentials.password, str)  # type: ignore [attr-defined]
+        and isinstance(destination_configuration.credentials.password, str)
     ):
-        destination_password = str(destination_configuration.credentials.password)  # type: ignore [attr-defined]
+        destination_password = str(destination_configuration.credentials.password)
         if "****" in destination_password:
             try:
                 snowflake_password = get_secret(password_secret_name)

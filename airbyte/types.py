@@ -41,7 +41,7 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
 
     Subtype is only used for array types. Otherwise, subtype will return None.
     """
-    airbyte_type = cast(str, json_schema_property_def.get("airbyte_type", None))
+    airbyte_type = cast("str", json_schema_property_def.get("airbyte_type", None))
     if airbyte_type:
         return airbyte_type, None
 

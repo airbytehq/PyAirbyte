@@ -19,7 +19,7 @@ from airbyte.sources.util import (
 
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
 if TYPE_CHECKING:
-    # ruff: noqa: TCH004  # imports used for more than type checking
+    # ruff: noqa: TC004  # imports used for more than type checking
     from airbyte.sources import (
         base,
         registry,

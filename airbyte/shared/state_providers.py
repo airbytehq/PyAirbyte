@@ -96,7 +96,7 @@ class StateProviderBase(abc.ABC):
         self,
         /,
         stream_name: str,
-        not_found: None | AirbyteStateMessage | Literal["raise"] = "raise",
+        not_found: AirbyteStateMessage | Literal["raise"] | None = "raise",
     ) -> AirbyteStateMessage:
         """Return the state message for the specified stream name."""
         for state_message in self.state_message_artifacts:

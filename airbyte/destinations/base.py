@@ -66,8 +66,8 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         source_data: Source | ReadResult,
         *,
         streams: list[str] | Literal["*"] | None = None,
-        cache: CacheBase | None | Literal[False] = None,
-        state_cache: CacheBase | None | Literal[False] = None,
+        cache: CacheBase | Literal[False] | None = None,
+        state_cache: CacheBase | Literal[False] | None = None,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
     ) -> WriteResult:
@@ -110,7 +110,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         read_result: ReadResult | None = (
             source_data if isinstance(source_data, ReadResult) else None
         )
-        source_name: str = source.name if source else cast(ReadResult, read_result).source_name
+        source_name: str = source.name if source else cast("ReadResult", read_result).source_name
 
         # State providers and writers default to no-op, unless overridden below.
         cache_state_provider: StateProviderBase = StaticInputState([])

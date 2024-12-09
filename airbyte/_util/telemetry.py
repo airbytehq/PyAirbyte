@@ -159,7 +159,7 @@ def _get_analytics_id() -> str | None:
     if result is False:
         return None
 
-    return cast(str, result)
+    return cast("str", result)
 
 
 _ANALYTICS_ID = _get_analytics_id()

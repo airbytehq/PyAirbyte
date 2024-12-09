@@ -217,9 +217,9 @@ def test_merge_strategy(
 
     # First run, seed A (counts should match the scale or the product count)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
-    assert (
-        len(list(result.cache.streams["users"])) == FAKER_SCALE_A
-    ), f"Incorrect number of records in the cache. {new_generic_cache}"
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A, (
+        f"Incorrect number of records in the cache. {new_generic_cache}"
+    )
 
     # Second run, also seed A (should have same exact data, no change in counts)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")

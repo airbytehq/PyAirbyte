@@ -158,7 +158,7 @@ class CloudWorkspace:
             name=name,
             api_root=self.api_root,
             workspace_id=self.workspace_id,
-            config=destination_conf_dict,  # type: ignore [arg-type]  # Wants a dataclass but accepts dict
+            config=destination_conf_dict,  # Wants a dataclass but accepts dict
             client_id=self.client_id,
             client_secret=self.client_secret,
         )

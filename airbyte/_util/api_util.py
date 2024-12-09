@@ -424,7 +424,7 @@ def create_source(
         models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,  # type: ignore [attr-type]  # Speakeasy API wants a dataclass, not a dict
+            configuration=config,  # Speakeasy API wants a dataclass, not a dict
             definition_id=None,  # Not used alternative to config.sourceType.
             secret_id=None,  # For OAuth, not yet supported
         ),
@@ -517,7 +517,7 @@ def create_destination(
         models.DestinationCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,  # type: ignore [attr-type]  # Speakeasy API wants a dataclass, not a dict
+            configuration=config,  # Speakeasy API wants a dataclass, not a dict
         ),
     )
     if status_ok(response.status_code) and response.destination_response:
