@@ -52,8 +52,10 @@ def destination_to_cache(
                 destination_configuration.get("DESTINATION_TYPE")
                 or destination_configuration["destinationType"]
             )
-            if hasattr(destination_configuration, "value"):
+            if hasattr(destination_type, "value"):
                 destination_type = destination_type.value
+            if hasattr(destination_type, "_value_"):
+                destination_type = destination_type._value_
             else:
                 destination_type = str(destination_type)
         except KeyError as ex:
@@ -61,7 +63,7 @@ def destination_to_cache(
                 f"Missing 'destinationType' in keys {list(destination_configuration.keys())}."
             ) from ex
     else:
-        destination_type = str(destination_configuration.DESTINATION_TYPE)
+        destination_type = destination_configuration.DESTINATION_TYPE.value
 
     conversion_fn = conversion_fn_map[destination_type]
     return conversion_fn(destination_configuration)
@@ -70,7 +72,11 @@ def destination_to_cache(
 def biqquery_destination_to_cache(
     destination_configuration: DestinationBigquery | dict[str, Any],
 ) -> BigQueryCache:
-    """Create a new BigQuery cache from the destination configuration."""
+    """Create a new BigQuery cache from the destination configuration.
+
+    We may have to inject credentials, because they are obfuscated when config
+    is returned from the REST API.
+    """
     credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
     if isinstance(destination_configuration, dict):
         destination_configuration = DestinationBigquery(**destination_configuration)
@@ -128,7 +134,11 @@ def snowflake_destination_to_cache(
     destination_configuration: DestinationSnowflake | dict[str, Any],
     password_secret_name: str = SNOWFLAKE_PASSWORD_SECRET_NAME,
 ) -> SnowflakeCache:
-    """Create a new Snowflake cache from the destination configuration."""
+    """Create a new Snowflake cache from the destination configuration.
+
+    We may have to inject credentials, because they are obfuscated when config
+    is returned from the REST API.
+    """
     if isinstance(destination_configuration, dict):
         destination_configuration = DestinationSnowflake(**destination_configuration)
 

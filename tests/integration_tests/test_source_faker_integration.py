@@ -9,7 +9,6 @@ and available on PATH for the poetry-managed venv.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import tempfile
 import warnings
@@ -133,7 +132,7 @@ def test_faker_pks(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: CacheBase,
+    all_cache_types: list[CacheBase],
 ) -> None:
     """Test that the append strategy works as expected."""
     for (
@@ -150,7 +149,7 @@ def test_replace_strategy(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: CacheBase,
+    all_cache_types: list[CacheBase],
 ) -> None:
     """Test that the append strategy works as expected."""
     for (
@@ -173,7 +172,7 @@ def test_merge_strategy(
     strategy: str,
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    all_cache_types: CacheBase,
+    all_cache_types: list[CacheBase],
 ) -> None:
     """Test that the merge strategy works as expected.
 

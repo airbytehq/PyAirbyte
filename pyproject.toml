@@ -167,7 +167,6 @@ select = [
     "TID",    # flake8-tidy-imports
     "TRY",    # tryceratops
     "TRY002", # Disallow raising vanilla Exception. Create or use a custom exception instead.
-    "TRY003", # Disallow vanilla string passing. Prefer kwargs to the exception constructur.
     "UP",     # pyupgrade
     "W",      # pycodestyle (warnings)
     "YTT",    # flake8-2020
@@ -202,7 +201,8 @@ ignore = [
     "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
     "PLW0603", # Using the global statement to update _cache is discouraged
     "PLW0108", # Lambda may be unnecessary; consider inlining inner function
-    # "TD003",   # Require links for TODOs (now enabled)
+    "TRY003",  # Allow exceptions to receive strings in constructors.
+    # "TD003", # Require links for TODOs (now enabled)
 ]
 fixable = ["ALL"]
 unfixable = [

@@ -148,6 +148,43 @@ def test_read_from_deployed_connection(
         ),
     ],
 )
+def test_translate_cloud_job_to_sql_cache(
+    cloud_workspace: cloud.CloudWorkspace,
+    deployed_connection_id: str,
+    previous_job_run_id: int,
+) -> None:
+    """Test reading from a cache."""
+    # Run sync and get result:
+    sync_result: SyncResult | None = cloud_workspace.get_connection(
+        connection_id=deployed_connection_id
+    ).get_sync_result(
+        job_id=previous_job_run_id,
+    )
+    assert sync_result, f"Failed to get sync result for job {previous_job_run_id}"
+
+    # Test sync result:
+    assert sync_result.is_job_complete()
+
+    cache = sync_result.get_sql_cache()
+    sqlalchemy_url = cache.get_sql_alchemy_url()
+    engine: Engine = sync_result.get_sql_engine()
+
+
+@pytest.mark.parametrize(
+    "deployed_connection_id",
+    [
+        pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
+        pytest.param("0e1d6b32-b8e3-4b68-91a3-3a314599c782", id="Faker->BigQuery"),
+        pytest.param(
+            "", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")
+        ),
+        pytest.param(
+            "",
+            id="Faker->MotherDuck",
+            marks=pytest.mark.skip(reason="Not yet supported"),
+        ),
+    ],
+)
 def test_read_from_previous_job(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
