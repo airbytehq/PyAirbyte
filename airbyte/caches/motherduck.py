@@ -17,15 +17,24 @@ cache = MotherDuckCache(
 from __future__ import annotations
 
 import warnings
+from typing import TYPE_CHECKING, ClassVar
 
+from airbyte_api.models import DestinationDuckdb
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
-from pydantic import Field, PrivateAttr
+from pydantic import Field
 
 from airbyte._processors.sql.duckdb import DuckDBConfig
 from airbyte._processors.sql.motherduck import MotherDuckSqlProcessor
 from airbyte.caches.duckdb import DuckDBCache
+from airbyte.destinations._translate_cache_to_dest import (
+    motherduck_cache_to_destination_configuration,
+)
 from airbyte.secrets import SecretString
+
+
+if TYPE_CHECKING:
+    from airbyte.shared.sql_processor import SqlProcessorBase
 
 
 class MotherDuckConfig(DuckDBConfig):
@@ -62,7 +71,15 @@ class MotherDuckConfig(DuckDBConfig):
 class MotherDuckCache(MotherDuckConfig, DuckDBCache):
     """Cache that uses MotherDuck for external persistent storage."""
 
-    _sql_processor_class: type[MotherDuckSqlProcessor] = PrivateAttr(default=MotherDuckSqlProcessor)
+    _sql_processor_class: ClassVar[type[SqlProcessorBase]] = MotherDuckSqlProcessor
+
+    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_config_class: ClassVar[type | None] = DestinationDuckdb
+
+    @property
+    def paired_destination_config(self) -> DestinationDuckdb:
+        """Return a dictionary of destination configuration values."""
+        return motherduck_cache_to_destination_configuration(cache=self)
 
 
 # Expose the Cache class and also the Config class.

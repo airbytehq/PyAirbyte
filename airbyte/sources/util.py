@@ -125,6 +125,8 @@ def get_source(  # noqa: PLR0913 # Too many arguments
 
 def get_benchmark_source(
     num_records: int | str = "5e5",
+    *,
+    install_if_missing: bool = True,
 ) -> Source:
     """Get a source for benchmarking.
 
@@ -166,6 +168,7 @@ def get_benchmark_source(
             },
         },
         streams="*",
+        install_if_missing=install_if_missing,
     )
 
 

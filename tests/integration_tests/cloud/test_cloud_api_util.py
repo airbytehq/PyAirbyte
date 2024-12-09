@@ -6,10 +6,9 @@ These tests are designed to be run against a running instance of the Airbyte API
 """
 
 from __future__ import annotations
-from dataclasses import asdict
 
-import ulid
-from airbyte._util import api_util
+from airbyte_api.models import SourceResponse, WorkspaceResponse
+from airbyte._util import api_util, text_util
 from airbyte_api.models import DestinationDuckdb, SourceFaker
 
 from airbyte.secrets.base import SecretString
@@ -29,13 +28,68 @@ def test_get_workspace(
     )
     assert workspace.workspace_id == workspace_id
 
+def test_list_workspaces(
+    workspace_id: str,
+    airbyte_cloud_api_root: str,
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
+) -> None:
+    result: list[WorkspaceResponse] = api_util.list_workspaces(
+        workspace_id=workspace_id,
+        api_root=airbyte_cloud_api_root,
+        client_id=airbyte_cloud_client_id,
+        client_secret=airbyte_cloud_client_secret,
+    )
+    assert result
+    assert len(result) > 0
+    assert all(isinstance(workspace, WorkspaceResponse) for workspace in result)
+
+
+def test_list_sources(
+    workspace_id: str,
+    airbyte_cloud_api_root: str,
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
+) -> None:
+    result: list[SourceResponse] = api_util.list_sources(
+        workspace_id=workspace_id,
+        api_root=airbyte_cloud_api_root,
+        client_id=airbyte_cloud_client_id,
+        client_secret=airbyte_cloud_client_secret,
+    )
+    assert (
+        result
+        and len(result) > 0
+        and all(isinstance(source, SourceResponse) for source in result)
+    )
+
+
+def test_list_destinations(
+    workspace_id: str,
+    airbyte_cloud_api_root: str,
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
+) -> None:
+    result: list[SourceResponse] = api_util.list_sources(
+        workspace_id=workspace_id,
+        api_root=airbyte_cloud_api_root,
+        client_id=airbyte_cloud_client_id,
+        client_secret=airbyte_cloud_client_secret,
+    )
+    assert (
+        result
+        and len(result) > 0
+        and all(isinstance(source, SourceResponse) for source in result)
+    )
+
+
 def test_create_and_delete_source(
     workspace_id: str,
     airbyte_cloud_api_root: str,
     airbyte_cloud_client_id: SecretString,
     airbyte_cloud_client_secret: SecretString,
 ) -> None:
-    new_resource_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
+    new_resource_name = "deleteme-source-faker" + text_util.generate_random_suffix()
     source_config = SourceFaker()
     source = api_util.create_source(
         name=new_resource_name,
@@ -65,7 +119,9 @@ def test_create_and_delete_destination(
     airbyte_cloud_client_id: SecretString,
     airbyte_cloud_client_secret: SecretString,
 ) -> None:
-    new_resource_name = "deleteme-destination-faker" + str(ulid.ULID()).lower()[-6:]
+    new_resource_name = (
+        "deleteme-destination-faker" + text_util.generate_random_suffix()
+    )
     destination_config = DestinationDuckdb(
         destination_path="temp_db",
         motherduck_api_key=motherduck_api_key,
@@ -99,9 +155,13 @@ def test_create_and_delete_connection(
     airbyte_cloud_client_secret: SecretString,
     motherduck_api_key: str,
 ) -> None:
-    new_source_name = "deleteme-source-faker" + str(ulid.ULID()).lower()[-6:]
-    new_destination_name = "deleteme-destination-dummy" + str(ulid.ULID()).lower()[-6:]
-    new_connection_name = "deleteme-connection-dummy" + str(ulid.ULID()).lower()[-6:]
+    new_source_name = "deleteme-source-faker" + text_util.generate_random_suffix()
+    new_destination_name = (
+        "deleteme-destination-dummy" + text_util.generate_random_suffix()
+    )
+    new_connection_name = (
+        "deleteme-connection-dummy" + text_util.generate_random_suffix()
+    )
     source = api_util.create_source(
         name=new_source_name,
         api_root=airbyte_cloud_api_root,

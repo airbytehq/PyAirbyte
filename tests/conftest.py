@@ -17,8 +17,8 @@ import airbyte
 import docker
 import psycopg
 import pytest
-import ulid
 from _pytest.nodes import Item
+from airbyte._util import text_util
 from airbyte._util.meta import is_windows
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
@@ -235,7 +235,7 @@ def new_postgres_cache(new_postgres_db: str):
         database="postgres",
         schema_name="public",
         # TODO: Move this to schema name when we support it (breaks as of 2024-01-31):
-        table_prefix=f"test{str(ulid.ULID())[-6:]}_",
+        table_prefix=f"test{text_util.generate_random_suffix()}_",
     )
     yield config
 

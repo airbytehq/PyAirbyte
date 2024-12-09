@@ -14,8 +14,6 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
-from pydoc import cli
-import token
 from typing import TYPE_CHECKING, Any
 
 import airbyte_api
@@ -28,18 +26,19 @@ from airbyte.exceptions import (
     AirbyteMultipleResourcesError,
     PyAirbyteInputError,
 )
-from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from airbyte.secrets.base import SecretString
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
 
-# Helper functions
+SourceConfiguration = Any
 
 
 def status_ok(status_code: int) -> bool:
@@ -100,38 +99,6 @@ def get_workspace(
     )
 
 
-# Get bearer token
-
-
-def get_bearer_token(
-    workspace_id: str,
-    *,
-    api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
-) -> str:
-    """Get a bearer token."""
-    airbyte_instance = get_airbyte_server_instance(
-        client_id=client_id,
-        client_secret=client_secret,
-        api_root=api_root,
-    )
-    response = airbyte_instance.oauth.get_bearer_token(
-        api.GetBearerTokenRequest(
-            workspace_id=workspace_id,
-            client_id=client_id,
-            client_secret=client_secret,
-        ),
-    )
-    if status_ok(response.status_code) and response.bearer_token_response:
-        return response.bearer_token_response.access_token
-
-    raise AirbyteError(
-        message="Could not get bearer token.",
-        response=response,
-    )
-
-
 # List resources
 
 
@@ -177,6 +144,47 @@ def list_connections(
     ]
 
 
+def list_workspaces(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name: str | None = None,
+    name_filter: Callable[[str], bool] | None = None,
+) -> list[models.WorkspaceResponse]:
+    """Get a connection."""
+    if name and name_filter:
+        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+
+    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+
+    _ = workspace_id  # Not used (yet)
+    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+
+    response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
+        api.ListWorkspacesRequest(
+            workspace_ids=[workspace_id],
+        ),
+    )
+
+    if not status_ok(response.status_code) and response.workspaces_response:
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "response": response,
+            }
+        )
+    assert response.workspaces_response is not None
+    return [
+        workspace for workspace in response.workspaces_response.data if name_filter(workspace.name)
+    ]
+
+
 def list_sources(
     workspace_id: str,
     *,
@@ -193,12 +201,12 @@ def list_sources(
     name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
+    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.list_sources(
+    response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
         api.ListSourcesRequest(
             workspace_ids=[workspace_id],
         ),
@@ -401,7 +409,7 @@ def create_source(
     name: str,
     *,
     workspace_id: str,
-    config: models.SourceConfiguration,
+    config: models.SourceConfiguration | dict[str, Any],
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
@@ -416,7 +424,7 @@ def create_source(
         models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,
+            configuration=config,  # type: ignore [attr-type]  # Speakeasy API wants a dataclass, not a dict
             definition_id=None,  # Not used alternative to config.sourceType.
             secret_id=None,  # For OAuth, not yet supported
         ),
@@ -494,7 +502,7 @@ def create_destination(
     name: str,
     *,
     workspace_id: str,
-    config: models.DestinationConfiguration,
+    config: models.DestinationConfiguration | dict[str, Any],
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
@@ -509,7 +517,7 @@ def create_destination(
         models.DestinationCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,
+            configuration=config,  # type: ignore [attr-type]  # Speakeasy API wants a dataclass, not a dict
         ),
     )
     if status_ok(response.status_code) and response.destination_response:

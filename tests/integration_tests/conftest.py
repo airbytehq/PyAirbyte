@@ -3,18 +3,18 @@
 
 from __future__ import annotations
 
-import os
 from contextlib import suppress
+from typing import Any, Generator
 
 import airbyte as ab
 import pytest
-import ulid
-from airbyte._util import meta
+from airbyte._util import meta, text_util
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.base import CacheBase
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.motherduck import MotherDuckCache
 from airbyte.caches.snowflake import SnowflakeCache
+from airbyte.destinations.base import Destination
 from airbyte.secrets import GoogleGSMSecretManager, SecretHandle
 from sqlalchemy import create_engine, text
 
@@ -62,55 +62,84 @@ def new_motherduck_cache(
     motherduck_secrets,
 ) -> MotherDuckCache:
     return MotherDuckCache(
-        database="integration_tests_deleteany",
-        schema_name=f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}",
+        database="my_db",  # TODO: Use a dedicated DB for testing
+        schema_name=f"test_deleteme_{text_util.generate_random_suffix()}",
         api_key=motherduck_secrets["motherduck_api_key"],
     )
 
 
 @pytest.fixture(scope="session")
-def snowflake_creds(ci_secret_manager: GoogleGSMSecretManager) -> dict:
-    return ci_secret_manager.get_secret(
+def new_snowflake_destination_config(ci_secret_manager: GoogleGSMSecretManager) -> dict:
+    config = ci_secret_manager.get_secret(
         "AIRBYTE_LIB_SNOWFLAKE_CREDS",
     ).parse_json()
+    config["schema"] = f"test_deleteme_{text_util.generate_random_suffix()}"
+    return config
 
 
 @pytest.fixture
-def new_snowflake_cache(snowflake_creds: dict):
-    config = SnowflakeCache(
-        account=snowflake_creds["account"],
-        username=snowflake_creds["username"],
-        password=snowflake_creds["password"],
-        database=snowflake_creds["database"],
-        warehouse=snowflake_creds["warehouse"],
-        role=snowflake_creds["role"],
-        schema_name=f"test{str(ulid.ULID()).lower()[-6:]}",
+def new_snowflake_cache(
+    new_snowflake_destination_config: dict[str, Any],
+) -> Generator[SnowflakeCache, Any, None]:
+    cache = SnowflakeCache(
+        account=new_snowflake_destination_config["account"],
+        username=new_snowflake_destination_config["username"],
+        password=new_snowflake_destination_config["password"],
+        database=new_snowflake_destination_config["database"],
+        warehouse=new_snowflake_destination_config["warehouse"],
+        role=new_snowflake_destination_config["role"],
+        schema_name=new_snowflake_destination_config["schema"],
     )
-    sqlalchemy_url = config.get_sql_alchemy_url()
+    sqlalchemy_url = cache.get_sql_alchemy_url()
 
-    yield config
+    yield cache
 
     engine = create_engine(
-        config.get_sql_alchemy_url(),
+        sqlalchemy_url,
         future=True,
     )
     with engine.connect() as connection:
-        connection.execute(text(f"DROP SCHEMA IF EXISTS {config.schema_name}"))
+        connection.execute(
+            text(f"DROP SCHEMA IF EXISTS {cache.schema_name}"),
+        )
 
 
 @pytest.fixture
-def new_bigquery_cache(ci_secret_manager: GoogleGSMSecretManager):
+def new_bigquery_destination_config(
+    ci_secret_manager: GoogleGSMSecretManager,
+) -> dict[str, Any]:
     dest_bigquery_config = ci_secret_manager.get_secret(
         "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
     ).parse_json()
+    dest_bigquery_config["dataset_id"] = (
+        f"test_deleteme_{text_util.generate_random_suffix()}"
+    )
+    return dest_bigquery_config
 
-    dataset_name = f"test_deleteme_{str(ulid.ULID()).lower()[-6:]}"
-    credentials_json = dest_bigquery_config["credentials_json"]
+
+@pytest.fixture
+def new_bigquery_destination(
+    new_bigquery_destination_config: dict[str, Any],
+) -> Destination:
+    dest_config = new_bigquery_destination_config.copy()
+    _ = dest_config.pop("destinationType", None)
+    return ab.get_destination(
+        "destination-bigquery",
+        config=dest_config,
+        install_if_missing=False,
+    )
+
+
+@pytest.fixture
+def new_bigquery_cache(
+    new_bigquery_destination_config: dict[str, Any],
+) -> Generator[BigQueryCache, Any, None]:
+    credentials_json = new_bigquery_destination_config["credentials_json"]
     with as_temp_files([credentials_json]) as (credentials_path,):
         cache = BigQueryCache(
             credentials_path=credentials_path,
-            project_name=dest_bigquery_config["project_id"],
-            dataset_name=dataset_name,
+            project_name=new_bigquery_destination_config["project_id"],
+            dataset_name=new_bigquery_destination_config["dataset_id"],
         )
         yield cache
 
@@ -122,30 +151,6 @@ def new_bigquery_cache(ci_secret_manager: GoogleGSMSecretManager):
         with suppress(Exception):
             with engine.begin() as connection:
                 connection.execute(text(f"DROP SCHEMA IF EXISTS {cache.schema_name}"))
-
-
-@pytest.fixture(autouse=True, scope="session")
-def bigquery_credentials_file(ci_secret_manager: GoogleGSMSecretManager):
-    dest_bigquery_config = ci_secret_manager.get_secret(
-        secret_name="SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
-    ).parse_json()
-
-    credentials_json = dest_bigquery_config["credentials_json"]
-    with as_temp_files(files_contents=[credentials_json]) as (credentials_path,):
-        os.environ["BIGQUERY_CREDENTIALS_PATH"] = credentials_path
-
-        yield
-
-    return
-
-
-@pytest.fixture(autouse=True, scope="session")
-def with_snowflake_password_env_var(snowflake_creds: dict):
-    os.environ["SNOWFLAKE_PASSWORD"] = snowflake_creds["password"]
-
-    yield
-
-    return
 
 
 @pytest.fixture(scope="function")

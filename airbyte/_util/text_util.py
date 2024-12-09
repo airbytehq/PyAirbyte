@@ -18,5 +18,5 @@ def generate_random_suffix() -> str:
     which will be monotonically sortable. It is not guaranteed to be unique but
     is sufficient for small-scale and medium-scale use cases.
     """
-    ulid_str = generate_ulid()
+    ulid_str = generate_ulid().lower()
     return ulid_str[:6] + ulid_str[-3:]

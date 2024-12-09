@@ -52,7 +52,7 @@ class StateProviderBase(abc.ABC):
         return [
             state_msg.stream
             for state_msg in self._state_message_artifacts
-            if state_msg.type == AirbyteStateType.STREAM
+            if state_msg and state_msg.type == AirbyteStateType.STREAM and state_msg.stream
         ]
 
     @property

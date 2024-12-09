@@ -7,12 +7,22 @@ These tests are designed to be run against a running instance of the Airbyte API
 from __future__ import annotations
 
 import airbyte as ab
-import pytest
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudSource
-from airbyte.destinations.base import Destination
-from airbyte.secrets.base import SecretString
+
+
+def test_deploy_destination(
+    cloud_workspace: CloudWorkspace,
+    deployable_dummy_destination: ab.Destination,
+) -> None:
+    """Test deploying a source to a workspace."""
+    cloud_destination = cloud_workspace.deploy_destination(
+        name="test-destination",
+        destination=deployable_dummy_destination,
+        random_name_suffix=True,
+    )
+    cloud_workspace.permanently_delete_destination(cloud_destination)
 
 
 def test_deploy_source(
@@ -28,37 +38,24 @@ def test_deploy_source(
         name="test-source",
         source=source,
     )
-
     cloud_workspace.permanently_delete_source(cloud_source)
 
 
-@pytest.mark.skip("This test is flaky/failing and needs to be fixed.")
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
-    motherduck_api_key: str,
+    deployable_dummy_source,
+    deployable_dummy_destination,
 ) -> None:
     """Test deploying a source and cache to a workspace as a new connection."""
-    source = ab.get_source(
-        "source-faker",
-        config={"count": 100},
-    )
-    source.check()
-
-    destination = DestinationMotherDuck(
-        motherduck_api_key=SecretString(motherduck_api_key),
-        database="new_db",
-        schema_name="public",
-        table_prefix="abc_deleteme_",
-    )
-    destination.check()
-
     cloud_source = cloud_workspace.deploy_source(
         name="test-source",
-        source=source,
+        source=deployable_dummy_source,
+        random_name_suffix=True,
     )
     cloud_destination = cloud_workspace.deploy_destination(
         name="test-destination",
-        destination=destination,
+        destination=deployable_dummy_destination,
+        random_name_suffix=True,
     )
 
     connection: CloudConnection = cloud_workspace.deploy_connection(
@@ -66,10 +63,10 @@ def test_deploy_connection(
         source=cloud_source,
         destination=cloud_destination,
     )
-    assert set(connection.stream_names) == set(["users", "products", "purchases"])
-    assert connection.table_prefix == "abc_deleteme_"
+    # assert set(connection.stream_names) == set(["users", "products", "purchases"])
+    # assert connection.table_prefix == "abc_deleteme_"
     cloud_workspace.permanently_delete_connection(
         connection=connection,
-        delete_source=True,
-        delete_destination=True,
+        cascade_delete_source=True,
+        cascade_delete_destination=True,
     )

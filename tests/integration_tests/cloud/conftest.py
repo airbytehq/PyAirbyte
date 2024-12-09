@@ -4,17 +4,25 @@
 from __future__ import annotations
 
 import os
-from pydoc import cli
 import sys
 from pathlib import Path
 
 import pytest
 from airbyte._util.api_util import CLOUD_API_ROOT
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.caches.base import CacheBase
 from airbyte.cloud import CloudWorkspace
+from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+from airbyte_api.models import (
+    DestinationBigquery,
+    DestinationDuckdb,
+    DestinationPostgres,
+    DestinationSnowflake,
+)
+
+from airbyte.sources.base import Source
+from airbyte.sources.util import get_benchmark_source
 
 AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
 
@@ -87,8 +95,33 @@ def cloud_workspace(
     )
 
 
+@pytest.fixture
+def deployable_dummy_source() -> Source:
+    """A local PyAirbyte `Source` object."""
+    return get_benchmark_source(
+        install_if_missing=False,
+    )
+
+
+@pytest.fixture
+def deployable_dummy_destination(
+    new_bigquery_destination: Destination,
+) -> Destination:
+    """A local PyAirbyte `Destination` object.
+
+    # TODO: Use DevNullDestination instead of BigQueryDestination.
+    # Problem is that 'dev-null' is not accepted on Cloud as of now.
+    # Need a workaround.
+    """
+    return new_bigquery_destination
+
+
 @pytest.fixture(scope="function")
-def new_deployable_cache(request) -> CacheBase:
+def new_deployable_destination(
+    request,
+) -> (
+    DestinationDuckdb | DestinationPostgres | DestinationBigquery | DestinationSnowflake
+):
     """This is a placeholder fixture that will be overridden by pytest_generate_tests()."""
     return request.getfixturevalue(request.param)
 
@@ -99,19 +132,19 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     This is useful for running the same tests with different cache types, to ensure that the tests
     can pass across all cache types.
     """
-    deployable_cache_fixtures: dict[str, str] = {
+    deployable_destination_fixtures: dict[str, str] = {
         # Ordered by priority (fastest first)
-        # "MotherDuck": "new_motherduck_cache",
+        "MotherDuck": "new_motherduck_cache",
         # "Postgres": "new_remote_postgres_cache",
         "BigQuery": "new_bigquery_cache",
         "Snowflake": "new_snowflake_cache",
     }
 
-    if "new_deployable_cache" in metafunc.fixturenames:
+    if "new_deployable_destination" in metafunc.fixturenames:
         metafunc.parametrize(
-            "new_deployable_cache",
-            deployable_cache_fixtures.values(),
-            ids=deployable_cache_fixtures.keys(),
+            "new_deployable_destination",
+            deployable_destination_fixtures.values(),
+            ids=deployable_destination_fixtures.keys(),
             indirect=True,
             scope="function",
         )

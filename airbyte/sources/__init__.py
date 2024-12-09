@@ -22,12 +22,14 @@ if TYPE_CHECKING:
     # ruff: noqa: TCH004  # imports used for more than type checking
     from airbyte.sources import (
         base,
+        registry,
         util,
     )
 
 __all__ = [
     # Submodules
     "base",
+    "registry",
     "util",
     # Factories
     "get_source",

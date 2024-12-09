@@ -17,22 +17,36 @@ cache = BigQueryCache(
 
 from __future__ import annotations
 
-from typing import NoReturn
+from typing import TYPE_CHECKING, ClassVar, NoReturn
 
-from pydantic import PrivateAttr
+from airbyte_api.models import DestinationBigquery
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
 from airbyte.caches.base import (
     CacheBase,
 )
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
+from airbyte.destinations._translate_cache_to_dest import (
+    bigquery_cache_to_destination_configuration,
+)
+
+
+if TYPE_CHECKING:
+    from airbyte.shared.sql_processor import SqlProcessorBase
 
 
 class BigQueryCache(BigQueryConfig, CacheBase):
     """The BigQuery cache implementation."""
 
-    _sql_processor_class: type[BigQuerySqlProcessor] = PrivateAttr(default=BigQuerySqlProcessor)
-    _paired_destination_name: str = "destination-bigquery"
+    _sql_processor_class: ClassVar[type[SqlProcessorBase]] = BigQuerySqlProcessor
+
+    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_config_class: ClassVar[type | None] = DestinationBigquery
+
+    @property
+    def paired_destination_config(self) -> DestinationBigquery:
+        """Return a dictionary of destination configuration values."""
+        return bigquery_cache_to_destination_configuration(cache=self)
 
     def get_arrow_dataset(
         self,

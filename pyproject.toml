@@ -99,6 +99,7 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     "ignore::sqlalchemy.exc.SAWarning",  # "GenericFunction is already registered and is going to be overridden.""
     # Ignore these, specifically on Windows because of file cleanup and locking issues:
     "ignore:unclosed file:ResourceWarning",
+    "ignore:Failed to decode:UserWarning",  # https://github.com/airbytehq/pyairbyte/issues/320
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.

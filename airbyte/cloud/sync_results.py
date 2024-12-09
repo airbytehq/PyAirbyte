@@ -109,7 +109,7 @@ from typing import TYPE_CHECKING, Any, final
 from airbyte._util import api_util
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
-from airbyte.destinations._util import create_cache_from_destination_config
+from airbyte.destinations._translate_dest_to_cache import destination_to_cache
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
 
@@ -273,9 +273,7 @@ class SyncResult:
             return self._cache
 
         destination_configuration = self._get_destination_configuration()
-        self._cache = create_cache_from_destination_config(
-            destination_configuration=destination_configuration
-        )
+        self._cache = destination_to_cache(destination_configuration=destination_configuration)
         return self._cache
 
     def get_sql_engine(self) -> sqlalchemy.engine.Engine:
