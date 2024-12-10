@@ -262,12 +262,7 @@ def _resolve_destination_job(
         config: The path to a configuration file for the named source or destination.
         pip_url: Optional. A location from which to install the connector.
     """
-    if not config:
-        raise PyAirbyteInputError(
-            message="No configuration found.",
-        )
-
-    config_dict = _resolve_config(config)
+    config_dict = _resolve_config(config) if config else None
 
     if destination and (destination.startswith(".") or "/" in destination):
         # Treat the destination as a path.

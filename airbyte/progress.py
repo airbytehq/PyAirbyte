@@ -754,7 +754,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if (
             not force_refresh
             and self._last_update_time  # if not set, then we definitely need to update
-            and cast(float, self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
+            and cast("float", self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
         ):
             return
 

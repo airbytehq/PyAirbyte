@@ -15,6 +15,8 @@ from airbyte.sources.base import Source
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from airbyte.callbacks import ConfigChangeCallback
+
 
 def get_connector(
     name: str,
@@ -46,6 +48,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
     *,
+    config_change_callback: ConfigChangeCallback | None = None,
     streams: str | list[str] | None = None,
     version: str | None = None,
     pip_url: str | None = None,
@@ -72,6 +75,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
         name: connector name
         config: connector config - if not provided, you need to set it later via the set_config
             method.
+        config_change_callback: callback function to be called when the connector config changes.
         streams: list of stream names to select for reading. If set to "*", all streams will be
             selected. If not provided, you can set it later via the `select_streams()` or
             `select_all_streams()` method.
@@ -103,6 +107,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     return Source(
         name=name,
         config=config,
+        config_change_callback=config_change_callback,
         streams=streams,
         executor=get_connector_executor(
             name=name,
@@ -120,6 +125,8 @@ def get_source(  # noqa: PLR0913 # Too many arguments
 
 def get_benchmark_source(
     num_records: int | str = "5e5",
+    *,
+    install_if_missing: bool = True,
 ) -> Source:
     """Get a source for benchmarking.
 
@@ -130,10 +137,11 @@ def get_benchmark_source(
     within a numeric a string, they will be ignored.
 
     Args:
-        num_records (int | str): The number of records to generate. Defaults to "5e5", or
+        num_records: The number of records to generate. Defaults to "5e5", or
             500,000 records.
             Can be an integer (`1000`) or a string in scientific notation.
             For example, `"5e6"` will generate 5 million records.
+        install_if_missing: Whether to install the source if it is not available locally.
 
     Returns:
         Source: The source object for benchmarking.
@@ -161,6 +169,7 @@ def get_benchmark_source(
             },
         },
         streams="*",
+        install_if_missing=install_if_missing,
     )
 
 

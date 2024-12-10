@@ -21,6 +21,9 @@ from airbyte.logs import warn_once
 from airbyte.version import get_version
 
 
+logger = logging.getLogger("airbyte")
+
+
 __cache: dict[str, ConnectorMetadata] | None = None
 
 
@@ -277,7 +280,7 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
     return __cache
 
 
-def get_connector_metadata(name: str) -> None | ConnectorMetadata:
+def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     """Check the cache for the connector.
 
     If the cache is empty, populate by calling update_cache.
@@ -315,11 +318,11 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
     if install_type is None:
         # No install type specified. Filter for whatever is runnable.
         if is_docker_installed():
-            logging.info("Docker is detected. Returning all connectors.")
+            logger.info("Docker is detected. Returning all connectors.")
             # If Docker is available, return all connectors.
             return sorted(conn.name for conn in _get_registry_cache().values())
 
-        logging.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
+        logger.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
 
         # If Docker is not available, return only Python and Manifest-based connectors.
         return sorted(

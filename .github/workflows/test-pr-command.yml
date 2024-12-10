@@ -20,20 +20,10 @@ jobs:
     name: Append 'Starting' Comment
     runs-on: ubuntu-latest
     steps:
-    - name: Get PR JSON
-      id: pr-info
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
-        echo "$PR_JSON" > pr-info.json
-        echo "sha=$(cat pr-info.json | jq -r .head.sha)" >> $GITHUB_OUTPUT
-        echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
-    - name: Upload PR details as artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: pr-info
-        path: pr-info.json
+
+    - name: Create URL to the run output
+      id: vars
+      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
     - name: Append comment with job run link
       id: first-comment-action
       uses: peter-evans/create-or-update-comment@v4
@@ -44,7 +34,7 @@ jobs:
 
           > PR test job started... [Check job output.][1]
 
-          [1]: ${{ steps.pr-info.outputs.run-url }}
+          [1]: ${{ steps.vars.outputs.run-url }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
@@ -70,13 +60,6 @@ jobs:
     steps:
 
     # Custom steps to fetch the PR and checkout the code:
-
-    - name: Download PR info
-      # This puts the `pr-info.json` file in the current directory.
-      # We need this to get the PR's SHA at the time of the workflow run.
-      uses: actions/download-artifact@v4
-      with:
-        name: pr-info
 
     - name: Checkout PR
       uses: actions/checkout@v4
@@ -108,29 +91,7 @@ jobs:
       run: >
         poetry run pytest
         --verbose
-        -m "not super_slow and not flaky"
-
-    - name: Run Pytest (Flaky Only)
-      continue-on-error: true
-      timeout-minutes: 60
-      env:
-        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        poetry run pytest
-        --verbose
-        -m "flaky and not super_slow"
-
-    - name: Post CI Success to GitHub
-      run: |
-        curl --request POST \
-        --url https://api.github.com/repos/${{ github.repository }}/statuses/$(cat pr-info.json | jq -r .head.sha) \
-        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-        --header 'content-type: application/json' \
-        --data '{
-          "state": "success",
-          "context": "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})",
-          "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-          }' \
+        -m "not super_slow"
 
   log-success-comment:
     name: Append 'Success' Comment

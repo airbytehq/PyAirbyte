@@ -9,11 +9,12 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
-from airbyte.sources.registry import ConnectorMetadata
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
+
+    from airbyte.sources.registry import ConnectorMetadata
 
 
 _LATEST_VERSION = "latest"
@@ -161,7 +162,9 @@ class Executor(ABC):
         if not name and not metadata:
             raise exc.PyAirbyteInternalError(message="Either name or metadata must be provided.")
 
-        self.name: str = name or cast(ConnectorMetadata, metadata).name  # metadata is not None here
+        self.name: str = (
+            name or cast("ConnectorMetadata", metadata).name
+        )  # metadata is not None here
         self.metadata: ConnectorMetadata | None = metadata
         self.enforce_version: bool = target_version is not None
 

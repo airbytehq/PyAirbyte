@@ -226,9 +226,9 @@ def main(
         if destination:
             destination.write(read_result)
     else:
-        assert (
-            destination is not None
-        ), "Destination is required when caching is disabled."
+        assert destination is not None, (
+            "Destination is required when caching is disabled."
+        )
         destination.write(source, cache=False)
 
 

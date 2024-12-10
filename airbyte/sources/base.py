@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 
     from airbyte._executors.base import Executor
     from airbyte.caches import CacheBase
+    from airbyte.callbacks import ConfigChangeCallback
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
@@ -51,15 +52,16 @@ if TYPE_CHECKING:
 class Source(ConnectorBase):
     """A class representing a source that can be called."""
 
-    connector_type: Literal["source"] = "source"
+    connector_type = "source"
 
     def __init__(
         self,
         executor: Executor,
         name: str,
         config: dict[str, Any] | None = None,
-        streams: str | list[str] | None = None,
         *,
+        config_change_callback: ConfigChangeCallback | None = None,
+        streams: str | list[str] | None = None,
         validate: bool = False,
     ) -> None:
         """Initialize the source.
@@ -73,6 +75,7 @@ class Source(ConnectorBase):
             executor=executor,
             name=name,
             config=config,
+            config_change_callback=config_change_callback,
             validate=validate,
         )
         self._config_dict: dict[str, Any] | None = None
@@ -83,10 +86,6 @@ class Source(ConnectorBase):
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
-
-        self._deployed_api_root: str | None = None
-        self._deployed_workspace_id: str | None = None
-        self._deployed_source_id: str | None = None
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""

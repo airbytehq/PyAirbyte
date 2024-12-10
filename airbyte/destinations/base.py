@@ -9,10 +9,6 @@ from __future__ import annotations
 import warnings
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
-from airbyte_protocol.models import (
-    Type,
-)
-
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._message_iterators import AirbyteMessageIterator
@@ -35,13 +31,14 @@ from airbyte.strategies import WriteStrategy
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
     from airbyte.caches.base import CacheBase
+    from airbyte.callbacks import ConfigChangeCallback
     from airbyte.shared.state_writers import StateWriterBase
 
 
 class Destination(ConnectorBase, AirbyteWriterInterface):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination"] = "destination"
+    connector_type = "destination"
 
     def __init__(
         self,
@@ -49,6 +46,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         name: str,
         config: dict[str, Any] | None = None,
         *,
+        config_change_callback: ConfigChangeCallback | None = None,
         validate: bool = False,
     ) -> None:
         """Initialize the source.
@@ -59,6 +57,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             executor=executor,
             name=name,
             config=config,
+            config_change_callback=config_change_callback,
             validate=validate,
         )
 
@@ -67,8 +66,8 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         source_data: Source | ReadResult,
         *,
         streams: list[str] | Literal["*"] | None = None,
-        cache: CacheBase | None | Literal[False] = None,
-        state_cache: CacheBase | None | Literal[False] = None,
+        cache: CacheBase | Literal[False] | None = None,
+        state_cache: CacheBase | Literal[False] | None = None,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
     ) -> WriteResult:
@@ -111,7 +110,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         read_result: ReadResult | None = (
             source_data if isinstance(source_data, ReadResult) else None
         )
-        source_name: str = source.name if source else cast(ReadResult, read_result).source_name
+        source_name: str = source.name if source else cast("ReadResult", read_result).source_name
 
         # State providers and writers default to no-op, unless overridden below.
         cache_state_provider: StateProviderBase = StaticInputState([])
@@ -290,7 +289,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
                         ),
                     )
                 ):
-                    if destination_message.type is Type.STATE:
+                    if destination_message.state:
                         state_writer.write_state(state_message=destination_message.state)
 
             except exc.AirbyteConnectorFailedError as ex:

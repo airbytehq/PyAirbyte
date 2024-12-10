@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, final
+from typing import IO, TYPE_CHECKING, Any, ClassVar, final
 
 import pandas as pd
 import pyarrow as pa
@@ -30,7 +30,6 @@ if TYPE_CHECKING:
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
-    from airbyte.datasets._base import DatasetBase
     from airbyte.progress import ProgressTracker
     from airbyte.shared.sql_processor import SqlProcessorBase
     from airbyte.shared.state_providers import StateProviderBase
@@ -57,15 +56,22 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
     _name: str = PrivateAttr()
 
-    _deployed_api_root: str | None = PrivateAttr(default=None)
-    _deployed_workspace_id: str | None = PrivateAttr(default=None)
-    _deployed_destination_id: str | None = PrivateAttr(default=None)
-
-    _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
+    _sql_processor_class: ClassVar[type[SqlProcessorBase]]
     _read_processor: SqlProcessorBase = PrivateAttr()
 
     _catalog_backend: CatalogBackendBase = PrivateAttr()
     _state_backend: StateBackendBase = PrivateAttr()
+
+    paired_destination_name: ClassVar[str | None] = None
+    paired_destination_config_class: ClassVar[type | None] = None
+
+    @property
+    def paired_destination_config(self) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
+        """Return a dictionary of destination configuration values."""
+        raise NotImplementedError(
+            f"The type '{type(self).__name__}' does not define an equivalent destination "
+            "configuration."
+        )
 
     def __init__(self, **data: Any) -> None:  # noqa: ANN401
         """Initialize the cache and backends."""
@@ -231,6 +237,19 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
         return result
 
+    @final
+    def __len__(self) -> int:
+        """Gets the number of streams."""
+        return len(self._catalog_backend.stream_names)
+
+    @final
+    def __bool__(self) -> bool:
+        """Always True.
+
+        This is needed so that caches with zero streams are not falsey (None-like).
+        """
+        return True
+
     def get_state_provider(
         self,
         source_name: str,
@@ -274,7 +293,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             incoming_stream_names=stream_names,
         )
 
-    def __getitem__(self, stream: str) -> DatasetBase:
+    def __getitem__(self, stream: str) -> CachedDataset:
         """Return a dataset by stream name."""
         return self.streams[stream]
 
