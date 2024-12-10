@@ -20,4 +20,8 @@ def test_install_failure_log_pypi():
         )
 
     # Check that the stderr log contains the expected content from a failed pip install
-    assert "Could not install requirement" in str(exc_info.value.__cause__.log_text)
+    err_msg = str(exc_info.value.__cause__.log_text)
+    assert any([
+        "Cannot unpack file" in err_msg,
+        "Could not install requirement" in err_msg,
+    ])

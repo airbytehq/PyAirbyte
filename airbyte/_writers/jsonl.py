@@ -34,8 +34,8 @@ class JsonlWriter(FileWriterBase):
     ) -> IO[str]:
         """Open a new file for writing."""
         return cast(
-            IO[str],
-            gzip.open(  # noqa: SIM115  # Avoiding context manager
+            "IO[str]",
+            gzip.open(  # Avoiding context manager
                 file_path,
                 mode="wt",
                 encoding="utf-8",

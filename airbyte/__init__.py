@@ -123,23 +123,8 @@ has its own documentation and code samples related to effectively using the rela
 
 from __future__ import annotations
 
-from airbyte import (
-    caches,
-    callbacks,
-    # cli,  # Causes circular import if included
-    cloud,
-    constants,
-    datasets,
-    destinations,
-    documents,
-    exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
-    experimental,
-    logs,
-    records,
-    results,
-    secrets,
-    sources,
-)
+from typing import TYPE_CHECKING
+
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_cache
@@ -153,6 +138,28 @@ from airbyte.sources import registry
 from airbyte.sources.base import Source
 from airbyte.sources.registry import get_available_connectors
 from airbyte.sources.util import get_source
+
+
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TC004  # imports used for more than type checking
+    from airbyte import (
+        caches,
+        callbacks,
+        # cli,  # Causes circular import if included
+        cloud,
+        constants,
+        datasets,
+        destinations,
+        documents,
+        exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
+        experimental,
+        logs,
+        records,
+        results,
+        secrets,
+        sources,
+    )
 
 
 __all__ = [

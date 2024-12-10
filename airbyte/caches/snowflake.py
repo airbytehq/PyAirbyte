@@ -21,11 +21,16 @@ cache = SnowflakeCache(
 
 from __future__ import annotations
 
-from pydantic import PrivateAttr
+from typing import ClassVar
+
+from airbyte_api.models import DestinationSnowflake
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
 from airbyte.caches.base import CacheBase
-from airbyte.shared.sql_processor import RecordDedupeMode
+from airbyte.destinations._translate_cache_to_dest import (
+    snowflake_cache_to_destination_configuration,
+)
+from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
 
 class SnowflakeCache(SnowflakeConfig, CacheBase):
@@ -33,7 +38,15 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
     dedupe_mode: RecordDedupeMode = RecordDedupeMode.APPEND
 
-    _sql_processor_class = PrivateAttr(default=SnowflakeSqlProcessor)
+    _sql_processor_class: ClassVar[type[SqlProcessorBase]] = SnowflakeSqlProcessor
+
+    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_config_class: ClassVar[type | None] = DestinationSnowflake
+
+    @property
+    def paired_destination_config(self) -> DestinationSnowflake:
+        """Return a dictionary of destination configuration values."""
+        return snowflake_cache_to_destination_configuration(cache=self)
 
 
 # Expose the Cache class and also the Config class.

@@ -102,14 +102,14 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte._util import api_util
-from airbyte.cloud._destination_util import create_cache_from_destination_config
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
+from airbyte.destinations._translate_dest_to_cache import destination_to_cache
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
 
@@ -135,7 +135,7 @@ class SyncResult:
 
     workspace: CloudWorkspace
     connection: CloudConnection
-    job_id: str
+    job_id: int
     table_name_prefix: str = ""
     table_name_suffix: str = ""
     _latest_job_info: JobResponse | None = None
@@ -155,8 +155,9 @@ class SyncResult:
         self._connection_response = api_util.get_connection(
             workspace_id=self.workspace.workspace_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             connection_id=self.connection.connection_id,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         return self._connection_response
 
@@ -166,9 +167,10 @@ class SyncResult:
         destination_response = api_util.get_destination(
             destination_id=connection_info.destination_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
-        return destination_response.configuration
+        return asdict(destination_response.configuration)
 
     def is_job_complete(self) -> bool:
         """Check if the sync job is complete."""
@@ -186,19 +188,20 @@ class SyncResult:
         self._latest_job_info = api_util.get_job_info(
             job_id=self.job_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         return self._latest_job_info
 
     @property
     def bytes_synced(self) -> int:
         """Return the number of records processed."""
-        return self._fetch_latest_job_info().bytes_synced
+        return self._fetch_latest_job_info().bytes_synced or 0
 
     @property
     def records_synced(self) -> int:
         """Return the number of records processed."""
-        return self._fetch_latest_job_info().rows_synced
+        return self._fetch_latest_job_info().rows_synced or 0
 
     @property
     def start_time(self) -> datetime:
@@ -269,10 +272,8 @@ class SyncResult:
         if self._cache:
             return self._cache
 
-        destination_configuration: dict[str, Any] = self._get_destination_configuration()
-        self._cache = create_cache_from_destination_config(
-            destination_configuration=destination_configuration
-        )
+        destination_configuration = self._get_destination_configuration()
+        self._cache = destination_to_cache(destination_configuration=destination_configuration)
         return self._cache
 
     def get_sql_engine(self) -> sqlalchemy.engine.Engine:

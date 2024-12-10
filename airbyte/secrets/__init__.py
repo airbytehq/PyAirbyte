@@ -64,16 +64,8 @@ _Below are the classes and functions available in the `airbyte.secrets` module._
 
 from __future__ import annotations
 
-from airbyte.secrets import (
-    base,
-    config,
-    custom,
-    env_vars,
-    google_colab,
-    google_gsm,
-    prompt,
-    util,
-)
+from typing import TYPE_CHECKING
+
 from airbyte.secrets.base import SecretHandle, SecretManager, SecretSourceEnum, SecretString
 from airbyte.secrets.config import disable_secret_source, register_secret_manager
 from airbyte.secrets.custom import CustomSecretManager
@@ -82,6 +74,21 @@ from airbyte.secrets.google_colab import ColabSecretManager
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.secrets.prompt import SecretsPrompt
 from airbyte.secrets.util import get_secret
+
+
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TC004  # imports used for more than type checking
+    from airbyte.secrets import (
+        base,
+        config,
+        custom,
+        env_vars,
+        google_colab,
+        google_gsm,
+        prompt,
+        util,
+    )
 
 
 __all__ = [

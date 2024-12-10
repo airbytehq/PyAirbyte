@@ -64,7 +64,7 @@ def _try_get_source_manifest(
     )
     response.raise_for_status()  # Raise HTTPError exception if the download failed
     try:
-        return cast(dict, yaml.safe_load(response.text))
+        return cast("dict", yaml.safe_load(response.text))
     except yaml.YAMLError as ex:
         raise exc.AirbyteConnectorInstallationError(
             message="Failed to parse the connector manifest YAML.",
