@@ -175,7 +175,7 @@ class CloudWorkspace:
 
         You can pass either the source ID `str` or a deployed `Source` object.
         """
-        if not isinstance(source, str | CloudSource):
+        if not isinstance(source, (str, CloudSource)):
             raise exc.PyAirbyteInputError(
                 message="Invalid source type.",
                 input_value=type(source).__name__,
@@ -198,7 +198,7 @@ class CloudWorkspace:
 
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
         """
-        if not isinstance(destination, str | CloudDestination):
+        if not isinstance(destination, (str, CloudDestination)):
             raise exc.PyAirbyteInputError(
                 message="Invalid destination type.",
                 input_value=type(destination).__name__,
