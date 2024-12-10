@@ -266,34 +266,3 @@ def test_check_connector_integration(
         pytest.fail("check_connector function is not implemented")
     except AirbyteError as e:
         pytest.fail(f"API call failed: {e}")
-
-
-# @pytest.fixture
-# def mock_response():
-#     class MockResponse:
-#         def __init__(self, json_data, status_code):
-#             self.json_data = json_data
-#             self.status_code = status_code
-
-#         def json(self):
-#             return self.json_data
-
-#     return MockResponse
-
-
-# def test_get_bearer_token_success(api_root, client_id, client_secret, mock_response):
-#     with patch("requests.request") as mock_request:
-#         mock_request.return_value = mock_response({"access_token": "test_token"}, 200)
-#         token = get_bearer_token(
-#             client_id=client_id, client_secret=client_secret, api_root=api_root
-#         )
-#         assert token.get_secret_value() == "test_token"
-
-
-# def test_get_bearer_token_failure(api_root, client_id, client_secret, mock_response):
-#     with patch("requests.request") as mock_request:
-#         mock_request.return_value = mock_response({}, 400)
-#         with pytest.raises(AirbyteError):
-#             get_bearer_token(
-#                 client_id=client_id, client_secret=client_secret, api_root=api_root
-#             )
