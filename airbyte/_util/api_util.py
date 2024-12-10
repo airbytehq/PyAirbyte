@@ -773,6 +773,65 @@ def get_bearer_token(
     return SecretString(response.json()["access_token"])
 
 
+def check_connector(
+    *,
+    actor_id: str,
+    connector_type: Literal["source", "destination"],
+    client_id: SecretString,
+    client_secret: SecretString,
+    workspace_id: str | None = None,
+    api_root: str = CLOUD_API_ROOT,
+    config_api_root: str = CLOUD_CONFIG_API_ROOT,
+) -> tuple[bool, str | None]:
+    """Check a source.
+
+    Raises an exception if the check fails.
+
+    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1409
+    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
+    """
+    _ = workspace_id  # Not used (yet)
+    bearer_token: SecretString = get_bearer_token(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    path = config_api_root + f"/{connector_type}s/check_connection"
+    headers: dict[str, Any] = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {bearer_token}",
+    }
+    request_body: dict[str, str] = {
+        f"{connector_type}Id": actor_id,
+    }
+    response = requests.request(
+        method="POST",
+        url=path,
+        headers=headers,
+        json=request_body,
+    )
+    if not status_ok(response.status_code):
+        response.raise_for_status()
+
+    response_json = response.json()
+    result, message = response_json.get("status"), response_json.get("message")
+
+    if result == "succeeded":
+        return True, None
+
+    if result == "failed":
+        return False, message
+
+    raise AirbyteError(
+        context={
+            "actor_id": actor_id,
+            "connector_type": connector_type,
+            "response": response,
+        },
+    )
+
+
 @dataclass
 class DockerImageOverride:
     """Defines a connector image override."""
@@ -788,16 +847,22 @@ def set_actor_override(
     actor_type: Literal["source", "destination"],
     override: DockerImageOverride,
     config_api_root: str = CLOUD_CONFIG_API_ROOT,
-    api_key: str | SecretString,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> None:
     """Override the docker image and tag for a specific connector.
 
     https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5111
     """
     path = config_api_root + "/v1/scoped_configuration/create"
+    bearer_token: SecretString = get_bearer_token(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=config_api_root,
+    )
     headers: dict[str, Any] = {
         "Content-Type": "application/json",
-        "Authorization": SecretString(f"Bearer {api_key}"),
+        "Authorization": SecretString(f"Bearer {bearer_token}"),
     }
     request_body: dict[str, str] = {
         # https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7376
@@ -825,30 +890,6 @@ def set_actor_override(
                 "response": response,
             },
         )
-
-
-def check_connector(
-    *,
-    actor_id: str,
-    connector_type: Literal["source", "destination"],
-    client_id: SecretString,
-    client_secret: SecretString,
-    workspace_id: str | None = None,
-    api_root: str,
-) -> tuple[bool, str | None]:
-    """Check a source.
-
-    Returns a tuple of two values:
-    - A boolean indicating if the source passes the connection check.
-    - The error message if the source fails the check operation.
-    """
-    bearer_token = get_bearer_token(
-        client_id=client_id,
-        client_secret=client_secret,
-        api_root=api_root,
-    )
-    _ = source_id, workspace_id, api_root, api_key
-    raise NotImplementedError
 
 
 def get_connector_image_override(

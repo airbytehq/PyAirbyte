@@ -6,6 +6,7 @@ These tests are designed to be run against a running instance of the Airbyte API
 """
 
 from __future__ import annotations
+from typing import Literal
 
 from airbyte_api.models import DestinationResponse, SourceResponse, WorkspaceResponse
 from airbyte._util import api_util, text_util
@@ -242,6 +243,34 @@ def test_get_bearer_token(
             client_secret=airbyte_cloud_client_secret,
         )
         assert token is not None
+    except AirbyteError as e:
+        pytest.fail(f"API call failed: {e}")
+
+
+@pytest.mark.parametrize(
+    "connector_id, connector_type, expect_success",
+    [
+        ("0f766e9e-636e-4687-8483-f2febc46d9ce", "source", True),
+        # ("test_connector_id", "destination", True),
+    ],
+)
+def test_check_connector(
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
+    connector_id: str,
+    connector_type: Literal["source", "destination"],
+    expect_success: bool,
+) -> None:
+    try:
+        result, error_message = check_connector(
+            actor_id=connector_id,
+            connector_type=connector_type,
+            client_id=airbyte_cloud_client_id,
+            client_secret=airbyte_cloud_client_secret,
+        )
+        assert result is not None
+    except NotImplementedError:
+        pytest.fail("check_connector function is not implemented")
     except AirbyteError as e:
         pytest.fail(f"API call failed: {e}")
 
