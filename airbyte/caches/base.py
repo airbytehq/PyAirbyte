@@ -246,7 +246,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     def __bool__(self) -> bool:
         """Always True.
 
-        This is needed so that caches with zero streams are not falsely (None-like).
+        This is needed so that caches with zero streams are not falsey (None-like).
         """
         return True
 

@@ -41,7 +41,7 @@ def destination_to_cache(
 ) -> CacheBase:
     """Get the destination configuration from the cache."""
     conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {
-        "bigquery": biqquery_destination_to_cache,
+        "bigquery": bigquery_destination_to_cache,
         "duckdb": duckdb_destination_to_cache,
         "motherduck": motherduck_destination_to_cache,
         "postgres": postgres_destination_to_cache,
@@ -70,7 +70,7 @@ def destination_to_cache(
     return conversion_fn(destination_configuration)
 
 
-def biqquery_destination_to_cache(
+def bigquery_destination_to_cache(
     destination_configuration: DestinationBigquery | dict[str, Any],
 ) -> BigQueryCache:
     """Create a new BigQuery cache from the destination configuration.

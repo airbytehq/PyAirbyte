@@ -17,8 +17,7 @@ def test_bigquery_props(
     assert new_bigquery_cache.dataset_name == new_bigquery_cache.schema_name, (
         "Dataset name should be the same as schema name."
     )
-    assert (
-        new_bigquery_cache.schema_name != "airbyte_raw"
+    assert new_bigquery_cache.schema_name != "airbyte_raw", (
         "Schema name should not be the default value."
     )
 

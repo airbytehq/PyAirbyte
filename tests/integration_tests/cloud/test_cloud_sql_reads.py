@@ -8,6 +8,11 @@ import airbyte as ab
 import pandas as pd
 import pytest
 from airbyte import cloud
+from airbyte.caches.base import CacheBase
+from airbyte.caches.bigquery import BigQueryCache
+from airbyte.caches.snowflake import SnowflakeCache
+from airbyte.caches.postgres import PostgresCache
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.cloud.sync_results import SyncResult
 from sqlalchemy.engine.base import Engine
 
@@ -136,15 +141,27 @@ def test_read_from_deployed_connection(
 
 
 @pytest.mark.parametrize(
-    "deployed_connection_id",
+    "deployed_connection_id, cache_type",
     [
-        pytest.param("c7b4d838-a612-495a-9d91-a14e477add51", id="Faker->Snowflake"),
-        pytest.param("0e1d6b32-b8e3-4b68-91a3-3a314599c782", id="Faker->BigQuery"),
         pytest.param(
-            "", id="Faker->Postgres", marks=pytest.mark.skip(reason="Not yet supported")
+            "c7b4d838-a612-495a-9d91-a14e477add51",
+            SnowflakeCache,
+            id="Faker->Snowflake",
+        ),
+        pytest.param(
+            "0e1d6b32-b8e3-4b68-91a3-3a314599c782",
+            BigQueryCache,
+            id="Faker->BigQuery",
         ),
         pytest.param(
             "",
+            PostgresCache,
+            id="Faker->Postgres",
+            marks=pytest.mark.skip(reason="Not yet supported"),
+        ),
+        pytest.param(
+            "",
+            DuckDBCache,
             id="Faker->MotherDuck",
             marks=pytest.mark.skip(reason="Not yet supported"),
         ),
@@ -153,6 +170,7 @@ def test_read_from_deployed_connection(
 def test_translate_cloud_job_to_sql_cache(
     cloud_workspace: cloud.CloudWorkspace,
     deployed_connection_id: str,
+    cache_type: type[CacheBase],
     previous_job_run_id: int,
     with_bigquery_credentials_env_vars,
     with_snowflake_password_env_var,
@@ -170,6 +188,7 @@ def test_translate_cloud_job_to_sql_cache(
     assert sync_result.is_job_complete()
 
     cache = sync_result.get_sql_cache()
+    assert isinstance(cache, cache_type), f"Expected {cache_type}, got {type(cache)}"
     sqlalchemy_url = cache.get_sql_alchemy_url()
     engine: Engine = sync_result.get_sql_engine()
 

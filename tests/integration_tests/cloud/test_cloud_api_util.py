@@ -7,7 +7,7 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
-from airbyte_api.models import SourceResponse, WorkspaceResponse
+from airbyte_api.models import DestinationResponse, SourceResponse, WorkspaceResponse
 from airbyte._util import api_util, text_util
 from airbyte_api.models import DestinationDuckdb, SourceFaker
 
@@ -71,7 +71,7 @@ def test_list_destinations(
     airbyte_cloud_client_id: SecretString,
     airbyte_cloud_client_secret: SecretString,
 ) -> None:
-    result: list[SourceResponse] = api_util.list_sources(
+    result: list[DestinationResponse] = api_util.list_destinations(
         workspace_id=workspace_id,
         api_root=airbyte_cloud_api_root,
         client_id=airbyte_cloud_client_id,

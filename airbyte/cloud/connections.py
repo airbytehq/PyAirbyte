@@ -46,6 +46,13 @@ class CloudConnection:
         """The ID of the destination."""
 
         self._connection_info: ConnectionResponse | None = None
+        """The connection info object. (Cached.)"""
+
+        self._cloud_source_object: CloudSource | None = None
+        """The source object. (Cached.)"""
+
+        self._cloud_destination_object: CloudDestination | None = None
+        """The destination object. (Cached.)"""
 
     def _fetch_connection_info(self) -> ConnectionResponse:
         """Populate the connection with data from the API."""
@@ -73,10 +80,14 @@ class CloudConnection:
     @property
     def source(self) -> CloudSource:
         """Get the source object."""
-        return CloudSource(
+        if self._cloud_source_object:
+            return self._cloud_source_object
+
+        self._cloud_source_object = CloudSource(
             workspace=self.workspace,
             connector_id=self.source_id,
         )
+        return self._cloud_source_object
 
     @property
     def destination_id(self) -> str:
@@ -91,11 +102,15 @@ class CloudConnection:
 
     @property
     def destination(self) -> CloudDestination:
-        """Get the source object."""
-        return CloudDestination(
+        """Get the destination object."""
+        if self._cloud_destination_object:
+            return self._cloud_destination_object
+
+        self._cloud_destination_object = CloudDestination(
             workspace=self.workspace,
             connector_id=self.destination_id,
         )
+        return self._cloud_destination_object
 
     @property
     def stream_names(self) -> list[str]:
