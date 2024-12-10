@@ -15,13 +15,13 @@ from airbyte_api.models import (
     UsernameAndPassword,
 )
 
-from airbyte._util import api_util
 from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte._util import api_util
     from airbyte.caches.base import CacheBase
     from airbyte.caches.bigquery import BigQueryCache
     from airbyte.caches.duckdb import DuckDBCache

@@ -18,9 +18,6 @@ from typing import TYPE_CHECKING, Any
 
 import airbyte_api
 from airbyte_api import api, models
-from airbyte_api.models import (
-    DestinationConfiguration,
-)
 
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
@@ -33,6 +30,10 @@ from airbyte.exceptions import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from airbyte_api.models import (
+        DestinationConfiguration,
+    )
 
     from airbyte.secrets.base import SecretString
 
