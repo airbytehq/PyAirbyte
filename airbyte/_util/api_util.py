@@ -96,7 +96,7 @@ def get_workspace(
     client_id: SecretString,
     client_secret: SecretString,
 ) -> models.WorkspaceResponse:
-    """Get a connection."""
+    """Get a workspace object."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -131,7 +131,7 @@ def list_connections(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.ConnectionResponse]:
-    """Get a connection."""
+    """List connections."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
@@ -741,6 +741,38 @@ def delete_connection(
 # Functions for leveraging the Airbyte Config API (may not be supported or stable)
 
 
+def get_bearer_token(
+    *,
+    client_id: SecretString,
+    client_secret: SecretString,
+    api_root: str = CLOUD_API_ROOT,
+) -> SecretString:
+    """Get a bearer token.
+
+    https://reference.airbyte.com/reference/createaccesstoken
+    """
+    path = api_root + "/applications/token"
+    headers: dict[str, str] = {
+        "content-type": "application/json",
+        "accept": "application/json",
+    }
+    request_body: dict[str, str] = {
+        "grant-type": "client_credentials",
+        "client_id": client_id,
+        "client_secret": client_secret,
+    }
+    response = requests.request(
+        method="POST",
+        url=path,
+        headers=headers,
+        json=request_body,
+    )
+    if not status_ok(response.status_code):
+        response.raise_for_status()
+
+    return SecretString(response.json()["access_token"])
+
+
 @dataclass
 class DockerImageOverride:
     """Defines a connector image override."""
@@ -760,17 +792,17 @@ def set_actor_override(
 ) -> None:
     """Override the docker image and tag for a specific connector.
 
-    https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7234
-
+    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5111
     """
     path = config_api_root + "/v1/scoped_configuration/create"
     headers: dict[str, Any] = {
-        "Content-Type": "application",
+        "Content-Type": "application/json",
         "Authorization": SecretString(f"Bearer {api_key}"),
     }
     request_body: dict[str, str] = {
-        "config_key": "docker_image",  # TODO: Fix this.
+        # https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7376
         "value": override.docker_image_override,
+        "config_key": "docker_image",  # TODO: Fix this.
         "scope_id": actor_id,
         "scope_type": actor_type,
         "resource_id": "",  # TODO: Need to call something like get_actor_definition
@@ -795,30 +827,62 @@ def set_actor_override(
         )
 
 
+def check_connector(
+    *,
+    actor_id: str,
+    connector_type: Literal["source", "destination"],
+    client_id: SecretString,
+    client_secret: SecretString,
+    workspace_id: str | None = None,
+    api_root: str,
+) -> tuple[bool, str | None]:
+    """Check a source.
+
+    Returns a tuple of two values:
+    - A boolean indicating if the source passes the connection check.
+    - The error message if the source fails the check operation.
+    """
+    bearer_token = get_bearer_token(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    _ = source_id, workspace_id, api_root, api_key
+    raise NotImplementedError
+
+
 def get_connector_image_override(
     *,
     workspace_id: str,
     actor_id: str,
     actor_type: Literal["source", "destination"],
     config_api_root: str = CLOUD_CONFIG_API_ROOT,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> DockerImageOverride | None:
     """Get the docker image and tag for a specific connector.
 
     Result is a tuple of two values:
     - A boolean indicating if an override is set.
     - The docker image and tag, either from the override if set, or from the .
+
+    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5066
     """
     path = config_api_root + "/v1/scoped_configuration/list"
+    bearer_token = get_bearer_token(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=config_api_root,
+    )
     headers: dict[str, Any] = {
         "Content-Type": "application",
-        "Authorization": SecretString(f"Bearer {api_key}"),
+        "Authorization": SecretString(f"Bearer {bearer_token}"),
     }
     request_body: dict[str, str] = {
         "config_key": "docker_image",  # TODO: Fix this.
     }
     response = requests.request(
-        method="GET",
+        method="POST",
         url=path,
         headers=headers,
         json=request_body,
@@ -849,18 +913,3 @@ def get_connector_image_override(
             "Multiple overrides found. This is not yet supported.",
         )
     return overrides[0]
-
-
-# Not yet implemented
-
-
-# def check_source(
-#     source_id: str,
-#     *,
-#     api_root: str,
-#     api_key: str,
-#     workspace_id: str | None = None,
-# ) -> api.SourceCheckResponse:
-#     """Check a source."""
-#     _ = source_id, workspace_id, api_root, api_key
-#     raise NotImplementedError

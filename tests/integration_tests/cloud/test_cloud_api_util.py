@@ -9,9 +9,13 @@ from __future__ import annotations
 
 from airbyte_api.models import DestinationResponse, SourceResponse, WorkspaceResponse
 from airbyte._util import api_util, text_util
+from airbyte._util.api_util import get_bearer_token, check_connector, AirbyteError
 from airbyte_api.models import DestinationDuckdb, SourceFaker
 
 from airbyte.secrets.base import SecretString
+import pytest
+
+# from unittest.mock import patch
 
 
 def test_get_workspace(
@@ -226,3 +230,70 @@ def test_create_and_delete_connection(
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
     )
+
+
+def test_get_bearer_token(
+    airbyte_cloud_client_id,
+    airbyte_cloud_client_secret,
+) -> None:
+    try:
+        token: SecretString = get_bearer_token(
+            client_id=airbyte_cloud_client_id,
+            client_secret=airbyte_cloud_client_secret,
+        )
+        assert token is not None
+    except AirbyteError as e:
+        pytest.fail(f"API call failed: {e}")
+
+
+def test_check_connector_integration(
+    api_root,
+    airbyte_cloud_client_id,
+    airbyte_cloud_client_secret,
+) -> None:
+    actor_id = "test_actor_id"
+    connector_type = "source"
+    try:
+        result, error_message = check_connector(
+            actor_id=actor_id,
+            connector_type=connector_type,
+            client_id=airbyte_cloud_client_id,
+            client_secret=airbyte_cloud_client_secret,
+            api_root=api_root,
+        )
+        assert result is not None
+    except NotImplementedError:
+        pytest.fail("check_connector function is not implemented")
+    except AirbyteError as e:
+        pytest.fail(f"API call failed: {e}")
+
+
+# @pytest.fixture
+# def mock_response():
+#     class MockResponse:
+#         def __init__(self, json_data, status_code):
+#             self.json_data = json_data
+#             self.status_code = status_code
+
+#         def json(self):
+#             return self.json_data
+
+#     return MockResponse
+
+
+# def test_get_bearer_token_success(api_root, client_id, client_secret, mock_response):
+#     with patch("requests.request") as mock_request:
+#         mock_request.return_value = mock_response({"access_token": "test_token"}, 200)
+#         token = get_bearer_token(
+#             client_id=client_id, client_secret=client_secret, api_root=api_root
+#         )
+#         assert token.get_secret_value() == "test_token"
+
+
+# def test_get_bearer_token_failure(api_root, client_id, client_secret, mock_response):
+#     with patch("requests.request") as mock_request:
+#         mock_request.return_value = mock_response({}, 400)
+#         with pytest.raises(AirbyteError):
+#             get_bearer_token(
+#                 client_id=client_id, client_secret=client_secret, api_root=api_root
+#             )
