@@ -66,6 +66,13 @@ def destination_to_cache(
     else:
         destination_type = destination_configuration.DESTINATION_TYPE.value
 
+    if destination_type not in conversion_fn_map:
+        raise ValueError(
+            "Cannot convert destination to a cache configuration. "
+            f"Destination type {destination_type} not supported. "
+            f"Supported cache types: {list(conversion_fn_map.keys())}"
+        )
+
     conversion_fn = conversion_fn_map[destination_type]
     return conversion_fn(destination_configuration)
 

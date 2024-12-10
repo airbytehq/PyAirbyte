@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 from airbyte_api.models import (
     BatchedStandardInserts,
-    # StandardInserts,
     DestinationBigquery,
     DestinationDuckdb,
     DestinationPostgres,
@@ -55,8 +54,9 @@ def cache_to_destination_configuration(
     cache_class_name = cache.__class__.__name__
     if cache_class_name not in conversion_fn_map:
         raise ValueError(
-            "Cannot convert cache type to destination configuration. Cache type not supported. ",
-            f"Supported cache types: {list(conversion_fn_map.keys())}",
+            "Cannot convert cache type to destination configuration. "
+            f"Cache type {cache_class_name} not supported. "
+            f"Supported cache types: {list(conversion_fn_map.keys())}"
         )
 
     conversion_fn = conversion_fn_map[cache_class_name]
