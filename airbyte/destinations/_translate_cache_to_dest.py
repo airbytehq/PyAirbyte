@@ -32,12 +32,14 @@ if TYPE_CHECKING:
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 
-DestinationConfiguration = Any
+DestinationConfiguration = (
+    DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake
+)
 
 
 def cache_to_destination_configuration(
     cache: CacheBase,
-) -> dict[str, str]:
+) -> DestinationConfiguration:
     """Get the destination configuration from the cache."""
     conversion_fn_map: dict[str, Callable[[Any], DestinationConfiguration]] = {
         "BigQueryCache": bigquery_cache_to_destination_configuration,
