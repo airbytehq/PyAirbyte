@@ -13,13 +13,12 @@ directly. This will ensure a single source of truth when mapping between the `ai
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import json
-from typing import TYPE_CHECKING, Any
-import requests
-from typing_extensions import Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
+import requests
 from airbyte_api import api, models
 
 from airbyte.exceptions import (
@@ -43,7 +42,6 @@ if TYPE_CHECKING:
         DestinationConfiguration,
     )
 
-    from airbyte.secrets.base import SecretString
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0

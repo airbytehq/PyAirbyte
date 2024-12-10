@@ -90,14 +90,6 @@ class CloudConnection:
         return self._cloud_source_object
 
     @property
-    def source(self) -> CloudSource:
-        """Get the source object."""
-        return CloudSource(
-            workspace=self.workspace,
-            connector_id=self.source_id,
-        )
-
-    @property
     def destination_id(self) -> str:
         """The ID of the destination."""
         if not self._destination_id:
@@ -119,14 +111,6 @@ class CloudConnection:
             connector_id=self.destination_id,
         )
         return self._cloud_destination_object
-
-    @property
-    def destination(self) -> CloudDestination:
-        """Get the source object."""
-        return CloudDestination(
-            workspace=self.workspace,
-            connector_id=self.destination_id,
-        )
 
     @property
     def stream_names(self) -> list[str]:
@@ -205,7 +189,7 @@ class CloudConnection:
             SyncResult(
                 workspace=self.workspace,
                 connection=self,
-                job_id=str(sync_log.job_id),
+                job_id=sync_log.job_id,
                 _latest_job_info=sync_log,
             )
             for sync_log in sync_logs

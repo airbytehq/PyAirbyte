@@ -14,7 +14,6 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource
-from airbyte.cloud.sync_results import SyncResult
 from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
 
@@ -22,7 +21,6 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
 
 
@@ -108,10 +106,6 @@ class CloudWorkspace:
             config=source_config_dict,
             client_id=self.client_id,
             client_secret=self.client_secret,
-        )
-        return CloudSource(
-            workspace=self,
-            connector_id=deployed_source.source_id,
         )
         return CloudSource(
             workspace=self,
