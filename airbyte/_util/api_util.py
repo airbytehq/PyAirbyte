@@ -555,23 +555,17 @@ def get_destination(
         raw_configuration: dict[str, Any] = raw_response["configuration"]
 
         destination_type = raw_response.get("destinationType")
-        if destination_type == "snowflake":
-            response.destination_response.configuration = models.DestinationSnowflake(
-                **raw_configuration,
-            )
-        if destination_type == "bigquery":
-            response.destination_response.configuration = models.DestinationBigquery(
-                **raw_configuration,
-            )
-        if destination_type == "postgres":
-            response.destination_response.configuration = models.DestinationPostgres(
-                **raw_configuration,
-            )
-        if destination_type == "duckdb":
-            response.destination_response.configuration = models.DestinationDuckdb(
-                **raw_configuration,
-            )
+        destination_mapping = {
+            "snowflake": models.DestinationSnowflake,
+            "bigquery": models.DestinationBigquery,
+            "postgres": models.DestinationPostgres,
+            "duckdb": models.DestinationDuckdb,
+        }
 
+        if destination_type in destination_mapping:
+            response.destination_response.configuration = destination_mapping[destination_type](
+                **raw_configuration
+            )
         return response.destination_response
 
     raise AirbyteMissingResourceError(
