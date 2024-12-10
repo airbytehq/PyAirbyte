@@ -125,6 +125,8 @@ def get_source(  # noqa: PLR0913 # Too many arguments
 
 def get_benchmark_source(
     num_records: int | str = "5e5",
+    *,
+    install_if_missing: bool = True,
 ) -> Source:
     """Get a source for benchmarking.
 
@@ -135,10 +137,11 @@ def get_benchmark_source(
     within a numeric a string, they will be ignored.
 
     Args:
-        num_records (int | str): The number of records to generate. Defaults to "5e5", or
+        num_records: The number of records to generate. Defaults to "5e5", or
             500,000 records.
             Can be an integer (`1000`) or a string in scientific notation.
             For example, `"5e6"` will generate 5 million records.
+        install_if_missing: Whether to install the source if it is not available locally.
 
     Returns:
         Source: The source object for benchmarking.
@@ -166,6 +169,7 @@ def get_benchmark_source(
             },
         },
         streams="*",
+        install_if_missing=install_if_missing,
     )
 
 

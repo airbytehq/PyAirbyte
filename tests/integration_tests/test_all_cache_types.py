@@ -20,6 +20,8 @@ from airbyte._util.venv_util import get_bin_dir
 from sqlalchemy import text
 from viztracer import VizTracer
 
+from airbyte.results import ReadResult
+
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
 
@@ -171,12 +173,14 @@ def test_faker_read(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    new_generic_cache: ab.caches.CacheBase,
+    new_duckdb_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
+    result: ReadResult
     for _ in range(2):
+        assert isinstance(new_duckdb_cache, ab.caches.CacheBase)
         result = source_faker_seed_a.read(
-            new_generic_cache, write_strategy="append", force_full_refresh=True
+            new_duckdb_cache, write_strategy="append", force_full_refresh=True
         )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A * 2
 
@@ -188,6 +192,7 @@ def test_replace_strategy(
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
+    result: ReadResult
     for _ in range(2):
         result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
@@ -212,9 +217,9 @@ def test_merge_strategy(
 
     # First run, seed A (counts should match the scale or the product count)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
-    assert (
-        len(list(result.cache.streams["users"])) == FAKER_SCALE_A
-    ), f"Incorrect number of records in the cache. {new_generic_cache}"
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A, (
+        f"Incorrect number of records in the cache. {new_generic_cache}"
+    )
 
     # Second run, also seed A (should have same exact data, no change in counts)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")

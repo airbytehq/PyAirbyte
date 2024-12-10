@@ -63,7 +63,7 @@ def get_secret(
 
             sources[sources.index(source)] = available_sources[source]
 
-    secret_managers = cast(list[SecretManager], sources)
+    secret_managers = cast("list[SecretManager]", sources)
 
     if SecretSourceEnum.PROMPT in secret_managers:
         prompt_source = secret_managers.pop(

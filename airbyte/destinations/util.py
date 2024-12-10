@@ -75,7 +75,10 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
     )
 
 
-def get_noop_destination() -> Destination:
+def get_noop_destination(
+    *,
+    install_if_missing: bool = True,
+) -> Destination:
     """Get a devnull (no-op) destination.
 
     This is useful for performance benchmarking of sources, without
@@ -93,6 +96,7 @@ def get_noop_destination() -> Destination:
             }
         },
         docker_image=True,
+        install_if_missing=install_if_missing,
     )
 
 

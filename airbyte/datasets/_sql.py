@@ -41,7 +41,7 @@ class SQLDataset(DatasetBase):
         cache: CacheBase,
         stream_name: str,
         query_statement: Select,
-        stream_configuration: ConfiguredAirbyteStream | None | Literal[False] = None,
+        stream_configuration: ConfiguredAirbyteStream | Literal[False] | None = None,
     ) -> None:
         """Initialize the dataset with a cache, stream name, and query statement.
 
@@ -86,7 +86,7 @@ class SQLDataset(DatasetBase):
             for row in conn.execute(self._query_statement):
                 # Access to private member required because SQLAlchemy doesn't expose a public API.
                 # https://pydoc.dev/sqlalchemy/latest/sqlalchemy.engine.row.RowMapping.html
-                yield cast(dict[str, Any], row._mapping)  # noqa: SLF001
+                yield cast("dict[str, Any]", row._mapping)  # noqa: SLF001
 
     def __len__(self) -> int:
         """Return the number of records in the dataset.
@@ -98,7 +98,7 @@ class SQLDataset(DatasetBase):
             with self._cache.processor.get_sql_connection() as conn:
                 self._length = conn.execute(count_query).scalar()
 
-        return cast(int, self._length)
+        return cast("int", self._length)
 
     def to_pandas(self) -> DataFrame:
         return self._cache.get_pandas_dataframe(self._stream_name)
@@ -147,7 +147,7 @@ class CachedDataset(SQLDataset):
         self,
         cache: CacheBase,
         stream_name: str,
-        stream_configuration: ConfiguredAirbyteStream | None | Literal[False] = None,
+        stream_configuration: ConfiguredAirbyteStream | Literal[False] | None = None,
     ) -> None:
         """We construct the query statement by selecting all columns from the table.
 

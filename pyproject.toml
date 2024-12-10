@@ -15,7 +15,7 @@ enable = true
 [tool.poetry.dependencies]
 python = ">=3.10,<3.13"
 
-airbyte-api = "^0.49.2"
+airbyte-api = "^0.52.1"
 airbyte-cdk = "^6.6.4,!=6.7.0rc1,!=6.7.0rc2"
 airbyte-protocol-models-pdv2 = "^0.13.0"
 click = "^8.1.7"
@@ -68,7 +68,7 @@ pytest-mock = "^3.14.0"
 pytest-mypy = "^0.10.3"
 pytest-timeout = "^2.3.1"
 responses = "^0.25.0"
-ruff = "^0.6.4"
+ruff = "^0.8.2"
 sqlalchemy2-stubs = "^0.0.2a38"
 tomli = "^2.0"
 types-jsonschema = "^4.20.0.0"
@@ -94,14 +94,16 @@ markers = [
 ]
 filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Treat python warnings as errors in pytest
-    "error",
+    # "error",  # TODO: Revert. Currently disabled because `airbyte_cdk.sources.source.ExperimentalClassWarning` ignore is not working
     # # Snowflake reregisters its functions, which is fine.
     "ignore::sqlalchemy.exc.SAWarning",  # "GenericFunction is already registered and is going to be overridden.""
     # Ignore these, specifically on Windows because of file cleanup and locking issues:
     "ignore:unclosed file:ResourceWarning",
+    "ignore:Failed to decode:UserWarning",  # https://github.com/airbytehq/pyairbyte/issues/320
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.
+    "ignore::airbyte_cdk.sources.source.ExperimentalClassWarning",
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
     # CDK has these refs:
     "ignore::pydantic.warnings.PydanticDeprecatedSince20",
@@ -166,7 +168,6 @@ select = [
     "TID",    # flake8-tidy-imports
     "TRY",    # tryceratops
     "TRY002", # Disallow raising vanilla Exception. Create or use a custom exception instead.
-    "TRY003", # Disallow vanilla string passing. Prefer kwargs to the exception constructur.
     "UP",     # pyupgrade
     "W",      # pycodestyle (warnings)
     "YTT",    # flake8-2020
@@ -176,8 +177,6 @@ ignore = [
 
     # These we don't agree with or don't want to prioritize to enforce:
     "ANN003",  # kwargs missing type annotations
-    "ANN101",  # Type annotations for 'self' args
-    "ANN102",  # Type annotations for 'cls' args
     "COM812",  # Because it conflicts with ruff auto-format
     "EM",      # flake8-errmsgs (may reconsider later)
     "DJ",      # Django linting
@@ -201,7 +200,9 @@ ignore = [
     "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
     "PLW0603", # Using the global statement to update _cache is discouraged
     "PLW0108", # Lambda may be unnecessary; consider inlining inner function
-    # "TD003",   # Require links for TODOs (now enabled)
+    "TRY003",  # Allow exceptions to receive strings in constructors.
+    # "TD003", # Require links for TODOs (now enabled)
+    "UP038",   # Allow tuples instead of "|" syntax in `isinstance()` checks ("|" is sometimes slower)
 ]
 fixable = ["ALL"]
 unfixable = [

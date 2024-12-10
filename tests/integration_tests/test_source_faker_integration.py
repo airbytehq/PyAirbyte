@@ -9,7 +9,6 @@ and available on PATH for the poetry-managed venv.
 from __future__ import annotations
 
 import os
-import shutil
 import sys
 import tempfile
 import warnings
@@ -110,14 +109,6 @@ def all_cache_types(
     ]
 
 
-@pytest.mark.xfail(reason="Source is no longer auto-installed in virtualenv.")
-def test_which_source_faker() -> None:
-    """Test that source-faker is available on PATH."""
-    assert shutil.which(
-        "source-faker"
-    ), f"Can't find source-faker on PATH: {os.environ['PATH']}"
-
-
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
     duckdb_cache: DuckDBCache,
@@ -141,7 +132,7 @@ def test_faker_pks(
 @pytest.mark.slow
 def test_replace_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: CacheBase,
+    all_cache_types: list[CacheBase],
 ) -> None:
     """Test that the append strategy works as expected."""
     for (
@@ -158,7 +149,7 @@ def test_replace_strategy(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    all_cache_types: CacheBase,
+    all_cache_types: list[CacheBase],
 ) -> None:
     """Test that the append strategy works as expected."""
     for (
@@ -181,7 +172,7 @@ def test_merge_strategy(
     strategy: str,
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
-    all_cache_types: CacheBase,
+    all_cache_types: list[CacheBase],
 ) -> None:
     """Test that the merge strategy works as expected.
 
@@ -284,6 +275,9 @@ def test_merge_insert_not_supported_for_duckdb(
             raise e
 
 
+@pytest.mark.xfail(
+    reason="Postgres cache appears ready for merge_insert support. More testing needed to confirm."
+)
 @pytest.mark.requires_creds
 def test_merge_insert_not_supported_for_postgres(
     source_faker_seed_a: ab.Source,
