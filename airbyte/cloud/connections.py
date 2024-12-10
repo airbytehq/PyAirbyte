@@ -46,6 +46,13 @@ class CloudConnection:
         """The ID of the destination."""
 
         self._connection_info: ConnectionResponse | None = None
+        """The connection info object. (Cached.)"""
+
+        self._cloud_source_object: CloudSource | None = None
+        """The source object. (Cached.)"""
+
+        self._cloud_destination_object: CloudDestination | None = None
+        """The destination object. (Cached.)"""
 
     def _fetch_connection_info(self) -> ConnectionResponse:
         """Populate the connection with data from the API."""
@@ -53,7 +60,8 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
 
     # Properties
@@ -67,7 +75,19 @@ class CloudConnection:
 
             self._source_id = self._connection_info.source_id
 
-        return cast(str, self._source_id)
+        return cast("str", self._source_id)
+
+    @property
+    def source(self) -> CloudSource:
+        """Get the source object."""
+        if self._cloud_source_object:
+            return self._cloud_source_object
+
+        self._cloud_source_object = CloudSource(
+            workspace=self.workspace,
+            connector_id=self.source_id,
+        )
+        return self._cloud_source_object
 
     @property
     def source(self) -> CloudSource:
@@ -86,7 +106,19 @@ class CloudConnection:
 
             self._destination_id = self._connection_info.source_id
 
-        return cast(str, self._destination_id)
+        return cast("str", self._destination_id)
+
+    @property
+    def destination(self) -> CloudDestination:
+        """Get the destination object."""
+        if self._cloud_destination_object:
+            return self._cloud_destination_object
+
+        self._cloud_destination_object = CloudDestination(
+            workspace=self.workspace,
+            connector_id=self.destination_id,
+        )
+        return self._cloud_destination_object
 
     @property
     def destination(self) -> CloudDestination:
@@ -134,8 +166,9 @@ class CloudConnection:
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             workspace_id=self.workspace.workspace_id,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -163,9 +196,10 @@ class CloudConnection:
         sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            api_key=self.workspace.api_key,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
         )
         return [
             SyncResult(
@@ -179,7 +213,7 @@ class CloudConnection:
 
     def get_sync_result(
         self,
-        job_id: str | None = None,
+        job_id: int | None = None,
     ) -> SyncResult | None:
         """Get the sync result for the connection.
 

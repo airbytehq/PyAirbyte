@@ -42,6 +42,17 @@ class SnowflakeConfig(SqlConfig):
     database: str
     role: str
     schema_name: str = Field(default=DEFAULT_CACHE_SCHEMA_NAME)
+    data_retention_time_in_days: int | None = None
+
+    @overrides
+    def get_create_table_extra_clauses(self) -> list[str]:
+        """Return a list of clauses to append on CREATE TABLE statements."""
+        clauses = []
+
+        if self.data_retention_time_in_days is not None:
+            clauses.append(f"DATA_RETENTION_TIME_IN_DAYS = {self.data_retention_time_in_days}")
+
+        return clauses
 
     @overrides
     def get_database_name(self) -> str:

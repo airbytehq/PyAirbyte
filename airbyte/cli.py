@@ -65,7 +65,6 @@ Example `validate` Usage:
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -124,6 +123,12 @@ CONFIG_HELP = (
     """For example, --config='{password: "SECRET:MY_PASSWORD"}'."""
 )
 
+PIP_URL_HELP = (
+    "This can be anything pip accepts, including: a PyPI package name, a local path, "
+    "a git repository, a git branch ref, etc. Use '.' to install from the current local "
+    "directory."
+)
+
 
 def _resolve_config(
     config: str,
@@ -150,7 +155,7 @@ def _resolve_config(
                 message="Config file not found.",
                 input_value=str(config_path),
             )
-        config_dict = json.loads(config_path.read_text(encoding="utf-8"))
+        config_dict = yaml.safe_load(config_path.read_text(encoding="utf-8"))
 
     _inject_secrets(config_dict)
     return config_dict
@@ -257,12 +262,7 @@ def _resolve_destination_job(
         config: The path to a configuration file for the named source or destination.
         pip_url: Optional. A location from which to install the connector.
     """
-    if not config:
-        raise PyAirbyteInputError(
-            message="No configuration found.",
-        )
-
-    config_dict = _resolve_config(config)
+    config_dict = _resolve_config(config) if config else None
 
     if destination and (destination.startswith(".") or "/" in destination):
         # Treat the destination as a path.
@@ -447,6 +447,93 @@ def benchmark(
     )
 
 
+@click.command()
+@click.option(
+    "--source",
+    type=str,
+    help=(
+        "The source name, with an optional version declaration. "
+        "If the name contains a colon (':'), it will be interpreted as a docker image and tag. "
+    ),
+)
+@click.option(
+    "--destination",
+    type=str,
+    help=(
+        "The destination name, with an optional version declaration. "
+        "If a path is provided, it will be interpreted as a path to the local executable. "
+    ),
+)
+@click.option(
+    "--streams",
+    type=str,
+    help=(
+        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
+        "will be selected. Defaults to '*'."
+    ),
+)
+@click.option(
+    "--Sconfig",
+    "source_config",
+    type=str,
+    help="The source config. " + CONFIG_HELP,
+)
+@click.option(
+    "--Dconfig",
+    "destination_config",
+    type=str,
+    help="The destination config. " + CONFIG_HELP,
+)
+@click.option(
+    "--Spip-url",
+    "source_pip_url",
+    type=str,
+    help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
+)
+@click.option(
+    "--Dpip-url",
+    "destination_pip_url",
+    type=str,
+    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
+)
+def sync(
+    *,
+    source: str,
+    source_config: str | None = None,
+    source_pip_url: str | None = None,
+    destination: str,
+    destination_config: str | None = None,
+    destination_pip_url: str | None = None,
+    streams: str | None = None,
+) -> None:
+    """Run a sync operation.
+
+    Currently, this only supports full refresh syncs. Incremental syncs are not yet supported.
+    Custom catalog syncs are not yet supported.
+    """
+    destination_obj: Destination
+    source_obj: Source
+
+    source_obj = _resolve_source_job(
+        source=source,
+        config=source_config,
+        streams=streams,
+        pip_url=source_pip_url,
+    )
+    destination_obj = _resolve_destination_job(
+        destination=destination,
+        config=destination_config,
+        pip_url=destination_pip_url,
+    )
+
+    click.echo("Running sync...")
+    destination_obj.write(
+        source_data=source_obj,
+        cache=False,
+        state_cache=False,
+    )
+
+
 @click.group()
 def cli() -> None:
     """PyAirbyte CLI."""
@@ -455,6 +542,7 @@ def cli() -> None:
 
 cli.add_command(validate)
 cli.add_command(benchmark)
+cli.add_command(sync)
 
 if __name__ == "__main__":
     cli()

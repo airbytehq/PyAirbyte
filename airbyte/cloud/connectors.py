@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import abc
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 
 if TYPE_CHECKING:
@@ -17,11 +17,8 @@ class CloudConnector(abc.ABC):
     You can use a connector object to manage the connector.
     """
 
-    @property
-    @abc.abstractmethod
-    def connector_type(self) -> Literal["source", "destination"]:
-        """Get the type of the connector."""
-        ...
+    connector_type: ClassVar[Literal["source", "destination"]]
+    """The type of the connector."""
 
     def __init__(
         self,
@@ -50,6 +47,9 @@ class CloudConnector(abc.ABC):
 class CloudSource(CloudConnector):
     """A cloud source is a source that is deployed on Airbyte Cloud."""
 
+    connector_type: ClassVar[Literal["source", "destination"]] = "source"
+    """The type of the connector."""
+
     @property
     def source_id(self) -> str:
         """Get the ID of the source.
@@ -58,14 +58,12 @@ class CloudSource(CloudConnector):
         """
         return self.connector_id
 
-    @property
-    def connector_type(self) -> Literal["source", "destination"]:
-        """Get the type of the connector."""
-        return "source"
-
 
 class CloudDestination(CloudConnector):
     """A cloud destination is a destination that is deployed on Airbyte Cloud."""
+
+    connector_type: ClassVar[Literal["source", "destination"]] = "destination"
+    """The type of the connector."""
 
     @property
     def destination_id(self) -> str:
@@ -74,8 +72,3 @@ class CloudDestination(CloudConnector):
         This is an alias for `connector_id`.
         """
         return self.connector_id
-
-    @property
-    def connector_type(self) -> Literal["source", "destination"]:
-        """Get the type of the connector."""
-        return "destination"

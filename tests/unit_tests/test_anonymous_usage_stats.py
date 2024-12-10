@@ -55,16 +55,16 @@ def test_telemetry_track(monkeypatch, source_test_registry):
         "os",
         "application_hash",
     ]:
-        assert body["properties"].get(
-            field, None
-        ), f"{field} is null in posted body: {body}"
+        assert body["properties"].get(field, None), (
+            f"{field} is null in posted body: {body}"
+        )
 
-    assert (
-        body["properties"].get("source", {}).get("name") == "source-test"
-    ), f"field1 is null in posted body: {body}"
-    assert (
-        body["properties"].get("cache", {}).get("type") == "DuckDBCache"
-    ), f"field1 is null in posted body: {body}"
+    assert body["properties"].get("source", {}).get("name") == "source-test", (
+        f"field1 is null in posted body: {body}"
+    )
+    assert body["properties"].get("cache", {}).get("type") == "DuckDBCache", (
+        f"field1 is null in posted body: {body}"
+    )
 
     # Check for empty values:
     for field in body.keys():

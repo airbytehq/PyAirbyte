@@ -8,13 +8,15 @@ both OSS and Enterprise.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
+from airbyte.destinations.base import Destination
+from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
@@ -33,8 +35,14 @@ class CloudWorkspace:
     """
 
     workspace_id: str
-    api_key: str
+    client_id: SecretString
+    client_secret: SecretString
     api_root: str = api_util.CLOUD_API_ROOT
+
+    def __post_init__(self) -> None:
+        """Ensure that the client ID and secret are handled securely."""
+        self.client_id = SecretString(self.client_id)
+        self.client_secret = SecretString(self.client_secret)
 
     @property
     def workspace_url(self) -> str | None:
@@ -52,8 +60,9 @@ class CloudWorkspace:
         """
         _ = api_util.get_workspace(
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
         print(f"Successfully connected to workspace: {self.workspace_url}")
 
@@ -78,8 +87,8 @@ class CloudWorkspace:
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
         """
-        source_configuration = source.get_config().copy()
-        source_configuration["sourceType"] = source.name.replace("source-", "")
+        source_config_dict = source.get_config().copy()
+        source_config_dict["sourceType"] = source.name.replace("source-", "")
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -88,16 +97,21 @@ class CloudWorkspace:
             existing = self.list_sources(name=name)
             if existing:
                 raise exc.AirbyteDuplicateResourcesError(
-                    resource_type="destination",
+                    resource_type="source",
                     resource_name=name,
                 )
 
         deployed_source = api_util.create_source(
             name=name,
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
-            config=source_configuration,
+            config=source_config_dict,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+        return CloudSource(
+            workspace=self,
+            connector_id=deployed_source.source_id,
         )
         return CloudSource(
             workspace=self,
@@ -107,7 +121,7 @@ class CloudWorkspace:
     def deploy_destination(
         self,
         name: str,
-        destination: Destination,
+        destination: Destination | dict[str, Any],
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
@@ -118,13 +132,22 @@ class CloudWorkspace:
 
         Args:
             name: The name to use when deploying.
-            destination: The destination object to deploy.
+            destination: The destination to deploy. Can be a local Airbyte `Destination` object or a
+                dictionary of configuration values.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
         """
-        destination_configuration = destination.get_config().copy()
-        destination_configuration["destinationType"] = destination.name.replace("destination-", "")
+        if isinstance(destination, Destination):
+            destination_conf_dict = destination.get_config().copy()
+            destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
+            # raise ValueError(destination_conf_dict)
+        else:
+            destination_conf_dict = destination.copy()
+            if "destinationType" not in destination_conf_dict:
+                raise exc.PyAirbyteInputError(
+                    message="Missing `destinationType` in configuration dictionary.",
+                )
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -140,9 +163,10 @@ class CloudWorkspace:
         deployed_destination = api_util.create_destination(
             name=name,
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
-            config=destination_configuration,
+            config=destination_conf_dict,  # Wants a dataclass but accepts dict
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
         return CloudDestination(
             workspace=self,
@@ -157,7 +181,7 @@ class CloudWorkspace:
 
         You can pass either the source ID `str` or a deployed `Source` object.
         """
-        if not isinstance(source, str | CloudSource):
+        if not isinstance(source, (str, CloudSource)):
             raise exc.PyAirbyteInputError(
                 message="Invalid source type.",
                 input_value=type(source).__name__,
@@ -166,7 +190,8 @@ class CloudWorkspace:
         api_util.delete_source(
             source_id=source.connector_id if isinstance(source, CloudSource) else source,
             api_root=self.api_root,
-            api_key=self.api_key,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
 
     # Deploy and delete destinations
@@ -179,7 +204,7 @@ class CloudWorkspace:
 
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
         """
-        if not isinstance(destination, str | CloudDestination):
+        if not isinstance(destination, (str, CloudDestination)):
             raise exc.PyAirbyteInputError(
                 message="Invalid destination type.",
                 input_value=type(destination).__name__,
@@ -190,7 +215,8 @@ class CloudWorkspace:
                 destination if isinstance(destination, str) else destination.destination_id
             ),
             api_root=self.api_root,
-            api_key=self.api_key,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
 
     # Deploy and delete connections
@@ -200,9 +226,9 @@ class CloudWorkspace:
         connection_name: str,
         *,
         source: CloudSource | str,
+        selected_streams: list[str],
         destination: CloudDestination | str,
         table_prefix: str | None = None,
-        selected_streams: list[str] | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
 
@@ -221,29 +247,21 @@ class CloudWorkspace:
                 guidance="You must provide `selected_streams` when creating a connection."
             )
 
-        # Resolve source ID
-        source_id: str
-        source_id = source if isinstance(source, str) else source.connector_id
-
-        # destination is already deployed
-        destination_id = destination if isinstance(destination, str) else destination.connector_id
-        if not selected_streams:
-            raise exc.PyAirbyteInputError(
-                guidance=(
-                    "You must provide `selected_streams` when creating a connection "
-                    "from an existing destination."
-                )
-            )
+        source_id: str = source if isinstance(source, str) else source.connector_id
+        destination_id: str = (
+            destination if isinstance(destination, str) else destination.connector_id
+        )
 
         deployed_connection = api_util.create_connection(
             name=connection_name,
             source_id=source_id,
             destination_id=destination_id,
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
             selected_stream_names=selected_streams,
             prefix=table_prefix or "",
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
 
         return CloudConnection(
@@ -271,12 +289,12 @@ class CloudWorkspace:
         self,
         connection: str | CloudConnection,
         *,
-        delete_source: bool = False,
-        delete_destination: bool = False,
+        cascade_delete_source: bool = False,
+        cascade_delete_destination: bool = False,
     ) -> None:
         """Delete a deployed connection from the workspace."""
         if connection is None:
-            raise ValueError("No connection ID provided.")  # noqa: TRY003
+            raise ValueError("No connection ID provided.")
 
         if isinstance(connection, str):
             connection = CloudConnection(
@@ -287,81 +305,15 @@ class CloudWorkspace:
         api_util.delete_connection(
             connection_id=connection.connection_id,
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
-        if delete_source:
+
+        if cascade_delete_source:
             self.permanently_delete_source(source=connection.source_id)
-
-        if delete_destination:
+        if cascade_delete_destination:
             self.permanently_delete_destination(destination=connection.destination_id)
-
-    # Run syncs
-
-    def run_sync(
-        self,
-        connection_id: str,
-        *,
-        wait: bool = True,
-        wait_timeout: int = 300,
-    ) -> SyncResult:
-        """Run a sync on a deployed connection."""
-        connection = CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
-        )
-        return connection.run_sync(wait=wait, wait_timeout=wait_timeout)
-
-    # Get sync results and previous sync logs
-
-    def get_sync_result(
-        self,
-        connection_id: str,
-        job_id: str | None = None,
-    ) -> SyncResult | None:
-        """Get the sync result for a connection job.
-
-        If `job_id` is not provided, the most recent sync job will be used.
-
-        Returns `None` if job_id is omitted and no previous jobs are found.
-        """
-        connection = CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
-        )
-        if job_id is None:
-            results = self.get_previous_sync_logs(
-                connection_id=connection_id,
-                limit=1,
-            )
-            if results:
-                return results[0]
-
-            return None
-        connection = CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
-        )
-        return SyncResult(
-            workspace=self,
-            connection=connection,
-            job_id=job_id,
-        )
-
-    def get_previous_sync_logs(
-        self,
-        connection_id: str,
-        *,
-        limit: int = 10,
-    ) -> list[SyncResult]:
-        """Get the previous sync logs for a connection."""
-        connection = CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
-        )
-        return connection.get_previous_sync_logs(
-            limit=limit,
-        )
 
     # List sources, destinations, and connections
 
@@ -374,10 +326,11 @@ class CloudWorkspace:
         """List connections by name in the workspace."""
         connections = api_util.list_connections(
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
         return [
             CloudConnection(
@@ -399,10 +352,11 @@ class CloudWorkspace:
         """List all sources in the workspace."""
         sources = api_util.list_sources(
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
         return [
             CloudSource(
@@ -422,10 +376,11 @@ class CloudWorkspace:
         """List all destinations in the workspace."""
         destinations = api_util.list_destinations(
             api_root=self.api_root,
-            api_key=self.api_key,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
         return [
             CloudDestination(

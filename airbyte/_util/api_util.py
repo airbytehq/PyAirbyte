@@ -13,12 +13,13 @@ directly. This will ensure a single source of truth when mapping between the `ai
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+import json
+from typing import TYPE_CHECKING, Any
+import requests
+from typing_extensions import Literal
 
 import airbyte_api
-import requests
 from airbyte_api import api, models
 
 from airbyte.exceptions import (
@@ -29,11 +30,20 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.secrets.base import SecretString
-from airbyte.sources.util import get_connector
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from airbyte_api.models import (
+        DestinationConfiguration,
+    )
+
+    from airbyte.secrets.base import SecretString
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
@@ -53,8 +63,6 @@ Documentation:
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
 """
 
-# Helper functions
-
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
@@ -63,13 +71,19 @@ def status_ok(status_code: int) -> bool:
 
 def get_airbyte_server_instance(
     *,
-    api_key: str,
     api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> airbyte_api.AirbyteAPI:
     """Get an Airbyte instance."""
     return airbyte_api.AirbyteAPI(
         security=models.Security(
-            bearer_auth=api_key,
+            client_credentials=models.SchemeClientCredentials(
+                client_id=client_id,
+                client_secret=client_secret,
+                token_url=api_root + "/applications/token",
+                # e.g. https://api.airbyte.com/v1/applications/token
+            ),
         ),
         server_url=api_root,
     )
@@ -82,12 +96,14 @@ def get_workspace(
     workspace_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.WorkspaceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
         api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
     )
     response = airbyte_instance.workspaces.get_workspace(
         api.GetWorkspaceRequest(
@@ -113,7 +129,8 @@ def list_connections(
     workspace_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.ConnectionResponse]:
@@ -125,7 +142,8 @@ def list_connections(
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.connections.list_connections(
@@ -149,11 +167,54 @@ def list_connections(
     ]
 
 
+# Get and run connections
+
+
+def list_workspaces(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name: str | None = None,
+    name_filter: Callable[[str], bool] | None = None,
+) -> list[models.WorkspaceResponse]:
+    if name and name_filter:
+        raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+
+    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+
+    _ = workspace_id  # Not used (yet)
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
+        api.ListWorkspacesRequest(
+            workspace_ids=[workspace_id],
+        ),
+    )
+
+    if not status_ok(response.status_code) and response.workspaces_response:
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "response": response,
+            }
+        )
+    assert response.workspaces_response is not None
+    return [
+        workspace for workspace in response.workspaces_response.data if name_filter(workspace.name)
+    ]
+
+
 def list_sources(
     workspace_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.SourceResponse]:
@@ -164,11 +225,12 @@ def list_sources(
     name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
-    response = airbyte_instance.sources.list_sources(
+    response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
         api.ListSourcesRequest(
             workspace_ids=[workspace_id],
         ),
@@ -189,11 +251,12 @@ def list_destinations(
     workspace_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.DestinationResponse]:
-    """Get a connection."""
+    """List destinations."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
@@ -201,7 +264,8 @@ def list_destinations(
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.list_destinations(
@@ -233,12 +297,14 @@ def get_connection(
     connection_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.ConnectionResponse:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.connections.get_connection(
@@ -261,7 +327,8 @@ def run_connection(
     connection_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.JobResponse:
     """Get a connection.
 
@@ -271,7 +338,8 @@ def run_connection(
     """
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.jobs.create_job(
@@ -301,11 +369,13 @@ def get_job_logs(
     limit: int = 20,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> list[models.JobResponse]:
     """Get a job's logs."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
@@ -332,11 +402,13 @@ def get_job_info(
     job_id: int,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.JobResponse:
     """Get a job."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.jobs.get_job(
@@ -361,20 +433,22 @@ def create_source(
     name: str,
     *,
     workspace_id: str,
-    config: dict[str, Any],
+    config: models.SourceConfiguration | dict[str, Any],
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.SourceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
         models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,
+            configuration=config,  # Speakeasy API wants a dataclass, not a dict
             definition_id=None,  # Not used alternative to config.sourceType.
             secret_id=None,  # For OAuth, not yet supported
         ),
@@ -392,11 +466,13 @@ def get_source(
     source_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.SourceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.sources.get_source(
@@ -418,13 +494,15 @@ def delete_source(
     source_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
     workspace_id: str | None = None,
 ) -> None:
     """Delete a source."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.sources.delete_source(
@@ -448,20 +526,22 @@ def create_destination(
     name: str,
     *,
     workspace_id: str,
-    config: dict[str, Any],
+    config: DestinationConfiguration | dict[str, Any],
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
         models.DestinationCreateRequest(
             name=name,
             workspace_id=workspace_id,
-            configuration=config,
+            configuration=config,  # Speakeasy API wants a dataclass, not a dict
         ),
     )
     if status_ok(response.status_code) and response.destination_response:
@@ -477,11 +557,13 @@ def get_destination(
     destination_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.get_destination(
@@ -497,23 +579,17 @@ def get_destination(
         raw_configuration: dict[str, Any] = raw_response["configuration"]
 
         destination_type = raw_response.get("destinationType")
-        if destination_type == "snowflake":
-            response.destination_response.configuration = models.DestinationSnowflake(
-                **raw_configuration,
-            )
-        if destination_type == "bigquery":
-            response.destination_response.configuration = models.DestinationBigquery(
-                **raw_configuration,
-            )
-        if destination_type == "postgres":
-            response.destination_response.configuration = models.DestinationPostgres(
-                **raw_configuration,
-            )
-        if destination_type == "duckdb":
-            response.destination_response.configuration = models.DestinationDuckdb(
-                **raw_configuration,
-            )
+        destination_mapping = {
+            "snowflake": models.DestinationSnowflake,
+            "bigquery": models.DestinationBigquery,
+            "postgres": models.DestinationPostgres,
+            "duckdb": models.DestinationDuckdb,
+        }
 
+        if destination_type in destination_mapping:
+            response.destination_response.configuration = destination_mapping[destination_type](
+                **raw_configuration
+            )
         return response.destination_response
 
     raise AirbyteMissingResourceError(
@@ -527,13 +603,15 @@ def delete_destination(
     destination_id: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
     workspace_id: str | None = None,
 ) -> None:
     """Delete a destination."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.delete_destination(
@@ -553,20 +631,22 @@ def delete_destination(
 # Create and delete connections
 
 
-def create_connection(
+def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
     source_id: str,
     destination_id: str,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
 ) -> models.ConnectionResponse:
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     stream_configurations: list[models.StreamConfiguration] = []
@@ -604,13 +684,15 @@ def get_connection_by_name(
     connection_name: str,
     *,
     api_root: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> models.ConnectionResponse:
     """Get a connection."""
     connections = list_connections(
         workspace_id=workspace_id,
-        api_key=api_key,
         api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
     )
     found: list[models.ConnectionResponse] = [
         connection for connection in connections if connection.name == connection_name
@@ -637,11 +719,13 @@ def delete_connection(
     connection_id: str,
     api_root: str,
     workspace_id: str,
-    api_key: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> None:
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
-        api_key=api_key,
+        client_id=client_id,
+        client_secret=client_secret,
         api_root=api_root,
     )
     response = airbyte_instance.connections.delete_connection(
