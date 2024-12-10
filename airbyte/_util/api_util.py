@@ -18,6 +18,10 @@ from typing import TYPE_CHECKING, Any
 
 import airbyte_api
 from airbyte_api import api, models
+from airbyte_api.models import (
+    DestinationConfiguration,
+    SourceConfiguration,
+)
 
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
@@ -37,8 +41,6 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
-
-SourceConfiguration = Any
 
 
 def status_ok(status_code: int) -> bool:
@@ -502,7 +504,7 @@ def create_destination(
     name: str,
     *,
     workspace_id: str,
-    config: models.DestinationConfiguration | dict[str, Any],
+    config: DestinationConfiguration | dict[str, Any],
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeAlias
+from typing import TYPE_CHECKING, Any
 
 from airbyte_api.models import (
     DestinationBigquery,
@@ -26,18 +26,15 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte._util import api_util
     from airbyte.caches.base import CacheBase
 
 
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
-DestinationConfiguration: TypeAlias = (
-    DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake
-)
-
 
 def destination_to_cache(
-    destination_configuration: DestinationConfiguration | dict[str, Any],
+    destination_configuration: api_util.DestinationConfiguration | dict[str, Any],
 ) -> CacheBase:
     """Get the destination configuration from the cache."""
     conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {

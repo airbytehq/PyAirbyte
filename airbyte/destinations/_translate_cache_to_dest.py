@@ -15,6 +15,7 @@ from airbyte_api.models import (
     UsernameAndPassword,
 )
 
+from airbyte._util import api_util
 from airbyte.secrets.base import SecretString
 
 
@@ -32,16 +33,11 @@ if TYPE_CHECKING:
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 
-DestinationConfiguration = (
-    DestinationBigquery | DestinationDuckdb | DestinationPostgres | DestinationSnowflake
-)
-
-
 def cache_to_destination_configuration(
     cache: CacheBase,
-) -> DestinationConfiguration:
+) -> api_util.DestinationConfiguration:
     """Get the destination configuration from the cache."""
-    conversion_fn_map: dict[str, Callable[[Any], DestinationConfiguration]] = {
+    conversion_fn_map: dict[str, Callable[[Any], api_util.DestinationConfiguration]] = {
         "BigQueryCache": bigquery_cache_to_destination_configuration,
         "bigquery": bigquery_cache_to_destination_configuration,
         "DuckDBCache": duckdb_cache_to_destination_configuration,
