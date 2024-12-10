@@ -20,7 +20,6 @@ import airbyte_api
 from airbyte_api import api, models
 from airbyte_api.models import (
     DestinationConfiguration,
-    SourceConfiguration,
 )
 
 from airbyte.exceptions import (
