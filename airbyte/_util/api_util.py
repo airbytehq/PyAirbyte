@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     )
 
 
-
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
@@ -165,9 +164,6 @@ def list_connections(
     ]
 
 
-# Get and run connections
-
-
 def list_workspaces(
     workspace_id: str,
     *,
@@ -177,17 +173,19 @@ def list_workspaces(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.WorkspaceResponse]:
+    """List workspaces."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
     name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
-    airbyte_instance = get_airbyte_server_instance(
+    airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
         api_root=api_root,
     )
+
     response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
         api.ListWorkspacesRequest(
             workspace_ids=[workspace_id],
@@ -216,7 +214,7 @@ def list_sources(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.SourceResponse]:
-    """Get a connection."""
+    """List sources."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
