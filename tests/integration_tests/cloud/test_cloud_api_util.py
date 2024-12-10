@@ -80,7 +80,7 @@ def test_list_destinations(
     assert (
         result
         and len(result) > 0
-        and all(isinstance(source, SourceResponse) for source in result)
+        and all(isinstance(destination, DestinationResponse) for destination in result)
     )
 
 
