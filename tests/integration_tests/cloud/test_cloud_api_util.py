@@ -10,13 +10,17 @@ from typing import Literal
 
 from airbyte_api.models import DestinationResponse, SourceResponse, WorkspaceResponse
 from airbyte._util import api_util, text_util
-from airbyte._util.api_util import get_bearer_token, check_connector, AirbyteError
+from airbyte._util.api_util import (
+    get_bearer_token,
+    check_connector,
+    AirbyteError,
+    CLOUD_API_ROOT,
+    CLOUD_CONFIG_API_ROOT,
+)
 from airbyte_api.models import DestinationDuckdb, SourceFaker
 
 from airbyte.secrets.base import SecretString
 import pytest
-
-# from unittest.mock import patch
 
 
 def test_get_workspace(
@@ -233,14 +237,23 @@ def test_create_and_delete_connection(
     )
 
 
+@pytest.mark.parametrize(
+    "api_root",
+    [
+        CLOUD_API_ROOT,
+        CLOUD_CONFIG_API_ROOT,
+    ],
+)
 def test_get_bearer_token(
     airbyte_cloud_client_id,
     airbyte_cloud_client_secret,
+    api_root: str,
 ) -> None:
     try:
         token: SecretString = get_bearer_token(
             client_id=airbyte_cloud_client_id,
             client_secret=airbyte_cloud_client_secret,
+            api_root=api_root,
         )
         assert token is not None
     except AirbyteError as e:
