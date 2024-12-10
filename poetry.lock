@@ -32,13 +32,13 @@ dev = ["pylint (==3.1.0)"]
 
 [[package]]
 name = "airbyte-cdk"
-version = "6.9.0"
+version = "6.9.2"
 description = "A framework for writing Airbyte Connectors."
 optional = false
 python-versions = "<3.13,>=3.10"
 files = [
-    {file = "airbyte_cdk-6.9.0-py3-none-any.whl", hash = "sha256:b4545779b69f78725b17ec000d306aa762b060d170b3292dc568e136f86288b2"},
-    {file = "airbyte_cdk-6.9.0.tar.gz", hash = "sha256:b7e745be6f9246dbd80bf44ef46beebcebba9d481e5884c2b57010871066511d"},
+    {file = "airbyte_cdk-6.9.2-py3-none-any.whl", hash = "sha256:f2acc04c8f9e55cef01da60638ba827b2071a6a22d57162e28ce8139d55d7d62"},
+    {file = "airbyte_cdk-6.9.2.tar.gz", hash = "sha256:9a3b381fdbbb282c6873fb7b6104d4650cd3c3313e1bac12bdb8a49fa9d314d0"},
 ]
 
 [package.dependencies]
@@ -827,13 +827,13 @@ files = [
 
 [[package]]
 name = "google-api-core"
-version = "2.23.0"
+version = "2.24.0"
 description = "Google API client core library"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "google_api_core-2.23.0-py3-none-any.whl", hash = "sha256:c20100d4c4c41070cf365f1d8ddf5365915291b5eb11b83829fbd1c999b5122f"},
-    {file = "google_api_core-2.23.0.tar.gz", hash = "sha256:2ceb087315e6af43f256704b871d99326b1f12a9d6ce99beaedec99ba26a0ace"},
+    {file = "google_api_core-2.24.0-py3-none-any.whl", hash = "sha256:10d82ac0fca69c82a25b3efdeefccf6f28e02ebb97925a8cce8edbfe379929d9"},
+    {file = "google_api_core-2.24.0.tar.gz", hash = "sha256:e255640547a597a4da010876d333208ddac417d60add22b6851a0c66a831fcaf"},
 ]
 
 [package.dependencies]
@@ -3979,3 +3979,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.10,<3.13"
+content-hash = "e3fbe85dd71a5139becafe2820dc0cfdc0fd26d62072f91dee9aedc5990df8cc"
