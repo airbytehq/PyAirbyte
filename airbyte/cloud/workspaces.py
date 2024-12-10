@@ -95,7 +95,7 @@ class CloudWorkspace:
             existing = self.list_sources(name=name)
             if existing:
                 raise exc.AirbyteDuplicateResourcesError(
-                    resource_type="destination",
+                    resource_type="source",
                     resource_name=name,
                 )
 
@@ -220,9 +220,9 @@ class CloudWorkspace:
         connection_name: str,
         *,
         source: CloudSource | str,
+        selected_streams: list[str],
         destination: CloudDestination | str,
         table_prefix: str | None = None,
-        selected_streams: list[str] | None = None,
     ) -> CloudConnection:
         """Create a new connection between an already deployed source and destination.
 
@@ -241,19 +241,10 @@ class CloudWorkspace:
                 guidance="You must provide `selected_streams` when creating a connection."
             )
 
-        # Resolve source ID
-        source_id: str
-        source_id = source if isinstance(source, str) else source.connector_id
-
-        # destination is already deployed
-        destination_id = destination if isinstance(destination, str) else destination.connector_id
-        if not selected_streams:
-            raise exc.PyAirbyteInputError(
-                guidance=(
-                    "You must provide `selected_streams` when creating a connection "
-                    "from an existing destination."
-                )
-            )
+        source_id: str = source if isinstance(source, str) else source.connector_id
+        destination_id: str = (
+            destination if isinstance(destination, str) else destination.connector_id
+        )
 
         deployed_connection = api_util.create_connection(
             name=connection_name,
