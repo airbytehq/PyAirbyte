@@ -59,6 +59,8 @@ Documentation:
 - https://docs.airbyte.com/api-documentation#configuration-api-deprecated
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
 """
+CLOUD_CONFIG_API_TEST_ROOT = "https://dev-cloud.airbyte.com/api/v1"
+"""Test API root"."""
 
 
 def status_ok(status_code: int) -> bool:
@@ -758,15 +760,15 @@ def get_bearer_token(
         "accept": "application/json",
     }
     request_body: dict[str, str] = {
-        "grant_type": "client_credentials",
+        # "grant_type": "client_credentials",
         "client_id": client_id,
         "client_secret": client_secret,
     }
     # if "api.airbyte" not in api_root:
     #     request_body["grant_type"] = "client_credentials"
 
-    response = requests.request(
-        method="POST",
+    response = requests.post(
+        # method="POST",
         url=path,
         headers=headers,
         json=request_body,
@@ -806,17 +808,41 @@ def check_connector(
         "Accept": "application/json",
         "Authorization": f"Bearer {bearer_token}",
     }
-    request_body: dict[str, str] = {
-        f"{connector_type}Id": actor_id,
-    }
-    response = requests.request(
+    # Create a Request object
+    req = requests.Request(
         method="POST",
         url=path,
         headers=headers,
-        json=request_body,
+        json={
+            f"{connector_type}Id": actor_id,
+        },
     )
+    # Prepare the request
+    prepared = req.prepare()
+
+    # Inspect the prepared request (TODO: Remove extra debug prints before merging)
+    print(f"URL: {prepared.url}")
+    print(f"Headers: {prepared.headers}")
+    print(f"Body: {prepared.body}")
+
+    # Send the prepared request using a Session
+    with requests.Session() as session:
+        response = session.send(prepared)
+
     if not status_ok(response.status_code):
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as ex:
+            raise AirbyteError(
+                # TODO: Remove extra debug prints before merging
+                context={
+                    "path": path,
+                    "url": response.request.url,
+                    "body": response.request.body,
+                    "headers": response.request.headers,
+                    "response": response.__dict__,
+                },
+            ) from ex
 
     response_json = response.json()
     result, message = response_json.get("status"), response_json.get("message")
@@ -901,6 +927,7 @@ def get_connector_image_override(
     workspace_id: str,
     actor_id: str,
     actor_type: Literal["source", "destination"],
+    api_root: str = CLOUD_API_ROOT,
     config_api_root: str = CLOUD_CONFIG_API_ROOT,
     client_id: SecretString,
     client_secret: SecretString,
@@ -913,15 +940,17 @@ def get_connector_image_override(
 
     https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5066
     """
-    path = config_api_root + "/v1/scoped_configuration/list"
+    path = config_api_root + "/scoped_configuration/list"
     bearer_token = get_bearer_token(
         client_id=client_id,
         client_secret=client_secret,
-        api_root=config_api_root,
+        api_root=api_root,
     )
     headers: dict[str, Any] = {
         "Content-Type": "application",
-        "Authorization": SecretString(f"Bearer {bearer_token}"),
+        "Authorization": str(f"Bearer {bearer_token}"),
+        "Connection": None,
+        "User-Agent": None,
     }
     request_body: dict[str, str] = {
         "config_key": "docker_image",  # TODO: Fix this.
@@ -936,9 +965,12 @@ def get_connector_image_override(
         raise AirbyteError(
             context={
                 "workspace_id": workspace_id,
+                "url": response.request.url,
                 "actor_id": actor_id,
                 "actor_type": actor_type,
-                "response": response,
+                "status_code": response.status_code,
+                "request": response.request.__dict__,
+                "response": response.__dict__,
             },
         )
     if not response.json():
