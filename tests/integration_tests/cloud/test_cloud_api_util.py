@@ -263,8 +263,8 @@ def test_get_bearer_token(
 @pytest.mark.parametrize(
     "connector_id, connector_type, expect_success",
     [
-        ("0f766e9e-636e-4687-8483-f2febc46d9ce", "source", True),
-        # ("test_connector_id", "destination", True),
+        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", "source", True),
+        # ("......-....-....-....-............", "destination", True),
     ],
 )
 def test_check_connector(
@@ -280,28 +280,6 @@ def test_check_connector(
             connector_type=connector_type,
             client_id=airbyte_cloud_client_id,
             client_secret=airbyte_cloud_client_secret,
-        )
-        assert result is not None
-    except NotImplementedError:
-        pytest.fail("check_connector function is not implemented")
-    except AirbyteError as e:
-        pytest.fail(f"API call failed: {e}")
-
-
-def test_check_connector_integration(
-    api_root,
-    airbyte_cloud_client_id,
-    airbyte_cloud_client_secret,
-) -> None:
-    actor_id = "test_actor_id"
-    connector_type = "source"
-    try:
-        result, error_message = check_connector(
-            actor_id=actor_id,
-            connector_type=connector_type,
-            client_id=airbyte_cloud_client_id,
-            client_secret=airbyte_cloud_client_secret,
-            api_root=api_root,
         )
         assert result is not None
     except NotImplementedError:

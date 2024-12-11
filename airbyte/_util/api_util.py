@@ -750,6 +750,7 @@ def get_bearer_token(
     """Get a bearer token.
 
     https://reference.airbyte.com/reference/createaccesstoken
+
     """
     path = api_root + "/applications/token"
     headers: dict[str, str] = {
@@ -757,10 +758,13 @@ def get_bearer_token(
         "accept": "application/json",
     }
     request_body: dict[str, str] = {
-        "grant-type": "client_credentials",
+        "grant_type": "client_credentials",
         "client_id": client_id,
         "client_secret": client_secret,
     }
+    # if "api.airbyte" not in api_root:
+    #     request_body["grant_type"] = "client_credentials"
+
     response = requests.request(
         method="POST",
         url=path,
@@ -785,10 +789,10 @@ def check_connector(
 ) -> tuple[bool, str | None]:
     """Check a source.
 
-    Raises an exception if the check fails.
+    Raises an exception if the check fails. Uses one of these endpoints:
 
-    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1409
-    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
+    - /v1/sources/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1409
+    - /v1/destinations/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
     """
     _ = workspace_id  # Not used (yet)
     bearer_token: SecretString = get_bearer_token(
