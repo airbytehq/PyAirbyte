@@ -75,7 +75,7 @@ class CheckResult:
     def __repr__(self) -> str:
         """Get a string representation of the check result."""
         return (
-            f"CloudCheckResult(success={self.success}, "
+            f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
 
