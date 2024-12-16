@@ -68,6 +68,14 @@ def status_ok(status_code: int) -> bool:
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
 
 
+def get_config_api_root(api_root: str) -> str:
+    """Get the configuration API root from the main API root."""
+    if api_root == CLOUD_API_ROOT:
+        return CLOUD_CONFIG_API_ROOT
+
+    raise NotImplementedError("Configuration API root not implemented for this API root.")
+
+
 def get_airbyte_server_instance(
     *,
     api_root: str,
@@ -754,29 +762,61 @@ def get_bearer_token(
     https://reference.airbyte.com/reference/createaccesstoken
 
     """
-    path = api_root + "/applications/token"
-    headers: dict[str, str] = {
-        "content-type": "application/json",
-        "accept": "application/json",
-    }
-    request_body: dict[str, str] = {
-        # "grant_type": "client_credentials",
-        "client_id": client_id,
-        "client_secret": client_secret,
-    }
-    # if "api.airbyte" not in api_root:
-    #     request_body["grant_type"] = "client_credentials"
-
     response = requests.post(
-        # method="POST",
-        url=path,
-        headers=headers,
-        json=request_body,
+        url=api_root + "/applications/token",
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json",
+        },
+        json={
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
     )
     if not status_ok(response.status_code):
         response.raise_for_status()
 
     return SecretString(response.json()["access_token"])
+
+
+def _make_config_api_request(
+    *,
+    api_root: str,
+    path: str,
+    json: dict[str, Any],
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    config_api_root = get_config_api_root(api_root)
+    bearer_token = get_bearer_token(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    headers: dict[str, Any] = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {bearer_token}",
+        "User-Agent": "PyAirbyte Client",
+    }
+    response = requests.request(
+        method="POST",
+        url=config_api_root + path,
+        headers=headers,
+        json=json,
+    )
+    if not status_ok(response.status_code):
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as ex:
+            raise AirbyteError(
+                context={
+                    "url": response.request.url,
+                    "body": response.request.body,
+                    "response": response.__dict__,
+                },
+            ) from ex
+
+    return response.json()
 
 
 def check_connector(
@@ -787,7 +827,6 @@ def check_connector(
     client_secret: SecretString,
     workspace_id: str | None = None,
     api_root: str = CLOUD_API_ROOT,
-    config_api_root: str = CLOUD_CONFIG_API_ROOT,
 ) -> tuple[bool, str | None]:
     """Check a source.
 
@@ -797,55 +836,17 @@ def check_connector(
     - /v1/destinations/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
     """
     _ = workspace_id  # Not used (yet)
-    bearer_token: SecretString = get_bearer_token(
-        client_id=client_id,
-        client_secret=client_secret,
-        api_root=api_root,
-    )
-    path = config_api_root + f"/{connector_type}s/check_connection"
-    headers: dict[str, Any] = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {bearer_token}",
-    }
-    # Create a Request object
-    req = requests.Request(
-        method="POST",
-        url=path,
-        headers=headers,
+
+    json_result = _make_config_api_request(
+        path=f"/{connector_type}s/check_connection",
         json={
             f"{connector_type}Id": actor_id,
         },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
     )
-    # Prepare the request
-    prepared = req.prepare()
-
-    # Inspect the prepared request (TODO: Remove extra debug prints before merging)
-    print(f"URL: {prepared.url}")
-    print(f"Headers: {prepared.headers}")
-    print(f"Body: {prepared.body}")
-
-    # Send the prepared request using a Session
-    with requests.Session() as session:
-        response = session.send(prepared)
-
-    if not status_ok(response.status_code):
-        try:
-            response.raise_for_status()
-        except requests.HTTPError as ex:
-            raise AirbyteError(
-                # TODO: Remove extra debug prints before merging
-                context={
-                    "path": path,
-                    "url": response.request.url,
-                    "body": response.request.body,
-                    "headers": response.request.headers,
-                    "response": response.__dict__,
-                },
-            ) from ex
-
-    response_json = response.json()
-    result, message = response_json.get("status"), response_json.get("message")
+    result, message = json_result.get("status"), json_result.get("message")
 
     if result == "succeeded":
         return True, None
@@ -857,7 +858,7 @@ def check_connector(
         context={
             "actor_id": actor_id,
             "connector_type": connector_type,
-            "response": response,
+            "response": json_result,
         },
     )
 
@@ -870,65 +871,12 @@ class DockerImageOverride:
     override_level: Literal["workspace", "actor"] = "actor"
 
 
-def set_actor_override(
-    *,
-    workspace_id: str,
-    actor_id: str,
-    actor_type: Literal["source", "destination"],
-    override: DockerImageOverride,
-    config_api_root: str = CLOUD_CONFIG_API_ROOT,
-    client_id: SecretString,
-    client_secret: SecretString,
-) -> None:
-    """Override the docker image and tag for a specific connector.
-
-    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5111
-    """
-    path = config_api_root + "/v1/scoped_configuration/create"
-    bearer_token: SecretString = get_bearer_token(
-        client_id=client_id,
-        client_secret=client_secret,
-        api_root=config_api_root,
-    )
-    headers: dict[str, Any] = {
-        "Content-Type": "application/json",
-        "Authorization": SecretString(f"Bearer {bearer_token}"),
-    }
-    request_body: dict[str, str] = {
-        # https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7376
-        "value": override.docker_image_override,
-        "config_key": "docker_image",  # TODO: Fix this.
-        "scope_id": actor_id,
-        "scope_type": actor_type,
-        "resource_id": "",  # TODO: Need to call something like get_actor_definition
-        "resource_type": "ACTOR_DEFINITION",
-        "origin": "",  # TODO: Need to get user ID somehow or use another origin type
-        "origin_type": "USER",
-    }
-    response = requests.request(
-        method="POST",
-        url=path,
-        headers=headers,
-        json=request_body,
-    )
-    if not status_ok(response.status_code):
-        raise AirbyteError(
-            context={
-                "workspace_id": workspace_id,
-                "actor_id": actor_id,
-                "actor_type": actor_type,
-                "response": response,
-            },
-        )
-
-
 def get_connector_image_override(
     *,
     workspace_id: str,
     actor_id: str,
     actor_type: Literal["source", "destination"],
     api_root: str = CLOUD_API_ROOT,
-    config_api_root: str = CLOUD_CONFIG_API_ROOT,
     client_id: SecretString,
     client_secret: SecretString,
 ) -> DockerImageOverride | None:
@@ -940,53 +888,75 @@ def get_connector_image_override(
 
     https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5066
     """
-    path = config_api_root + "/scoped_configuration/list"
-    bearer_token = get_bearer_token(
+    json_result = _make_config_api_request(
+        path="/scoped_configuration/list",
+        json={
+            "config_key": "docker_image",  # TODO: Fix this.
+        },
+        api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
-        api_root=api_root,
     )
-    headers: dict[str, Any] = {
-        "Content-Type": "application",
-        "Authorization": str(f"Bearer {bearer_token}"),
-        "Connection": None,
-        "User-Agent": None,
-    }
-    request_body: dict[str, str] = {
-        "config_key": "docker_image",  # TODO: Fix this.
-    }
-    response = requests.request(
-        method="POST",
-        url=path,
-        headers=headers,
-        json=request_body,
-    )
-    if not status_ok(response.status_code):
+    try:
+        scoped_configurations = json_result["scopedConfigurations"]
+    except KeyError as ex:
         raise AirbyteError(
+            message="Could not find 'scoped_configurations' in response.",
             context={
                 "workspace_id": workspace_id,
-                "url": response.request.url,
                 "actor_id": actor_id,
                 "actor_type": actor_type,
-                "status_code": response.status_code,
-                "request": response.request.__dict__,
-                "response": response.__dict__,
+                "response_keys": list(json_result.keys()),
             },
-        )
-    if not response.json():
-        return None
-
+        ) from ex
     overrides = [
         DockerImageOverride(
             docker_image_override=entry["value"],
             override_level=entry["scope_type"],
         )
-        for entry in response.json()
+        for entry in scoped_configurations
     ]
-    if not overrides:
+    if len(overrides) == 0:
         return None
+
     if len(overrides) > 1:
         raise NotImplementedError(
             "Multiple overrides found. This is not yet supported.",
         )
+
     return overrides[0]
+
+
+def set_actor_override(
+    *,
+    workspace_id: str,
+    actor_id: str,
+    actor_type: Literal["source", "destination"],
+    override: DockerImageOverride,
+    api_root: str = CLOUD_API_ROOT,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> None:
+    """Override the docker image and tag for a specific connector.
+
+    https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L5111
+    """
+    _ = workspace_id
+    json_result = _make_config_api_request(
+        path="/v1/scoped_configuration/create",
+        json={
+            # https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7376
+            "value": override.docker_image_override,
+            "config_key": "docker_image",  # TODO: Fix this.
+            "scope_id": actor_id,
+            "scope_type": actor_type,
+            "resource_id": "",  # TODO: Need to call something like get_actor_definition
+            "resource_type": "ACTOR_DEFINITION",
+            "origin": "",  # TODO: Need to get user ID somehow or use another origin type
+            "origin_type": "USER",
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    _ = json_result  # Not used (yet)
