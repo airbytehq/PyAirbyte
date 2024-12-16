@@ -1,5 +1,41 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Cloud connectors module for working with Cloud sources and destinations."""
+"""Cloud connectors module for working with Cloud sources and destinations.
+
+This module provides classes for working with Cloud sources and destinations. Rather
+than creating `CloudConnector` objects directly, it is recommended to use the
+`airbyte.cloud.workspaces` module to create and manage cloud connector objects.
+
+Classes:
+  - `CloudConnector`: A cloud connector object.
+  - `CloudSource`: A cloud source object.
+  - `CloudDestination`: A cloud destination object.
+
+## Usage Examples
+
+Obtain a cloud source object and run a `check` on it:
+
+```python
+from airbyte.cloud import CloudWorkspace
+
+workspace = CloudWorkspace(
+    workspace_id="...",
+    client_id="...",
+    client_secret="...",
+)
+
+# Get the cloud source object
+cloud_source = workspace.get_source("...")
+
+# Check the source configuration and credentials
+check_result = cloud_source.check()
+if check_result:
+    # Truthy if the check was successful
+    print("Check successful")
+else:
+    # Stringify the check result to get the error message
+    print(f"Check failed: {check_result}")
+```
+"""
 
 from __future__ import annotations
 

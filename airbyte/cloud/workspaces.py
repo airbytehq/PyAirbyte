@@ -3,6 +3,34 @@
 
 By overriding `api_root`, you can use this module to interact with self-managed Airbyte instances,
 both OSS and Enterprise.
+
+## Usage Examples
+
+Get a new workspace object and deploy a source to it:
+
+```python
+import airbyte as ab
+from airbyte import cloud
+
+workspace = cloud.CloudWorkspace(
+    workspace_id="...",
+    client_id="...",
+    client_secret="...",
+)
+
+# Deploy a source to the workspace
+source = ab.get_source("source-faker", config={"count": 100})
+deployed_source = workspace.deploy_source(
+    name="test-source",
+    source=source,
+)
+
+# Run a check on the deployed source and raise an exception if the check fails
+check_result = deployed_source.check(raise_on_error=True)
+
+# Permanently delete the newly-created source
+workspace.permanently_delete_source(deployed_source)
+```
 """
 
 from __future__ import annotations
