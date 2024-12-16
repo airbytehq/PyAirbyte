@@ -40,9 +40,8 @@ else:
 from __future__ import annotations
 
 import abc
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Literal
-
-from attr import dataclass
 
 from airbyte._util import api_util
 
