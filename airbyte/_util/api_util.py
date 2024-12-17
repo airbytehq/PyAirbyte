@@ -59,8 +59,6 @@ Documentation:
 - https://docs.airbyte.com/api-documentation#configuration-api-deprecated
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
 """
-CLOUD_CONFIG_API_TEST_ROOT = "https://dev-cloud.airbyte.com/api/v1"
-"""Test API root"."""
 
 
 def status_ok(status_code: int) -> bool:

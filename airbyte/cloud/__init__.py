@@ -5,7 +5,7 @@ You can use this module to interact with Airbyte Cloud, OSS, and Enterprise.
 
 ## Examples
 
-### Basic Usage Example:
+### Basic Sync Example:
 
 ```python
 import airbyte as ab
@@ -47,12 +47,7 @@ print(f"Table name: {users_table.name}")
 for record in dataset:
     print(record)
 ```
-
-ℹ️ **Experimental Features**
-
-You can use the `airbyte.cloud.experimental` module to access experimental features.
-These additional features are subject to change and may not be available in all environments.
-"""  # noqa: RUF002  # Allow emoji
+"""
 
 from __future__ import annotations
 
