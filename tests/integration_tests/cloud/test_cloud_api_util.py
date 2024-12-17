@@ -6,12 +6,20 @@ These tests are designed to be run against a running instance of the Airbyte API
 """
 
 from __future__ import annotations
+from typing import Literal
 
 from airbyte_api.models import DestinationResponse, SourceResponse, WorkspaceResponse
 from airbyte._util import api_util, text_util
+from airbyte._util.api_util import (
+    get_bearer_token,
+    check_connector,
+    AirbyteError,
+    CLOUD_API_ROOT,
+)
 from airbyte_api.models import DestinationDuckdb, SourceFaker
 
 from airbyte.secrets.base import SecretString
+import pytest
 
 
 def test_get_workspace(
@@ -226,3 +234,51 @@ def test_create_and_delete_connection(
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
     )
+
+
+@pytest.mark.parametrize(
+    "api_root",
+    [
+        CLOUD_API_ROOT,
+    ],
+)
+def test_get_bearer_token(
+    airbyte_cloud_client_id,
+    airbyte_cloud_client_secret,
+    api_root: str,
+) -> None:
+    try:
+        token: SecretString = get_bearer_token(
+            client_id=airbyte_cloud_client_id,
+            client_secret=airbyte_cloud_client_secret,
+            api_root=api_root,
+        )
+        assert token is not None
+    except AirbyteError as e:
+        pytest.fail(f"API call failed: {e}")
+
+
+@pytest.mark.parametrize(
+    "connector_id, connector_type, expect_success",
+    [
+        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", "source", True),
+        # ("......-....-....-............", "destination", True),
+    ],
+)
+def test_check_connector(
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
+    connector_id: str,
+    connector_type: Literal["source", "destination"],
+    expect_success: bool,
+) -> None:
+    try:
+        result, error_message = check_connector(
+            actor_id=connector_id,
+            connector_type=connector_type,
+            client_id=airbyte_cloud_client_id,
+            client_secret=airbyte_cloud_client_secret,
+        )
+        assert result == expect_success
+    except AirbyteError as e:
+        pytest.fail(f"API call failed: {e}")

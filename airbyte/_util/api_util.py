@@ -14,9 +14,10 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
+import requests
 from airbyte_api import api, models
 
 from airbyte.exceptions import (
@@ -26,6 +27,11 @@ from airbyte.exceptions import (
     AirbyteMultipleResourcesError,
     PyAirbyteInputError,
 )
+from airbyte.secrets.base import SecretString
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 if TYPE_CHECKING:
@@ -35,17 +41,36 @@ if TYPE_CHECKING:
         DestinationConfiguration,
     )
 
-    from airbyte.secrets.base import SecretString
-
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 CLOUD_API_ROOT = "https://api.airbyte.com/v1"
+"""The Airbyte Cloud API root URL.
+
+This is the root URL for the Airbyte Cloud API. It is used to interact with the Airbyte Cloud API
+and is the default API root for the `CloudWorkspace` class.
+- https://reference.airbyte.com/reference/getting-started
+"""
+CLOUD_CONFIG_API_ROOT = "https://cloud.airbyte.com/api/v1"
+"""Internal-Use API Root, aka Airbyte "Config API".
+
+Documentation:
+- https://docs.airbyte.com/api-documentation#configuration-api-deprecated
+- https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+"""
 
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
+
+
+def get_config_api_root(api_root: str) -> str:
+    """Get the configuration API root from the main API root."""
+    if api_root == CLOUD_API_ROOT:
+        return CLOUD_CONFIG_API_ROOT
+
+    raise NotImplementedError("Configuration API root not implemented for this API root.")
 
 
 def get_airbyte_server_instance(
@@ -78,7 +103,7 @@ def get_workspace(
     client_id: SecretString,
     client_secret: SecretString,
 ) -> models.WorkspaceResponse:
-    """Get a connection."""
+    """Get a workspace object."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -113,7 +138,7 @@ def list_connections(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.ConnectionResponse]:
-    """Get a connection."""
+    """List connections."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
@@ -155,7 +180,7 @@ def list_workspaces(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.WorkspaceResponse]:
-    """Get a connection."""
+    """List workspaces."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
@@ -196,7 +221,7 @@ def list_sources(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.SourceResponse]:
-    """Get a connection."""
+    """List sources."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
@@ -234,7 +259,7 @@ def list_destinations(
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.DestinationResponse]:
-    """Get a connection."""
+    """List destinations."""
     if name and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
 
@@ -720,16 +745,116 @@ def delete_connection(
         )
 
 
-# Not yet implemented
+# Functions for leveraging the Airbyte Config API (may not be supported or stable)
 
 
-# def check_source(
-#     source_id: str,
-#     *,
-#     api_root: str,
-#     api_key: str,
-#     workspace_id: str | None = None,
-# ) -> api.SourceCheckResponse:
-#     """Check a source."""
-#     _ = source_id, workspace_id, api_root, api_key
-#     raise NotImplementedError
+def get_bearer_token(
+    *,
+    client_id: SecretString,
+    client_secret: SecretString,
+    api_root: str = CLOUD_API_ROOT,
+) -> SecretString:
+    """Get a bearer token.
+
+    https://reference.airbyte.com/reference/createaccesstoken
+
+    """
+    response = requests.post(
+        url=api_root + "/applications/token",
+        headers={
+            "content-type": "application/json",
+            "accept": "application/json",
+        },
+        json={
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+    )
+    if not status_ok(response.status_code):
+        response.raise_for_status()
+
+    return SecretString(response.json()["access_token"])
+
+
+def _make_config_api_request(
+    *,
+    api_root: str,
+    path: str,
+    json: dict[str, Any],
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    config_api_root = get_config_api_root(api_root)
+    bearer_token = get_bearer_token(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    headers: dict[str, Any] = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {bearer_token}",
+        "User-Agent": "PyAirbyte Client",
+    }
+    response = requests.request(
+        method="POST",
+        url=config_api_root + path,
+        headers=headers,
+        json=json,
+    )
+    if not status_ok(response.status_code):
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as ex:
+            raise AirbyteError(
+                context={
+                    "url": response.request.url,
+                    "body": response.request.body,
+                    "response": response.__dict__,
+                },
+            ) from ex
+
+    return response.json()
+
+
+def check_connector(
+    *,
+    actor_id: str,
+    connector_type: Literal["source", "destination"],
+    client_id: SecretString,
+    client_secret: SecretString,
+    workspace_id: str | None = None,
+    api_root: str = CLOUD_API_ROOT,
+) -> tuple[bool, str | None]:
+    """Check a source.
+
+    Raises an exception if the check fails. Uses one of these endpoints:
+
+    - /v1/sources/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1409
+    - /v1/destinations/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
+    """
+    _ = workspace_id  # Not used (yet)
+
+    json_result = _make_config_api_request(
+        path=f"/{connector_type}s/check_connection",
+        json={
+            f"{connector_type}Id": actor_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    result, message = json_result.get("status"), json_result.get("message")
+
+    if result == "succeeded":
+        return True, None
+
+    if result == "failed":
+        return False, message
+
+    raise AirbyteError(
+        context={
+            "actor_id": actor_id,
+            "connector_type": connector_type,
+            "response": json_result,
+        },
+    )

@@ -3,6 +3,34 @@
 
 By overriding `api_root`, you can use this module to interact with self-managed Airbyte instances,
 both OSS and Enterprise.
+
+## Usage Examples
+
+Get a new workspace object and deploy a source to it:
+
+```python
+import airbyte as ab
+from airbyte import cloud
+
+workspace = cloud.CloudWorkspace(
+    workspace_id="...",
+    client_id="...",
+    client_secret="...",
+)
+
+# Deploy a source to the workspace
+source = ab.get_source("source-faker", config={"count": 100})
+deployed_source = workspace.deploy_source(
+    name="test-source",
+    source=source,
+)
+
+# Run a check on the deployed source and raise an exception if the check fails
+check_result = deployed_source.check(raise_on_error=True)
+
+# Permanently delete the newly-created source
+workspace.permanently_delete_source(deployed_source)
+```
 """
 
 from __future__ import annotations
@@ -63,6 +91,50 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
         print(f"Successfully connected to workspace: {self.workspace_url}")
+
+    # Get sources, destinations, and connections
+
+    def get_connection(
+        self,
+        connection_id: str,
+    ) -> CloudConnection:
+        """Get a connection by ID.
+
+        This method does not fetch data from the API. It returns a `CloudConnection` object,
+        which will be loaded lazily as needed.
+        """
+        return CloudConnection(
+            workspace=self,
+            connection_id=connection_id,
+        )
+
+    def get_source(
+        self,
+        source_id: str,
+    ) -> CloudSource:
+        """Get a source by ID.
+
+        This method does not fetch data from the API. It returns a `CloudSource` object,
+        which will be loaded lazily as needed.
+        """
+        return CloudSource(
+            workspace=self,
+            connector_id=source_id,
+        )
+
+    def get_destination(
+        self,
+        destination_id: str,
+    ) -> CloudDestination:
+        """Get a destination by ID.
+
+        This method does not fetch data from the API. It returns a `CloudDestination` object,
+        which will be loaded lazily as needed.
+        """
+        return CloudDestination(
+            workspace=self,
+            connector_id=destination_id,
+        )
 
     # Deploy sources and destinations
 
@@ -263,20 +335,6 @@ class CloudWorkspace:
             connection_id=deployed_connection.connection_id,
             source=deployed_connection.source_id,
             destination=deployed_connection.destination_id,
-        )
-
-    def get_connection(
-        self,
-        connection_id: str,
-    ) -> CloudConnection:
-        """Get a connection by ID.
-
-        This method does not fetch data from the API. It returns a `CloudConnection` object,
-        which will be loaded lazily as needed.
-        """
-        return CloudConnection(
-            workspace=self,
-            connection_id=connection_id,
         )
 
     def permanently_delete_connection(
