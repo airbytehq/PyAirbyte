@@ -941,7 +941,7 @@ def set_actor_override(
     """
     _ = workspace_id
     json_result = _make_config_api_request(
-        path="/v1/scoped_configuration/create",
+        path="/scoped_configuration/create",
         json={
             # https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L7376
             "value": override.docker_image_override,
