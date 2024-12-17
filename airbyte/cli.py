@@ -3,7 +3,7 @@
 
 The PyAirbyte CLI provides a command-line interface for testing connectors and running benchmarks.
 
-PyAirbyte CLI can be invoked with the `pyairbyte` CLI executable, or the
+After installing PyAirbyte, the CLI can be invoked with the `pyairbyte` CLI executable, or the
 shorter `pyab` alias.
 
 These are equivalent:
