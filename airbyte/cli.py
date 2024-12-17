@@ -8,59 +8,55 @@ shorter `pyab` alias.
 
 These are equivalent:
 
-    ```bash
-    python -m airbyte.cli --help
-    pyairbyte --help
-    pyab --help
-    ```
+```bash
+python -m airbyte.cli --help
+pyairbyte --help
+pyab --help
+```
 
 You can also use `pipx` or the fast and powerful `uv` tool to run the PyAirbyte CLI
 without pre-installing:
 
-    ```
-    # Install `uv` if you haven't already:
-    brew install uv
+```bash
+# Install `uv` if you haven't already:
+brew install uv
 
-    # Run the PyAirbyte CLI using `uvx`:
-    uvx --from=airbyte pyab --help
-    ```
+# Run the PyAirbyte CLI using `uvx`:
+uvx --from=airbyte pyab --help
+```
 
 Example `benchmark` Usage:
 
-    ```
-    # PyAirbyte System Benchmark (no-op):
-    pyab benchmark --num-records=2.4e6
+```bash
+# PyAirbyte System Benchmark (no-op):
+pyab benchmark --num-records=2.4e6
 
-    # Source Benchmark:
-    pyab benchmark --source=source-hardcoded-records --config='{count: 400000}'
-    pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams='*'
-    pyab benchmark --source=source-hardcoded-records --config='{count: 4000}' --streams=dummy_fields
+# Source Benchmark:
+pyab benchmark --source=source-hardcoded-records --config='{count: 400000}'
+pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams='*'
+pyab benchmark --source=source-hardcoded-records --config='{count: 4000}' --streams=dummy_fields
 
-    # Source Benchmark from Docker Image:
-    pyab benchmark --source=airbyte/source-hardcoded-records:latest --config='{count: 400_000}'
-    pyab benchmark --source=airbyte/source-hardcoded-records:dev --config='{count: 400_000}'
+# Source Benchmark from Docker Image:
+pyab benchmark --source=airbyte/source-hardcoded-records:latest --config='{count: 400_000}'
+pyab benchmark --source=airbyte/source-hardcoded-records:dev --config='{count: 400_000}'
 
-    # Destination Benchmark:
-    pyab benchmark --destination=destination-dev-null --config=/path/to/config.json
+# Destination Benchmark:
+pyab benchmark --destination=destination-dev-null --config=/path/to/config.json
 
-    # Benchmark a Local Python Source (source-s3):
-    pyab benchmark --source=$(poetry run which source-s3) --config=./secrets/config.json
-    # Equivalent to:
-    LOCAL_EXECUTABLE=$(poetry run which source-s3)
-    CONFIG_PATH=$(realpath ./secrets/config.json)
-    pyab benchmark --source=$LOCAL_EXECUTABLE --config=$CONFIG_PATH
-    ```
-
-Example Usage with `uv`:
-
-
+# Benchmark a Local Python Source (source-s3):
+pyab benchmark --source=$(poetry run which source-s3) --config=./secrets/config.json
+# Equivalent to:
+LOCAL_EXECUTABLE=$(poetry run which source-s3)
+CONFIG_PATH=$(realpath ./secrets/config.json)
+pyab benchmark --source=$LOCAL_EXECUTABLE --config=$CONFIG_PATH
+```
 
 Example `validate` Usage:
 
-    ```
-    pyab validate --connector=source-hardcoded-records
-    pyab validate --connector=source-hardcoded-records --config='{count: 400_000}'
-    ```
+```bash
+pyab validate --connector=source-hardcoded-records
+pyab validate --connector=source-hardcoded-records --config='{count: 400_000}'
+```
 """
 
 from __future__ import annotations
@@ -322,7 +318,7 @@ def validate(
     config: str | None = None,
     pip_url: str | None = None,
 ) -> None:
-    """Validate the connector."""
+    """CLI command to run a `benchmark` operation."""
     if not connector:
         raise PyAirbyteInputError(
             message="No connector provided.",
@@ -403,7 +399,7 @@ def benchmark(
     destination: str | None = None,
     config: str | None = None,
 ) -> None:
-    """Run benchmarks.
+    """CLI command to run a `benchmark` operation.
 
     You can provide either a source or a destination, but not both. If a destination is being
     benchmarked, you can use `--num-records` to specify the number of records to generate for the
@@ -506,7 +502,7 @@ def sync(
     destination_pip_url: str | None = None,
     streams: str | None = None,
 ) -> None:
-    """Run a sync operation.
+    """CLI command to run a `sync` operation.
 
     Currently, this only supports full refresh syncs. Incremental syncs are not yet supported.
     Custom catalog syncs are not yet supported.
@@ -536,7 +532,7 @@ def sync(
 
 @click.group()
 def cli() -> None:
-    """PyAirbyte CLI."""
+    """@private PyAirbyte CLI."""
     pass
 
 
