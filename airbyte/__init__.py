@@ -146,7 +146,7 @@ if TYPE_CHECKING:
     from airbyte import (
         caches,
         callbacks,
-        # cli,  # Causes circular import if included
+        cli,
         cloud,
         constants,
         datasets,
@@ -166,7 +166,7 @@ __all__ = [
     # Modules
     "caches",
     "callbacks",
-    # "cli",  # Causes circular import if included
+    "cli",
     "cloud",
     "constants",
     "datasets",
