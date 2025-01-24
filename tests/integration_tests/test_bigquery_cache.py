@@ -35,7 +35,7 @@ def test_decimal_type_conversion(
 ) -> None:
     """Test that DECIMAL(38,9) types are correctly converted to BigQuery NUMERIC types."""
     table_name = f"test_decimal_{text_util.generate_random_suffix()}"
-    
+
     try:
         # Verify type conversion
         converter = BigQueryTypeConverter()
@@ -74,5 +74,7 @@ def test_decimal_type_conversion(
 
     finally:
         # Clean up
-        cleanup_sql = f"DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name}"
+        cleanup_sql = (
+            f"DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name}"
+        )
         new_bigquery_cache._execute_sql(cleanup_sql)
