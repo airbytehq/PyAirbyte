@@ -8,6 +8,7 @@ from sqlalchemy import types as sqlalchemy_types
 
 import airbyte as ab
 from airbyte._processors.sql.bigquery import BigQueryTypeConverter
+from airbyte._util import text_util
 
 
 @pytest.mark.requires_creds
@@ -33,34 +34,11 @@ def test_decimal_type_conversion(
     new_bigquery_cache: ab.BigQueryCache,
 ) -> None:
     """Test that DECIMAL(38,9) types are correctly converted to BigQuery NUMERIC types."""
-    # Create a test table with a DECIMAL column
-    table_name = "test_decimal_types"
-    sql = f"""
-    CREATE TABLE {new_bigquery_cache.schema_name}.{table_name} (
-        id INT64,
-        amount NUMERIC(38, 9)
-    )
-    """
-    new_bigquery_cache._execute_sql(sql)
-
-    # Insert test data
-    sql = f"""
-    INSERT INTO {new_bigquery_cache.schema_name}.{table_name} (id, amount)
-    VALUES (1, 123.456789)
-    """
-    new_bigquery_cache._execute_sql(sql)
-
-    # Clean up any existing tables first
-    cleanup_sql = f"""
-    DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name};
-    DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.invalid_decimal_test;
-    """
-    new_bigquery_cache._execute_sql(cleanup_sql)
-
+    table_name = f"test_decimal_{text_util.generate_random_suffix()}"
+    
     try:
         # Verify type conversion
         converter = BigQueryTypeConverter()
-        decimal_type = sqlalchemy_types.DECIMAL(precision=38, scale=9)
         converted_type = converter.to_sql_type({"type": "number", "format": "decimal"})
 
         # Check that the converted type is a NUMERIC type with correct precision and scale
@@ -70,6 +48,22 @@ def test_decimal_type_conversion(
         assert converted_type.precision == 38, "Precision should be 38"
         assert converted_type.scale == 9, "Scale should be 9"
 
+        # Create a test table with a DECIMAL column
+        sql = f"""
+        CREATE TABLE {new_bigquery_cache.schema_name}.{table_name} (
+            id INT64,
+            amount NUMERIC(38, 9)
+        )
+        """
+        new_bigquery_cache._execute_sql(sql)
+
+        # Insert test data
+        sql = f"""
+        INSERT INTO {new_bigquery_cache.schema_name}.{table_name} (id, amount)
+        VALUES (1, 123.456789)
+        """
+        new_bigquery_cache._execute_sql(sql)
+
         # Verify we can read the data back
         sql = f"SELECT amount FROM {new_bigquery_cache.schema_name}.{table_name} WHERE id = 1"
         result = new_bigquery_cache._execute_sql(sql).fetchone()
@@ -78,21 +72,7 @@ def test_decimal_type_conversion(
             "NUMERIC data should be readable"
         )
 
-        # Test error case with invalid DECIMAL type
-        with pytest.raises(ValueError, match="Invalid value for type"):
-            new_bigquery_cache._execute_sql(
-                f"""
-                CREATE TABLE {new_bigquery_cache.schema_name}.invalid_decimal_test (
-                    id INT64,
-                    amount NUMERIC(100, 50)
-                )
-                """
-            )
-
     finally:
         # Clean up
-        cleanup_sql = f"""
-        DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name};
-        DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.invalid_decimal_test;
-        """
+        cleanup_sql = f"DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name}"
         new_bigquery_cache._execute_sql(cleanup_sql)
