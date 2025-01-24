@@ -50,6 +50,13 @@ def test_decimal_type_conversion(
     """
     new_bigquery_cache._execute_sql(sql)
 
+    # Clean up any existing tables first
+    cleanup_sql = f"""
+    DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name};
+    DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.invalid_decimal_test;
+    """
+    new_bigquery_cache._execute_sql(cleanup_sql)
+
     try:
         # Verify type conversion
         converter = BigQueryTypeConverter()
@@ -73,9 +80,6 @@ def test_decimal_type_conversion(
 
         # Test error case with invalid DECIMAL type
         with pytest.raises(ValueError, match="Invalid value for type"):
-            invalid_decimal = sqlalchemy_types.DECIMAL(
-                precision=100, scale=50
-            )  # Too large for BigQuery
             new_bigquery_cache._execute_sql(
                 f"""
                 CREATE TABLE {new_bigquery_cache.schema_name}.invalid_decimal_test (
@@ -87,7 +91,8 @@ def test_decimal_type_conversion(
 
     finally:
         # Clean up
-        sql = f"DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name}"
-        new_bigquery_cache._execute_sql(sql)
-        sql = f"DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.invalid_decimal_test"
-        new_bigquery_cache._execute_sql(sql)
+        cleanup_sql = f"""
+        DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name};
+        DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.invalid_decimal_test;
+        """
+        new_bigquery_cache._execute_sql(cleanup_sql)
