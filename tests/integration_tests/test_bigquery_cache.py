@@ -55,18 +55,18 @@ def test_decimal_type_conversion(
             amount NUMERIC(38, 9)
         )
         """
-        new_bigquery_cache._execute_sql(sql)
+        new_bigquery_cache.execute_sql(sql)
 
         # Insert test data
         sql = f"""
         INSERT INTO {new_bigquery_cache.schema_name}.{table_name} (id, amount)
         VALUES (1, 123.456789)
         """
-        new_bigquery_cache._execute_sql(sql)
+        new_bigquery_cache.execute_sql(sql)
 
         # Verify we can read the data back
         sql = f"SELECT amount FROM {new_bigquery_cache.schema_name}.{table_name} WHERE id = 1"
-        result = new_bigquery_cache._execute_sql(sql).fetchone()
+        result = new_bigquery_cache.execute_sql(sql).fetchone()
         assert result is not None, "Should be able to read NUMERIC data"
         assert isinstance(result[0], (float, int, str)), (
             "NUMERIC data should be readable"
@@ -77,4 +77,4 @@ def test_decimal_type_conversion(
         cleanup_sql = (
             f"DROP TABLE IF EXISTS {new_bigquery_cache.schema_name}.{table_name}"
         )
-        new_bigquery_cache._execute_sql(cleanup_sql)
+        new_bigquery_cache.execute_sql(cleanup_sql)
