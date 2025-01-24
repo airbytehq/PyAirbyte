@@ -117,6 +117,10 @@ class BigQueryTypeConverter(SQLTypeConverter):
             return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
             return sqlalchemy_types.Integer()  # All integers are 64-bit in BigQuery
+        if isinstance(sql_type, sqlalchemy.types.DECIMAL):
+            # Convert SQLAlchemy DECIMAL to BigQuery NUMERIC type
+            # BigQuery NUMERIC type has precision of 38 and scale of 9 by default
+            return sqlalchemy_types.Numeric(precision=38, scale=9)
 
         return sql_type
 
