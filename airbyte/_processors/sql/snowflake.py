@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 
 MAX_UPLOAD_THREADS = 8
 
+TIMESTAMP_FORMATS = ['AUTO', 'YYYY-MM-DDTHH24:MI:SS.FF9TZHTZM']
 
 class SnowflakeConfig(SqlConfig):
     """Configuration for the Snowflake cache."""
@@ -151,13 +152,25 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                     context={"files": [str(f) for f in files]},
                 ) from e
 
-        columns_list = [
-            self._quote_identifier(c)
-            for c in list(self._get_sql_column_definitions(stream_name).keys())
-        ]
         files_list = ", ".join([f"'{f.name}'" for f in files])
+
+        columns =  self._get_sql_column_definitions(stream_name)
+
+        columns_list = [self._quote_identifier(c) for c in list(columns.keys())]
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
-        variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
+
+        def _clause(_col, _dtype):
+            c = f"$1:{self._quote_identifier(_col)}"
+            clause = (
+                "COALESCE( " +
+                ",".join([f"TRY_TO_TIMESTAMP({c}::STRING, '{f}')" for f in TIMESTAMP_FORMATS]) +
+                " )"
+            ) if isinstance(_dtype, sqlalchemy.types.TIMESTAMP) else c
+            return clause
+
+        columns_list = [_clause(_col, _dtype) for _col, _dtype in columns.items()]
+        variant_cols_str: str = indent("\n, ".join(columns_list), " " * 21)
+
         copy_statement = f"""
             COPY INTO {temp_table_name}
             (
