@@ -44,6 +44,11 @@ dependencies = [
     "uuid7>=0.1.0,<0.2.0"
 ]
 
+[project.urls]
+homepage = "https://airbyte.com"
+repository = "https://github.com/airbytehq/pyairbyte"
+documentation = "https://docs.airbyte.io/"
+
 [project.optional-dependencies]
 dev = [
     "coverage>=7.5.1,<8.0.0",
