@@ -1,3 +1,6 @@
+[tool.poetry-dynamic-versioning]
+enable = true
+
 [project]
 name = "airbyte"
 version = "0.0.0"
@@ -10,10 +13,6 @@ packages = [{ include = "airbyte" }]
 urls.Homepage = "https://airbyte.com"
 urls.Repository = "https://github.com/airbytehq/pyairbyte"
 urls.Documentation = "https://docs.airbyte.io/"
-
-[tool.uv-dynamic-versioning]
-enable = true
-
 dependencies = [
     "python>=3.10,<3.13",
     "airbyte-api>=0.52.1,<1.0.0",
@@ -80,8 +79,8 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv-dynamic-versioning"]
-build-backend = "uv_dynamic_versioning.backend"
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
