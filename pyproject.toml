@@ -7,11 +7,9 @@ authors = [
 ]
 readme = "README.md"
 packages = [{ include = "airbyte" }]
-urls = {
-    "Homepage" = "https://airbyte.com",
-    "Repository" = "https://github.com/airbytehq/pyairbyte",
-    "Documentation" = "https://docs.airbyte.io/"
-}
+urls.Homepage = "https://airbyte.com"
+urls.Repository = "https://github.com/airbytehq/pyairbyte"
+urls.Documentation = "https://docs.airbyte.io/"
 
 [tool.uv-dynamic-versioning]
 enable = true
