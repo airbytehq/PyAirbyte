@@ -22,6 +22,8 @@ from airbyte.shared import SqlProcessorBase
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.types import SQLTypeConverter
 
+DEBUG_MODE = False  # Set to True to enable additional schema creation assertions
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -177,7 +179,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
     @overrides
     def _ensure_schema_exists(self) -> None:
         """Create the schema if it doesn't exist.
-        
+
         For Snowflake, we need to use fully qualified schema names that include the database.
         """
         schema_name = self.normalizer.normalize(self.sql_config.schema_name)
