@@ -226,7 +226,10 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                 USE DATABASE {self._quote_identifier(self.database_name)};
                 ALTER SESSION SET
                 QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE
-                MULTI_STATEMENT_COUNT = 0
+                MULTI_STATEMENT_COUNT = 0;
+                
+                -- Print debug information about Snowflake environment
+                SELECT CURRENT_USER() as USERNAME, CURRENT_ACCOUNT() as ACCOUNT_NAME, CURRENT_DATABASE() as DATABASE_NAME;
                 """
             )
         )
