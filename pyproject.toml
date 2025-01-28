@@ -7,9 +7,11 @@ authors = [
 ]
 readme = "README.md"
 packages = [{ include = "airbyte" }]
-urls.Homepage = "https://airbyte.com"
-urls.Repository = "https://github.com/airbytehq/pyairbyte"
-urls.Documentation = "https://docs.airbyte.io/"
+urls = {
+    Homepage = "https://airbyte.com",
+    Repository = "https://github.com/airbytehq/pyairbyte",
+    Documentation = "https://docs.airbyte.io/"
+}
 dependencies = [
     "python>=3.10,<3.13",
     "airbyte-api>=0.52.1,<1.0.0",
@@ -31,10 +33,10 @@ dependencies = [
     "psycopg2-binary>=2.9.9,<3.0.0",
     "pyarrow>=16.1,<18.0",
     "pydantic>=2.0,<=3.0",
-    "pydantic-core",
+    "pydantic-core>=2.0.0",
     "python-dotenv>=1.0.1,<2.0.0",
     "python-ulid>=3.0.0,<4.0.0",
-    "pytz",
+    "pytz>=2024.1",
     "pyyaml>=6.0.2,<7.0.0",
     "requests<=2.32.2,!=3.32.0",  # 3.32.0 breaks docker tests
     "rich>=13.7.0,<14.0.0",
@@ -45,7 +47,7 @@ dependencies = [
     "sqlalchemy>=1.4.51,!=2.0.36,<3.0",
     # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
     "sqlalchemy-bigquery==1.12.0; python_version < '3.13'",
-    "typing-extensions",
+    "typing-extensions>=4.9.0",
     "uuid7>=0.1.0,<0.2.0"
 ]
 
@@ -75,12 +77,13 @@ dev = [
     "viztracer>=0.16.3,<0.17.0"
 ]
 
-[tool.poetry-dynamic-versioning]
-enable = true
-
 [build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
-build-backend = "poetry_dynamic_versioning.backend"
+requires = ["uv-dynamic-versioning"]
+build-backend = "uv_dynamic_versioning.backend"
+
+[tool.uv-dynamic-versioning]
+enable = true
+style = "pep440"
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
