@@ -167,9 +167,21 @@ jobs:
       run: |
         echo "=== Snowflake Test Environment ==="
         echo "Snowflake Account Info (non-sensitive):"
-        poetry run python -c "import os; print(f'Account: {os.environ.get(\"SNOWFLAKE_ACCOUNT\", \"<not-set>\")}')"
-        poetry run python -c "import os; print(f'Username: {os.environ.get(\"SNOWFLAKE_USER\", \"<not-set>\")}')"
-        poetry run python -c "import os; print(f'Default DB: {os.environ.get(\"SNOWFLAKE_DATABASE\", \"<not-set>\")}')"
+        poetry run python -c "
+import airbyte as ab
+from airbyte.secrets import GoogleGSMSecretManager
+
+try:
+    gsm = GoogleGSMSecretManager(
+        project='dataline-integration-testing',
+        credentials_json=ab.get_secret('GCP_GSM_CREDENTIALS')
+    )
+    config = gsm.get_secret('AIRBYTE_LIB_SNOWFLAKE_CREDS').parse_json()
+    print(f'Account: {config.get(\"account\", \"<not-set>\")}')
+    print(f'Username: {config.get(\"username\", \"<not-set>\")}')
+    print(f'Default DB: {config.get(\"database\", \"<not-set>\")}')
+except Exception as e:
+    print(f'Error getting Snowflake config: {str(e)}')"
 
     - name: Run Pytest
       timeout-minutes: 60
