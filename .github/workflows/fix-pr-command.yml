@@ -78,24 +78,24 @@ jobs:
 
           [1]: ${{ steps.vars.outputs.run-url }}
 
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "1.7.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        enable-cache: true
     - name: Install dependencies
-      run: poetry install
+      run: uv install
 
     # Fix any lint or format issues
 
     - name: Auto-Fix Ruff Lint Issues
-      run: poetry run ruff check --fix . || true
+      run: ruff check --fix . || true
     - name: Auto-Fix Ruff Format Issues
-      run: poetry run ruff format . || true
+      run: ruff format . || true
 
     # Check for changes in git
 
@@ -118,9 +118,9 @@ jobs:
     # Fix any further 'unsafe' lint issues in a separate commit
 
     - name: Auto-Fix Ruff Lint Issues (Unsafe)
-      run: poetry run ruff check --fix --unsafe-fixes . || true
+      run: ruff check --fix --unsafe-fixes . || true
     - name: Auto-Fix Ruff Format Issues
-      run: poetry run ruff format . || true
+      run: ruff format . || true
 
     # Check for changes in git (2nd time, for 'unsafe' lint fixes)
 

@@ -72,24 +72,24 @@ jobs:
 
     # Same as the `python_pytest.yml` file:
 
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "1.7.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        enable-cache: true
     - name: Install dependencies
-      run: poetry install
+      run: uv install
 
     - name: Run Pytest
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run pytest
+        pytest
         --verbose
         -m "not super_slow"
 

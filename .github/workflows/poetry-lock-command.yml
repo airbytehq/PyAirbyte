@@ -1,4 +1,4 @@
-name: On-Demand Poetry Lock
+name: On-Demand UV Lock
 
 on:
   workflow_dispatch:
@@ -16,8 +16,8 @@ env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
 jobs:
-  poetry-lock-on-demand:
-    name: On-Demand Poetry Lock
+  uv-lock-on-demand:
+    name: On-Demand UV Lock
     strategy:
       matrix:
         python-version: [
@@ -66,24 +66,24 @@ jobs:
         issue-number: ${{ github.event.inputs.pr }}
         body: |
 
-          > `poetry lock` job started... [Check job output.][1]
+          > `uv pip compile` job started... [Check job output.][1]
 
           [1]: ${{ steps.vars.outputs.run-url }}
 
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "1.7.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry'
+    - name: Set up uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        enable-cache: true
 
-    # Run `poetry lock`
+    # Run `uv pip compile`
 
-    - name: Run `poetry lock`
-      run: poetry lock
+    - name: Run `uv pip compile`
+      run: uv pip compile pyproject.toml -o requirements.txt
 
     # Check for changes in git
 
@@ -101,7 +101,7 @@ jobs:
         git config --global user.name "octavia-squidington-iii"
         git config --global user.email "contact@airbyte.com"
         git add .
-        git commit -m "Auto-commit `poetry lock` changes"
+        git commit -m "Auto-commit `uv pip compile` changes"
 
     - name: Push changes to '(${{ steps.pr-info.outputs.repo }})'
       if: steps.git-diff.outputs.changes == 'true'
@@ -116,7 +116,7 @@ jobs:
         comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
         reactions: hooray
         body: |
-          > ✅ `poetry lock` applied successfully.
+          > ✅ `uv pip compile` applied successfully.
 
     - name: Append success comment (no-op)
       uses: peter-evans/create-or-update-comment@v4
