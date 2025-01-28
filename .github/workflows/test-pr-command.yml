@@ -76,14 +76,25 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Install Git
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git
     - name: Set up uv
       uses: astral-sh/setup-uv@v5
       with:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
     - name: Install dependencies
+      shell: bash
       run: |
         python -m venv .venv
+        if [ "${{ runner.os }}" == "Windows" ]; then
+          source .venv/Scripts/activate
+        else
+          source .venv/bin/activate
+        fi
+        python -m ensurepip --upgrade
         python -m pip install --upgrade pip setuptools wheel build
         python -m pip install pytest pytest-cov poethepoet
         python -m pip install -e .
