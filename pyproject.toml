@@ -76,12 +76,16 @@ dev = [
 ]
 
 [build-system]
-requires = ["setuptools>=69.0.3", "setuptools-scm>=8.0.0"]
+requires = ["setuptools>=69.0.3", "setuptools_scm[toml]>=8.0.0"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+dynamic = ["version"]
+
 [tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "node-and-date"
+write_to = "airbyte/_version.py"
+version_scheme = "post-release"
+local_scheme = "dirty-tag"
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
