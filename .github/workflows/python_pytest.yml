@@ -164,11 +164,13 @@ jobs:
     # Job-specific step(s):
     - name: Print Snowflake Test Environment Info
       if: ${{ !github.event.pull_request.head.repo.fork }}
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: |
         echo "=== Snowflake Test Environment ==="
-        echo "Snowflake Account Info (non-sensitive):"
+        echo "Running Snowflake commands to get environment info..."
         poetry run python -c "
-import airbyte as ab
+from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
 from airbyte.secrets import GoogleGSMSecretManager
 
 try:
@@ -177,11 +179,11 @@ try:
         credentials_json=ab.get_secret('GCP_GSM_CREDENTIALS')
     )
     config = gsm.get_secret('AIRBYTE_LIB_SNOWFLAKE_CREDS').parse_json()
-    print(f'Account: {config.get(\"account\", \"<not-set>\")}')
-    print(f'Username: {config.get(\"username\", \"<not-set>\")}')
-    print(f'Default DB: {config.get(\"database\", \"<not-set>\")}')
+    snowflake_config = SnowflakeConfig(**config)
+    processor = SnowflakeSqlProcessor(snowflake_config)
+    processor._init_connection_settings(processor.connection)
 except Exception as e:
-    print(f'Error getting Snowflake config: {str(e)}')"
+    print(f'Error getting Snowflake info: {str(e)}')"
 
     - name: Run Pytest
       timeout-minutes: 60

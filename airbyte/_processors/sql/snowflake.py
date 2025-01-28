@@ -232,7 +232,10 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
                 SELECT
                     CURRENT_USER() as USERNAME,
                     CURRENT_ACCOUNT() as ACCOUNT_NAME,
-                    CURRENT_DATABASE() as DATABASE_NAME;
+                    CURRENT_DATABASE() as DATABASE_NAME,
+                    CURRENT_SCHEMA() as SCHEMA_NAME,
+                    CURRENT_WAREHOUSE() as WAREHOUSE_NAME,
+                    CURRENT_ROLE() as ROLE_NAME;
                 """
             )
         )
