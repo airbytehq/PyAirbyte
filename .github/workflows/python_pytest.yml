@@ -169,6 +169,7 @@ jobs:
         echo "Snowflake Account Info (non-sensitive):"
         poetry run python -c "import os; print(f'Account: {os.environ.get(\"SNOWFLAKE_ACCOUNT\", \"<not-set>\")}')"
         poetry run python -c "import os; print(f'Username: {os.environ.get(\"SNOWFLAKE_USER\", \"<not-set>\")}')"
+        poetry run python -c "import os; print(f'Default DB: {os.environ.get(\"SNOWFLAKE_DATABASE\", \"<not-set>\")}')"
 
     - name: Run Pytest
       timeout-minutes: 60
