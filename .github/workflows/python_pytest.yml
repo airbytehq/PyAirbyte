@@ -34,17 +34,21 @@ jobs:
         cache: 'pip'
     - name: Install uv
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
-    - name: Install dependencies
-      run: uv pip install -e ".[dev]"
+    - name: Setup environment and install dependencies
+      run: |
+        uv venv
+        source .venv/bin/activate
+        uv pip install -e ".[dev]"
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        uv run coverage run -m pytest
-        --durations=5 --exitfirst
-        -m "not slow and not requires_creds and not linting and not flaky"
+      run: |
+        source .venv/bin/activate
+        uv run coverage run -m pytest \
+          --durations=5 --exitfirst \
+          -m "not slow and not requires_creds and not linting and not flaky"
 
     - name: Run Pytest with Coverage (Flaky Tests Only)
       timeout-minutes: 60
@@ -58,11 +62,14 @@ jobs:
 
     - name: Print Coverage Report
       if: always()
-      run: uv run coverage report
+      run: |
+        source .venv/bin/activate
+        uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
+        source .venv/bin/activate
         uv run coverage html -d htmlcov
         uv run coverage xml -o htmlcov/coverage.xml
 
@@ -87,8 +94,11 @@ jobs:
         cache: 'pip'
     - name: Install uv
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
-    - name: Install dependencies
-      run: uv pip install -e ".[dev]"
+    - name: Setup environment and install dependencies
+      run: |
+        uv venv
+        source .venv/bin/activate
+        uv pip install -e ".[dev]"
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
@@ -96,10 +106,11 @@ jobs:
       env:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
-      run: >
-        uv run coverage run -m pytest
-        --durations=5 --exitfirst
-        -m "not requires_creds and not linting and not super_slow and not flaky"
+      run: |
+        source .venv/bin/activate
+        uv run coverage run -m pytest \
+          --durations=5 --exitfirst \
+          -m "not requires_creds and not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
@@ -152,18 +163,22 @@ jobs:
         cache: 'pip'
     - name: Install uv
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
-    - name: Install dependencies
-      run: uv pip install -e ".[dev]"
+    - name: Setup environment and install dependencies
+      run: |
+        uv venv
+        source .venv/bin/activate
+        uv pip install -e ".[dev]"
 
     # Job-specific step(s):
     - name: Run Pytest
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        uv run coverage run -m pytest
-        --verbose
-        -m "not linting and not super_slow and not flaky"
+      run: |
+        source .venv/bin/activate
+        uv run coverage run -m pytest \
+          --verbose \
+          -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
@@ -195,10 +210,14 @@ jobs:
         cache: 'pip'
     - name: Install uv
       run: curl -LsSf https://astral.sh/uv/install.sh | sh
-    - name: Install dependencies
-      run: uv pip install -e ".[dev]"
+    - name: Setup environment and install dependencies
+      run: |
+        uv venv
+        source .venv/bin/activate
+        uv pip install -e ".[dev]"
 
     # Job-specific step(s):
     - name: Run Deptry
       run: |
+        source .venv/bin/activate
         uv run deptry .
