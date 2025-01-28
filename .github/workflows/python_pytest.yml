@@ -27,24 +27,22 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "2.0.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'poetry'
+        cache: 'pip'
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
     - name: Install dependencies
-      run: poetry install
+      run: uv pip install -e ".[dev]"
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --durations=5 --exitfirst
         -m "not slow and not requires_creds and not linting and not flaky"
 
@@ -54,19 +52,19 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --durations=5 --exitfirst
         -m "flaky and not slow and not requires_creds"
 
     - name: Print Coverage Report
       if: always()
-      run: poetry run coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
-        poetry run coverage html -d htmlcov
-        poetry run coverage xml -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -82,17 +80,15 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "1.7.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'poetry'
+        cache: 'pip'
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
     - name: Install dependencies
-      run: poetry install
+      run: uv pip install -e ".[dev]"
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
@@ -101,19 +97,19 @@ jobs:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --durations=5 --exitfirst
         -m "not requires_creds and not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: poetry run coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
-        poetry run coverage html -d htmlcov
-        poetry run coverage xml -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -149,17 +145,15 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@v4
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "1.7.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry'
+        cache: 'pip'
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
     - name: Install dependencies
-      run: poetry install
+      run: uv pip install -e ".[dev]"
 
     # Job-specific step(s):
     - name: Run Pytest
@@ -167,19 +161,19 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --verbose
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: poetry run coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
-        poetry run coverage html -d htmlcov
-        poetry run coverage xml -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -198,14 +192,13 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "1.7.1"
+        cache: 'pip'
+    - name: Install uv
+      run: curl -LsSf https://astral.sh/uv/install.sh | sh
     - name: Install dependencies
-      run: poetry install
+      run: uv pip install -e ".[dev]"
 
     # Job-specific step(s):
     - name: Run Deptry
       run: |
-        poetry run deptry .
+        uv run deptry .

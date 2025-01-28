@@ -7,13 +7,8 @@ authors = [
 ]
 readme = "README.md"
 packages = [{ include = "airbyte" }]
-urls = {
-    homepage = "https://airbyte.com",
-    repository = "https://github.com/airbytehq/pyairbyte",
-    documentation = "https://docs.airbyte.io/"
-}
+requires-python = ">=3.10,<3.13"
 dependencies = [
-    "python>=3.10,<3.13",
     "airbyte-api>=0.52.1,<1.0.0",
     "airbyte-cdk>=6.9.0,<7.0.0",
     "airbyte-protocol-models-pdv2>=0.13.0,<0.14.0",
@@ -43,9 +38,7 @@ dependencies = [
     "snowflake-connector-python>=3.12.2,<4.0.0",
     "snowflake-sqlalchemy>=1.6.1,<2.0.0",
     "structlog>=24.4.0,<25.0.0",
-    # TODO: Remove SQLAlchemy version constraint once DuckDB engine bug is fixed (issue #423)
     "sqlalchemy>=1.4.51,!=2.0.36,<3.0",
-    # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
     "sqlalchemy-bigquery==1.12.0; python_version < '3.13'",
     "typing-extensions>=4.9.0",
     "uuid7>=0.1.0,<0.2.0"
