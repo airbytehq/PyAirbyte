@@ -27,7 +27,9 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv install
+      run: |
+        uv pip install -r requirements.txt -r requirements-dev.txt
+        uv pip install --system poethepoet
 
     - name: Generate documentation
       run: |

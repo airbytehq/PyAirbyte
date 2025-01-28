@@ -88,7 +88,9 @@ jobs:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
     - name: Install dependencies
-      run: uv install
+      run: |
+        uv pip install -r requirements.txt -r requirements-dev.txt
+        uv pip install --system ruff
 
     # Fix any lint or format issues
 

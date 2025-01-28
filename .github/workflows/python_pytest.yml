@@ -37,7 +37,9 @@ jobs:
         python-version: '3.10'
         enable-cache: true
     - name: Install dependencies
-      run: uv install
+      run: |
+        uv pip install -r requirements.txt -r requirements-dev.txt
+        uv pip install --system coverage pytest pytest-cov
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
@@ -92,7 +94,9 @@ jobs:
         python-version: '3.10'
         enable-cache: true
     - name: Install dependencies
-      run: uv install
+      run: |
+        uv pip install -r requirements.txt -r requirements-dev.txt
+        uv pip install --system coverage pytest pytest-cov
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
@@ -159,7 +163,9 @@ jobs:
         python-version: ${{ matrix.python-version }}
         enable-cache: true
     - name: Install dependencies
-      run: uv install
+      run: |
+        uv pip install -r requirements.txt -r requirements-dev.txt
+        uv pip install --system coverage pytest pytest-cov
 
     # Job-specific step(s):
     - name: Run Pytest
@@ -204,7 +210,9 @@ jobs:
         python-version: '3.10'
         enable-cache: true
     - name: Install dependencies
-      run: uv install
+      run: |
+        uv pip install -r requirements.txt -r requirements-dev.txt
+        uv pip install deptry
 
     # Job-specific step(s):
     - name: Run Deptry
