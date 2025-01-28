@@ -8,9 +8,9 @@ authors = [
 readme = "README.md"
 packages = [{ include = "airbyte" }]
 urls = {
-    Homepage = "https://airbyte.com",
-    Repository = "https://github.com/airbytehq/pyairbyte",
-    Documentation = "https://docs.airbyte.io/"
+    homepage = "https://airbyte.com",
+    repository = "https://github.com/airbytehq/pyairbyte",
+    documentation = "https://docs.airbyte.io/"
 }
 dependencies = [
     "python>=3.10,<3.13",
