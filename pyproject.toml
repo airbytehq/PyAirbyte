@@ -76,12 +76,12 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv>=0.5.24", "uv-dynamic-versioning>=0.1.0"]
-build-backend = "uv_dynamic_versioning.backend"
+requires = ["setuptools>=69.0.3", "setuptools-scm>=8.0.0"]
+build-backend = "setuptools.build_meta"
 
-[tool.uv-dynamic-versioning]
-enable = true
-style = "pep440"
+[tool.setuptools_scm]
+version_scheme = "guess-next-dev"
+local_scheme = "node-and-date"
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
