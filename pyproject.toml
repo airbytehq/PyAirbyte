@@ -6,7 +6,7 @@ authors = [
     { name = "Airbyte", email = "contact@airbyte.io" }
 ]
 readme = "README.md"
-packages = [{ include = "airbyte" }]
+
 requires-python = ">=3.10,<3.13"
 dependencies = [
     "airbyte-api>=0.52.1,<1.0.0",
@@ -81,6 +81,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 dynamic = ["version"]
+
+[tool.setuptools.packages.find]
+include = ["airbyte"]
 
 [tool.setuptools_scm]
 write_to = "airbyte/_version.py"
