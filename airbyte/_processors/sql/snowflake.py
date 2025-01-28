@@ -175,6 +175,39 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         return temp_table_name
 
     @overrides
+    def _ensure_schema_exists(self) -> None:
+        """Create the schema if it doesn't exist.
+        
+        For Snowflake, we need to use fully qualified schema names that include the database.
+        """
+        schema_name = self.normalizer.normalize(self.sql_config.schema_name)
+        known_schemas_list = self.normalizer.normalize_list(self._known_schemas_list)
+        if known_schemas_list and schema_name in known_schemas_list:
+            return  # Already exists
+
+        schemas_list = self.normalizer.normalize_list(self._get_schemas_list())
+        if schema_name in schemas_list:
+            return
+
+        sql = f"""
+            USE DATABASE {self._quote_identifier(self.database_name)};
+            CREATE SCHEMA IF NOT EXISTS {self._quote_identifier(self.database_name)}.{schema_name}
+        """
+
+        try:
+            self._execute_sql(sql)
+        except Exception as ex:
+            # Ignore schema exists errors.
+            if "already exists" not in str(ex):
+                raise
+
+        if DEBUG_MODE:
+            found_schemas = schemas_list
+            assert (
+                schema_name in found_schemas
+            ), f"Schema {schema_name} was not created. Found: {found_schemas}"
+
+    @overrides
     def _init_connection_settings(self, connection: Connection) -> None:
         """We set Snowflake-specific settings for the session.
 
@@ -186,7 +219,8 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         """
         connection.execute(
             text(
-                """
+                f"""
+                USE DATABASE {self._quote_identifier(self.database_name)};
                 ALTER SESSION SET
                 QUOTED_IDENTIFIERS_IGNORE_CASE = TRUE
                 MULTI_STATEMENT_COUNT = 0
