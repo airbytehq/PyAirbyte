@@ -22,6 +22,7 @@ from airbyte.shared import SqlProcessorBase
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.types import SQLTypeConverter
 
+
 DEBUG_MODE = False  # Set to True to enable additional schema creation assertions
 
 
