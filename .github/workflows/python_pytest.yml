@@ -38,10 +38,10 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip setuptools wheel build
+        uv pip install --system build wheel coverage pytest pytest-cov
         uv pip install -r requirements.txt -r requirements-dev.txt
-        uv pip install --system coverage pytest pytest-cov build
-        python -m build
-        uv pip install -e .
+        python -m pip install -e .
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
@@ -97,10 +97,10 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip setuptools wheel build
+        uv pip install --system build wheel coverage pytest pytest-cov
         uv pip install -r requirements.txt -r requirements-dev.txt
-        uv pip install --system coverage pytest pytest-cov build
-        python -m build
-        uv pip install -e .
+        python -m pip install -e .
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
@@ -168,10 +168,10 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
+        python -m pip install --upgrade pip setuptools wheel build
+        uv pip install --system build wheel coverage pytest pytest-cov
         uv pip install -r requirements.txt -r requirements-dev.txt
-        uv pip install --system coverage pytest pytest-cov build
-        python -m build
-        uv pip install -e .
+        python -m pip install -e .
 
     # Job-specific step(s):
     - name: Run Pytest

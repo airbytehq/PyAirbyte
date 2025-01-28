@@ -1,0 +1,13 @@
+[project]
+exclude_patterns = [
+    "tests/*",
+    "docs/*",
+    ".venv/*",
+    ".pytest_cache/*",
+    "__pycache__/*",
+    "*.pyc"
+]
+
+[dependencies]
+# Ignore development dependencies since they are used in tests
+ignore_dev = true
