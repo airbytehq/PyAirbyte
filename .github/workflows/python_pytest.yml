@@ -38,17 +38,21 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
+        python -m venv .venv
         python -m pip install --upgrade pip setuptools wheel build
         python -m pip install coverage pytest pytest-cov
-        uv pip install -r requirements.txt -r requirements-dev.txt
         python -m pip install -e .
+        uv pip install -r requirements.txt -r requirements-dev.txt
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: >
-        coverage run -m pytest
+        .venv/bin/coverage run -m pytest
         --durations=5 --exitfirst
         -m "not slow and not requires_creds and not linting and not flaky"
 
@@ -57,20 +61,25 @@ jobs:
       continue-on-error: true
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: >
-        coverage run -m pytest
+        .venv/bin/coverage run -m pytest
         --durations=5 --exitfirst
         -m "flaky and not slow and not requires_creds"
 
     - name: Print Coverage Report
       if: always()
-      run: coverage report
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
+      run: .venv/bin/coverage report
 
     - name: Create Coverage Artifacts
       if: always()
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: |
-        coverage html -d htmlcov
-        coverage xml -o htmlcov/coverage.xml
+        .venv/bin/coverage html -d htmlcov
+        .venv/bin/coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -108,20 +117,25 @@ jobs:
       env:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: >
-        coverage run -m pytest
+        .venv/bin/coverage run -m pytest
         --durations=5 --exitfirst
         -m "not requires_creds and not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: coverage report
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
+      run: .venv/bin/coverage report
 
     - name: Create Coverage Artifacts
       if: always()
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: |
-        coverage html -d htmlcov
-        coverage xml -o htmlcov/coverage.xml
+        .venv/bin/coverage html -d htmlcov
+        .venv/bin/coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -178,20 +192,25 @@ jobs:
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: >
-        coverage run -m pytest
+        .venv/bin/coverage run -m pytest
         --verbose
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: coverage report
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
+      run: .venv/bin/coverage report
 
     - name: Create Coverage Artifacts
       if: always()
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: |
-        coverage html -d htmlcov
-        coverage xml -o htmlcov/coverage.xml
+        .venv/bin/coverage html -d htmlcov
+        .venv/bin/coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -217,6 +236,8 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
+        python -m ensurepip
+        python -m pip install --upgrade pip setuptools wheel build
         uv pip install -r requirements.txt -r requirements-dev.txt
         uv pip install --system deptry poethepoet
 

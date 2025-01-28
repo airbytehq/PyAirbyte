@@ -83,17 +83,21 @@ jobs:
         enable-cache: true
     - name: Install dependencies
       run: |
+        python -m venv .venv
         python -m pip install --upgrade pip setuptools wheel build
         python -m pip install pytest pytest-cov poethepoet
-        uv pip install -r requirements.txt -r requirements-dev.txt
         python -m pip install -e .
+        uv pip install -r requirements.txt -r requirements-dev.txt
+      env:
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
 
     - name: Run Pytest
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+        PATH: ${{ github.workspace }}/.venv/bin:${{ env.PATH }}
       run: >
-        pytest
+        .venv/bin/pytest
         --verbose
         -m "not super_slow"
 
