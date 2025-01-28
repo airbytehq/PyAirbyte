@@ -80,10 +80,10 @@ requires = ["setuptools>=69.0.3", "setuptools_scm[toml]>=8.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-dynamic = ["version"]
+packages = ["airbyte"]
 
-[tool.setuptools.packages.find]
-include = ["airbyte"]
+[tool.setuptools.dynamic]
+version = {attr = "airbyte._version.__version__"}
 
 [tool.setuptools_scm]
 write_to = "airbyte/_version.py"
