@@ -79,7 +79,7 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install -r requirements.txt -r requirements-dev.txt
-        uv pip install --system ruff mypy
+        uv pip install --system ruff mypy poethepoet
 
     # Job-specifc step(s):
     - name: Check MyPy typing

@@ -212,7 +212,7 @@ jobs:
     - name: Install dependencies
       run: |
         uv pip install -r requirements.txt -r requirements-dev.txt
-        uv pip install deptry
+        uv pip install --system deptry poethepoet
 
     # Job-specific step(s):
     - name: Run Deptry
