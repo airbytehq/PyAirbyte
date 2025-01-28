@@ -76,7 +76,7 @@ dev = [
 ]
 
 [build-system]
-requires = ["uv-dynamic-versioning"]
+requires = ["uv>=0.5.24", "uv-dynamic-versioning>=0.1.0"]
 build-backend = "uv_dynamic_versioning.backend"
 
 [tool.uv-dynamic-versioning]
