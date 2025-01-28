@@ -44,6 +44,17 @@ jobs:
       with:
         pr: ${{ github.event.inputs.pr }}
 
+    - name: Check for blank or missing poetry.lock
+      run: |
+        if [ ! -s "poetry.lock" ]; then
+          echo "poetry.lock missing or blank. Fetching from main branch..."
+          git fetch origin main
+          git checkout origin/main -- poetry.lock
+          echo "Lock file restored from main."
+        else
+          echo "poetry.lock found. Proceeding."
+        fi
+
     - name: Get PR info
       id: pr-info
       run: |
