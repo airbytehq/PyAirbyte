@@ -162,6 +162,15 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
+    - name: Print Snowflake Test Environment Info
+      if: ${{ !github.event.pull_request.head.repo.fork }}
+      run: |
+        echo "=== Snowflake Test Environment ==="
+        echo "Python version:"
+        poetry run python --version
+        echo "Snowflake connector version:"
+        poetry run python -c "import snowflake.connector; print(snowflake.connector.__version__)"
+
     - name: Run Pytest
       timeout-minutes: 60
       env:
