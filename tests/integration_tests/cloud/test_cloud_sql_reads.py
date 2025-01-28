@@ -195,7 +195,11 @@ def test_read_from_previous_job(
 
     pandas_df = pd.DataFrame(data_as_list)
 
-    assert pandas_df.shape == (100, 20)
+    assert pandas_df.shape[0] == 100
+    assert pandas_df.shape[1] in {  # Column count diff depending on when it was created
+        20,
+        21,
+    }
     for col in pandas_df.columns:
         # Check that no values are null
         assert pandas_df[col].notnull().all()
