@@ -1,84 +1,90 @@
-[tool.poetry]
+[project]
 name = "airbyte"
+version = "0.0.0"
 description = "PyAirbyte"
-authors = ["Airbyte <contact@airbyte.io>"]
+authors = [
+    { name = "Airbyte", email = "contact@airbyte.io" }
+]
 readme = "README.md"
 packages = [{ include = "airbyte" }]
+urls = {
+    "Homepage" = "https://airbyte.com",
+    "Repository" = "https://github.com/airbytehq/pyairbyte",
+    "Documentation" = "https://docs.airbyte.io/"
+}
 
-# This project uses dynamic versioning
-# https://github.com/mtkennerly/poetry-dynamic-versioning
-version = "0.0.0"
-
-[tool.poetry-dynamic-versioning]
+[tool.uv-dynamic-versioning]
 enable = true
 
-[tool.poetry.dependencies]
+[project.dependencies]
 python = ">=3.10,<3.13"
 
-airbyte-api = "^0.52.1"
-airbyte-cdk = "^6.9.0"
-airbyte-protocol-models-pdv2 = "^0.13.0"
-click = "^8.1.7"
-duckdb = "^1.1.0"
-duckdb-engine = "^0.13.2"
+airbyte-api = ">=0.52.1,<1.0.0"
+airbyte-cdk = ">=6.9.0,<7.0.0"
+airbyte-protocol-models-pdv2 = ">=0.13.0,<0.14.0"
+click = ">=8.1.7,<9.0.0"
+duckdb = ">=1.1.0,<2.0.0"
+duckdb-engine = ">=0.13.2,<0.14.0"
 google-auth = ">=2.27.0,<3.0"
 google-cloud-bigquery = ">=3.12.0,<4.0"
-google-cloud-bigquery-storage = "^2.25.0"
-google-cloud-secret-manager = "^2.17.0"
+google-cloud-bigquery-storage = ">=2.25.0,<3.0.0"
+google-cloud-secret-manager = ">=2.17.0,<3.0.0"
 jsonschema = ">=3.2.0,<5.0"
-orjson = "^3.10"
-overrides = "^7.4.0"
-pandas = { version = ">=1.5.3,<3.0" }
+orjson = ">=3.10,<4.0"
+overrides = ">=7.4.0,<8.0.0"
+pandas = ">=1.5.3,<3.0"
 pendulum = "<=3.0.0"
-psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
-psycopg2-binary =  "^2.9.9"
+psycopg = { extras = ["binary", "pool"], version = ">=3.1.19,<4.0.0" }
+psycopg2-binary = ">=2.9.9,<3.0.0"
 pyarrow = ">=16.1,<18.0"
 pydantic = ">=2.0,<=3.0"
 pydantic-core = "*"
-python-dotenv = "^1.0.1"
-python-ulid = "^3.0.0"
+python-dotenv = ">=1.0.1,<2.0.0"
+python-ulid = ">=3.0.0,<4.0.0"
 pytz = "*"
-pyyaml = "^6.0.2"
+pyyaml = ">=6.0.2,<7.0.0"
 requests = "<=2.32.2,!=3.32.0"  # 3.32.0 breaks docker tests
-rich = "^13.7.0"
-snowflake-connector-python = "^3.12.2"
-snowflake-sqlalchemy = "^1.6.1"
-structlog = "^24.4.0"
+rich = ">=13.7.0,<14.0.0"
+snowflake-connector-python = ">=3.12.2,<4.0.0"
+snowflake-sqlalchemy = ">=1.6.1,<2.0.0"
+structlog = ">=24.4.0,<25.0.0"
 # TODO: Remove SQLAlchemy version constraint once DuckDB engine bug is fixed (issue #423)
 sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
 
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }
 typing-extensions = "*"
-uuid7 = "^0.1.0"
+uuid7 = ">=0.1.0,<0.2.0"
 
-[tool.poetry.group.dev.dependencies]
-coverage = "^7.5.1"
-deptry = "^0.21.1"
-docker = "^7.1.0"
-faker = "^21.0.0"
-freezegun = "^1.4.0"
-mypy = "^1.11.2"
-pandas-stubs = "^2.1.4.231218"
-pdoc = "^14.3.0"
-poethepoet = ">=0.26.1,<0.32.0"
-pytest = "^8.2.0"
-pytest-docker = "^3.1.1"
-pytest-mock = "^3.14.0"
-pytest-mypy = "^0.10.3"
-pytest-timeout = "^2.3.1"
-responses = "^0.25.0"
-ruff = "^0.8.2"
-sqlalchemy2-stubs = "^0.0.2a38"
-tomli = "^2.0"
-types-jsonschema = "^4.20.0.0"
-types-pyyaml = "^6.0.12.12"
-types-requests = "2.31.0.4"
-viztracer = "^0.16.3"
+[project.optional-dependencies]
+dev = [
+    "coverage>=7.5.1,<8.0.0",
+    "deptry>=0.21.1,<0.22.0",
+    "docker>=7.1.0,<8.0.0",
+    "faker>=21.0.0,<22.0.0",
+    "freezegun>=1.4.0,<2.0.0",
+    "mypy>=1.11.2,<2.0.0",
+    "pandas-stubs>=2.1.4.231218,<3.0.0",
+    "pdoc>=14.3.0,<15.0.0",
+    "poethepoet>=0.26.1,<0.32.0",
+    "pytest>=8.2.0,<9.0.0",
+    "pytest-docker>=3.1.1,<4.0.0",
+    "pytest-mock>=3.14.0,<4.0.0",
+    "pytest-mypy>=0.10.3,<0.11.0",
+    "pytest-timeout>=2.3.1,<3.0.0",
+    "responses>=0.25.0,<0.26.0",
+    "ruff>=0.8.2,<0.9.0",
+    "sqlalchemy2-stubs>=0.0.2a38,<0.0.3",
+    "tomli>=2.0.0,<3.0.0",
+    "types-jsonschema>=4.20.0.0,<5.0.0.0",
+    "types-pyyaml>=6.0.12.12,<7.0.0.0",
+    "types-requests==2.31.0.4",
+    "viztracer>=0.16.3,<0.17.0"
+]
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
-build-backend = "poetry_dynamic_versioning.backend"
+requires = ["uv-dynamic-versioning"]
+build-backend = "uv_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
@@ -317,7 +323,7 @@ pythonVersion = "3.10"
 venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
-[tool.poetry.scripts]
+[project.scripts]
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
 
