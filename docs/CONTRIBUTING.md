@@ -4,9 +4,11 @@ Learn how you can become a contributor to PyAirbyte.
 
 ## Development
 
-- Make sure [Poetry is installed](https://python-poetry.org/docs/#).
+- Make sure [Poetry is installed](https://python-poetry.org/docs/#) (version 2.0 or higher).
 - Run `poetry install`
 - For examples, check out the `examples` folder. They can be run via `poetry run python examples/<example file>`
+
+Note: By default in Poetry 2.0, `poetry lock` only refreshes the lockfile without pulling new versions. This is the same behavior as the previous `poetry lock --no-update` command.
 - Unit tests and type checks can be run via `poetry run pytest`
 
 ## Documentation
