@@ -15,7 +15,6 @@ import logging
 import os
 import platform
 import tempfile
-from time import strptime
 import warnings
 from functools import lru_cache
 from pathlib import Path
@@ -23,7 +22,7 @@ from pathlib import Path
 import structlog
 import ulid
 
-from airbyte_cdk.utils.datetime_helpers import ab_datetime_now, ab_datetime_format
+from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
 
 def _str_to_bool(value: str) -> bool:
