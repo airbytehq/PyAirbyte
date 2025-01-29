@@ -19,19 +19,23 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
+import pandas as pd
+import pandas_gbq
 from airbyte_api.models import DestinationBigquery
+from google.oauth2.service_account import Credentials
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
 from airbyte.caches.base import (
     CacheBase,
 )
-from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.destinations._translate_cache_to_dest import (
     bigquery_cache_to_destination_configuration,
 )
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from airbyte.shared.sql_processor import SqlProcessorBase
 
 
@@ -48,20 +52,34 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         """Return a dictionary of destination configuration values."""
         return bigquery_cache_to_destination_configuration(cache=self)
 
-    def get_arrow_dataset(
+    def _read_to_pandas_dataframe(
         self,
-        stream_name: str,
-        *,
-        max_chunk_size: int = DEFAULT_ARROW_MAX_CHUNK_SIZE,
-    ) -> NoReturn:
-        """Raises NotImplementedError; BigQuery doesn't support `pd.read_sql_table`.
+        table_name: str,
+        chunksize: int | None = None,
+        **kwargs,
+    ) -> pd.DataFrame | Iterator[pd.DataFrame]:
+        # Pop unused kwargs, maybe not the best way to do this
+        kwargs.pop("con", None)
+        kwargs.pop("schema", None)
 
-        See: https://github.com/airbytehq/PyAirbyte/issues/165
-        """
-        raise NotImplementedError(
-            "BigQuery doesn't currently support to_arrow"
-            "Please consider using a different cache implementation for these functionalities."
+        # Read the table using pandas_gbq
+        credentials = Credentials.from_service_account_file(self.credentials_path)
+        result = pandas_gbq.read_gbq(
+            f"{self.project_name}.{self.dataset_name}.{table_name}",
+            project_id=self.project_name,
+            credentials=credentials,
+            **kwargs,
         )
+
+        # Cast result to DataFrame if it's not already a DataFrame
+        if not isinstance(result, pd.DataFrame):
+            result = pd.DataFrame(result)
+
+        # Return chunks as iterator if chunksize is provided
+        if chunksize is not None:
+            return (result[i : i + chunksize] for i in range(0, len(result), chunksize))
+
+        return result
 
 
 # Expose the Cache class and also the Config class.
