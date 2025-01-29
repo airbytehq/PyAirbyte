@@ -16,7 +16,7 @@ enable = true
 python = ">=3.10,<3.12"
 
 airbyte-api = "^0.52.1"
-airbyte-cdk = "^6.9.0"
+airbyte-cdk = "^6.28.0"
 airbyte-protocol-models-pdv2 = "^0.13.0"
 click = "^8.1.7"
 duckdb = "^1.1.0"
@@ -29,7 +29,6 @@ jsonschema = ">=3.2.0,<5.0"
 orjson = "^3.10"
 overrides = "^7.4.0"
 pandas = { version = ">=1.5.3,<3.0" }
-pendulum = "<=3.0.0"
 psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
 psycopg2-binary =  "^2.9.9"
 pyarrow = ">=16.1,<18.0"

@@ -28,11 +28,11 @@ from contextlib import suppress
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
-import pendulum
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
 
+from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteStreamStatus,
@@ -410,7 +410,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def _log_sync_start(self) -> None:
         """Log the start of a sync operation."""
         self._print_info_message(
-            f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`..."
+            f"Started `{self.job_description}` sync at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
         )
         # We access a non-public API here (noqa: SLF001) to get the runtime info for participants.
         self._send_telemetry(
@@ -423,13 +424,14 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if stream_name not in self.stream_read_start_times:
             self._print_info_message(
                 f"Read started on stream `{stream_name}` at "
-                f"`{pendulum.now().format('HH:mm:ss')}`..."
+                f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
             )
             self.stream_read_start_times[stream_name] = time.time()
 
     def _log_stream_read_end(self, stream_name: str) -> None:
         self._print_info_message(
-            f"Read completed on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
+            f"Read completed on stream `{stream_name}` at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
         )
         self.stream_read_end_times[stream_name] = time.time()
 
@@ -535,7 +537,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._update_display(force_refresh=True)
         self._stop_rich_view()
         self._print_info_message(
-            f"Completed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
+            f"Completed `{self.job_description}` sync at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
         )
         self._log_read_metrics()
         self._send_telemetry(
@@ -552,7 +555,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._update_display(force_refresh=True)
         self._stop_rich_view()
         self._print_info_message(
-            f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`."
+            f"Failed `{self.job_description}` sync at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
         )
         self._send_telemetry(
             state=EventState.FAILED,
