@@ -17,7 +17,7 @@ cache = BigQueryCache(
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, NoReturn
+from typing import TYPE_CHECKING, ClassVar
 
 import pandas as pd
 import pandas_gbq

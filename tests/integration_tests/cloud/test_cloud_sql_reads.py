@@ -5,7 +5,6 @@ from __future__ import annotations
 
 
 import airbyte as ab
-import pandas as pd
 import pytest
 from airbyte import cloud
 from airbyte.caches.base import CacheBase
