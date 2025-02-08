@@ -1,0 +1,27 @@
+# When a PR is has the auto-merge feature enabled or disabled, this workflow adds or removes
+# warning text at the bottom of the PR description.
+
+name: "Add Auto-Merge Notification Text"
+on:
+  pull_request:
+    types: [auto_merge_enabled, auto_merge_disabled]
+
+jobs:
+  update-description:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Add Auto-Merge Notice
+        if: github.event.action == 'auto_merge_enabled'
+        uses: bcgov/action-pr-description-add@main
+        with:
+          add_markdown: |
+            > [!IMPORTANT]
+            > This PR is set to merge automatically when all requirements are met.
+
+      - name: Remove Auto-Merge Notice
+        if: github.event.action == 'auto_merge_disabled'
+        uses: bcgov/action-pr-description-add@main
+        with:
+          add_markdown: ""  # Empty string to remove the notice
