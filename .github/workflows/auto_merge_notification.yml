@@ -18,7 +18,9 @@ jobs:
         with:
           add_markdown: |
             > [!IMPORTANT]
-            > This PR is set to merge automatically when all requirements are met.
+            > **Auto-merge enabled.**
+            > 
+            > _This PR is set to merge automatically when all requirements are met._
 
       - name: Remove Auto-Merge Notice
         if: github.event.action == 'auto_merge_disabled'
