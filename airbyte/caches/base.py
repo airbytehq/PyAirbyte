@@ -66,7 +66,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     paired_destination_config_class: ClassVar[type | None] = None
 
     @property
-    def paired_destination_config(self) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
+    def paired_destination_config(
+        self,
+    ) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
         """Return a dictionary of destination configuration values."""
         raise NotImplementedError(
             f"The type '{type(self).__name__}' does not define an equivalent destination "
@@ -89,11 +91,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
         # Initialize the catalog and state backends
         self._catalog_backend = SqlCatalogBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
         self._state_backend = SqlStateBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
 

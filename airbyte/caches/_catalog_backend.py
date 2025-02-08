@@ -24,10 +24,7 @@ from airbyte_protocol.models import (
 )
 
 from airbyte.shared.catalog_providers import CatalogProvider
-
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+from airbyte.shared.sql_processor import SqlConfig
 
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
@@ -110,10 +107,10 @@ class SqlCatalogBackend(CatalogBackendBase):
 
     def __init__(
         self,
-        engine: Engine,
+        sql_config: SqlConfig,
         table_prefix: str,
     ) -> None:
-        self._engine: Engine = engine
+        self._sql_config = sql_config
         self._table_prefix = table_prefix
         self._ensure_internal_tables()
         self._full_catalog: ConfiguredAirbyteCatalog = ConfiguredAirbyteCatalog(
@@ -125,7 +122,7 @@ class SqlCatalogBackend(CatalogBackendBase):
         self._source_catalogs: dict[str, ConfiguredAirbyteCatalog] = {}
 
     def _ensure_internal_tables(self) -> None:
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         SqlAlchemyModel.metadata.create_all(engine)  # type: ignore[attr-defined]
 
     def register_source(
@@ -181,7 +178,7 @@ class SqlCatalogBackend(CatalogBackendBase):
         incoming_stream_names: set[str],
     ) -> None:
         self._ensure_internal_tables()
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         with Session(engine) as session:
             # Delete and replace existing stream entries from the catalog cache
             table_name_entries_to_delete = [
@@ -217,7 +214,7 @@ class SqlCatalogBackend(CatalogBackendBase):
 
         The `source_name` and `table_prefix` args are optional filters.
         """
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         with Session(engine) as session:
             # load all the streams
             streams: list[CachedStream] = session.query(CachedStream).all()
@@ -241,7 +238,10 @@ class SqlCatalogBackend(CatalogBackendBase):
             if (source_name is None or stream.source_name == source_name)
             # only load the streams where the table name matches what
             # the current cache would generate
-            and (table_prefix is None or stream.table_name == table_prefix + stream.stream_name)
+            and (
+                table_prefix is None
+                or stream.table_name == table_prefix + stream.stream_name
+            )
         ]
 
     @property

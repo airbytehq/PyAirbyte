@@ -50,7 +50,9 @@ class SnowflakeConfig(SqlConfig):
         clauses = []
 
         if self.data_retention_time_in_days is not None:
-            clauses.append(f"DATA_RETENTION_TIME_IN_DAYS = {self.data_retention_time_in_days}")
+            clauses.append(
+                f"DATA_RETENTION_TIME_IN_DAYS = {self.data_retention_time_in_days}"
+            )
 
         return clauses
 
@@ -62,6 +64,10 @@ class SnowflakeConfig(SqlConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
+        connect_args = {"client_session_keep_alive": self.client_session_keep_alive}
+        # Add any extra connection arguments
+        connect_args.update(self.extra_connection_args)
+
         return SecretString(
             URL(
                 account=self.account,
@@ -71,6 +77,7 @@ class SnowflakeConfig(SqlConfig):
                 warehouse=self.warehouse,
                 schema=self.schema_name,
                 role=self.role,
+                connect_args=connect_args,
             )
         )
 
@@ -157,7 +164,9 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         ]
         files_list = ", ".join([f"'{f.name}'" for f in files])
         columns_list_str: str = indent("\n, ".join(columns_list), " " * 12)
-        variant_cols_str: str = ("\n" + " " * 21 + ", ").join([f"$1:{col}" for col in columns_list])
+        variant_cols_str: str = ("\n" + " " * 21 + ", ").join(
+            [f"$1:{col}" for col in columns_list]
+        )
         copy_statement = f"""
             COPY INTO {temp_table_name}
             (

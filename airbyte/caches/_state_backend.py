@@ -20,13 +20,12 @@ from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )
 from airbyte.exceptions import PyAirbyteInputError, PyAirbyteInternalError
+from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_providers import StaticInputState
 from airbyte.shared.state_writers import StateWriterBase
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
-
     from airbyte.shared.state_providers import StateProviderBase
 
 
@@ -75,7 +74,9 @@ class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
     """
 
     __tablename__ = DESTINATION_STATE_TABLE_NAME
-    __table_args__ = (PrimaryKeyConstraint("destination_name", "source_name", "stream_name"),)
+    __table_args__ = (
+        PrimaryKeyConstraint("destination_name", "source_name", "stream_name"),
+    )
 
     destination_name = Column(String, nullable=False)
     """The destination name."""
@@ -136,7 +137,7 @@ class SqlStateWriter(StateWriterBase):
 
         self._state_backend._ensure_internal_tables()  # noqa: SLF001  # Non-public member access
         table_prefix = self._state_backend._table_prefix  # noqa: SLF001
-        engine = self._state_backend._engine  # noqa: SLF001
+        engine = self._state_backend._sql_config.get_sql_engine()  # noqa: SLF001
 
         # Calculate the new state model to write.
         new_state = (
@@ -161,7 +162,10 @@ class SqlStateWriter(StateWriterBase):
             if self.destination_name:
                 session.query(DestinationStreamStateModel).filter(
                     and_(
-                        (DestinationStreamStateModel.destination_name == self.destination_name),
+                        (
+                            DestinationStreamStateModel.destination_name
+                            == self.destination_name
+                        ),
                         (DestinationStreamStateModel.source_name == self.source_name),
                         (DestinationStreamStateModel.stream_name == stream_name),
                     )
@@ -187,17 +191,17 @@ class SqlStateBackend(StateBackendBase):
 
     def __init__(
         self,
-        engine: Engine,
+        sql_config: SqlConfig,
         table_prefix: str = "",
     ) -> None:
         """Initialize the state manager with a static catalog state."""
-        self._engine: Engine = engine
+        self._sql_config = sql_config
         self._table_prefix = table_prefix
         super().__init__()
 
     def _ensure_internal_tables(self) -> None:
         """Ensure the internal tables exist in the SQL database."""
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         SqlAlchemyModel.metadata.create_all(engine)  # type: ignore[attr-defined]
 
     def get_state_provider(
@@ -223,7 +227,7 @@ class SqlStateBackend(StateBackendBase):
         else:
             stream_state_model = CacheStreamStateModel
 
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         with Session(engine) as session:
             query = session.query(stream_state_model).filter(
                 stream_state_model.source_name == source_name
@@ -233,7 +237,9 @@ class SqlStateBackend(StateBackendBase):
                 )
             )
             if destination_name:
-                query = query.filter(stream_state_model.destination_name == destination_name)
+                query = query.filter(
+                    stream_state_model.destination_name == destination_name
+                )
             if streams_filter:
                 query = query.filter(
                     stream_state_model.stream_name.in_(
@@ -253,7 +259,8 @@ class SqlStateBackend(StateBackendBase):
 
         return StaticInputState(
             from_state_messages=[
-                AirbyteStateMessage.model_validate_json(state.state_json) for state in states
+                AirbyteStateMessage.model_validate_json(state.state_json)
+                for state in states
             ]
         )
 
