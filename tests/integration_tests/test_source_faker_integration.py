@@ -163,6 +163,10 @@ def test_replace_strategy(
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
     all_cache_types: list[CacheBase],
