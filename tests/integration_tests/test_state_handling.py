@@ -66,6 +66,10 @@ def source_faker_seed_b() -> ab.Source:
     return source
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12"
+)
 def test_incremental_state_cache_persistence(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
@@ -97,6 +101,10 @@ def test_incremental_state_cache_persistence(
     assert state_provider.get_stream_state("purchases")
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12"
+)
 def test_incremental_state_prefix_isolation(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
@@ -175,6 +183,10 @@ def e2e_test_destination() -> ab.Destination:
     )
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12"
+)
 def test_destination_state(
     source_faker_seed_a: ab.Source,
     e2e_test_destination: ab.Destination,

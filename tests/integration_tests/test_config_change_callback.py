@@ -54,6 +54,10 @@ def new_source_faker() -> Source:
     )
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12"
+)
 def test_source_config_callback(
     new_duckdb_destination: Destination,
     new_source_faker: Source,
@@ -81,6 +85,10 @@ def test_source_config_callback(
         mock_config_change_callback.assert_called_once_with(updated_config)
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12"
+)
 def test_destination_config_callback(
     new_duckdb_destination: Destination,
     new_source_faker: Source,
