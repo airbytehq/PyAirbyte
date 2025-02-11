@@ -44,7 +44,7 @@ def add_venv_bin_to_path(monkeypatch):
 
 @pytest.mark.skipif(
     sys.version_info >= (3, 12),
-    reason="source-faker is not yet compatible with Python 3.12"
+    reason="source-faker is not yet compatible with Python 3.12",
 )
 def setup_source_faker() -> ab.Source:
     """Test the source-faker setup."""
@@ -68,7 +68,7 @@ def setup_source_faker() -> ab.Source:
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 @pytest.mark.skipif(
     sys.version_info >= (3, 12),
-    reason="source-faker is not yet compatible with Python 3.12"
+    reason="source-faker is not yet compatible with Python 3.12",
 )
 def source_faker() -> ab.Source:
     """Fixture to return a source-faker connector instance."""

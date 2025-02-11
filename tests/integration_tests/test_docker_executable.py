@@ -33,7 +33,7 @@ FAKER_SCALE_B = 300
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 @pytest.mark.skipif(
     sys.version_info >= (3, 12),
-    reason="source-faker is not yet compatible with Python 3.12"
+    reason="source-faker is not yet compatible with Python 3.12",
 )
 def source_docker_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
@@ -53,7 +53,7 @@ def source_docker_faker_seed_a() -> ab.Source:
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
 @pytest.mark.skipif(
     sys.version_info >= (3, 12),
-    reason="source-faker is not yet compatible with Python 3.12"
+    reason="source-faker is not yet compatible with Python 3.12",
 )
 def source_docker_faker_seed_b() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
