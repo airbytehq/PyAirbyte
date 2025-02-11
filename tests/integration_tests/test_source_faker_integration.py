@@ -117,6 +117,10 @@ def all_cache_types(
     ]
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_faker_pks(
     source_faker_seed_a: ab.Source,
     duckdb_cache: DuckDBCache,
@@ -213,6 +217,10 @@ def test_merge_strategy(
         assert len(list(result.cache.streams["purchases"])) == FAKER_SCALE_B
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_incremental_sync(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
@@ -244,10 +252,18 @@ def test_incremental_sync(
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_config_spec(source_faker_seed_a: ab.Source) -> None:
     assert source_faker_seed_a.config_spec
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_example_config_file(source_faker_seed_a: ab.Source) -> None:
     with tempfile.NamedTemporaryFile(mode="w+", delete=False) as temp:
         source_faker_seed_a.print_config_spec(

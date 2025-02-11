@@ -75,6 +75,10 @@ def source_faker() -> ab.Source:
     return setup_source_faker()
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_setup_source_faker() -> None:
     """Test that fixture logic works as expected."""
     source = setup_source_faker()
