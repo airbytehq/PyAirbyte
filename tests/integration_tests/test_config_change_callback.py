@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import sys
 import pytest
 from typing import Any
 from unittest.mock import patch
@@ -35,6 +36,10 @@ def new_duckdb_destination() -> Destination:
 
 
 @pytest.fixture
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12"
+)
 def new_source_faker() -> Source:
     return get_source(
         "source-faker",
