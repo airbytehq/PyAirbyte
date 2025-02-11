@@ -6,6 +6,8 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
+import sys
+import pytest
 import airbyte as ab
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
@@ -25,6 +27,10 @@ def test_deploy_destination(
     cloud_workspace.permanently_delete_destination(cloud_destination)
 
 
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="source-faker is not yet compatible with Python 3.12",
+)
 def test_deploy_source(
     cloud_workspace: CloudWorkspace,
 ) -> None:
