@@ -28,6 +28,7 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
     local_executable: Path | str | None = None,
     docker_image: str | bool | None = None,
     use_host_network: bool = False,
+    runas_host_user: bool = False,
     install_if_missing: bool = True,
 ) -> Destination:
     """Get a connector by name and version.
@@ -56,6 +57,9 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             the host network. This is useful for connectors that need to access resources on
             the host machine, such as a local database. This parameter is ignored when
             `docker_image` is not set.
+        runas_host_user: If set, along with docker_image, the connector will be executed using the
+            host's user UID/GID. This is useful to handle container privileges (such as files
+            permissions). This parameter is ignored when `docker_image` is not set.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
     """
@@ -70,6 +74,7 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             local_executable=local_executable,
             docker_image=docker_image,
             use_host_network=use_host_network,
+            runas_host_user=runas_host_user,
             install_if_missing=install_if_missing,
         ),
     )

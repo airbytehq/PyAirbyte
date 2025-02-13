@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -123,6 +124,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
     local_executable: Path | str | None = None,
     docker_image: bool | str | None = None,
     use_host_network: bool = False,
+    runas_host_user: bool = False,
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
@@ -235,6 +237,9 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
 
         if use_host_network is True:
             docker_cmd.extend(["--network", "host"])
+
+        if runas_host_user is True:
+            docker_cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
 
         docker_cmd.extend([docker_image])
 
