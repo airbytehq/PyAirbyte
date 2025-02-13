@@ -375,6 +375,7 @@ class Source(ConnectorBase):
                     destination_sync_mode=DestinationSyncMode.overwrite,
                     primary_key=stream.source_defined_primary_key,
                     sync_mode=SyncMode.incremental,
+                    cursor_field=stream.default_cursor_field,
                 )
                 for stream in self.discovered_catalog.streams
                 if stream.name in selected_streams
