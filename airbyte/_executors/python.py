@@ -197,10 +197,8 @@ class VenvExecutor(Executor):
             for line in output.splitlines():
                 if line.startswith("Version:"):
                     version = line.split(":", 1)[1].strip()
-                    break
-            else:
-                return None
-            return version
+                    return version
+            return None
         except Exception:
             if raise_on_error:
                 raise
