@@ -1,4 +1,5 @@
 """Tests for UV functionality and integration validation."""
+
 from __future__ import annotations
 
 import os
@@ -64,7 +65,14 @@ def test_uv_package_install(temp_venv: Path) -> None:
     install_env["VIRTUAL_ENV"] = str(temp_venv)
     install_env["PATH"] = f"{temp_venv}/bin:{env['PATH']}"
     subprocess.run(
-        ["poetry", "run", "uv", "pip", "install", "black"],  # Use black since it's a common tool that creates executables
+        [
+            "poetry",
+            "run",
+            "uv",
+            "pip",
+            "install",
+            "black",
+        ],  # Use black since it's a common tool that creates executables
         env=install_env,
         capture_output=True,  # Capture output for debugging
         text=True,
