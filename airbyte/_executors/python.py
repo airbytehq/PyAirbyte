@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -32,6 +33,7 @@ class VenvExecutor(Executor):
         target_version: str | None = None,
         pip_url: str | None = None,
         install_root: Path | None = None,
+        use_uv: bool = True,
     ) -> None:
         """Initialize a connector executor that runs a connector in a virtual environment.
 
@@ -42,8 +44,11 @@ class VenvExecutor(Executor):
             pip_url: (Optional.) The pip URL of the connector to install.
             install_root: (Optional.) The root directory where the virtual environment will be
                 created. If not provided, the current working directory will be used.
+            use_uv: (Optional.) Whether to use UV for virtual environment creation and package
+                installation. Defaults to True.
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
+        self.use_uv = use_uv
 
         if not pip_url and metadata and not metadata.pypi_package_name:
             raise exc.AirbyteConnectorNotPyPiPublishedError(
@@ -75,11 +80,12 @@ class VenvExecutor(Executor):
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         return get_bin_dir(self._get_venv_path()) / ("python" + suffix)
 
-    def _run_subprocess_and_raise_on_failure(self, args: list[str]) -> None:
+    def _run_subprocess_and_raise_on_failure(self, args: list[str], env: dict | None = None) -> None:
         result = subprocess.run(
             args,
             check=False,
             stderr=subprocess.PIPE,
+            env=env,
         )
         if result.returncode != 0:
             raise exc.AirbyteSubprocessFailedError(
@@ -107,25 +113,23 @@ class VenvExecutor(Executor):
         After installation, the installed version will be stored in self.reported_version.
         """
         self._run_subprocess_and_raise_on_failure(
-            [sys.executable, "-m", "venv", str(self._get_venv_path())]
+            ["poetry", "run", "uv", "venv", "--seed", str(self._get_venv_path())]
         )
-
-        pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
         print(
             f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-            f"Running 'pip install {self.pip_url}'...\n"
+            f"Running 'uv pip install {self.pip_url}'...\n"
         )
         try:
+            install_env = os.environ.copy()
+            install_env["VIRTUAL_ENV"] = str(self._get_venv_path())
+            install_env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
             self._run_subprocess_and_raise_on_failure(
-                args=[pip_path, "install", *shlex.split(self.pip_url)]
+                args=["poetry", "run", "uv", "pip", "install", *shlex.split(self.pip_url)],
+                env=install_env,
             )
         except exc.AirbyteSubprocessFailedError as ex:
-            # If the installation failed, remove the virtual environment
-            # Otherwise, the connector will be considered as installed and the user may not be able
-            # to retry the installation.
             with suppress(exc.AirbyteSubprocessFailedError):
                 self.uninstall()
-
             raise exc.AirbyteConnectorInstallationError from ex
 
         # Assuming the installation succeeded, store the installed version
@@ -152,13 +156,12 @@ class VenvExecutor(Executor):
 
         If recheck if False and the version has already been detected, return the cached value.
 
-        In the venv, we run the following:
-        > python -c "from importlib.metadata import version; print(version('<connector-name>'))"
+        For UV environments, we use `uv pip show` to get the version.
+        For non-UV environments, we use importlib.metadata to get the version.
         """
         if not recheck and self.reported_version:
             return self.reported_version
 
-        connector_name = self.name
         if not self.interpreter_path.exists():
             # No point in trying to detect the version if the interpreter does not exist
             if raise_on_error:
@@ -174,17 +177,25 @@ class VenvExecutor(Executor):
             package_name = (
                 self.metadata.pypi_package_name
                 if self.metadata and self.metadata.pypi_package_name
-                else f"airbyte-{connector_name}"
+                else f"airbyte-{self.name}"
             )
-            return subprocess.check_output(
+            env = os.environ.copy()
+            env["VIRTUAL_ENV"] = str(self._get_venv_path())
+            env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
+            output = subprocess.check_output(
                 [
-                    self.interpreter_path,
-                    "-c",
-                    f"from importlib.metadata import version; print(version('{package_name}'))",
+                    "poetry", "run", "uv", "pip", "show", package_name,
+                    "--python", str(self.interpreter_path),
                 ],
                 universal_newlines=True,
-                stderr=subprocess.PIPE,  # Don't print to stderr
+                stderr=subprocess.PIPE,
+                env=env,
             ).strip()
+            # Parse version from uv pip show output
+            for line in output.splitlines():
+                if line.startswith("Version:"):
+                    return line.split(":", 1)[1].strip()
+            return None
         except Exception:
             if raise_on_error:
                 raise
