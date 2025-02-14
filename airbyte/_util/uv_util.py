@@ -7,24 +7,35 @@ import subprocess
 from pathlib import Path
 
 
-def run_uv_command(args: list[str], env: dict | None = None, check: bool = False) -> subprocess.CompletedProcess:
+def run_uv_command(
+    args: list[str],
+    env: dict | None = None,
+    raise_on_error: bool = True,
+) -> subprocess.CompletedProcess:
     """Run a UV command and return the result.
 
     Args:
         args: Command arguments to pass to UV
         env: Optional environment variables
-        check: Whether to raise an exception on non-zero return code
+        raise_on_error: Whether to raise an exception on non-zero return code
 
     Returns:
         CompletedProcess instance with command output
     """
-    return subprocess.run(
+    result = subprocess.run(
         ["uv", *args],
         capture_output=True,
         text=True,
         env=env,
-        check=check,
+        check=False,
     )
+    if raise_on_error and result.returncode != 0:
+        raise exc.AirbyteSubprocessFailedError(
+            run_args=args,
+            exit_code=result.returncode,
+            log_text=result.stderr.decode("utf-8"),
+        )
+    return result
 
 
 def create_venv(venv_path: Path, with_pip: bool = True) -> None:
@@ -38,7 +49,7 @@ def create_venv(venv_path: Path, with_pip: bool = True) -> None:
     if with_pip:
         args.append("--seed")
     args.append(str(venv_path))
-    run_uv_command(args, check=True)
+    run_uv_command(args)
 
 
 def install_package(venv_path: Path, pip_url: str) -> None:
@@ -52,8 +63,12 @@ def install_package(venv_path: Path, pip_url: str) -> None:
     run_uv_command(
         ["pip", "install", pip_url],
         env=venv_env,
-        check=True,
     )
+
+
+def get_venv_bin_path(venv_path: Path) -> Path:
+    """Get the path of the executable 'bin' folder for a virtual env."""
+    return venv_path / ("Scripts" if os.name == "nt" else "bin")
 
 
 def get_venv_env(venv_path: Path) -> dict:
@@ -67,7 +82,7 @@ def get_venv_env(venv_path: Path) -> dict:
     """
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(venv_path)
-    env["PATH"] = f"{venv_path}/bin:{os.environ['PATH']}"
+    env["PATH"] = f"{get_venv_bin_path(venv_path)}:{os.environ['PATH']}"
     return env
 
 
@@ -81,6 +96,5 @@ def get_executable_path(venv_path: Path, executable: str) -> Path:
     Returns:
         Path to the executable
     """
-    bin_dir = "Scripts" if os.name == "nt" else "bin"
     suffix = ".exe" if os.name == "nt" else ""
-    return venv_path / bin_dir / f"{executable}{suffix}"
+    return get_venv_bin_path(venv_path) / f"{executable}{suffix}"
