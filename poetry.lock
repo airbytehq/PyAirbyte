@@ -4174,7 +4174,7 @@ version = "0.1.45"
 description = "An extremely fast Python package installer and resolver, written in Rust."
 optional = false
 python-versions = ">=3.8"
-groups = ["dev"]
+groups = ["main"]
 markers = "python_version <= \"3.11\""
 files = [
     {file = "uv-0.1.45-py3-none-linux_armv6l.whl", hash = "sha256:088af576fb0e0462cd5f718d03fb1a9f16ce5ae61fdb2a9d3ea938fc826cecc1"},
@@ -4365,4 +4365,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.12"
-content-hash = "8dd3b3dcb541485c28567cabf7522ae48f1a8b2a7f654cb39f09e343b883f53c"
+content-hash = "4217d3530d006d5339db1ca8c23307f7544b3d842fc746f8fcdeb70c7c703e55"
