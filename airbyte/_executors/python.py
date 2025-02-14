@@ -193,12 +193,12 @@ class VenvExecutor(Executor):
                 env=env,
             ).strip()
             # Parse version from uv pip show output
+            version = None
             for line in output.splitlines():
                 if line.startswith("Version:"):
-                    return line.split(":", 1)[1].strip()
-                else:
-                    continue
-            return None
+                    version = line.split(":", 1)[1].strip()
+                    break
+            return version
         except Exception:
             if raise_on_error:
                 raise
