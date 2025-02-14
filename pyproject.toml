@@ -53,6 +53,7 @@ uuid7 = "^0.1.0"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
+uv = "^0.1.12"
 deptry = "^0.21.1"
 docker = "^7.1.0"
 faker = "^21.0.0"
