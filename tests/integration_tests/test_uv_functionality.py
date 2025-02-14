@@ -10,7 +10,9 @@ import pytest
 
 
 # TODO: Move these utility functions to a dedicated module under "utils"
-def run_uv_command(args: list[str], env: dict | None = None, check: bool = False) -> subprocess.CompletedProcess:
+def run_uv_command(
+    args: list[str], env: dict | None = None, check: bool = False
+) -> subprocess.CompletedProcess:
     """Run a UV command and return the result.
 
     Args:
@@ -118,7 +120,9 @@ def test_uv_package_install(temp_venv: Path) -> None:
     """Test that UV can install a package and we can execute it."""
     # Create venv and install black
     create_venv(temp_venv, with_pip=True)
-    install_package(temp_venv, "black")  # Use black since it's a common tool that creates executables
+    install_package(
+        temp_venv, "black"
+    )  # Use black since it's a common tool that creates executables
 
     # Verify package executable exists and is runnable
     black_path = get_executable_path(temp_venv, "black")
