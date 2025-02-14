@@ -24,12 +24,13 @@ def test_uv_available() -> None:
 
 
 @pytest.fixture
-def temp_venv() -> Path:
-    """Create a temporary directory for virtual environment testing."""
-    with tempfile.TemporaryDirectory() as temp_dir:
-        venv_path = Path(temp_dir) / ".venv"
-        yield venv_path
-        # Cleanup happens automatically when tempdir is deleted
+def temp_venv(tmp_path: Path) -> Path:
+    """Create a temporary directory for virtual environment testing.
+
+    Uses pytest's tmp_path fixture which handles Windows cleanup properly.
+    """
+    venv_path = tmp_path / ".venv"
+    return venv_path
 
 
 def test_uv_venv_creation(temp_venv: Path) -> None:
@@ -47,19 +48,19 @@ def test_uv_venv_creation(temp_venv: Path) -> None:
 def test_uv_package_install(temp_venv: Path) -> None:
     """Test that UV can install a package and we can execute it."""
     env = os.environ.copy()  # Get poetry's environment
-    
+
     # Create venv with seed packages (pip, setuptools, wheel)
     subprocess.run(
         ["poetry", "run", "uv", "venv", "--seed", str(temp_venv)],
         env=env,
         check=True,
     )
-    
+
     # Install package
     venv_env = env.copy()
     venv_env["VIRTUAL_ENV"] = str(temp_venv)
     venv_env["PATH"] = f"{temp_venv}/bin:{env['PATH']}"
-    
+
     # Install package using UV's pip interface
     install_env = env.copy()
     install_env["VIRTUAL_ENV"] = str(temp_venv)
@@ -78,11 +79,11 @@ def test_uv_package_install(temp_venv: Path) -> None:
         text=True,
         check=True,
     )
-    
+
     # Verify package executable exists and is runnable
     black_path = temp_venv / "bin" / "black"
     assert black_path.exists()
-    
+
     # Try running the package
     result = subprocess.run(
         [str(black_path), "--version"],
