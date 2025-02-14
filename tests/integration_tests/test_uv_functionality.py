@@ -11,12 +11,10 @@ import pytest
 
 def test_uv_available() -> None:
     """Test that UV is available on the command line."""
-    # Use poetry's virtual environment where UV is installed
     result = subprocess.run(
-        ["poetry", "run", "uv", "--version"],
+        ["uv", "--version"],
         capture_output=True,
         text=True,
-        env=os.environ.copy(),  # Ensure we have the poetry environment
     )
     assert result.returncode == 0
     assert "uv" in result.stdout.lower()
@@ -35,7 +33,7 @@ def temp_venv(tmp_path: Path) -> Path:
 def test_uv_venv_creation(temp_venv: Path) -> None:
     """Test that UV can create a virtual environment."""
     result = subprocess.run(
-        ["poetry", "run", "uv", "venv", str(temp_venv)],
+        ["uv", "venv", str(temp_venv)],
         capture_output=True,
         text=True,
     )
@@ -46,41 +44,34 @@ def test_uv_venv_creation(temp_venv: Path) -> None:
 
 def test_uv_package_install(temp_venv: Path) -> None:
     """Test that UV can install a package and we can execute it."""
-    env = os.environ.copy()  # Get poetry's environment
-
     # Create venv with seed packages (pip, setuptools, wheel)
     subprocess.run(
-        ["poetry", "run", "uv", "venv", "--seed", str(temp_venv)],
-        env=env,
+        ["uv", "venv", "--seed", str(temp_venv)],
         check=True,
     )
 
-    # Install package
-    venv_env = env.copy()
+    # Set up environment variables for the virtual environment
+    venv_env = os.environ.copy()
     venv_env["VIRTUAL_ENV"] = str(temp_venv)
-    venv_env["PATH"] = f"{temp_venv}/bin:{env['PATH']}"
+    venv_env["PATH"] = f"{temp_venv}/bin:{os.environ['PATH']}"
 
-    # Install package using UV's pip interface
-    install_env = env.copy()
-    install_env["VIRTUAL_ENV"] = str(temp_venv)
-    install_env["PATH"] = f"{temp_venv}/bin:{env['PATH']}"
+    # Install package using UV directly
     subprocess.run(
         [
-            "poetry",
-            "run",
             "uv",
             "pip",
             "install",
             "black",
         ],  # Use black since it's a common tool that creates executables
-        env=install_env,
-        capture_output=True,  # Capture output for debugging
+        env=venv_env,
+        capture_output=True,
         text=True,
         check=True,
     )
 
     # Verify package executable exists and is runnable
-    black_path = temp_venv / "bin" / "black"
+    bin_dir = "Scripts" if os.name == "nt" else "bin"
+    black_path = temp_venv / bin_dir / ("black.exe" if os.name == "nt" else "black")
     assert black_path.exists()
 
     # Try running the package

@@ -32,7 +32,6 @@ class VenvExecutor(Executor):
         target_version: str | None = None,
         pip_url: str | None = None,
         install_root: Path | None = None,
-        use_uv: bool = True,
     ) -> None:
         """Initialize a connector executor that runs a connector in a virtual environment.
 
@@ -43,11 +42,8 @@ class VenvExecutor(Executor):
             pip_url: (Optional.) The pip URL of the connector to install.
             install_root: (Optional.) The root directory where the virtual environment will be
                 created. If not provided, the current working directory will be used.
-            use_uv: (Optional.) Whether to use UV for virtual environment creation and package
-                installation. Defaults to True.
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
-        self.use_uv = use_uv
 
         if not pip_url and metadata and not metadata.pypi_package_name:
             raise exc.AirbyteConnectorNotPyPiPublishedError(
@@ -114,7 +110,7 @@ class VenvExecutor(Executor):
         After installation, the installed version will be stored in self.reported_version.
         """
         self._run_subprocess_and_raise_on_failure(
-            ["poetry", "run", "uv", "venv", "--seed", str(self._get_venv_path())]
+            ["uv", "venv", "--seed", str(self._get_venv_path())]
         )
         print(
             f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
@@ -125,7 +121,7 @@ class VenvExecutor(Executor):
             install_env["VIRTUAL_ENV"] = str(self._get_venv_path())
             install_env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
             self._run_subprocess_and_raise_on_failure(
-                args=["poetry", "run", "uv", "pip", "install", *shlex.split(self.pip_url)],
+                args=["uv", "pip", "install", *shlex.split(self.pip_url)],
                 env=install_env,
             )
         except exc.AirbyteSubprocessFailedError as ex:
@@ -185,8 +181,6 @@ class VenvExecutor(Executor):
             env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
             output = subprocess.check_output(
                 [
-                    "poetry",
-                    "run",
                     "uv",
                     "pip",
                     "show",
@@ -202,7 +196,9 @@ class VenvExecutor(Executor):
             for line in output.splitlines():
                 if line.startswith("Version:"):
                     return line.split(":", 1)[1].strip()
-            return None
+                continue
+            else:
+                return None
         except Exception:
             if raise_on_error:
                 raise
