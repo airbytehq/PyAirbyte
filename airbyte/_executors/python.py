@@ -4,7 +4,6 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-import sys
 from contextlib import suppress
 from pathlib import Path
 from shutil import rmtree
@@ -80,7 +79,9 @@ class VenvExecutor(Executor):
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         return get_bin_dir(self._get_venv_path()) / ("python" + suffix)
 
-    def _run_subprocess_and_raise_on_failure(self, args: list[str], env: dict | None = None) -> None:
+    def _run_subprocess_and_raise_on_failure(
+        self, args: list[str], env: dict | None = None
+    ) -> None:
         result = subprocess.run(
             args,
             check=False,
@@ -184,8 +185,14 @@ class VenvExecutor(Executor):
             env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
             output = subprocess.check_output(
                 [
-                    "poetry", "run", "uv", "pip", "show", package_name,
-                    "--python", str(self.interpreter_path),
+                    "poetry",
+                    "run",
+                    "uv",
+                    "pip",
+                    "show",
+                    package_name,
+                    "--python",
+                    str(self.interpreter_path),
                 ],
                 universal_newlines=True,
                 stderr=subprocess.PIPE,
@@ -195,7 +202,8 @@ class VenvExecutor(Executor):
             for line in output.splitlines():
                 if line.startswith("Version:"):
                     return line.split(":", 1)[1].strip()
-            return None
+            else:
+                return None
         except Exception:
             if raise_on_error:
                 raise
