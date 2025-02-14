@@ -17,6 +17,7 @@ from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
+from airbyte._util import pip_util, uv_util
 
 
 if TYPE_CHECKING:
@@ -75,22 +76,6 @@ class VenvExecutor(Executor):
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         return get_bin_dir(self._get_venv_path()) / ("python" + suffix)
 
-    def _run_subprocess_and_raise_on_failure(
-        self, args: list[str], env: dict | None = None
-    ) -> None:
-        result = subprocess.run(
-            args,
-            check=False,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
-        if result.returncode != 0:
-            raise exc.AirbyteSubprocessFailedError(
-                run_args=args,
-                exit_code=result.returncode,
-                log_text=result.stderr.decode("utf-8"),
-            )
-
     def uninstall(self) -> None:
         if self._get_venv_path().exists():
             rmtree(str(self._get_venv_path()))
@@ -109,24 +94,23 @@ class VenvExecutor(Executor):
 
         After installation, the installed version will be stored in self.reported_version.
         """
-        self._run_subprocess_and_raise_on_failure(
-            ["uv", "venv", "--seed", str(self._get_venv_path())]
-        )
+        uv_util.create_venv(str(self._get_venv_path()))
         print(
             f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
             f"Running 'uv pip install {self.pip_url}'...\n"
         )
         try:
-            install_env = os.environ.copy()
-            install_env["VIRTUAL_ENV"] = str(self._get_venv_path())
-            install_env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
-            self._run_subprocess_and_raise_on_failure(
-                args=["uv", "pip", "install", *shlex.split(self.pip_url)],
-                env=install_env,
+            uv_util.install_package(
+                venv_path=self._get_venv_path(),
+                pip_url=self.pip_url,
             )
         except exc.AirbyteSubprocessFailedError as ex:
+            # If the installation failed, remove the virtual environment
+            # Otherwise, the connector will be considered as installed and the user may not be able
+            # to retry the installation.
             with suppress(exc.AirbyteSubprocessFailedError):
                 self.uninstall()
+
             raise exc.AirbyteConnectorInstallationError from ex
 
         # Assuming the installation succeeded, store the installed version
@@ -153,12 +137,13 @@ class VenvExecutor(Executor):
 
         If recheck if False and the version has already been detected, return the cached value.
 
-        For UV environments, we use `uv pip show` to get the version.
-        For non-UV environments, we use importlib.metadata to get the version.
+        In the venv, we run the following:
+        > python -c "from importlib.metadata import version; print(version('<connector-name>'))"
         """
         if not recheck and self.reported_version:
             return self.reported_version
 
+        connector_name = self.name
         if not self.interpreter_path.exists():
             # No point in trying to detect the version if the interpreter does not exist
             if raise_on_error:
@@ -174,31 +159,17 @@ class VenvExecutor(Executor):
             package_name = (
                 self.metadata.pypi_package_name
                 if self.metadata and self.metadata.pypi_package_name
-                else f"airbyte-{self.name}"
+                else f"airbyte-{connector_name}"
             )
-            env = os.environ.copy()
-            env["VIRTUAL_ENV"] = str(self._get_venv_path())
-            env["PATH"] = f"{self._get_venv_path()}/bin:{os.environ['PATH']}"
-            output = subprocess.check_output(
+            return subprocess.check_output(
                 [
-                    "uv",
-                    "pip",
-                    "show",
-                    package_name,
-                    "--python",
-                    str(self.interpreter_path),
+                    self.interpreter_path,
+                    "-c",
+                    f"from importlib.metadata import version; print(version('{package_name}'))",
                 ],
                 universal_newlines=True,
-                stderr=subprocess.PIPE,
-                env=env,
+                stderr=subprocess.PIPE,  # Don't print to stderr
             ).strip()
-            # Parse version from uv pip show output
-            version = None
-            for line in output.splitlines():
-                if line.startswith("Version:"):
-                    return line.split(":", 1)[1].strip()
-            else:
-                return None
         except Exception:
             if raise_on_error:
                 raise
