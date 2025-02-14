@@ -6,6 +6,8 @@ import os
 import subprocess
 from pathlib import Path
 
+from airbyte import exceptions as exc
+
 
 def run_uv_command(
     args: list[str],
