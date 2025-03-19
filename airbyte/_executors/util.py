@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -21,6 +22,7 @@ from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
+logger = logging.getLogger("airbyte")
 
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
@@ -239,7 +241,10 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
             docker_cmd.extend(["--network", "host"])
 
         if runas_host_user is True:
-            docker_cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+            try:
+                docker_cmd.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+            except:
+                logger.info("The 'runas_host_user' parameter is only supported on POSIX systems.")
 
         docker_cmd.extend([docker_image])
 
