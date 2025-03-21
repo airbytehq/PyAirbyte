@@ -633,7 +633,8 @@ class Source(ConnectorBase):
                 validation rules.
             max_lookback_days: If provided, a UTC start_date will be calculated by subtracting this
                 number of days from the current UTC datetime, and injected into the connector's
-                configuration at runtime. In this mode, state changes will not be committed.
+                configuration at runtime. In this mode, prior incremental state cursors
+                will be ignored and new state changes will not be committed.
         """
         cache = cache or get_default_cache()
         progress_tracker = ProgressTracker(
