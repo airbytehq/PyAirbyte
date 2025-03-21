@@ -698,8 +698,9 @@ class Source(ConnectorBase):
 
             # Check if connector supports start_date
             def _check_start_date_support() -> None:
-                spec = self.config_spec()
-                if "start_date" not in spec.get("properties", {}):
+                spec = self.config_spec
+                properties = spec.get("properties", {})
+                if "start_date" not in properties:
                     raise exc.PyAirbyteInputError(
                         message="Connector does not support start_date configuration.",
                         context={
