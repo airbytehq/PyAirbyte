@@ -13,7 +13,7 @@ version = "0.0.0"
 enable = true
 
 [tool.poetry.dependencies]
-python = ">=3.10,<3.12"
+python = ">=3.10,<3.13"
 
 airbyte-api = "^0.52.1"
 airbyte-cdk = "^6.28.0"
