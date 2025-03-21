@@ -18,7 +18,10 @@ UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
     ],
 )
 @pytest.mark.xfail(condition=is_windows(), reason="Test expected to fail on Windows.")
-@pytest.mark.skipif(sys.version_info >= (3, 12), reason="Test fails in Python 3.12 as pokeAPI interface is blocked for bots/CI runners")
+@pytest.mark.skipif(
+    sys.version_info >= (3, 12),
+    reason="Test fails in Python 3.12 as pokeAPI interface is blocked for bots/CI runners",
+)
 def test_nocode_execution(connector_name: str, config: dict) -> None:
     source = get_source(
         name=connector_name,
