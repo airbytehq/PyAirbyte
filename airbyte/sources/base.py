@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import warnings
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -32,6 +33,7 @@ from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.shared.catalog_providers import CatalogProvider
+from airbyte.shared.state_writers import NoOpStateWriter, StateWriterBase
 from airbyte.strategies import WriteStrategy
 
 
@@ -610,6 +612,7 @@ class Source(ConnectorBase):
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
         skip_validation: bool = False,
+        max_lookback_days: int | None = None,
     ) -> ReadResult:
         """Read from the connector and write to the cache.
 
@@ -628,6 +631,9 @@ class Source(ConnectorBase):
                 running the connector. This can be helpful in debugging, when you want to send
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
+            max_lookback_days: If provided, a UTC start_date will be calculated by subtracting this
+                number of days from the current UTC datetime, and injected into the connector's
+                configuration at runtime. In this mode, state changes will not be committed.
         """
         cache = cache or get_default_cache()
         progress_tracker = ProgressTracker(
@@ -638,13 +644,19 @@ class Source(ConnectorBase):
         )
 
         # Set up state provider if not in full refresh mode
-        if force_full_refresh:
+        if force_full_refresh or max_lookback_days is not None:
             state_provider: StateProviderBase | None = None
         else:
             state_provider = cache.get_state_provider(
                 source_name=self._name,
             )
-        state_writer = cache.get_state_writer(source_name=self._name)
+
+        # Set up state writer based on max_lookback_days
+        if max_lookback_days is not None:
+            # Use NoOpStateWriter to prevent state changes from being committed
+            state_writer: StateWriterBase = NoOpStateWriter()
+        else:
+            state_writer = cache.get_state_writer(source_name=self._name)
 
         if streams:
             self.select_streams(streams)
@@ -656,6 +668,31 @@ class Source(ConnectorBase):
             )
 
         try:
+            # If max_lookback_days is provided, calculate the start_date and inject it into config
+            modified_config = None
+            if max_lookback_days is not None:
+                # Calculate the start_date by subtracting max_lookback_days from utcnow
+                start_date_dt = datetime.now(tz=timezone.utc) - timedelta(days=max_lookback_days)
+                start_date = start_date_dt.isoformat()
+
+                # Create a copy of the config and inject the start_date
+                modified_config = self.get_config().copy()
+                modified_config["start_date"] = start_date
+
+                # Print a message to the user
+                print(
+                    f"Executing sync with max {max_lookback_days} days lookback "
+                    f'(from "{start_date}" UTC). '
+                    f"Note that other incremental state cursors will be ignored "
+                    f"and state checkpointing will be disabled for this sync."
+                )
+
+            # Temporarily modify the config if needed
+            original_config = None
+            if modified_config is not None:
+                original_config = self._config_dict
+                self._config_dict = modified_config
+
             result = self._read_to_cache(
                 cache=cache,
                 catalog_provider=CatalogProvider(self.configured_catalog),
@@ -667,13 +704,25 @@ class Source(ConnectorBase):
                 skip_validation=skip_validation,
                 progress_tracker=progress_tracker,
             )
+
+            # Restore the original config if it was modified
+            if original_config is not None:
+                self._config_dict = original_config
         except exc.PyAirbyteInternalError as ex:
+            # Restore the original config if it was modified
+            if original_config is not None:
+                self._config_dict = original_config
+
             progress_tracker.log_failure(exception=ex)
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,
             ) from ex
         except Exception as ex:
+            # Restore the original config if it was modified
+            if original_config is not None:
+                self._config_dict = original_config
+
             progress_tracker.log_failure(exception=ex)
             raise
 
