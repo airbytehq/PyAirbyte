@@ -677,7 +677,22 @@ class Source(ConnectorBase):
 
                 # Create a copy of the config and inject the start_date
                 modified_config = self.get_config().copy()
-                modified_config["start_date"] = start_date
+                # Check if the connector config spec includes start_date before injecting it
+                # This avoids breaking connectors that don't use start_date
+                try:
+                    spec = self.config_spec()
+                    if "start_date" in spec.get("properties", {}):
+                        modified_config["start_date"] = start_date
+                    else:
+                        print(
+                            f"Warning: Connector does not support start_date configuration. "
+                            f"max_lookback_days={max_lookback_days} will be ignored."
+                        )
+                        # Don't modify the config if start_date isn't supported
+                        modified_config = None
+                except Exception:
+                    # If we can't get the config spec, assume start_date is supported
+                    modified_config["start_date"] = start_date
 
                 # Print a message to the user
                 print(
