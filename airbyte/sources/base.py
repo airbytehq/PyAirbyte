@@ -604,6 +604,29 @@ class Source(ConnectorBase):
         )
         print(log_message)
 
+    def _setup_state_handling(
+        self,
+        cache: CacheBase,
+        *,
+        force_full_refresh: bool,
+        max_lookback_days: int | None,
+    ) -> tuple[StateProviderBase | None, StateWriterBase]:
+        """Set up state provider and writer based on sync mode."""
+        if force_full_refresh or max_lookback_days is not None:
+            state_provider = None
+            # Use NoOpStateWriter to prevent state changes from being committed
+            if max_lookback_days is not None:
+                state_writer: StateWriterBase = NoOpStateWriter()
+            else:
+                state_writer = cache.get_state_writer(source_name=self._name)
+        else:
+            state_provider = cache.get_state_provider(
+                source_name=self._name,
+            )
+            state_writer = cache.get_state_writer(source_name=self._name)
+
+        return state_provider, state_writer
+
     def read(
         self,
         cache: CacheBase | None = None,
@@ -644,20 +667,10 @@ class Source(ConnectorBase):
             expected_streams=None,  # Will be set later
         )
 
-        # Set up state provider if not in full refresh mode
-        if force_full_refresh or max_lookback_days is not None:
-            state_provider: StateProviderBase | None = None
-        else:
-            state_provider = cache.get_state_provider(
-                source_name=self._name,
-            )
-
-        # Set up state writer based on max_lookback_days
-        if max_lookback_days is not None:
-            # Use NoOpStateWriter to prevent state changes from being committed
-            state_writer: StateWriterBase = NoOpStateWriter()
-        else:
-            state_writer = cache.get_state_writer(source_name=self._name)
+        # Set up state provider and writer based on mode
+        state_provider, state_writer = self._setup_state_handling(
+            cache, force_full_refresh=force_full_refresh, max_lookback_days=max_lookback_days
+        )
 
         if streams:
             self.select_streams(streams)
@@ -668,47 +681,63 @@ class Source(ConnectorBase):
                 available_streams=self.get_available_streams(),
             )
 
+        # Helper function to prepare config with lookback days
+        def _prepare_lookback_config(
+            days: int | None,
+        ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+            """Prepare config with lookback days and return original config for restoration."""
+            if days is None:
+                return None, None
+
+            # Calculate the start_date by subtracting days from utcnow
+            start_date_dt = datetime.now(tz=timezone.utc) - timedelta(days=days)
+            start_date = start_date_dt.isoformat()
+
+            # Create a copy of the config
+            modified = self.get_config().copy()
+
+            # Check if connector supports start_date
+            def _check_start_date_support() -> None:
+                spec = self.config_spec()
+                if "start_date" not in spec.get("properties", {}):
+                    raise exc.PyAirbyteInputError(
+                        message="Connector does not support start_date configuration.",
+                        context={
+                            "connector_name": self.name,
+                            "max_lookback_days": days,
+                        },
+                    )
+
+            try:
+                _check_start_date_support()
+            except exc.PyAirbyteInputError:
+                raise
+            except Exception:
+                # If we can't get config spec for other reasons, assume start_date is supported
+                pass
+
+            # Inject start_date into config
+            modified["start_date"] = start_date
+
+            # Print message to user
+            print(
+                f"Executing sync with max {days} days lookback "
+                f'(from "{start_date}" UTC). '
+                f"Note that other incremental state cursors will be ignored "
+                f"and state checkpointing will be disabled for this sync."
+            )
+
+            # Return modified config and original for restoration
+            return modified, self._config_dict
+
+        # Prepare config with lookback days if needed
+        modified_config, original_config = _prepare_lookback_config(max_lookback_days)
+
+        # Apply modified config if available
+        if modified_config is not None:
+            self._config_dict = modified_config
+
         try:
-            # If max_lookback_days is provided, calculate the start_date and inject it into config
-            modified_config = None
-            if max_lookback_days is not None:
-                # Calculate the start_date by subtracting max_lookback_days from utcnow
-                start_date_dt = datetime.now(tz=timezone.utc) - timedelta(days=max_lookback_days)
-                start_date = start_date_dt.isoformat()
-
-                # Create a copy of the config and inject the start_date
-                modified_config = self.get_config().copy()
-                # Check if the connector config spec includes start_date before injecting it
-                # This avoids breaking connectors that don't use start_date
-                try:
-                    spec = self.config_spec()
-                    if "start_date" in spec.get("properties", {}):
-                        modified_config["start_date"] = start_date
-                    else:
-                        print(
-                            f"Warning: Connector does not support start_date configuration. "
-                            f"max_lookback_days={max_lookback_days} will be ignored."
-                        )
-                        # Don't modify the config if start_date isn't supported
-                        modified_config = None
-                except Exception:
-                    # If we can't get the config spec, assume start_date is supported
-                    modified_config["start_date"] = start_date
-
-                # Print a message to the user
-                print(
-                    f"Executing sync with max {max_lookback_days} days lookback "
-                    f'(from "{start_date}" UTC). '
-                    f"Note that other incremental state cursors will be ignored "
-                    f"and state checkpointing will be disabled for this sync."
-                )
-
-            # Temporarily modify the config if needed
-            original_config = None
-            if modified_config is not None:
-                original_config = self._config_dict
-                self._config_dict = modified_config
-
             result = self._read_to_cache(
                 cache=cache,
                 catalog_provider=CatalogProvider(self.configured_catalog),
@@ -720,27 +749,19 @@ class Source(ConnectorBase):
                 skip_validation=skip_validation,
                 progress_tracker=progress_tracker,
             )
-
-            # Restore the original config if it was modified
-            if original_config is not None:
-                self._config_dict = original_config
         except exc.PyAirbyteInternalError as ex:
-            # Restore the original config if it was modified
-            if original_config is not None:
-                self._config_dict = original_config
-
             progress_tracker.log_failure(exception=ex)
             raise exc.AirbyteConnectorFailedError(
                 connector_name=self.name,
                 log_text=self._last_log_messages,
             ) from ex
         except Exception as ex:
+            progress_tracker.log_failure(exception=ex)
+            raise
+        finally:
             # Restore the original config if it was modified
             if original_config is not None:
                 self._config_dict = original_config
-
-            progress_tracker.log_failure(exception=ex)
-            raise
 
         progress_tracker.log_success()
         return result
