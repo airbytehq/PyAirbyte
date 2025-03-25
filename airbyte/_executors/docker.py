@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 from typing import NoReturn
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
+from airbyte.logs import get_global_file_logger
 
 
 class DockerExecutor(Executor):
@@ -15,8 +17,10 @@ class DockerExecutor(Executor):
         *,
         executable: list[str],
         target_version: str | None = None,
+        volumes: dict[Path, str] | None = None,
     ) -> None:
         self.executable: list[str] = executable
+        self.volumes: dict[Path, str] = volumes or {}
         name = name or executable[0]
         super().__init__(name=name, target_version=target_version)
 
@@ -56,3 +60,44 @@ class DockerExecutor(Executor):
     def _cli(self) -> list[str]:
         """Get the base args of the CLI executable."""
         return self.executable
+
+    def map_cli_args(self, args: list[str]) -> list[str]:
+        """Map local file paths to the container's volume paths."""
+        new_args = []
+        logger = get_global_file_logger()
+        for arg in args:
+            if Path(arg).exists():
+                print(f"Found file input path `{arg}` exists.")
+                # This is a file path and we need to map it to the same file within the
+                # relative path of the file within the container's volume.
+                for local_volume, container_path in self.volumes.items():
+                    if Path(arg).is_relative_to(local_volume):
+                        if logger:
+                            logger.debug(
+                                f"Found file input path `{arg}` "
+                                f"relative to container-mapped volume: {local_volume}"
+                            )
+                        mapped_path = container_path / Path(arg).relative_to(local_volume)
+                        if logger:
+                            logger.debug(f"Mapping `{arg}` -> `{mapped_path}`")
+                        new_args.append(str(mapped_path))
+                        break
+                else:
+                    # No break reached; a volume was found for this file path
+                    if logger:
+                        logger.warning(
+                            f"File path `{arg}` is not relative to any volume path. "
+                            "The file may not be available to the container at runtime."
+                        )
+                    new_args.append(arg)
+
+            else:
+                new_args.append(arg)
+
+        if logger and args != new_args:
+            logger.info(
+                f"Mapping local-to-container CLI args: {args} -> {new_args} "
+                f"based upon volume definitions: {self.volumes}"
+            )
+
+        return new_args
