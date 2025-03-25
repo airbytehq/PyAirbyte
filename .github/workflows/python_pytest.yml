@@ -48,16 +48,6 @@ jobs:
         --durations=5 --exitfirst
         -m "not slow and not requires_creds and not linting and not flaky"
 
-    - name: Run Pytest with Coverage (Flaky Tests Only)
-      timeout-minutes: 60
-      continue-on-error: true
-      env:
-        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        poetry run coverage run -m pytest
-        --durations=5 --exitfirst
-        -m "flaky and not slow and not requires_creds"
-
     - name: Print Coverage Report
       if: always()
       run: poetry run coverage report
