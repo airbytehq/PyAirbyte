@@ -71,7 +71,6 @@ class DockerExecutor(Executor):
         logger = get_global_file_logger()
         for arg in args:
             if Path(arg).exists():
-                print(f"Found file input path `{arg}` exists.")
                 # This is a file path and we need to map it to the same file within the
                 # relative path of the file within the container's volume.
                 for local_volume, container_path in self.volumes.items():
