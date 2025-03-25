@@ -37,7 +37,6 @@ _PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
 _MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
-    "source-adjust",
     "source-alpha-vantage",
     "source-amplitude",
     "source-apify-dataset",
@@ -48,13 +47,14 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-braintree",
     "source-braze",
     "source-chargebee",
-    "source-close-com",
     "source-commercetools",
+    "source-eventbrite",
     "source-facebook-pages",
     "source-fastbill",
     "source-freshdesk",
     "source-gitlab",
     "source-gnews",
+    "source-gong",
     "source-greenhouse",
     "source-instagram",
     "source-instatus",
@@ -72,7 +72,6 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-okta",
     "source-orb",
     "source-outreach",
-    "source-partnerstack",
     "source-paypal-transaction",
     "source-pinterest",
     "source-pipedrive",
@@ -81,17 +80,17 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-prestashop",
     "source-public-apis",
     "source-qualaroo",
-    "source-quickbooks",
     "source-railz",
     "source-recharge",
     "source-recurly",
     "source-retently",
     "source-rss",
     "source-salesloft",
+    "source-service-now",
     "source-slack",
     "source-surveymonkey",
-    "source-tiktok-marketing",
     "source-the-guardian-api",
+    "source-tiktok-marketing",
     "source-trello",
     "source-typeform",
     "source-us-census",
@@ -104,21 +103,15 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-zenloop",
     "source-zoom",
 ]
-_LOWCODE_CONNECTORS_FAILING_VALIDATION = [
-    "source-amazon-ads",
-]
+_LOWCODE_CONNECTORS_FAILING_VALIDATION = []
 # Connectors that return 404 or some other misc exception.
-_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = []
-# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
-_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = [
-    "source-apple-search-ads",
+_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
+    "source-adjust",
+    "source-amazon-ads",
     "source-marketo",
-    "source-n8n",
-    "source-onesignal",
-    "source-postmarkapp",
-    "source-sentry",
-    "source-unleash",
 ]
+# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
+_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = []
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
     *_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
