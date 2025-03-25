@@ -30,8 +30,6 @@ __cache: dict[str, ConnectorMetadata] | None = None
 _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
 
-_LOWCODE_CDK_TAG = "cdk:low-code"
-
 _PYTHON_LANGUAGE = "python"
 _MANIFEST_ONLY_LANGUAGE = "manifest-only"
 
@@ -219,9 +217,6 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
             InstallType.PYTHON if language == Language.PYTHON and pypi_enabled else None,
             InstallType.JAVA if language == Language.JAVA else None,
             InstallType.YAML if language == Language.MANIFEST_ONLY else None,
-            # TODO: Remove 'cdk:low-code' check once all connectors are migrated to manifest-only.
-            # https://github.com/airbytehq/PyAirbyte/issues/348
-            InstallType.YAML if _LOWCODE_CDK_TAG in tags else None,
         ]
         if x
     }
