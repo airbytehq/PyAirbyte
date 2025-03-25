@@ -10,6 +10,10 @@ from airbyte._executors.base import Executor
 from airbyte.logs import get_global_file_logger
 
 
+DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte"
+"""Default temp dir in an Airbyte connector's Docker image."""
+
+
 class DockerExecutor(Executor):
     def __init__(
         self,

@@ -11,7 +11,7 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
-from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.docker import DockerExecutor, DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
@@ -29,8 +29,7 @@ VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
     "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
 )
-DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte/tmp"
-"""Default temp dir in an Airbyte connector's Docker image."""
+
 
 def _try_get_source_manifest(
     source_name: str,
