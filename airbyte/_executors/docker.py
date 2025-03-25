@@ -72,20 +72,22 @@ class DockerExecutor(Executor):
                 # relative path of the file within the container's volume.
                 for local_volume, container_path in self.volumes.items():
                     if Path(arg).is_relative_to(local_volume):
-                        if logger:
-                            logger.debug(
+                        if logger or True:
+                            # logger.debug(
+                            print(
                                 f"Found file input path `{arg}` "
                                 f"relative to container-mapped volume: {local_volume}"
                             )
                         mapped_path = container_path / Path(arg).relative_to(local_volume)
-                        if logger:
-                            logger.debug(f"Mapping `{arg}` -> `{mapped_path}`")
+                        if logger or True:
+                            print(f"Mapping `{arg}` -> `{mapped_path}`")
+                            # logger.debug(f"Mapping `{arg}` -> `{mapped_path}`")
                         new_args.append(str(mapped_path))
                         break
                 else:
                     # No break reached; a volume was found for this file path
-                    if logger:
-                        logger.warning(
+                    if logger or True:
+                        print(
                             f"File path `{arg}` is not relative to any volume path. "
                             "The file may not be available to the container at runtime."
                         )
@@ -95,7 +97,7 @@ class DockerExecutor(Executor):
                 new_args.append(arg)
 
         if logger and args != new_args:
-            logger.info(
+            print(
                 f"Mapping local-to-container CLI args: {args} -> {new_args} "
                 f"based upon volume definitions: {self.volumes}"
             )
