@@ -10,7 +10,7 @@ from airbyte._executors.base import Executor
 from airbyte.logs import get_global_file_logger
 
 
-DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte"
+DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/var/airbyte/tmp"
 """Default temp dir in an Airbyte connector's Docker image."""
 
 
