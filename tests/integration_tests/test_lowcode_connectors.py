@@ -56,13 +56,15 @@ def test_nocode_connectors_setup(connector_name: str) -> None:
 )
 def test_expected_hardcoded_failures(
     failure_group,
-    exception_type: str,
+    exception_type: Exception,
 ) -> None:
     """Test that hardcoded failure groups are failing as expected.
 
     If a connector starts passing, this is probably good news, and it should be removed from the
     hardcoded failure list.
     """
+    no_exception_list: list[str] = []
+    wrong_exception_list: dict[str, Exception] = {}
     for connector_name in failure_group:
         try:
             source = get_source(
@@ -74,14 +76,15 @@ def test_expected_hardcoded_failures(
             if isinstance(ex, exception_type):
                 pass
             else:
-                raise AssertionError(
-                    f"Expected connector {connector_name} to fail with"
-                    f" '{exception_type}' but got '{type(ex).__name__}'. "
-                )
+                wrong_exception_list[connector_name] = ex
         else:
-            raise AssertionError(
-                f"Expected connector {connector_name} to fail with"
-                f" '{exception_type}' but got no exception. "
-                "This probably means you need to remove this connector from the"
-                " hardcoded failure list."
-            )
+            no_exception_list.append(connector_name)
+
+    if no_exception_list or wrong_exception_list:
+        raise AssertionError(
+            f"Expected connectors to fail with '{exception_type}' but got the following results:"
+            f"\nNo exception: {no_exception_list}"
+            f"\nWrong exception: {wrong_exception_list}"
+            "\nThis probably means you need to remove this connector from the"
+            " hardcoded failure list."
+        )
