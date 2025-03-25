@@ -11,7 +11,7 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
-from airbyte._executors.docker import DockerExecutor, DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
+from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
