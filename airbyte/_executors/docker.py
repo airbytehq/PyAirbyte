@@ -81,7 +81,7 @@ class DockerExecutor(Executor):
                             f"Found file input path `{arg}` "
                             f"relative to container-mapped volume: {local_volume}"
                         )
-                        mapped_path = container_path / Path(arg).relative_to(local_volume)
+                        mapped_path = Path(container_path) / Path(arg).relative_to(local_volume)
                         logger.debug(f"Mapping `{arg}` -> `{mapped_path}`")
                         new_args.append(str(mapped_path))
                         break
