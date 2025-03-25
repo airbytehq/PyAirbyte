@@ -42,8 +42,8 @@ def _try_get_source_manifest(
 
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
-        - `HTTPError`: If fetching the URL was unsuccessful.
-        - `YAMLError`: If parsing the YAML failed.
+        - `AirbyteConnectorInstallationError`: If the registry file cannot be downloaded or if the
+          manifest YAML cannot be parsed.
     """
     if source_name is None:
         raise exc.PyAirbyteInputError(
@@ -62,7 +62,16 @@ def _try_get_source_manifest(
         url=manifest_url,
         headers={"User-Agent": f"PyAirbyte/{get_version()}"},
     )
-    response.raise_for_status()  # Raise HTTPError exception if the download failed
+    try:
+        response.raise_for_status()  # Raise HTTPError exception if the download failed
+    except requests.exceptions.HTTPError as ex:
+        raise exc.AirbyteConnectorInstallationError(
+            message="Failed to download the connector manifest.",
+            context={
+                "manifest_url": manifest_url,
+            },
+        ) from ex
+
     try:
         return cast("dict", yaml.safe_load(response.text))
     except yaml.YAMLError as ex:
