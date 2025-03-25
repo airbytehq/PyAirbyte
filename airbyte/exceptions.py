@@ -134,12 +134,24 @@ class PyAirbyteError(Exception):
 
         if self.log_file:
             if self.print_full_log:
-                exception_str += (
-                    f"\n    Full log file text from {self.log_file.absolute()!s}:"
-                    + VERTICAL_SEPARATOR
-                    + self.log_file.read_text()
-                    + VERTICAL_SEPARATOR
-                )
+                if not self.log_file.is_file():
+                    exception_str += f"\n    No log file found at: {self.log_file.absolute()!s}"
+
+                else:
+                    try:
+                        full_log_file_text = self.log_file.read_text()
+                    except Exception as ex:
+                        full_log_file_text = (
+                            f"[ERROR] Log file could not be read from: {self.log_file.absolute()!s}"
+                            f"\nRead error: {ex!s}"
+                        )
+
+                    exception_str += (
+                        f"\n    Full log file text from {self.log_file.absolute()!s}:"
+                        + VERTICAL_SEPARATOR
+                        + full_log_file_text
+                        + VERTICAL_SEPARATOR
+                    )
             else:
                 exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
         return exception_str
