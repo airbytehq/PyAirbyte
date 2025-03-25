@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import stat
 import tempfile
 import time
 import warnings
@@ -36,6 +37,9 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
                 json.dumps(content) if isinstance(content, dict) else content,
             )
             temp_file.flush()
+            # Grant "read" permission to all users
+            Path(temp_file.name).chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+
             # Don't close the file yet (breaks Windows)
             # temp_file.close()
             temp_files.append(temp_file)
