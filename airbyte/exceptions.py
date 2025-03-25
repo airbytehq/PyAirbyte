@@ -132,17 +132,16 @@ class PyAirbyteError(Exception):
         if self.original_exception:
             exception_str += VERTICAL_SEPARATOR + f"\nCaused by: {self.original_exception!s}"
 
-        if self.log_file and not self.print_full_log:
+        if self.log_file:
             if self.print_full_log:
                 exception_str += (
                     f"\n    Full log file text from {self.log_file.absolute()!s}:"
                     + VERTICAL_SEPARATOR
-                    + self.print_full_log
+                    + self.log_file.read_text()
                     + VERTICAL_SEPARATOR
                 )
             else:
                 exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
-
         return exception_str
 
     def __repr__(self) -> str:
