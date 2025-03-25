@@ -103,7 +103,7 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-zenloop",
     "source-zoom",
 ]
-_LOWCODE_CONNECTORS_FAILING_VALIDATION = []
+_LOWCODE_CONNECTORS_FAILING_VALIDATION: list[str] = []
 # Connectors that return 404 or some other misc exception.
 _LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
     "source-adjust",
