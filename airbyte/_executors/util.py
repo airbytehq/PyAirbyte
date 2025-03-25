@@ -11,7 +11,7 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
-from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
@@ -42,8 +42,8 @@ def _try_get_source_manifest(
 
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
-        - `HTTPError`: If fetching the URL was unsuccessful.
-        - `YAMLError`: If parsing the YAML failed.
+        - `AirbyteConnectorInstallationError`: If the registry file cannot be downloaded or if the
+          manifest YAML cannot be parsed.
     """
     if source_name is None:
         raise exc.PyAirbyteInputError(
@@ -62,7 +62,16 @@ def _try_get_source_manifest(
         url=manifest_url,
         headers={"User-Agent": f"PyAirbyte/{get_version()}"},
     )
-    response.raise_for_status()  # Raise HTTPError exception if the download failed
+    try:
+        response.raise_for_status()  # Raise HTTPError exception if the download failed
+    except requests.exceptions.HTTPError as ex:
+        raise exc.AirbyteConnectorInstallationError(
+            message="Failed to download the connector manifest.",
+            context={
+                "manifest_url": manifest_url,
+            },
+        ) from ex
+
     try:
         return cast("dict", yaml.safe_load(response.text))
     except yaml.YAMLError as ex:
@@ -115,7 +124,7 @@ def _get_local_executor(
     )
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branches/arugments/statements
+def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branches/arguments/statements
     name: str,
     *,
     version: str | None = None,
@@ -217,21 +226,24 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
         if ":" not in docker_image:
             docker_image = f"{docker_image}:{version or 'latest'}"
 
-        temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
         local_mount_dir = Path().absolute() / name
         local_mount_dir.mkdir(exist_ok=True)
 
+        volumes = {
+            local_mount_dir: "/local",
+            host_temp_dir: container_temp_dir,
+        }
         docker_cmd = [
             "docker",
             "run",
             "--rm",
             "-i",
-            "--volume",
-            f"{local_mount_dir}:/local/",
-            "--volume",
-            f"{temp_dir}:{temp_dir}",
         ]
+        for local_dir, container_dir in volumes.items():
+            docker_cmd.extend(["--volume", f"{local_dir}:{container_dir}"])
 
         if use_host_network is True:
             docker_cmd.extend(["--network", "host"])
@@ -241,6 +253,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
         return DockerExecutor(
             name=name,
             executable=docker_cmd,
+            volumes=volumes,
         )
 
     if source_manifest:
