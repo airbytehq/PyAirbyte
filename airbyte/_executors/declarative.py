@@ -18,6 +18,7 @@ from airbyte._executors.base import Executor
 
 
 if TYPE_CHECKING:
+    from argparse import Namespace
     from collections.abc import Iterator
 
     from airbyte._message_iterators import AirbyteMessageIterator
@@ -54,7 +55,7 @@ class DeclarativeExecutor(Executor):
         self.name = name
         self._manifest_dict: dict
         if isinstance(manifest, Path):
-            self._manifest_dict = cast(dict, yaml.safe_load(manifest.read_text()))
+            self._manifest_dict = cast("dict", yaml.safe_load(manifest.read_text()))
 
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
@@ -102,7 +103,9 @@ class DeclarativeExecutor(Executor):
         """Execute the declarative source."""
         _ = stdin  # Not used
         source_entrypoint = AirbyteEntrypoint(self.declarative_source)
-        parsed_args = source_entrypoint.parse_args(args)
+
+        mapped_args: list[str] = self.map_cli_args(args)
+        parsed_args: Namespace = source_entrypoint.parse_args(mapped_args)
         yield from source_entrypoint.run(parsed_args)
 
     def ensure_installation(self, *, auto_fix: bool = True) -> None:

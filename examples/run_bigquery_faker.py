@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import tempfile
 import warnings
-from typing import cast
 
 import airbyte as ab
 from airbyte.caches.bigquery import BigQueryCache
-from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 warnings.filterwarnings("ignore", message="Cannot create BigQuery Storage client")
@@ -22,13 +20,14 @@ warnings.filterwarnings("ignore", message="Cannot create BigQuery Storage client
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 SECRET_NAME = "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
 
-bigquery_destination_secret: dict = cast(
-    SecretString,
+bigquery_destination_secret: dict = (
     GoogleGSMSecretManager(
         project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
-    ).get_secret(SECRET_NAME),
-).parse_json()
+    )
+    .get_secret(SECRET_NAME)
+    .parse_json()
+)
 
 
 def main() -> None:

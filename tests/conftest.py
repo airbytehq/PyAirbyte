@@ -19,8 +19,8 @@ import airbyte
 import docker
 import psycopg
 import pytest
-import ulid
 from _pytest.nodes import Item
+from airbyte._util import text_util
 from airbyte._util.meta import is_windows
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
@@ -81,18 +81,6 @@ def pytest_collection_modifyitems(items: list[Item]) -> None:
     items.sort(key=test_priority)
 
     for item in items:
-        # TODO: Remove this 'skip' once Cloud Workspace issue is resolved.
-        #       (Test user apparently deleted.)
-        if (
-            "cloud_workspace_id" in item.fixturenames
-            or "cloud_workspace_id" in item.fixturenames
-        ):
-            item.add_marker(
-                pytest.mark.skip(
-                    reason="Skipping cloud tests. (FIXME: test user deleted.)"
-                )
-            )
-
         # Skip tests that require Docker if Docker is not available (including on Windows).
         if (
             "new_postgres_cache" in item.fixturenames
@@ -258,7 +246,7 @@ def new_postgres_cache(new_postgres_db: str):
         database="postgres",
         schema_name="public",
         # TODO: Move this to schema name when we support it (breaks as of 2024-01-31):
-        table_prefix=f"test{str(ulid.ULID())[-6:]}_",
+        table_prefix=f"test{text_util.generate_random_suffix()}_",
     )
     yield config
 

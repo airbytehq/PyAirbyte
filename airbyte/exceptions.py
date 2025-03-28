@@ -44,6 +44,8 @@ from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
 
+from airbyte.constants import AIRBYTE_PRINT_FULL_ERROR_LOGS
+
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
@@ -68,6 +70,7 @@ class PyAirbyteError(Exception):
     help_url: str | None = None
     log_text: str | list[str] | None = None
     log_file: Path | None = None
+    print_full_log: bool = AIRBYTE_PRINT_FULL_ERROR_LOGS
     context: dict[str, Any] | None = None
     message: str | None = None
     original_exception: Exception | None = None
@@ -93,6 +96,7 @@ class PyAirbyteError(Exception):
             "log_text",
             "context",
             "log_file",
+            "print_full_log",
             "original_exception",
         ]
         display_properties = {
@@ -119,9 +123,6 @@ class PyAirbyteError(Exception):
         if context_str:
             exception_str += "\n    " + context_str
 
-        if self.log_file:
-            exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
-
         if self.log_text:
             if isinstance(self.log_text, list):
                 self.log_text = "\n".join(self.log_text)
@@ -131,6 +132,28 @@ class PyAirbyteError(Exception):
         if self.original_exception:
             exception_str += VERTICAL_SEPARATOR + f"\nCaused by: {self.original_exception!s}"
 
+        if self.log_file:
+            if self.print_full_log:
+                if not self.log_file.is_file():
+                    exception_str += f"\n    No log file found at: {self.log_file.absolute()!s}"
+
+                else:
+                    try:
+                        full_log_file_text = self.log_file.read_text()
+                    except Exception as ex:
+                        full_log_file_text = (
+                            f"[ERROR] Log file could not be read from: {self.log_file.absolute()!s}"
+                            f"\nRead error: {ex!s}"
+                        )
+
+                    exception_str += (
+                        f"\n    Full log file text from {self.log_file.absolute()!s}:"
+                        + VERTICAL_SEPARATOR
+                        + full_log_file_text
+                        + VERTICAL_SEPARATOR
+                    )
+            else:
+                exception_str += f"\n    Log file: {self.log_file.absolute()!s}"
         return exception_str
 
     def __repr__(self) -> str:
@@ -431,7 +454,7 @@ class AirbyteConnectionError(AirbyteError):
     connection_id: str | None = None
     """The connection ID where the error occurred."""
 
-    job_id: str | None = None
+    job_id: int | None = None
     """The job ID where the error occurred (if applicable)."""
 
     job_status: str | None = None
@@ -486,6 +509,15 @@ class AirbyteMissingResourceError(AirbyteError):
     resource_name_or_id: str | None = None
 
 
+@dataclass
+class AirbyteDuplicateResourcesError(AirbyteError):
+    """Process failed because resource name was not unique."""
+
+    resource_type: str | None = None
+    resource_name: str | None = None
+
+
+# Custom Warnings
 @dataclass
 class AirbyteMultipleResourcesError(AirbyteError):
     """Could not locate the resource because multiple matching resources were found."""

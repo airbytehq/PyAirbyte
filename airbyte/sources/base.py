@@ -52,7 +52,7 @@ if TYPE_CHECKING:
 class Source(ConnectorBase):
     """A class representing a source that can be called."""
 
-    connector_type: Literal["source"] = "source"
+    connector_type = "source"
 
     def __init__(
         self,
@@ -86,10 +86,6 @@ class Source(ConnectorBase):
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
-
-        self._deployed_api_root: str | None = None
-        self._deployed_workspace_id: str | None = None
-        self._deployed_source_id: str | None = None
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -622,8 +618,8 @@ class Source(ConnectorBase):
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
-                one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
-                of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
+                one of "append", "merge", "replace", or "auto". If a WriteStrategy, it must be one
+                of WriteStrategy.APPEND, WriteStrategy.MERGE, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option

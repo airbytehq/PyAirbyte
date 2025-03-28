@@ -8,9 +8,10 @@ from pathlib import Path
 
 import airbyte as ab
 import pytest
-import ulid
+from airbyte._util import text_util
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+from airbyte.shared.state_providers import StateProviderBase
 from airbyte.shared.state_writers import StateWriterBase
 from airbyte_protocol import models
 
@@ -67,7 +68,7 @@ def test_incremental_state_cache_persistence(
     source_faker_seed_a.set_config(config_a)
     source_faker_seed_b.set_config(config_b)
 
-    cache_name = str(ulid.ULID())
+    cache_name = text_util.generate_random_suffix()
     cache = new_local_cache(cache_name)
     result = source_faker_seed_a.read(cache)
     assert result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
@@ -77,7 +78,7 @@ def test_incremental_state_cache_persistence(
     assert result2.processed_records == 0
 
     state_provider = second_cache.get_state_provider("source-faker")
-    assert len(state_provider.state_message_artifacts) > 0
+    assert len(list(state_provider.state_message_artifacts)) > 0
 
     assert len(list(result2.cache.streams["products"])) == NUM_PRODUCTS
     assert len(list(result2.cache.streams["purchases"])) == FAKER_SCALE_A
@@ -97,7 +98,7 @@ def test_incremental_state_prefix_isolation(
     config_a = source_faker_seed_a.get_config()
     config_a["always_updated"] = False  # disable ensuring new `updated_at` timestamps
     source_faker_seed_a.set_config(config_a)
-    cache_name = str(ulid.ULID())
+    cache_name = text_util.generate_random_suffix()
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     cache = DuckDBCache(db_path=db_path, table_prefix="prefix_")
     different_prefix_cache = DuckDBCache(
@@ -128,7 +129,8 @@ def test_destination_state_writer() -> None:
                 stream=models.AirbyteStreamState(
                     stream_descriptor=models.StreamDescriptor(name=f"stream{i}"),
                 ),
-            )
+                data=None,
+            )  # type: ignore  # missing 'global' (class def error)
         )
 
     assert state_writer.known_stream_names == {
@@ -136,10 +138,11 @@ def test_destination_state_writer() -> None:
         "stream2",
         "stream3",
     }
-    state_writer_2: StateWriterBase = cache.get_state_provider(
-        source_name="source-foo", destination_name="destination-bar"
+    state_provider: StateProviderBase = cache.get_state_provider(
+        source_name="source-foo",
+        destination_name="destination-bar",
     )
-    assert state_writer_2.known_stream_names == {
+    assert state_provider.known_stream_names == {
         "stream1",
         "stream2",
         "stream3",

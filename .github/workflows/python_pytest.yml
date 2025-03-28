@@ -30,7 +30,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "1.7.1"
+        poetry-version: "2.0.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -48,16 +48,6 @@ jobs:
         --durations=5 --exitfirst
         -m "not slow and not requires_creds and not linting and not flaky"
 
-    - name: Run Pytest with Coverage (Flaky Tests Only)
-      timeout-minutes: 60
-      continue-on-error: true
-      env:
-        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        poetry run coverage run -m pytest
-        --durations=5 --exitfirst
-        -m "flaky and not slow and not requires_creds"
-
     - name: Print Coverage Report
       if: always()
       run: poetry run coverage report
@@ -74,6 +64,13 @@ jobs:
       with:
         name: fasttest-coverage
         path: htmlcov/
+
+    - name: Upload logs to GitHub Artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-fast-test-logs
+        path: /tmp/airbyte/logs/
 
   pytest-no-creds:
     name: Pytest (No Creds)
@@ -122,6 +119,13 @@ jobs:
         name: nocreds-test-coverage
         path: htmlcov/
 
+    - name: Upload logs to GitHub Artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pytest-no-creds-test-logs
+        path: /tmp/airbyte/logs/
+
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
     # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
@@ -133,6 +137,7 @@ jobs:
         python-version: [
           '3.10',
           '3.11',
+          # '3.12', # Commented out: Certain tests don't work in Python 3.12, although PyAirbyte itself does work on 3.12
         ]
         os: [
           Ubuntu,
@@ -187,3 +192,32 @@ jobs:
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
         path: htmlcov/
+
+    - name: Upload logs to GitHub Artifacts
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: py${{ matrix.python-version }}-${{ matrix.os }}-test-logs
+        path: /tmp/airbyte/logs/
+
+  dependency-analysis:
+    name: Dependency Analysis with Deptry
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v9
+      with:
+        poetry-version: "1.7.1"
+    - name: Install dependencies
+      run: poetry install
+
+    # Job-specific step(s):
+    - name: Run Deptry
+      run: |
+        poetry run deptry .

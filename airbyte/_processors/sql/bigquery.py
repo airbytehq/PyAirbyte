@@ -99,7 +99,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
     @classmethod
     def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
         """Return the string type for BigQuery."""
-        return cast(sqlalchemy.types.TypeEngine, "String")  # BigQuery uses STRING for all strings
+        return cast("sqlalchemy.types.TypeEngine", "String")  # BigQuery uses STRING for all strings
 
     @overrides
     def to_sql_type(

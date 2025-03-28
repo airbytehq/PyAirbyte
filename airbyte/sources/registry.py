@@ -21,13 +21,14 @@ from airbyte.logs import warn_once
 from airbyte.version import get_version
 
 
+logger = logging.getLogger("airbyte")
+
+
 __cache: dict[str, ConnectorMetadata] | None = None
 
 
 _REGISTRY_ENV_VAR = "AIRBYTE_LOCAL_REGISTRY"
 _REGISTRY_URL = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
-
-_LOWCODE_CDK_TAG = "cdk:low-code"
 
 _PYTHON_LANGUAGE = "python"
 _MANIFEST_ONLY_LANGUAGE = "manifest-only"
@@ -36,7 +37,6 @@ _PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
 _MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
 
 _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
-    "source-adjust",
     "source-alpha-vantage",
     "source-amplitude",
     "source-apify-dataset",
@@ -47,13 +47,14 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-braintree",
     "source-braze",
     "source-chargebee",
-    "source-close-com",
     "source-commercetools",
+    "source-eventbrite",
     "source-facebook-pages",
     "source-fastbill",
     "source-freshdesk",
     "source-gitlab",
     "source-gnews",
+    "source-gong",
     "source-greenhouse",
     "source-instagram",
     "source-instatus",
@@ -71,7 +72,6 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-okta",
     "source-orb",
     "source-outreach",
-    "source-partnerstack",
     "source-paypal-transaction",
     "source-pinterest",
     "source-pipedrive",
@@ -80,17 +80,17 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-prestashop",
     "source-public-apis",
     "source-qualaroo",
-    "source-quickbooks",
     "source-railz",
     "source-recharge",
     "source-recurly",
     "source-retently",
     "source-rss",
     "source-salesloft",
+    "source-service-now",
     "source-slack",
     "source-surveymonkey",
-    "source-tiktok-marketing",
     "source-the-guardian-api",
+    "source-tiktok-marketing",
     "source-trello",
     "source-typeform",
     "source-us-census",
@@ -103,21 +103,15 @@ _LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
     "source-zenloop",
     "source-zoom",
 ]
-_LOWCODE_CONNECTORS_FAILING_VALIDATION = [
-    "source-amazon-ads",
-]
+_LOWCODE_CONNECTORS_FAILING_VALIDATION: list[str] = []
 # Connectors that return 404 or some other misc exception.
-_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = []
-# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
-_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = [
-    "source-apple-search-ads",
+_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
+    "source-adjust",
+    "source-amazon-ads",
     "source-marketo",
-    "source-n8n",
-    "source-onesignal",
-    "source-postmarkapp",
-    "source-sentry",
-    "source-unleash",
 ]
+# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
+_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = []
 _LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
     *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
     *_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
@@ -216,9 +210,6 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
             InstallType.PYTHON if language == Language.PYTHON and pypi_enabled else None,
             InstallType.JAVA if language == Language.JAVA else None,
             InstallType.YAML if language == Language.MANIFEST_ONLY else None,
-            # TODO: Remove 'cdk:low-code' check once all connectors are migrated to manifest-only.
-            # https://github.com/airbytehq/PyAirbyte/issues/348
-            InstallType.YAML if _LOWCODE_CDK_TAG in tags else None,
         ]
         if x
     }
@@ -277,7 +268,7 @@ def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMe
     return __cache
 
 
-def get_connector_metadata(name: str) -> None | ConnectorMetadata:
+def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     """Check the cache for the connector.
 
     If the cache is empty, populate by calling update_cache.
@@ -315,11 +306,11 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
     if install_type is None:
         # No install type specified. Filter for whatever is runnable.
         if is_docker_installed():
-            logging.info("Docker is detected. Returning all connectors.")
+            logger.info("Docker is detected. Returning all connectors.")
             # If Docker is available, return all connectors.
             return sorted(conn.name for conn in _get_registry_cache().values())
 
-        logging.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
+        logger.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
 
         # If Docker is not available, return only Python and Manifest-based connectors.
         return sorted(

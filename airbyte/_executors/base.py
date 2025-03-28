@@ -9,11 +9,12 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
-from airbyte.sources.registry import ConnectorMetadata
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
+
+    from airbyte.sources.registry import ConnectorMetadata
 
 
 _LATEST_VERSION = "latest"
@@ -161,7 +162,9 @@ class Executor(ABC):
         if not name and not metadata:
             raise exc.PyAirbyteInternalError(message="Either name or metadata must be provided.")
 
-        self.name: str = name or cast(ConnectorMetadata, metadata).name  # metadata is not None here
+        self.name: str = (
+            name or cast("ConnectorMetadata", metadata).name
+        )  # metadata is not None here
         self.metadata: ConnectorMetadata | None = metadata
         self.enforce_version: bool = target_version is not None
 
@@ -182,6 +185,14 @@ class Executor(ABC):
         """
         ...
 
+    def map_cli_args(self, args: list[str]) -> list[str]:
+        """Map CLI args if needed.
+
+        By default, this is a no-op. Subclasses may override this method in order to
+        map CLI args into the format expected by the connector.
+        """
+        return args
+
     def execute(
         self,
         args: list[str],
@@ -192,8 +203,9 @@ class Executor(ABC):
 
         If stdin is provided, it will be passed to the subprocess as STDIN.
         """
+        mapped_args = self.map_cli_args(args)
         with _stream_from_subprocess(
-            [*self._cli, *args],
+            [*self._cli, *mapped_args],
             stdin=stdin,
         ) as stream_lines:
             yield from stream_lines

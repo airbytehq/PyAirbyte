@@ -70,7 +70,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
         result = name
 
         # Replace all non-alphanumeric characters with underscores.
-        result = re.sub("[^A-Za-z0-9]", "_", result.lower())
+        result = re.sub(r"[^A-Za-z0-9]", "_", result.lower())
 
         # Check if name starts with a number and prepend "_" if it does.
         if result and result[0].isdigit():

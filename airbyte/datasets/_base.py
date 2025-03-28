@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Iterator
 from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
@@ -12,6 +11,8 @@ from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
+
     from pyarrow.dataset import Dataset
 
     from airbyte_protocol.models import ConfiguredAirbyteStream
@@ -38,7 +39,7 @@ class DatasetBase(ABC):
         # Technically, we return an iterator of Mapping objects. However, pandas
         # expects an iterator of dict objects. This cast is safe because we know
         # duck typing is correct for this use case.
-        return DataFrame(cast(Iterator[dict[str, Any]], self))
+        return DataFrame(cast("Iterator[dict[str, Any]]", self))
 
     def to_arrow(
         self,
