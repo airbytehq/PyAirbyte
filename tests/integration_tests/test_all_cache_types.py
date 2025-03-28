@@ -202,6 +202,19 @@ def test_replace_strategy(
 
 @pytest.mark.requires_creds
 @pytest.mark.slow
+def test_cache_create_source_tables(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the cache creation and source tables work as expected."""
+    new_generic_cache.create_source_tables(source_faker_seed_a)
+    assert set(new_generic_cache.streams.keys()) == set(
+        source_faker_seed_a.get_selected_streams()
+    )
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
 def test_merge_strategy(
     source_faker_seed_a: ab.Source,
     source_faker_seed_b: ab.Source,
