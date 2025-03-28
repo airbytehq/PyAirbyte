@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, ClassVar, final
+from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import pandas as pd
 import pyarrow as pa
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from airbyte.shared.sql_processor import SqlProcessorBase
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
+    from airbyte.sources.base import Source
     from airbyte.strategies import WriteStrategy
 
 
@@ -292,6 +293,35 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=stream_names,
         )
+
+    def create_source_tables(
+        self,
+        source: Source,
+        streams: Literal["*"] | list[str] | None = None,
+    ) -> None:
+        """Create tables in the cache for the provided source if they do not exist already.
+
+        Tables are created based upon the Source's catalog.
+
+        Args:
+            source: The source to create tables for.
+            streams: Stream names to create tables for. If None, use the Source's selected_streams
+                or "*" if neither is set. If "*", all available streams will be used.
+        """
+        if streams is None:
+            streams = source.get_selected_streams() or "*"
+
+        catalog_provider = CatalogProvider(source.get_configured_catalog(streams=streams))
+
+        # Ensure schema exists
+        self.processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
+
+        # Create tables for each stream if they don't exist
+        for stream_name in catalog_provider.stream_names:
+            self.processor._ensure_final_table_exists(  # noqa: SLF001
+                stream_name=stream_name,
+                create_if_missing=True,
+            )
 
     def __getitem__(self, stream: str) -> CachedDataset:
         """Return a dataset by stream name."""
