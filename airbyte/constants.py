@@ -124,3 +124,19 @@ the pipeline run.
 If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
+
+MAX_STREAM_FINALIZATION_THREADS = int(
+    os.getenv(
+        key="AIRBYTE_MAX_STREAM_FINALIZATION_THREADS",
+        default="4",
+    )
+)
+"""Maximum number of concurrent threads to use for stream finalization.
+
+When streams are completed, they are finalized in separate threads to improve performance
+and commit state checkpoints more frequently. This setting controls the maximum number of
+concurrent threads to prevent resource exhaustion.
+
+This value is read from the `AIRBYTE_MAX_STREAM_FINALIZATION_THREADS` environment variable.
+If the variable is not set, the default value is 4.
+"""
