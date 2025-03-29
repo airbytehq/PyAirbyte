@@ -1024,7 +1024,7 @@ class SqlProcessorBase(abc.ABC):
                 f"TO {deletion_name};",
                 f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME "
                 f"TO {final_table_name};",
-                f"DROP TABLE {self._fully_qualified(deletion_name)} CASCADE;",
+                f"DROP TABLE {self._fully_qualified(deletion_name)};",
             ]
         )
         self._execute_sql(commands)
