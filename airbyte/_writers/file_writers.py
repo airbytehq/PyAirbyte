@@ -52,6 +52,7 @@ class FileWriterBase(AirbyteWriterInterface):
         self._do_cleanup = cleanup
         self._active_batches: dict[str, BatchHandle] = {}
         self._completed_batches: dict[str, list[BatchHandle]] = defaultdict(list, {})
+        self._active_batches_lock = __import__('threading').Lock()  # Thread safety for concurrent access
 
     def _get_new_cache_file_path(
         self,
@@ -88,14 +89,16 @@ class FileWriterBase(AirbyteWriterInterface):
         This entails moving the active batch to the pending batches, closing any open files, and
         logging the batch as written.
         """
-        if stream_name not in self._active_batches:
-            return
+        with self._active_batches_lock:
+            if stream_name not in self._active_batches:
+                return
 
-        batch_handle: BatchHandle = self._active_batches[stream_name]
-        batch_handle.close_files()
-        del self._active_batches[stream_name]
+            batch_handle: BatchHandle = self._active_batches[stream_name]
+            batch_handle.close_files()
+            del self._active_batches[stream_name]
 
-        self._completed_batches[stream_name].append(batch_handle)
+            self._completed_batches[stream_name].append(batch_handle)
+            
         progress_tracker.log_batch_written(
             stream_name=stream_name,
             batch_size=batch_handle.record_count,
@@ -113,6 +116,10 @@ class FileWriterBase(AirbyteWriterInterface):
 
         This also flushes the active batch if one already exists for the given stream.
         """
+        with self._active_batches_lock:
+            if stream_name in self._active_batches:
+                pass
+        
         if stream_name in self._active_batches:
             self._flush_active_batch(
                 stream_name=stream_name,
@@ -128,7 +135,9 @@ class FileWriterBase(AirbyteWriterInterface):
             files=[new_file_path],
             file_opener=self._open_new_file,
         )
-        self._active_batches[stream_name] = batch_handle
+        
+        with self._active_batches_lock:
+            self._active_batches[stream_name] = batch_handle
         return batch_handle
 
     def _close_batch(
@@ -151,7 +160,10 @@ class FileWriterBase(AirbyteWriterInterface):
 
         Subclasses should override `_cleanup_batch` instead.
         """
-        for batch_handle in self._active_batches.values():
+        with self._active_batches_lock:
+            active_batches = list(self._active_batches.values())
+            
+        for batch_handle in active_batches:
             self._cleanup_batch(batch_handle)
 
         for batch_list in self._completed_batches.values():
@@ -171,14 +183,17 @@ class FileWriterBase(AirbyteWriterInterface):
         stream_name = record_msg.stream
 
         batch_handle: BatchHandle
-        if stream_name not in self._active_batches:
+        with self._active_batches_lock:
+            has_active_batch = stream_name in self._active_batches
+            
+        if not has_active_batch:
             batch_handle = self._new_batch(
                 stream_name=stream_name,
                 progress_tracker=progress_tracker,
             )
-
         else:
-            batch_handle = self._active_batches[stream_name]
+            with self._active_batches_lock:
+                batch_handle = self._active_batches[stream_name]
 
         if batch_handle.record_count + 1 > self.MAX_BATCH_SIZE:
             # Already at max batch size, so start a new batch.
@@ -223,7 +238,9 @@ class FileWriterBase(AirbyteWriterInterface):
         progress_tracker: ProgressTracker,
     ) -> None:
         """Flush active batches for all streams."""
-        streams = list(self._active_batches.keys())
+        with self._active_batches_lock:
+            streams = list(self._active_batches.keys())
+            
         for stream_name in streams:
             self._flush_active_batch(
                 stream_name=stream_name,
@@ -272,7 +289,8 @@ class FileWriterBase(AirbyteWriterInterface):
 
     def get_active_batch(self, stream_name: str) -> BatchHandle | None:
         """Return the active batch for a specific stream name."""
-        return self._active_batches.get(stream_name, None)
+        with self._active_batches_lock:
+            return self._active_batches.get(stream_name, None)
 
     def get_pending_batches(self, stream_name: str) -> list[BatchHandle]:
         """Return the pending batches for a specific stream name."""
