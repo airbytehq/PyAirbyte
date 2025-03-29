@@ -8,6 +8,7 @@ from typing import NoReturn
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
+from airbyte.constants import TEMP_DIR
 
 
 logger = logging.getLogger("airbyte")
@@ -76,12 +77,18 @@ class DockerExecutor(Executor):
                 # This is a file path and we need to map it to the same file within the
                 # relative path of the file within the container's volume.
                 for local_volume, container_path in self.volumes.items():
-                    if Path(arg).is_relative_to(local_volume):
+                    # If the container path corresponds to the container's temporary directory,
+                    # then the local temporary directory path is used (as the local volume
+                    # path can be overridden).
+                    local_path = local_volume
+                    if container_path == DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR:
+                        local_path = TEMP_DIR
+                    if Path(arg).is_relative_to(local_path):
                         logger.debug(
                             f"Found file input path `{arg}` "
-                            f"relative to container-mapped volume: {local_volume}"
+                            f"relative to container-mapped volume: {local_path}"
                         )
-                        mapped_path = Path(container_path) / Path(arg).relative_to(local_volume)
+                        mapped_path = Path(container_path) / Path(arg).relative_to(local_path)
                         logger.debug(f"Mapping `{arg}` -> `{mapped_path}`")
                         new_args.append(str(mapped_path))
                         break

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 
 
@@ -64,9 +65,8 @@ def _str_to_bool(value: str) -> bool:
     """Convert a string value of an environment values to a boolean value."""
     return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
 
-
-TEMP_DIR_OVERRIDE: Path | None = (
-    Path(os.environ["AIRBYTE_TEMP_DIR"]) if os.getenv("AIRBYTE_TEMP_DIR") else None
+TEMP_DIR: Path = Path(
+    os.environ["AIRBYTE_TEMP_DIR"] if os.getenv("AIRBYTE_TEMP_DIR") else tempfile.gettempdir()
 )
 """The directory to use for temporary files.
 
