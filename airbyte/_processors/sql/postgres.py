@@ -24,6 +24,8 @@ class PostgresConfig(SqlConfig):
     database: str
     username: str
     password: SecretString | str
+    drop_cascade: bool = False
+    """Whether to use CASCADE when dropping tables."""
 
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
@@ -73,3 +75,33 @@ class PostgresSqlProcessor(SqlProcessorBase):
 
     normalizer = PostgresNormalizer
     """A Postgres-specific name normalizer for table and column name normalization."""
+
+    def _swap_temp_table_with_final_table(
+        self,
+        stream_name: str,
+        temp_table_name: str,
+        final_table_name: str,
+    ) -> None:
+        """Merge the temp table into the main one.
+
+        This implementation requires MERGE support in the SQL DB.
+        Databases that do not support this syntax can override this method.
+        """
+        if final_table_name is None:
+            raise exc.PyAirbyteInternalError(message="Arg 'final_table_name' cannot be None.")
+        if temp_table_name is None:
+            raise exc.PyAirbyteInternalError(message="Arg 'temp_table_name' cannot be None.")
+
+        _ = stream_name
+        deletion_name = f"{final_table_name}_deleteme"
+        commands = "\n".join(
+            [
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME "
+                f"TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME "
+                f"TO {final_table_name};",
+                f"DROP TABLE {self._fully_qualified(deletion_name)}"
+                f"{(' CASCADE' if self.sql_config.drop_cascade else '')};",
+            ]
+        )
+        self._execute_sql(commands)
