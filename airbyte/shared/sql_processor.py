@@ -806,7 +806,7 @@ class SqlProcessorBase(abc.ABC):
             try:
                 future.result()  # This will re-raise any exceptions from the thread
             except Exception as e:
-                print(f"Error in stream finalization thread during cleanup: {str(e)}")
+                print(f"Error in stream finalization thread during cleanup: {e!s}")
 
         self._stream_finalization_executor.shutdown(wait=True)
 
