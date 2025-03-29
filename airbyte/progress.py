@@ -26,6 +26,7 @@ import time
 from collections import defaultdict
 from contextlib import suppress
 from enum import Enum, auto
+from threading import Lock
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
 from rich.errors import LiveError
@@ -204,6 +205,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self.total_records_finalized = 0
         self.total_batches_finalized = 0
         self.finalized_stream_names: list[str] = []
+        self._finalized_stream_names_lock = (
+            Lock()
+        )  # Lock for thread-safe access to finalized stream names
+        self._tally_lock = Lock()  # Lock for thread-safe access to tally counters
 
         # Destination stream writes
         self.destination_stream_records_delivered: dict[str, int] = defaultdict(int)
@@ -264,17 +269,18 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
             if message.record:
                 # If this is the first record, set the start time.
-                if self.first_record_received_time is None:
-                    self.first_record_received_time = time.time()
+                with self._tally_lock:
+                    if self.first_record_received_time is None:
+                        self.first_record_received_time = time.time()
 
-                # Tally the record.
-                self.total_records_read += 1
+                    # Tally the record.
+                    self.total_records_read += 1
 
-                if message.record.stream:
-                    self.stream_read_counts[message.record.stream] += 1
+                    if message.record.stream:
+                        self.stream_read_counts[message.record.stream] += 1
 
-                    if message.record.stream not in self.stream_read_start_times:
-                        self.log_stream_start(stream_name=message.record.stream)
+                        if message.record.stream not in self.stream_read_start_times:
+                            self.log_stream_start(stream_name=message.record.stream)
 
             elif message.trace and message.trace.stream_status:
                 if message.trace.stream_status.status is AirbyteStreamStatus.STARTED:
@@ -320,7 +326,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 continue
 
             if message.record and message.record.stream:
-                self.destination_stream_records_delivered[message.record.stream] += 1
+                with self._tally_lock:
+                    self.destination_stream_records_delivered[message.record.stream] += 1
 
             if count % update_period != 0:
                 continue
@@ -349,9 +356,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 # This is a state message from the destination. Tally the records written.
                 if message.state.stream and message.state.destinationStats:
                     stream_name = message.state.stream.stream_descriptor.name
-                    self.destination_stream_records_confirmed[stream_name] += int(
-                        message.state.destinationStats.recordCount or 0
-                    )
+                    with self._tally_lock:
+                        self.destination_stream_records_confirmed[stream_name] += int(
+                            message.state.destinationStats.recordCount or 0
+                        )
                 self._update_display()
 
             yield message
@@ -363,7 +371,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         Unlike the other tally methods, this method does not yield messages.
         """
-        self.stream_bytes_read[stream_name] += bytes_read
+        with self._tally_lock:
+            self.stream_bytes_read[stream_name] += bytes_read
 
     # Logging methods
 
@@ -716,9 +725,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             stream_name: The name of the stream.
             batch_size: The number of records in the batch.
         """
-        self.total_records_written += batch_size
-        self.total_batches_written += 1
-        self.written_stream_names.add(stream_name)
+        with self._tally_lock:
+            self.total_records_written += batch_size
+            self.total_batches_written += 1
+            self.written_stream_names.add(stream_name)
         self._update_display()
 
     def log_batches_finalizing(self, stream_name: str, num_batches: int) -> None:
@@ -729,28 +739,32 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         finalize any accumulated batches.
         """
         _ = stream_name, num_batches  # unused for now
-        if self.finalize_start_time is None:
-            self.read_end_time = time.time()
-            self.finalize_start_time = self.read_end_time
+        with self._tally_lock:
+            if self.finalize_start_time is None:
+                self.read_end_time = time.time()
+                self.finalize_start_time = self.read_end_time
 
         self._update_display(force_refresh=True)
 
     def log_batches_finalized(self, stream_name: str, num_batches: int) -> None:
         """Log that a batch has been finalized."""
         _ = stream_name  # unused for now
-        self.total_batches_finalized += num_batches
+        with self._tally_lock:
+            self.total_batches_finalized += num_batches
         self._update_display(force_refresh=True)
 
     def log_cache_processing_complete(self) -> None:
         """Log that cache processing is complete."""
-        self.finalize_end_time = time.time()
+        with self._tally_lock:
+            self.finalize_end_time = time.time()
         self._update_display(force_refresh=True)
 
     def log_stream_finalized(self, stream_name: str) -> None:
         """Log that a stream has been finalized."""
-        if stream_name not in self.finalized_stream_names:
-            self.finalized_stream_names.append(stream_name)
-            self._update_display(force_refresh=True)
+        with self._finalized_stream_names_lock:
+            if stream_name not in self.finalized_stream_names:
+                self.finalized_stream_names.append(stream_name)
+                self._update_display(force_refresh=True)
 
     def _update_display(self, *, force_refresh: bool = False) -> None:
         """Update the display."""

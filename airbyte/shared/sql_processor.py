@@ -7,8 +7,10 @@ import abc
 import contextlib
 import enum
 from collections import defaultdict
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from functools import cached_property
+from threading import Lock
 from typing import TYPE_CHECKING, cast, final
 
 import pandas as pd
@@ -46,6 +48,7 @@ from airbyte.constants import (
     AB_META_COLUMN,
     AB_RAW_ID_COLUMN,
     DEBUG_MODE,
+    MAX_STREAM_FINALIZATION_THREADS,
 )
 from airbyte.records import StreamRecordHandler
 from airbyte.secrets.base import SecretString
@@ -195,6 +198,14 @@ class SqlProcessorBase(abc.ABC):
             list[AirbyteStateMessage],
         ] = defaultdict(list, {})
 
+        self._stream_finalization_executor = ThreadPoolExecutor(
+            max_workers=MAX_STREAM_FINALIZATION_THREADS,
+            thread_name_prefix="stream-finalization",
+        )
+        self._finalization_futures: dict[str, Future] = {}
+        self._finalization_lock = Lock()  # Lock for thread-safe access to shared data
+        self._state_commit_lock = Lock()  # Lock for state message commits
+
         self._setup()
         self.file_writer = file_writer or self.file_writer_class(
             cache_dir=cast("Path", temp_dir),
@@ -297,13 +308,18 @@ class SqlProcessorBase(abc.ABC):
             elif message.type is Type.TRACE:
                 trace_msg: AirbyteTraceMessage = cast("AirbyteTraceMessage", message.trace)
                 if trace_msg.stream_status and trace_msg.stream_status.status == "SUCCEEDED":
-                    # This stream has completed successfully, so go ahead and write the data.
                     # This will also finalize any pending state messages.
-                    self.write_stream_data(
-                        stream_name=trace_msg.stream_status.stream_descriptor.name,
-                        write_strategy=write_strategy,
-                        progress_tracker=progress_tracker,
-                    )
+                    stream_name = trace_msg.stream_status.stream_descriptor.name
+                    with self._finalization_lock:
+                        if stream_name not in self._finalization_futures:
+                            self._finalization_futures[stream_name] = (
+                                self._stream_finalization_executor.submit(
+                                    self.write_stream_data,
+                                    stream_name=stream_name,
+                                    write_strategy=write_strategy,
+                                    progress_tracker=progress_tracker,
+                                )
+                            )
 
             else:
                 # Ignore unexpected or unhandled message types:
@@ -325,12 +341,27 @@ class SqlProcessorBase(abc.ABC):
         progress_tracker: ProgressTracker,
     ) -> None:
         """Finalize any pending writes."""
+        all_futures = []
         for stream_name in self.catalog_provider.stream_names:
-            self.write_stream_data(
-                stream_name,
-                write_strategy=write_strategy,
-                progress_tracker=progress_tracker,
-            )
+            with self._finalization_lock:
+                if stream_name not in self._finalization_futures:
+                    future = self._stream_finalization_executor.submit(
+                        self.write_stream_data,
+                        stream_name=stream_name,
+                        write_strategy=write_strategy,
+                        progress_tracker=progress_tracker,
+                    )
+                    self._finalization_futures[stream_name] = future
+                    all_futures.append(future)
+
+        for future in all_futures:
+            try:
+                future.result()  # This will re-raise any exceptions from the thread
+            except Exception as e:
+                raise exc.PyAirbyteInternalError(
+                    message="Error in stream finalization thread",
+                    context={"error": str(e)},
+                ) from e
 
     def _finalize_state_messages(
         self,
@@ -338,9 +369,10 @@ class SqlProcessorBase(abc.ABC):
     ) -> None:
         """Handle state messages by passing them to the catalog manager."""
         if state_messages:
-            self.state_writer.write_state(
-                state_message=state_messages[-1],
-            )
+            with self._state_commit_lock:
+                self.state_writer.write_state(
+                    state_message=state_messages[-1],
+                )
 
     def _setup(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
         """Create the database.
@@ -767,8 +799,16 @@ class SqlProcessorBase(abc.ABC):
 
     @final
     def cleanup_all(self) -> None:
-        """Clean resources."""
+        """Clean up all resources."""
         self.file_writer.cleanup_all()
+
+        for future in self._finalization_futures.values():
+            try:
+                future.result()  # This will re-raise any exceptions from the thread
+            except Exception as e:
+                print(f"Error in stream finalization thread during cleanup: {str(e)}")
+
+        self._stream_finalization_executor.shutdown(wait=True)
 
     # Finalizing context manager
 
