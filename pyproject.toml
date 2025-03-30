@@ -339,6 +339,8 @@ fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
 fix-and-check = { shell = "poe fix && poe check" }
 
+install = { shell = "poetry install --all-extras" }
+
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
 poe_tasks = ["test"]
