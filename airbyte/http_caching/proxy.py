@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from airbyte.http_caching.serialization import (
     BinarySerializer,
@@ -127,8 +127,8 @@ class HttpCachingAddon:
                 try:
                     cached_data: dict[str, Any] = self.serializer.deserialize(cache_path)
                     cached_flow = HTTPFlow.from_state(cached_data)
-                    if cached_flow.response:
-                        flow.response = cached_flow.response  # type: ignore[assignment]
+                    if hasattr(cached_flow, "response") and cached_flow.response:
+                        flow.response = cached_flow.response
                     logger.info(f"Serving {flow.request.url} from cache")
                 except Exception as e:
                     logger.warning(f"Failed to load cached response: {e}")
@@ -136,7 +136,7 @@ class HttpCachingAddon:
                     return
 
             if self.mode == HttpCacheMode.READ_ONLY_FAIL_ON_MISS:
-                flow.response = Response.make(  # type: ignore[assignment]
+                flow.response = Response.make(
                     status_code=404,
                     content=f"Cache miss for {flow.request.url}".encode(),
                 )

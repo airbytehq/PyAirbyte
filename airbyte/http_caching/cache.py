@@ -50,28 +50,13 @@ class AirbyteConnectorCache:
         else:
             self.read_dir = self.cache_dir
 
-        if isinstance(mode, str):
-            try:
-                self.mode = HttpCacheMode(mode)
-            except ValueError as err:
-                valid_modes = [m.value for m in HttpCacheMode]
-                raise ValueError(
-                    f"Invalid cache mode: {mode}. Valid modes are: {', '.join(valid_modes)}"
-                ) from err
-        else:
-            self.mode = mode
+        self.mode = HttpCacheMode(mode) if isinstance(mode, str) else mode
 
-        if isinstance(serialization_format, str):
-            try:
-                self.serialization_format = SerializationFormat(serialization_format)
-            except ValueError as err:
-                valid_formats = [f.value for f in SerializationFormat]
-                raise ValueError(
-                    f"Invalid serialization format: {serialization_format}. "
-                    f"Valid formats are: {', '.join(valid_formats)}"
-                ) from err
-        else:
-            self.serialization_format = serialization_format
+        self.serialization_format = (
+            SerializationFormat(serialization_format) 
+            if isinstance(serialization_format, str) 
+            else serialization_format
+        )
 
         self._proxy_port: int | None = None
         self._proxy_thread: threading.Thread | None = None
@@ -112,7 +97,7 @@ class AirbyteConnectorCache:
         self._proxy_thread = thread
         thread.start()
 
-        port_number = cast("int", proxy.server.address[1])  # type: ignore[index]
+        port_number = cast("int", proxy.server.address[1])  # type: ignore[attr-defined]
         self._proxy_port = port_number
 
         return port_number
