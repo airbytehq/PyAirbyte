@@ -5,15 +5,20 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING, Any
+
+from airbyte.http_caching.serialization import (
+    BinarySerializer,
+    JsonSerializer,
+    SerializationFormat,
+)
+from mitmproxy.http import HTTPFlow, Response
 
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-from mitmproxy.http import HTTPFlow, Response
-
-from enum import Enum
 
 class HttpCacheMode(str, Enum):
     """The mode for the HTTP cache."""
@@ -29,11 +34,6 @@ class HttpCacheMode(str, Enum):
 
     READ_ONLY_FAIL_ON_MISS = "read_only_fail_on_miss"
     """Only read from the cache. If a request is not in the cache, an exception will be raised."""
-from airbyte.http_caching.serialization import (
-    BinarySerializer,
-    JsonSerializer,
-    SerializationFormat,
-)
 
 
 logger = logging.getLogger(__name__)
@@ -128,7 +128,7 @@ class HttpCachingAddon:
                     cached_data: dict[str, Any] = self.serializer.deserialize(cache_path)
                     cached_flow = HTTPFlow.from_state(cached_data)
                     if cached_flow.response:
-                        flow.response = cached_flow.response  # type: ignore
+                        flow.response = cached_flow.response  # type: ignore[assignment]
                     logger.info(f"Serving {flow.request.url} from cache")
                 except Exception as e:
                     logger.warning(f"Failed to load cached response: {e}")
@@ -136,7 +136,7 @@ class HttpCachingAddon:
                     return
 
             if self.mode == HttpCacheMode.READ_ONLY_FAIL_ON_MISS:
-                flow.response = Response.make(  # type: ignore
+                flow.response = Response.make(  # type: ignore[assignment]
                     status_code=404,
                     content=f"Cache miss for {flow.request.url}".encode(),
                 )

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import threading
-from enum import Enum
 from pathlib import Path
 from typing import cast
 
@@ -12,7 +11,7 @@ from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
 
 from airbyte.constants import DEFAULT_HTTP_CACHE_DIR, DEFAULT_HTTP_CACHE_READ_DIR
-from airbyte.http_caching.proxy import HttpCachingAddon, HttpCacheMode
+from airbyte.http_caching.proxy import HttpCacheMode, HttpCachingAddon
 from airbyte.http_caching.serialization import SerializationFormat
 
 
@@ -113,7 +112,7 @@ class AirbyteConnectorCache:
         self._proxy_thread = thread
         thread.start()
 
-        port_number = cast("int", proxy.server.address[1])  # type: ignore
+        port_number = cast("int", proxy.server.address[1])  # type: ignore[index]
         self._proxy_port = port_number
 
         return port_number
