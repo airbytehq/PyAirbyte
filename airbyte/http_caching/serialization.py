@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from mitmproxy.io import io
 
+
 logger = logging.getLogger(__name__)
 
 
