@@ -399,6 +399,7 @@ class ConnectorBase(abc.ABC):
         stdin: IO[str] | AirbyteMessageIterator | None = None,
         *,
         progress_tracker: ProgressTracker | None = None,
+        env: dict[str, str] | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Execute the connector with the given arguments.
 
@@ -432,7 +433,7 @@ class ConnectorBase(abc.ABC):
         )
 
         try:
-            for line in self.executor.execute(args, stdin=stdin):
+            for line in self.executor.execute(args, stdin=stdin, env=env):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:

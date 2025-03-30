@@ -62,6 +62,7 @@ def _stream_from_subprocess(
     *,
     stdin: IO[str] | AirbyteMessageIterator | None = None,
     log_file: IO[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> Generator[Iterable[str], None, None]:
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
@@ -74,6 +75,7 @@ def _stream_from_subprocess(
             stderr=log_file,
             universal_newlines=True,
             encoding="utf-8",
+            env=env,
         )
         input_thread = Thread(
             target=_pump_input,
@@ -102,6 +104,7 @@ def _stream_from_subprocess(
             stderr=log_file,
             universal_newlines=True,
             encoding="utf-8",
+            env=env,
         )
 
     if process.stdout is None:
@@ -198,6 +201,7 @@ class Executor(ABC):
         args: list[str],
         *,
         stdin: IO[str] | AirbyteMessageIterator | None = None,
+        env: dict[str, str] | None = None,
     ) -> Iterator[str]:
         """Execute a command and return an iterator of STDOUT lines.
 
@@ -207,6 +211,7 @@ class Executor(ABC):
         with _stream_from_subprocess(
             [*self._cli, *mapped_args],
             stdin=stdin,
+            env=env,
         ) as stream_lines:
             yield from stream_lines
 

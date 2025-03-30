@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from airbyte.callbacks import ConfigChangeCallback
+    from airbyte.http_caching.cache import AirbyteConnectorCache
 
 
 def get_connector(
@@ -58,6 +59,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    http_cache: AirbyteConnectorCache | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
@@ -103,6 +105,9 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             parameter is ignored when `local_executable` or `source_manifest` are set.
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
+        http_cache: (Optional.) An HTTP cache to use for caching HTTP requests made by the source.
+            This enables caching of HTTP traffic between connectors and sources to avoid rate
+            limiting and handle cases where credentials might not be available.
     """
     return Source(
         name=name,
@@ -120,6 +125,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             install_if_missing=install_if_missing,
             install_root=install_root,
         ),
+        http_cache=http_cache,
     )
 
 
