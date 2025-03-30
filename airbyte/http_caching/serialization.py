@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
 
 from mitmproxy.io import io
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -111,8 +115,23 @@ class NativeSerializer:
         if not path.exists():
             return {"flows": []}
 
-        with path.open("rb") as f:
-            fr = io.FlowReader(f)
-            flows = list(fr.stream())
+        try:
+            with path.open("rb") as f:
+                fr = io.FlowReader(f)
+                flows = list(fr.stream())
 
-        return {"flows": flows}
+                if flows and len(flows) > 0:
+                    flow = flows[0]
+                    return {
+                        "type": "http",
+                        "request": flow.request.get_state() if flow.request else {},
+                        "response": flow.response.get_state() if flow.response else None,
+                        "error": flow.error.get_state()
+                        if hasattr(flow, "error") and flow.error
+                        else None,
+                    }
+        except Exception as e:
+            logger.warning(f"Error reading flow file {path}: {e}")
+            return {"type": "http", "request": {}, "response": None, "error": None}
+
+        return {"type": "http", "request": {}, "response": None, "error": None}

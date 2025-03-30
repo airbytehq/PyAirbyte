@@ -127,14 +127,22 @@ class HttpCachingAddon:
             if cache_path.exists():
                 try:
                     cached_data: dict[str, Any] = self.serializer.deserialize(cache_path)
-                    cached_flow = HTTPFlow.from_state(cached_data)
-                    if hasattr(cached_flow, "response") and cached_flow.response:
-                        flow.response = cached_flow.response
-                    logger.info(f"Serving {flow.request.url} from cache")
+
+                    if cached_data.get("flows"):
+                        cached_flow = cached_data["flows"][0]
+                        if hasattr(cached_flow, "response") and cached_flow.response:
+                            flow.response = cached_flow.response
+                            logger.info(f"Serving {flow.request.url} from cache")
+                            return
+                    elif "type" not in cached_data:
+                        cached_data["type"] = "http"
+                        cached_flow = HTTPFlow.from_state(cached_data)
+                        if hasattr(cached_flow, "response") and cached_flow.response:
+                            flow.response = cached_flow.response
+                            logger.info(f"Serving {flow.request.url} from cache")
+                            return
                 except Exception as e:
                     logger.warning(f"Failed to load cached response: {e}")
-                else:
-                    return
 
             if self.mode == HttpCacheMode.READ_ONLY_FAIL_ON_MISS:
                 flow.response = Response.make(
@@ -154,6 +162,7 @@ class HttpCachingAddon:
             cache_path = self._get_cache_path(key, is_read=False)
 
             try:
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
                 self.serializer.serialize(flow.get_state(), cache_path)
                 logger.info(f"Cached response for {flow.request.url}")
             except Exception as e:

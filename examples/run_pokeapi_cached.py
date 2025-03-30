@@ -16,7 +16,7 @@ from airbyte import get_source, AirbyteConnectorCache
 # Create an HTTP cache
 cache = AirbyteConnectorCache(
     mode="read_write",
-    serialization_format="native"  # Use mitmproxy's native format
+    serialization_format="native",  # Use mitmproxy's native format
 )
 cache.start()
 

@@ -3,9 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import threading
+import time
 from pathlib import Path
-from typing import cast
 
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
@@ -13,6 +15,9 @@ from mitmproxy.tools.dump import DumpMaster
 from airbyte.constants import DEFAULT_HTTP_CACHE_DIR, DEFAULT_HTTP_CACHE_READ_DIR
 from airbyte.http_caching.proxy import HttpCacheMode, HttpCachingAddon
 from airbyte.http_caching.serialization import SerializationFormat
+
+
+logger = logging.getLogger(__name__)
 
 
 class AirbyteConnectorCache:
@@ -72,7 +77,7 @@ class AirbyteConnectorCache:
         if self._proxy_port is not None:
             return self._proxy_port
 
-        port = 0
+        port = 8080
 
         opts = options.Options(
             listen_host="127.0.0.1",
@@ -93,14 +98,22 @@ class AirbyteConnectorCache:
         self._proxy = proxy
         proxy.addons.add(addon)
 
-        thread = threading.Thread(target=proxy.run, daemon=True)
+        def run_proxy() -> None:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(proxy.run())
+            except Exception:
+                logger.exception("Error running proxy")
+
+        thread = threading.Thread(target=run_proxy, daemon=True)
         self._proxy_thread = thread
         thread.start()
 
-        port_number = cast("int", proxy.server.address[1])  # type: ignore[attr-defined]
-        self._proxy_port = port_number
+        time.sleep(1)
 
-        return port_number
+        self._proxy_port = port
+        return port
 
     def stop(self) -> None:
         """Stop the HTTP proxy."""
