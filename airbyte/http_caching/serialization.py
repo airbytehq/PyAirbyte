@@ -4,10 +4,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
 
 from mitmproxy.io import io
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -88,12 +92,14 @@ class NativeSerializer:
         """
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        if not str(path).endswith(".mitm"):
+        if path.suffix != ".mitm":
             path = path.with_suffix(".mitm")
+
+        flows = data.get("flows", [])
 
         with path.open("wb") as f:
             fw = io.FlowWriter(f)
-            for flow in data.get("flows", []):
+            for flow in flows:
                 fw.add(flow)
 
     def deserialize(self, path: Path) -> T_SerializedData:
@@ -105,14 +111,18 @@ class NativeSerializer:
         Returns:
             The deserialized data.
         """
-        if not str(path).endswith(".mitm"):
+        if path.suffix != ".mitm":
             path = path.with_suffix(".mitm")
 
         if not path.exists():
             return {"flows": []}
 
-        with path.open("rb") as f:
-            fr = io.FlowReader(f)
-            flows = list(fr.stream())
-
-        return {"flows": flows}
+        try:
+            with path.open("rb") as f:
+                fr = io.FlowReader(f)
+                flows = list(fr.stream())
+        except Exception as e:
+            logger.warning(f"Error reading flow file {path}: {e}")
+            return {"flows": []}
+        else:
+            return {"flows": flows}
