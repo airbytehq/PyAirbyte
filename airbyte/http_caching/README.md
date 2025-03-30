@@ -15,18 +15,18 @@ Using this format allows for interoperability with other tools in the mitmproxy 
 The JSON format provides a human-readable alternative for storing HTTP flows. This makes it easier
 to inspect and debug cached responses.
 
-## HAL Format (Not Currently Implemented)
+## HAR Format (Not Currently Implemented)
 
-HAL (Hypertext Application Language) is a standard format for representing hypermedia APIs in JSON 
-or XML. It's designed to make APIs more discoverable and self-documenting by including links to 
-related resources. Some key features of HAL:
+HAR (HTTP Archive) is a standard format for logging HTTP transactions in JSON format.
+It's commonly used by browser developer tools and HTTP monitoring applications to capture
+detailed information about web requests and responses. Some key features of HAR:
 
-1. It includes hyperlinks to related resources via `_links` property
-2. It can include embedded resources via `_embedded` property
-3. It's a common format for RESTful APIs
+1. It records complete request and response data including headers, content, and timing
+2. It's human-readable and can be analyzed with various tools
+3. It's widely supported by browser developer tools and HTTP analysis applications
 
-HAL format is not currently implemented in PyAirbyte's HTTP caching system, but may be considered
-for future implementations where API discoverability is important.
+HAR format is not currently implemented in PyAirbyte's HTTP caching system, but may be considered
+for future implementations where detailed HTTP transaction logging is important.
 
 ## Usage
 
