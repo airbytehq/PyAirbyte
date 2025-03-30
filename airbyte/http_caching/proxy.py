@@ -6,14 +6,15 @@ from __future__ import annotations
 import hashlib
 import logging
 from enum import Enum
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
+
+from mitmproxy.http import HTTPFlow, Response
 
 from airbyte.http_caching.serialization import (
     BinarySerializer,
     JsonSerializer,
     SerializationFormat,
 )
-from mitmproxy.http import HTTPFlow, Response
 
 
 if TYPE_CHECKING:

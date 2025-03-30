@@ -53,8 +53,8 @@ class AirbyteConnectorCache:
         self.mode = HttpCacheMode(mode) if isinstance(mode, str) else mode
 
         self.serialization_format = (
-            SerializationFormat(serialization_format) 
-            if isinstance(serialization_format, str) 
+            SerializationFormat(serialization_format)
+            if isinstance(serialization_format, str)
             else serialization_format
         )
 
