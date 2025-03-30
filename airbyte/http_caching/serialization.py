@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
 
 from mitmproxy.io import io
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -92,7 +95,7 @@ class NativeSerializer:
             path = path.with_suffix(".mitm")
 
         flows = data.get("flows", [])
-        
+
         with path.open("wb") as f:
             fw = io.FlowWriter(f)
             for flow in flows:
@@ -117,8 +120,8 @@ class NativeSerializer:
             with path.open("rb") as f:
                 fr = io.FlowReader(f)
                 flows = list(fr.stream())
-            return {"flows": flows}
         except Exception as e:
-            import logging
-            logging.warning(f"Error reading flow file {path}: {e}")
+            logger.warning(f"Error reading flow file {path}: {e}")
             return {"flows": []}
+        else:
+            return {"flows": flows}
