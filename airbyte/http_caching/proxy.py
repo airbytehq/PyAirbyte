@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Any
 from mitmproxy.http import HTTPFlow, Response
 
 from airbyte.http_caching.serialization import (
-    BinarySerializer,
     JsonSerializer,
+    NativeSerializer,
     SerializationFormat,
 )
 
@@ -52,7 +52,7 @@ class HttpCachingAddon:
         cache_dir: Path,
         mode: HttpCacheMode,
         read_dir: Path | None = None,
-        serialization_format: SerializationFormat = SerializationFormat.BINARY,
+        serialization_format: SerializationFormat = SerializationFormat.NATIVE,
     ) -> None:
         """Initialize the addon.
 
@@ -73,9 +73,9 @@ class HttpCachingAddon:
             self.read_dir.mkdir(parents=True, exist_ok=True)
 
         if serialization_format == SerializationFormat.JSON:
-            self.serializer: JsonSerializer | BinarySerializer = JsonSerializer()
+            self.serializer: JsonSerializer | NativeSerializer = JsonSerializer()
         else:
-            self.serializer = BinarySerializer()
+            self.serializer = NativeSerializer()
 
     def _get_cache_key(self, flow: HTTPFlow) -> str:
         """Generate a unique key for the request.
@@ -107,7 +107,7 @@ class HttpCachingAddon:
             The path to the cache file.
         """
         base_dir = self.read_dir if is_read else self.cache_dir
-        extension = ".json" if self.serialization_format == SerializationFormat.JSON else ".bin"
+        extension = ".json" if self.serialization_format == SerializationFormat.JSON else ".mitm"
         return base_dir / f"{key}{extension}"
 
     def request(self, flow: HTTPFlow) -> None:

@@ -14,7 +14,7 @@ def test_cache_initialization():
     cache = AirbyteConnectorCache()
     assert cache.mode == HttpCacheMode.READ_WRITE
     assert cache.cache_dir.name == ".airbyte-http-cache"
-    assert cache.serialization_format == SerializationFormat.BINARY
+    assert cache.serialization_format == SerializationFormat.NATIVE
 
 
 def test_cache_with_custom_dir():
@@ -76,8 +76,8 @@ def test_cache_with_serialization_format():
     cache = AirbyteConnectorCache(serialization_format="json")
     assert cache.serialization_format == SerializationFormat.JSON
 
-    cache = AirbyteConnectorCache(serialization_format="binary")
-    assert cache.serialization_format == SerializationFormat.BINARY
+    cache = AirbyteConnectorCache(serialization_format="native")
+    assert cache.serialization_format == SerializationFormat.NATIVE
 
 
 def test_cache_with_invalid_serialization_format():

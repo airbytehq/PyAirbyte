@@ -4,9 +4,10 @@
 from __future__ import annotations
 
 import json
-import pickle
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol
+
+from mitmproxy.io import io
 
 
 if TYPE_CHECKING:
@@ -45,8 +46,8 @@ class SerializationFormat(str, Enum):
     JSON = "json"
     """Human-readable JSON format."""
 
-    BINARY = "binary"
-    """Binary format using pickle."""
+    NATIVE = "native"
+    """Native mitmproxy format, interoperable with mitmproxy tools."""
 
 
 class JsonSerializer:
@@ -75,21 +76,26 @@ class JsonSerializer:
             return json.load(f)
 
 
-class BinarySerializer:
-    """Serializer that uses binary format (pickle)."""
+class NativeSerializer:
+    """Serializer that uses mitmproxy's native format."""
 
     def serialize(self, data: T_SerializedData, path: Path) -> None:
-        """Serialize data to a binary file using pickle.
+        """Serialize data to a mitmproxy-compatible file.
 
         Args:
             data: The data to serialize.
             path: The path to write the serialized data to.
         """
+        if not path.name.endswith(".mitm"):
+            path = path.with_name(f"{path.name}.mitm")
+
         with path.open("wb") as f:
-            pickle.dump(data, f)
+            fw = io.FlowWriter(f)
+            for flow in data.get("flows", []):
+                fw.add(flow)
 
     def deserialize(self, path: Path) -> T_SerializedData:
-        """Deserialize data from a binary file using pickle.
+        """Deserialize data from a mitmproxy-compatible file.
 
         Args:
             path: The path to read the serialized data from.
@@ -98,4 +104,7 @@ class BinarySerializer:
             The deserialized data.
         """
         with path.open("rb") as f:
-            return pickle.load(f)
+            fr = io.FlowReader(f)
+            flows = list(fr.stream())
+
+        return {"flows": flows}

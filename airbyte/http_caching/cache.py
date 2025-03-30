@@ -27,7 +27,7 @@ class AirbyteConnectorCache:
         cache_dir: str | Path | None = None,
         read_dir: str | Path | None = None,
         mode: str | HttpCacheMode = HttpCacheMode.READ_WRITE,
-        serialization_format: str | SerializationFormat = SerializationFormat.BINARY,
+        serialization_format: str | SerializationFormat = SerializationFormat.NATIVE,
     ) -> None:
         """Initialize the cache.
 
