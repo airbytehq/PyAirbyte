@@ -86,8 +86,10 @@ class NativeSerializer:
             data: The data to serialize.
             path: The path to write the serialized data to.
         """
-        if not path.name.endswith(".mitm"):
-            path = path.with_name(f"{path.name}.mitm")
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        if not str(path).endswith(".mitm"):
+            path = path.with_suffix(".mitm")
 
         with path.open("wb") as f:
             fw = io.FlowWriter(f)
@@ -103,6 +105,12 @@ class NativeSerializer:
         Returns:
             The deserialized data.
         """
+        if not str(path).endswith(".mitm"):
+            path = path.with_suffix(".mitm")
+
+        if not path.exists():
+            return {"flows": []}
+
         with path.open("rb") as f:
             fr = io.FlowReader(f)
             flows = list(fr.stream())
