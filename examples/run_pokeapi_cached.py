@@ -24,7 +24,7 @@ os.makedirs(cache_dir, exist_ok=True)
 Path(cache_dir / ".gitignore").write_text("# Ignore all files in this directory\n*")
 
 # Create an HTTP cache
-cache = AirbyteConnectorCache(
+http_cache = AirbyteConnectorCache(
     cache_dir=cache_dir,
     mode="read_write",
     serialization_format="native",  # Use mitmproxy's native format
@@ -33,31 +33,23 @@ cache = AirbyteConnectorCache(
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-port = cache.start()
+port = http_cache.start()
 print(f"HTTP cache started on port {port}")
 
-source = get_source(
-    "source-pokeapi",
-    config={"pokemon_name": "bulbasaur"},
-    source_manifest=True,
-    streams=["pokemon"],
-)
-
-print("Checking source connection...")
-source.check()
-print("Source connection successful")
-
-local_cache = ab.new_local_cache("poke")
+local_cache: ab.DuckDBCache = ab.new_local_cache("poke")
 
 print("First run - making HTTP requests...")
-source_with_cache = get_source(
+source: ab.Source = get_source(
     "source-pokeapi",
     config={"pokemon_name": "bulbasaur"},
-    source_manifest=True,
-    http_cache=cache,
+    docker_image=True,
+    use_host_network=True,
+    http_cache=http_cache,
     streams=["pokemon"],
 )
-source_with_cache.read(cache=local_cache)
+source.check()
+print("Source check successful")
+source.read(cache=local_cache)
 print("First run completed")
 
 print("Second run - should use cached responses...")
@@ -65,5 +57,5 @@ source.read(cache=local_cache)
 print("Second run completed")
 
 print("Stopping HTTP cache...")
-cache.stop()
+http_cache.stop()
 print("HTTP cache stopped")
