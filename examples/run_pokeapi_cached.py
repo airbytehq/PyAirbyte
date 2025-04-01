@@ -30,7 +30,7 @@ cache = AirbyteConnectorCache(
 try:
     port = cache.start()
     print(f"HTTP cache started on port {port}")
-    
+
     source = get_source(
         "source-pokeapi",
         config={"pokemon_name": "bulbasaur"},
@@ -38,17 +38,17 @@ try:
         http_cache=cache,
         streams=["pokemon"],
     )
-    
+
     print("Checking source connection...")
     source.check()
     print("Source connection successful")
-    
+
     local_cache = ab.new_local_cache("poke")
-    
+
     print("Reading data from source...")
     source.read(cache=local_cache)
     print("Data read successfully")
-    
+
 finally:
     print("Stopping HTTP cache...")
     cache.stop()

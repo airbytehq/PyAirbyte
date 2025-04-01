@@ -8,7 +8,6 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Optional
 
 from mitmproxy import options
 from mitmproxy.tools.dump import DumpMaster
@@ -98,12 +97,12 @@ class AirbyteConnectorCache:
         def run_proxy() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
             try:
                 proxy = DumpMaster(opts)
                 self._proxy = proxy
                 proxy.addons.add(addon)
-                
+
                 loop.run_until_complete(proxy.run())
             except Exception:
                 logger.exception("Error running proxy")
