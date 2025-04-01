@@ -38,6 +38,7 @@ class HttpCacheMode(str, Enum):
 
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class HttpCachingAddon:
@@ -164,6 +165,6 @@ class HttpCachingAddon:
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
                 self.serializer.serialize({"flows": [flow.copy()]}, cache_path)
-                logger.info(f"Cached response for {flow.request.url}")
+                logger.info(f"Cached response for {flow.request.url} at {cache_path}")
             except Exception as e:
                 logger.warning(f"Failed to cache response: {e}")
