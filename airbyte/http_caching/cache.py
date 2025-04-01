@@ -94,14 +94,15 @@ class AirbyteConnectorCache:
         )
         self._addon = addon
 
-        proxy = DumpMaster(opts)
-        self._proxy = proxy
-        proxy.addons.add(addon)
-
         def run_proxy() -> None:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+
             try:
+                proxy = DumpMaster(opts, loop=loop)
+                self._proxy = proxy
+                proxy.addons.add(addon)
+
                 loop.run_until_complete(proxy.run())
             except Exception:
                 logger.exception("Error running proxy")

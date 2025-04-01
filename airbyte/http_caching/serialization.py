@@ -6,9 +6,15 @@ from __future__ import annotations
 import json
 import logging
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from mitmproxy.io import io
+
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from mitmproxy.http import HTTPFlow
 
 
 logger = logging.getLogger(__name__)
@@ -122,12 +128,13 @@ class NativeSerializer:
 
                 if flows and len(flows) > 0:
                     flow = flows[0]
+                    http_flow = cast("HTTPFlow", flow)
                     return {
                         "type": "http",
-                        "request": flow.request.get_state() if flow.request else {},
-                        "response": flow.response.get_state() if flow.response else None,
-                        "error": flow.error.get_state()
-                        if hasattr(flow, "error") and flow.error
+                        "request": http_flow.request.get_state() if http_flow.request else {},
+                        "response": http_flow.response.get_state() if http_flow.response else None,
+                        "error": http_flow.error.get_state()
+                        if hasattr(http_flow, "error") and http_flow.error
                         else None,
                     }
         except Exception as e:
