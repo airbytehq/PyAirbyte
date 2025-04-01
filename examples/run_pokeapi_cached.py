@@ -38,7 +38,6 @@ source = get_source(
     "source-pokeapi",
     config={"pokemon_name": "bulbasaur"},
     source_manifest=True,
-    http_cache=cache,
     streams=["pokemon"],
 )
 
@@ -49,7 +48,14 @@ print("Source connection successful")
 local_cache = ab.new_local_cache("poke")
 
 print("First run - making HTTP requests...")
-source.read(cache=local_cache)
+source_with_cache = get_source(
+    "source-pokeapi",
+    config={"pokemon_name": "bulbasaur"},
+    source_manifest=True,
+    http_cache=cache,
+    streams=["pokemon"],
+)
+source_with_cache.read(cache=local_cache)
 print("First run completed")
 
 print("Second run - should use cached responses...")
