@@ -31,33 +31,31 @@ cache = AirbyteConnectorCache(
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
 
-try:
-    port = cache.start()
-    print(f"HTTP cache started on port {port}")
+port = cache.start()
+print(f"HTTP cache started on port {port}")
 
-    source = get_source(
-        "source-pokeapi",
-        config={"pokemon_name": "bulbasaur"},
-        source_manifest=True,
-        http_cache=cache,
-        streams=["pokemon"],
-    )
+source = get_source(
+    "source-pokeapi",
+    config={"pokemon_name": "bulbasaur"},
+    source_manifest=True,
+    http_cache=cache,
+    streams=["pokemon"],
+)
 
-    print("Checking source connection...")
-    source.check()
-    print("Source connection successful")
+print("Checking source connection...")
+source.check()
+print("Source connection successful")
 
-    local_cache = ab.new_local_cache("poke")
+local_cache = ab.new_local_cache("poke")
 
-    print("First run - making HTTP requests...")
-    source.read(cache=local_cache)
-    print("First run completed")
+print("First run - making HTTP requests...")
+source.read(cache=local_cache)
+print("First run completed")
 
-    print("Second run - should use cached responses...")
-    source.read(cache=local_cache)
-    print("Second run completed")
+print("Second run - should use cached responses...")
+source.read(cache=local_cache)
+print("Second run completed")
 
-finally:
-    print("Stopping HTTP cache...")
-    cache.stop()
-    print("HTTP cache stopped")
+print("Stopping HTTP cache...")
+cache.stop()
+print("HTTP cache stopped")
