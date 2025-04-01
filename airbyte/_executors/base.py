@@ -10,6 +10,7 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
+from airbyte.http_caching.cache import DOCKER_HOST, LOCALHOST
 
 
 if TYPE_CHECKING:
@@ -184,6 +185,42 @@ class Executor(ABC):
                 self.target_version = target_version
 
     @property
+    def _proxy_host(self) -> str | None:
+        """Return the host name of the proxy server.
+
+        This can be overridden in cases (like) docker, where we need to
+        remap localhost to host.docker.internal.
+        """
+        if self.http_cache:
+            return self.http_cache.proxy_host
+
+        return None
+
+    @property
+    def _proxy_env_vars(self) -> dict[str, str]:
+        """Return the environment variables for the proxy server.
+
+        This is used to set the HTTP_PROXY and HTTPS_PROXY environment variables.
+        """
+        if not self.http_cache:
+            return {}
+
+        # Generally proxy_host will be 'host.docker.internal' or 'localhost'
+        proxy_host = self._proxy_host
+        proxy_port = self.http_cache.proxy_port
+
+        if proxy_host and proxy_port:
+            return {
+                "HTTP_PROXY": f"http://{proxy_host}:{proxy_port}",
+                "HTTPS_PROXY": f"http://{proxy_host}:{proxy_port}",
+                "NO_PROXY": proxy_host,
+                # This doesn't work unfortunately:
+                # "REQUESTS_CA_BUNDLE": "/airbyte/mitm-certs/mitmproxy-ca-cert.pem",
+            }
+
+        return {}
+
+    @property
     @abstractmethod
     def _cli(self) -> list[str]:
         """Get the base args of the CLI executable.
@@ -210,9 +247,10 @@ class Executor(ABC):
 
         If stdin is provided, it will be passed to the subprocess as STDIN.
         """
-        mapped_args = self.map_cli_args(args)
+        cli_cmd = [*self._cli, *self.map_cli_args(args)]
+        print("Executing command:", " ".join(cli_cmd))
         with _stream_from_subprocess(
-            [*self._cli, *mapped_args],
+            cli_cmd,
             stdin=stdin,
             env=self.env_vars,
         ) as stream_lines:
@@ -222,12 +260,20 @@ class Executor(ABC):
     def env_vars(self) -> dict[str, str]:
         """Get the environment variables for the connector.
 
-        By default, this is an empty dict. Subclasses may override this method
+        By default, this is a copy of `os.environ`. Subclasses may override this method
         to provide custom environment variables.
+
+        In the future, we may reduce the number of environment variables we pass to the
+        connector, but for now we pass all of them. This is useful for connectors that
+        rely on environment variables to configure their behavior.
         """
         result = os.environ.copy()
         if self.http_cache:
-            result.update(self.http_cache.get_env_vars())
+            host_name = self.http_cache.proxy_host
+            if host_name is LOCALHOST:
+                host_name = f"http://{DOCKER_HOST}"
+
+            result.update(self._proxy_env_vars)
 
         return result
 

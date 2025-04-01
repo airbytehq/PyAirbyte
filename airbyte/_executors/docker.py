@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, NoReturn
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte.constants import TEMP_DIR_OVERRIDE
+from airbyte.http_caching.cache import DOCKER_HOST, LOCALHOST
 
 
 if TYPE_CHECKING:
@@ -41,6 +42,17 @@ class DockerExecutor(Executor):
             local_mount_dir: "/local",
             (TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())): DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR,
         }
+        if http_cache:
+            # Mount the cache directory inside the container.
+            # This allows the connector to access the cached files.
+
+            # This doesn't really work, unfortunately:
+            # self.volumes[http_cache.cache_dir.absolute()] = "/airbyte/mitm-certs"
+
+            # Warning: This only works for 3.11-based images:
+            self.volumes[http_cache.cache_dir.absolute() / "mitmproxy-ca-cert.pem"] = (
+                "/usr/local/lib/python3.11/site-packages/certifi/cacert.pem"
+            )
 
         super().__init__(
             name=name or self.docker_image,
@@ -96,14 +108,29 @@ class DockerExecutor(Executor):
         for local_dir, container_dir in self.volumes.items():
             result.extend(["--volume", f"{local_dir}:{container_dir}"])
 
-        if self.http_cache:
-            for key, value in self.http_cache.get_env_vars().items():
-                result.extend(["-e", f"{key}={value}"])
+        for key, value in self._proxy_env_vars.items():
+            result.extend(["-e", f"{key}={value}"])
 
         if self.use_host_network:
             result.extend(["--network", "host"])
 
         result.append(self.docker_image)
+        return result
+
+    @property
+    def _proxy_host(self) -> str | None:
+        """Return the host name of the proxy server.
+
+        This is used to set the HTTP_PROXY and HTTPS_PROXY environment variables.
+        """
+        result: str | None = None
+        if self.http_cache:
+            result = self.http_cache.proxy_host
+            if result == LOCALHOST:
+                # Docker containers cannot access localhost on the host machine.
+                # Use host.docker.internal instead.
+                return DOCKER_HOST
+
         return result
 
     def map_cli_args(self, args: list[str]) -> list[str]:

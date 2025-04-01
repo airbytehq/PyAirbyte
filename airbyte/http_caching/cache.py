@@ -19,6 +19,9 @@ from airbyte.http_caching.serialization import SerializationFormat
 
 logger = logging.getLogger(__name__)
 
+LOCALHOST = "localhost"
+DOCKER_HOST = "host.docker.internal"
+
 
 class AirbyteConnectorCache:
     """Cache for Airbyte connector HTTP requests and responses.
@@ -68,18 +71,26 @@ class AirbyteConnectorCache:
         self._proxy: DumpMaster | None = None
         self._addon: HttpCachingAddon | None = None
 
+    @property
+    def proxy_host(self) -> str:
+        """Return 'localhost' or another host name."""
+        return "localhost"  # or another host name
+
+    @property
+    def proxy_port(self) -> int | None:
+        """Return the port number the proxy is listening on."""
+        return self._proxy_port
+
     def get_env_vars(self) -> dict[str, str]:
         """Get the environment variables to apply to processes using the HTTP proxy."""
         env_vars = {}
         if self._proxy_port:
-            proxy_url = f"http://127.0.0.1:{self._proxy_port}"
+            proxy_url = f"http://host.docker.internal:{self._proxy_port}"
             env_vars = {
                 "HTTP_PROXY": proxy_url,
                 "HTTPS_PROXY": proxy_url,
-                "http_proxy": proxy_url,
-                "https_proxy": proxy_url,
-                "NO_PROXY": "localhost,127.0.0.1",
-                "no_proxy": "localhost,127.0.0.1",
+                "NO_PROXY": "localhost,127.0.0.1,http://host.docker.internal",
+                "no_proxy": "localhost,127.0.0.1,http://host.docker.internal",
             }
         return env_vars
 
