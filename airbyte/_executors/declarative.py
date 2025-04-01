@@ -106,7 +106,7 @@ class DeclarativeExecutor(Executor):
         stdin: IO[str] | AirbyteMessageIterator | None = None,
     ) -> Iterator[str]:
         """Execute the declarative source."""
-        _ = stdin, env  # Not used
+        _ = stdin  # Not used
         source_entrypoint = AirbyteEntrypoint(self.declarative_source)
 
         mapped_args: list[str] = self.map_cli_args(args)

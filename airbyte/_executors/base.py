@@ -225,7 +225,7 @@ class Executor(ABC):
         By default, this is an empty dict. Subclasses may override this method
         to provide custom environment variables.
         """
-        result = cast(dict[str,str], os.environ.copy())
+        result = os.environ.copy()
         if self.http_cache:
             result.update(self.http_cache.get_env_vars())
 

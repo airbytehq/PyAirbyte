@@ -399,7 +399,6 @@ class ConnectorBase(abc.ABC):
         stdin: IO[str] | AirbyteMessageIterator | None = None,
         *,
         progress_tracker: ProgressTracker | None = None,
-        env: dict[str, str] | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Execute the connector with the given arguments.
 

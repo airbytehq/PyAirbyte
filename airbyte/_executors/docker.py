@@ -1,17 +1,19 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import http
 import logging
 import shutil
 import tempfile
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte.constants import TEMP_DIR_OVERRIDE
-from airbyte.http_caching.cache import AirbyteConnectorCache
+
+
+if TYPE_CHECKING:
+    from airbyte.http_caching.cache import AirbyteConnectorCache
 
 
 logger = logging.getLogger("airbyte")
