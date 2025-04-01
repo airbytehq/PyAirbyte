@@ -163,7 +163,7 @@ class HttpCachingAddon:
 
             try:
                 cache_path.parent.mkdir(parents=True, exist_ok=True)
-                self.serializer.serialize(flow.get_state(), cache_path)
+                self.serializer.serialize({"flows": [flow.copy()]}, cache_path)
                 logger.info(f"Cached response for {flow.request.url}")
             except Exception as e:
                 logger.warning(f"Failed to cache response: {e}")
