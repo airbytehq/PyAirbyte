@@ -16,10 +16,12 @@ from __future__ import annotations
 import asyncio
 import os
 import airbyte as ab
+from pathlib import Path
 from airbyte import get_source, AirbyteConnectorCache
 
-cache_dir = os.path.join(os.path.expanduser("~"), ".airbyte-http-cache-test")
+cache_dir = Path(".airbyte-http-cache")
 os.makedirs(cache_dir, exist_ok=True)
+Path(cache_dir / ".gitignore").write_text("# Ignore all files in this directory\n*")
 
 # Create an HTTP cache
 cache = AirbyteConnectorCache(
