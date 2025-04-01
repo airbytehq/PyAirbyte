@@ -52,7 +52,7 @@ try:
     print("First run - making HTTP requests...")
     source.read(cache=local_cache)
     print("First run completed")
-    
+
     print("Second run - should use cached responses...")
     source.read(cache=local_cache)
     print("Second run completed")
