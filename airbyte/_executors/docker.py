@@ -1,13 +1,17 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import http
 import logging
 import shutil
+import tempfile
 from pathlib import Path
 from typing import NoReturn
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
+from airbyte.constants import TEMP_DIR_OVERRIDE
+from airbyte.http_caching.cache import AirbyteConnectorCache
 
 
 logger = logging.getLogger("airbyte")
@@ -20,16 +24,26 @@ DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte/tmp"
 class DockerExecutor(Executor):
     def __init__(
         self,
-        name: str | None = None,
+        name: str,
+        docker_image: str,
         *,
-        executable: list[str],
-        target_version: str | None = None,
-        volumes: dict[Path, str] | None = None,
+        use_host_network: bool = False,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
-        self.executable: list[str] = executable
-        self.volumes: dict[Path, str] = volumes or {}
-        name = name or executable[0]
-        super().__init__(name=name, target_version=target_version)
+        self.docker_image: str = docker_image
+        self.use_host_network: bool = use_host_network
+
+        local_mount_dir = Path().absolute() / name
+        local_mount_dir.mkdir(exist_ok=True)
+        self.volumes = {
+            local_mount_dir: "/local",
+            (TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())): DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR,
+        }
+
+        super().__init__(
+            name=name or self.docker_image,
+            http_cache=http_cache,
+        )
 
     def ensure_installation(
         self,
@@ -65,8 +79,30 @@ class DockerExecutor(Executor):
 
     @property
     def _cli(self) -> list[str]:
-        """Get the base args of the CLI executable."""
-        return self.executable
+        """Get the executable CLI command.
+
+        For Docker executors, this is the `docker run` command with the necessary arguments
+        to run the connector in a Docker container. This will be extended (suffixed) by the
+        connector's CLI commands and arguments, such as 'spec' or 'check --config=...'.
+        """
+        result: list[str] = [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+        ]
+        for local_dir, container_dir in self.volumes.items():
+            result.extend(["--volume", f"{local_dir}:{container_dir}"])
+
+        if self.http_cache:
+            for key, value in self.http_cache.get_env_vars().items():
+                result.extend(["-e", f"{key}={value}"])
+
+        if self.use_host_network:
+            result.extend(["--network", "host"])
+
+        result.append(self.docker_image)
+        return result
 
     def map_cli_args(self, args: list[str]) -> list[str]:
         """Map local file paths to the container's volume paths."""

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from airbyte._message_iterators import AirbyteMessageIterator
+    from airbyte.http_caching.cache import AirbyteConnectorCache
 
 
 def _suppress_cdk_pydantic_deprecation_warnings() -> None:
@@ -43,6 +44,8 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
+        *,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
         """Initialize a declarative executor.
 
@@ -54,6 +57,8 @@ class DeclarativeExecutor(Executor):
 
         self.name = name
         self._manifest_dict: dict
+        self.http_cache = http_cache
+
         if isinstance(manifest, Path):
             self._manifest_dict = cast("dict", yaml.safe_load(manifest.read_text()))
 
@@ -99,7 +104,6 @@ class DeclarativeExecutor(Executor):
         args: list[str],
         *,
         stdin: IO[str] | AirbyteMessageIterator | None = None,
-        env: dict[str, str] | None = None,
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin, env  # Not used

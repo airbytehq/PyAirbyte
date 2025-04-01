@@ -68,6 +68,21 @@ class AirbyteConnectorCache:
         self._proxy: DumpMaster | None = None
         self._addon: HttpCachingAddon | None = None
 
+    def get_env_vars(self) -> dict[str, str]:
+        """Get the environment variables to apply to processes using the HTTP proxy."""
+        env_vars = {}
+        if self._proxy_port:
+            proxy_url = f"http://127.0.0.1:{self._proxy_port}"
+            env_vars = {
+                "HTTP_PROXY": proxy_url,
+                "HTTPS_PROXY": proxy_url,
+                "http_proxy": proxy_url,
+                "https_proxy": proxy_url,
+                "NO_PROXY": "localhost,127.0.0.1",
+                "no_proxy": "localhost,127.0.0.1",
+            }
+        return env_vars
+
     def start(self) -> int:
         """Start the HTTP proxy.
 

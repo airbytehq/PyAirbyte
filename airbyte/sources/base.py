@@ -45,7 +45,6 @@ if TYPE_CHECKING:
     from airbyte.caches import CacheBase
     from airbyte.callbacks import ConfigChangeCallback
     from airbyte.documents import Document
-    from airbyte.http_caching.cache import AirbyteConnectorCache
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
 
@@ -64,7 +63,6 @@ class Source(ConnectorBase):
         config_change_callback: ConfigChangeCallback | None = None,
         streams: str | list[str] | None = None,
         validate: bool = False,
-        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
         """Initialize the source.
 
@@ -84,7 +82,6 @@ class Source(ConnectorBase):
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
-        self._http_cache = http_cache
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -550,52 +547,31 @@ class Source(ConnectorBase):
           the type of the cache)
         * If HTTP caching is enabled, set up the HTTP_PROXY and HTTPS_PROXY environment variables
         """
-        proxy_port = None
-        if self._http_cache:
-            proxy_port = self._http_cache.start()
-
-        try:
-            with as_temp_files(
+        with as_temp_files(
+            [
+                self._config,
+                catalog.model_dump_json(),
+                state.to_state_input_file_text() if state else "[]",
+            ]
+        ) as [
+            config_file,
+            catalog_file,
+            state_file,
+        ]:
+            message_generator = self._execute(
                 [
-                    self._config,
-                    catalog.model_dump_json(),
-                    state.to_state_input_file_text() if state else "[]",
-                ]
-            ) as [
-                config_file,
-                catalog_file,
-                state_file,
-            ]:
-                env_vars = {}
-                if proxy_port:
-                    proxy_url = f"http://127.0.0.1:{proxy_port}"
-                    env_vars = {
-                        "HTTP_PROXY": proxy_url,
-                        "HTTPS_PROXY": proxy_url,
-                        "http_proxy": proxy_url,
-                        "https_proxy": proxy_url,
-                        "NO_PROXY": "localhost,127.0.0.1",
-                        "no_proxy": "localhost,127.0.0.1",
-                    }
-
-                message_generator = self._execute(
-                    [
-                        "read",
-                        "--config",
-                        config_file,
-                        "--catalog",
-                        catalog_file,
-                        "--state",
-                        state_file,
-                    ],
-                    progress_tracker=progress_tracker,
-                    env=env_vars,
-                )
-                yield from progress_tracker.tally_records_read(message_generator)
-            progress_tracker.log_read_complete()
-        finally:
-            if self._http_cache and proxy_port:
-                self._http_cache.stop()
+                    "read",
+                    "--config",
+                    config_file,
+                    "--catalog",
+                    catalog_file,
+                    "--state",
+                    state_file,
+                ],
+                progress_tracker=progress_tracker,
+            )
+            yield from progress_tracker.tally_records_read(message_generator)
+        progress_tracker.log_read_complete()
 
     def _peek_airbyte_message(
         self,

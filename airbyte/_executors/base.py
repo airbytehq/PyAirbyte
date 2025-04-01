@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -14,6 +15,7 @@ from airbyte._message_iterators import AirbyteMessageIterator
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
+    from airbyte.http_caching.cache import AirbyteConnectorCache
     from airbyte.sources.registry import ConnectorMetadata
 
 
@@ -157,6 +159,7 @@ class Executor(ABC):
         name: str | None = None,
         metadata: ConnectorMetadata | None = None,
         target_version: str | None = None,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
         """Initialize a connector executor.
 
@@ -170,6 +173,7 @@ class Executor(ABC):
         )  # metadata is not None here
         self.metadata: ConnectorMetadata | None = metadata
         self.enforce_version: bool = target_version is not None
+        self.http_cache: AirbyteConnectorCache | None = http_cache
 
         self.reported_version: str | None = None
         self.target_version: str | None = None
@@ -201,7 +205,6 @@ class Executor(ABC):
         args: list[str],
         *,
         stdin: IO[str] | AirbyteMessageIterator | None = None,
-        env: dict[str, str] | None = None,
     ) -> Iterator[str]:
         """Execute a command and return an iterator of STDOUT lines.
 
@@ -211,9 +214,22 @@ class Executor(ABC):
         with _stream_from_subprocess(
             [*self._cli, *mapped_args],
             stdin=stdin,
-            env=env,
+            env=self.env_vars,
         ) as stream_lines:
             yield from stream_lines
+
+    @property
+    def env_vars(self) -> dict[str, str]:
+        """Get the environment variables for the connector.
+
+        By default, this is an empty dict. Subclasses may override this method
+        to provide custom environment variables.
+        """
+        result = cast(dict[str,str], os.environ.copy())
+        if self.http_cache:
+            result.update(self.http_cache.get_env_vars())
+
+        return result
 
     @abstractmethod
     def ensure_installation(self, *, auto_fix: bool = True) -> None:

@@ -124,8 +124,8 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             source_manifest=source_manifest,
             install_if_missing=install_if_missing,
             install_root=install_root,
+            http_cache=http_cache,
         ),
-        http_cache=http_cache,
     )
 
 

@@ -433,7 +433,7 @@ class ConnectorBase(abc.ABC):
         )
 
         try:
-            for line in self.executor.execute(args, stdin=stdin, env=env):
+            for line in self.executor.execute(args, stdin=stdin):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:
@@ -464,7 +464,7 @@ class ConnectorBase(abc.ABC):
                 connector_name=self.name,
                 log_text=self._last_log_messages,
                 original_exception=e,
-            ) from None
+            ) from e
 
 
 __all__ = [
