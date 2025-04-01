@@ -99,7 +99,7 @@ class AirbyteConnectorCache:
             asyncio.set_event_loop(loop)
 
             try:
-                proxy = DumpMaster(opts)
+                proxy = DumpMaster(opts, loop=loop)
                 self._proxy = proxy
                 proxy.addons.add(addon)
 
