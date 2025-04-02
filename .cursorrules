@@ -1,0 +1,15 @@
+# Cursor Rules file
+
+## Python Best Practices
+
+### Modern Typing
+
+- Always use types.
+- Always use modern native types (dict not Dict, tuple, not Tuple).
+- Always use pipe (|) instead of `Union` for combining types.
+- Always use `x | None` instead of `Optional[x]`.
+
+### File and Directory Access
+
+- Always use `pathlib` and `Path` instead of older `os` methods.
+- Always prefer `Path.read_text()` and `Path.write_text()` instead of `open()` and an unnecessary context manager.
