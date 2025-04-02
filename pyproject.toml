@@ -45,7 +45,7 @@ snowflake-sqlalchemy = "^1.6.1"
 structlog = "^24.4.0"
 # TODO: Remove SQLAlchemy version constraint once DuckDB engine bug is fixed (issue #423)
 sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
-mitmproxy = "^10.1.5"
+mitmproxy = "11.0.2"
 
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
 sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }

@@ -6,15 +6,14 @@ from __future__ import annotations
 import atexit
 import logging
 import os
-import shutil
 import socket
 import subprocess
-import tempfile
-import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from airbyte._util.text_util import generate_ulid
+from airbyte.http_caching.modes import HttpCacheMode
 
 
 if TYPE_CHECKING:
@@ -39,7 +38,7 @@ def get_proxy_host() -> str:
     return LOCALHOST
 
 
-def get_proxy_env_vars(proxy_port: int) -> dict[str, str]:
+def mitm_get_proxy_env_vars(proxy_port: int) -> dict[str, str]:
     """Get the environment variables to apply to processes using the HTTP proxy.
 
     Args:
@@ -55,78 +54,18 @@ def get_proxy_env_vars(proxy_port: int) -> dict[str, str]:
             "HTTP_PROXY": proxy_url,
             "HTTPS_PROXY": proxy_url,
             "NO_PROXY": "localhost,127.0.0.1,http://host.docker.internal",
-            "no_proxy": "localhost,127.0.0.1,http://host.docker.internal",
         }
     return env_vars
 
 
-def extract_ca_cert(temp_path: Path, cache_dir: Path) -> Path:
-    """Extract the mitmproxy CA certificate to use for SSL verification.
-
-    Args:
-        temp_path: The temporary directory where mitmproxy stores its files.
-        cache_dir: The directory where to store the extracted certificate.
-
-    Returns:
-        The path to the CA certificate.
-    """
-    # Wait for mitmproxy to generate the CA certificate
-    time.sleep(2)
-
-    # Find the CA certificate
-    ca_cert_path = temp_path / "mitmproxy-ca-cert.pem"
-
-    if not ca_cert_path.exists():
-        # Try to find it in the mitmproxy directory
-        mitmproxy_dir = Path.home() / ".mitmproxy"
-        if mitmproxy_dir.exists():
-            source_cert = mitmproxy_dir / "mitmproxy-ca-cert.pem"
-            if source_cert.exists():
-                # Copy the certificate to our cache directory
-                ca_cert_path = cache_dir / "mitmproxy-ca-cert.pem"
-                shutil.copy(source_cert, ca_cert_path)
-                logger.info(f"Copied mitmproxy CA certificate to {ca_cert_path}")
-                return ca_cert_path
-
-    # If we found the certificate in the temp directory, copy it to our cache directory
-    if ca_cert_path.exists():
-        dest_cert = cache_dir / "mitmproxy-ca-cert.pem"
-        shutil.copy(ca_cert_path, dest_cert)
-        logger.info(f"Copied mitmproxy CA certificate to {dest_cert}")
-        return dest_cert
-
-    # If we couldn't find the certificate, try to generate it
-    logger.warning("Could not find mitmproxy CA certificate, attempting to generate it")
-    try:
-        # Run mitmproxy to generate the certificate
-        subprocess.run(
-            ["mitmdump", "--set", f"confdir={temp_path}", "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-
-        # Check if the certificate was generated
-        if (temp_path / "mitmproxy-ca-cert.pem").exists():
-            dest_cert = cache_dir / "mitmproxy-ca-cert.pem"
-            shutil.copy(temp_path / "mitmproxy-ca-cert.pem", dest_cert)
-            logger.info(f"Generated and copied mitmproxy CA certificate to {dest_cert}")
-            return dest_cert
-    except Exception as e:
-        logger.exception("Failed to generate mitmproxy CA certificate.")
-
-    logger.error("Could not find or generate mitmproxy CA certificate")
-    raise RuntimeError("Could not find or generate mitmproxy CA certificate")
-
-
-def start_proxy(
+def mitm_start_proxy(
     cache_dir: Path,
     read_dir: Path,
-    mode: str,
+    mode: HttpCacheMode,
     serialization_format: str,
     proxy_port: int,
     stop_callback: Callable[[], None],
-) -> tuple[subprocess.Popen, tempfile.TemporaryDirectory, Path]:
+) -> subprocess.Popen:
     """Start the HTTP proxy.
 
     Args:
@@ -140,10 +79,6 @@ def start_proxy(
     Returns:
         A tuple containing the process, temporary directory, and CA certificate path.
     """
-    # Create a temporary directory for mitmdump configuration
-    temp_dir = tempfile.TemporaryDirectory()
-    temp_path = Path(temp_dir.name)
-
     # Create a unique ID for this session
     session_id = generate_ulid().lower()
 
@@ -161,72 +96,76 @@ def start_proxy(
     # Start mitmdump with our script
     script_path = Path(__file__).parent / "mitm_addons_script.py"
 
+    session_dir = Path(".airbyte-http-cache/sessions")
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds").replace(":", "-")
+    flow_output_file = session_dir / f"{timestamp}.flows"
+
+    replay_files = sorted(session_dir.glob("*.flows"))
+
     cmd = [
         "mitmdump",
+        "--mode",
+        "regular",
         "--listen-host",
         "127.0.0.1",
         "--listen-port",
         str(proxy_port),
         "--ssl-insecure",
         "--set",
-        f"confdir={temp_path}",
+        f"confdir={cache_dir.absolute()}",
+        "--save-stream-file",
+        str(flow_output_file),
+        "--set",
+        "server_replay.match=host,port,path",
+        "--set",
+        "server_replay.nopop=true",
         "--scripts",
         str(script_path.absolute()),
     ]
+    if mode == HttpCacheMode.READ_ONLY_FAIL_ON_MISS:
+        cmd.extend(("--set", "server_replay.kill_extra=true"))
 
-    logger.info(f"Starting mitmdump with command: {' '.join(cmd)}")
+    if replay_files:
+        for replay_file in replay_files:
+            if replay_file != flow_output_file:
+                # Remove old replay files
+                cmd.extend(
+                    ["--server-replay", str(replay_file.absolute())],
+                )
 
-    mitm_process = subprocess.Popen(
-        cmd,
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
+    print(f"Starting mitmdump with command: {' '.join(cmd)}")
 
     # Register cleanup function to ensure the process is terminated
     atexit.register(stop_callback)
 
-    # Wait a moment for the proxy to start
-    time.sleep(1)
+    mitm_process = subprocess.Popen(
+        cmd,
+        env=env,
+        stdin=subprocess.PIPE,  # Open a dummy STDIN pipe to mitmdump doesn't immediately exit
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
 
     # Check if the process is still running
     if mitm_process.poll() is not None:
-        stdout, stderr = mitm_process.communicate()
+        _, stderr = mitm_process.communicate()
         logger.error(f"Failed to start mitmdump: {stderr}")
         raise RuntimeError(f"Failed to start mitmdump: {stderr}")
 
-    # Extract the CA certificate for SSL verification
-    ca_cert_path = extract_ca_cert(temp_path, cache_dir)
-
     logger.info(f"HTTP cache proxy started on port {proxy_port}")
-    return mitm_process, temp_dir, ca_cert_path
+    return mitm_process
 
 
-def get_docker_volumes(ca_cert_path: Path | None) -> dict[str, str]:
-    """Get the Docker volume mappings needed for the proxy.
-
-    Args:
-        ca_cert_path: The path to the CA certificate.
-
-    Returns:
-        A dictionary of host paths to container paths for Docker volume mappings.
-    """
-    volumes = {}
-
-    # Add the CA certificate volume if available
-    if ca_cert_path and ca_cert_path.exists():
-        volumes[str(ca_cert_path.absolute())] = "/usr/local/lib/python3.11/site-packages/certifi/cacert.pem"
-
-    return volumes
-
-
-def stop_proxy(mitm_process: subprocess.Popen | None, temp_dir: tempfile.TemporaryDirectory | None, stop_callback: Callable[[], None]) -> None:
+def mitm_stop_proxy(
+    mitm_process: subprocess.Popen | None,
+    stop_callback: Callable[[], None],
+) -> None:
     """Stop the HTTP proxy.
 
     Args:
         mitm_process: The mitmdump process to stop.
-        temp_dir: The temporary directory to clean up.
         stop_callback: The callback function to unregister from atexit.
     """
     if mitm_process is not None:
@@ -236,10 +175,6 @@ def stop_proxy(mitm_process: subprocess.Popen | None, temp_dir: tempfile.Tempora
             mitm_process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             mitm_process.kill()
-
-        # Clean up temporary directory
-        if temp_dir:
-            temp_dir.cleanup()
 
         # Remove the cleanup function
         atexit.unregister(stop_callback)

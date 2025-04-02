@@ -3,32 +3,27 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from mitmproxy.io import FlowReader, FlowWriter
 
 from airbyte.constants import DEFAULT_HTTP_CACHE_DIR, DEFAULT_HTTP_CACHE_READ_DIR
 from airbyte.http_caching.mitm_proxy import (
     find_free_port,
     get_proxy_host,
-)
-from airbyte.http_caching.mitm_proxy import (
-    get_docker_volumes as mitm_get_docker_volumes,
-)
-from airbyte.http_caching.mitm_proxy import (
-    get_proxy_env_vars as mitm_get_env_vars,
-)
-from airbyte.http_caching.mitm_proxy import (
-    start_proxy as mitm_start_proxy,
-)
-from airbyte.http_caching.mitm_proxy import (
-    stop_proxy as mitm_stop_proxy,
+    mitm_get_proxy_env_vars,
+    mitm_start_proxy,
+    mitm_stop_proxy,
 )
 from airbyte.http_caching.modes import HttpCacheMode, SerializationFormat
 
 
 if TYPE_CHECKING:
-    import subprocess
     import tempfile
+
+    from mitmproxy.http import HTTPFlow
 
 
 class AirbyteConnectorCache:
@@ -80,7 +75,29 @@ class AirbyteConnectorCache:
         self._proxy_port: int | None = None
         self._mitm_process: subprocess.Popen | None = None
         self._temp_dir: tempfile.TemporaryDirectory | None = None
-        self._ca_cert_path: Path | None = None
+
+        self._init_cache_dir()
+
+    def _init_cache_dir(self) -> None:
+        """Initialize the cache directory by invoking mitmdump with --version."""
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        if not self.ca_cert_path.exists():
+            # Create the CA certificate if it doesn't exist
+            # Run mitmproxy to generate the certificate
+            subprocess.run(
+                ["mitmdump", "--set", f"confdir={self.cache_dir}", "--version"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+
+        if not self.ca_cert_path.exists():
+            raise ValueError("Cert file could not be created.")
+
+    @property
+    def ca_cert_path(self) -> Path:
+        """Return the path to the CA certificate file."""
+        return self.cache_dir / "mitmproxy-ca-cert.pem"
 
     @property
     def proxy_host(self) -> str:
@@ -97,7 +114,7 @@ class AirbyteConnectorCache:
 
     def get_proxy_env_vars(self) -> dict[str, str]:
         """Get the environment variables to apply to processes using the HTTP proxy."""
-        return mitm_get_env_vars(self.proxy_port)
+        return mitm_get_proxy_env_vars(self.proxy_port)
 
     def start(self) -> int:
         """Start the HTTP proxy.
@@ -109,10 +126,10 @@ class AirbyteConnectorCache:
             # Proxy is already running
             return self._proxy_port
 
-        self._mitm_process, self._temp_dir, self._ca_cert_path = mitm_start_proxy(
+        self._mitm_process = mitm_start_proxy(
             cache_dir=self.cache_dir,
             read_dir=self.read_dir,
-            mode=self.mode.value,
+            mode=self.mode,
             serialization_format=self.serialization_format.value,
             proxy_port=self.proxy_port,
             stop_callback=self.stop,
@@ -126,12 +143,102 @@ class AirbyteConnectorCache:
         Returns:
             A dictionary of host paths to container paths for Docker volume mappings.
         """
-        return mitm_get_docker_volumes(self._ca_cert_path)
+        volumes = {}
+
+        # Add the CA certificate volume if available
+        if not self.ca_cert_path:
+            raise ValueError("CA certificate path is not set.")
+
+        if not self.ca_cert_path.exists():
+            raise ValueError(f"CA certificate path does not exist: {self.ca_cert_path}")
+
+        volumes[str(self.ca_cert_path.absolute())] = (
+            "/usr/local/lib/python3.11/site-packages/certifi/cacert.pem"
+        )
+        return volumes
 
     def stop(self) -> None:
         """Stop the HTTP proxy."""
-        mitm_stop_proxy(self._mitm_process, self._temp_dir, self.stop)
+        mitm_stop_proxy(
+            mitm_process=self._mitm_process,
+            stop_callback=self.stop,
+        )
         self._mitm_process = None
         self._proxy_port = None
-        self._temp_dir = None
-        self._ca_cert_path = None
+
+    def consolidate(
+        self,
+        *,
+        with_har_export: bool = True,
+    ) -> None:
+        """Consolidate and deduplicate all .flows files in the session cache.
+
+        Including previously consolidated files with '-to-' in their names.
+        """
+        session_dir = self.cache_dir / "sessions"
+        flow_files = sorted(session_dir.glob("*.flows"))
+        if not flow_files:
+            print(
+                f"No thing to do during cache consolidation. No flows files found in: {session_dir}"
+            )
+            return
+
+        # Detect min and max timestamps based on file names
+        min_ts, max_ts = None, None
+
+        def extract_stem_range(stem: str) -> tuple[str, str]:
+            if "-to-" in stem:
+                return stem.split("-to-")[0], stem.split("-to-")[1]
+            return stem, stem
+
+        all_ranges = [extract_stem_range(f.stem) for f in flow_files]
+        min_ts = min(start for start, _ in all_ranges)
+        max_ts = max(end for _, end in all_ranges)
+
+        output_stem = f"{min_ts}-to-{max_ts}"
+        output_flows = session_dir / f"{output_stem}.flows"
+        output_har = session_dir / f"{output_stem}.har"
+
+        # Deduplicate flows
+        seen = set()
+        consolidated_flows: list[HTTPFlow] = []
+        for flow_path in flow_files:
+            try:
+                with flow_path.open("rb") as f:
+                    reader = FlowReader(f)
+                    for flow in reader.stream():
+                        flow = cast("HTTPFlow", flow)
+                        key = (flow.request.method, flow.request.pretty_url)
+                        if key not in seen:
+                            seen.add(key)
+                            consolidated_flows.append(flow)
+                        else:
+                            print(f"Duplicate flow found: {flow.request.pretty_url}")
+            except Exception as e:
+                print(f"⚠️ Failed to read {flow_path.name}: {e}")
+
+        # Write consolidated .flows
+        with output_flows.open("wb") as f:
+            writer = FlowWriter(f)
+            for flow in consolidated_flows:
+                writer.add(flow)
+        print(f"✅ Wrote {len(consolidated_flows)} deduplicated flows to {output_flows}")
+
+        if with_har_export:
+            # Convert to HAR
+            try:
+                subprocess.run(
+                    ["mitmdump", "-nr", str(output_flows), "--set", f"hardump={output_har}"],
+                    check=True,
+                )
+                print(f"📝 Wrote HAR file to {output_har}")
+            except subprocess.CalledProcessError as e:
+                print(f"❌ HAR export failed: {e}")
+
+        # Delete source files
+        for path in flow_files:
+            try:
+                path.unlink()
+                print(f"🗑️ Deleted {path.name}")
+            except Exception as e:
+                print(f"⚠️ Could not delete {path.name}: {e}")
