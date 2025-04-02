@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, NoReturn
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte.constants import TEMP_DIR_OVERRIDE
-from airbyte.http_caching.cache import DOCKER_HOST, LOCALHOST
+from airbyte.http_caching.mitm_proxy import DOCKER_HOST, LOCALHOST
 
 
 if TYPE_CHECKING:
@@ -46,13 +46,10 @@ class DockerExecutor(Executor):
             # Mount the cache directory inside the container.
             # This allows the connector to access the cached files.
 
-            # This doesn't really work, unfortunately:
-            # self.volumes[http_cache.cache_dir.absolute()] = "/airbyte/mitm-certs"
-
-            # Warning: This only works for 3.11-based images:
-            self.volumes[http_cache.cache_dir.absolute() / "mitmproxy-ca-cert.pem"] = (
-                "/usr/local/lib/python3.11/site-packages/certifi/cacert.pem"
-            )
+            # Add volumes from the HTTP cache
+            # This includes the CA certificate for SSL verification
+            for host_path, container_path in http_cache.get_docker_volumes().items():
+                self.volumes[Path(host_path)] = container_path
 
         super().__init__(
             name=name or self.docker_image,

@@ -3,8 +3,8 @@
 
 from __future__ import annotations
 
-from airbyte.http_caching.cache import AirbyteConnectorCache, HttpCacheMode
-from airbyte.http_caching.serialization import SerializationFormat
+from airbyte.http_caching.cache import AirbyteConnectorCache
+from airbyte.http_caching.modes import HttpCacheMode, SerializationFormat
 
 
 __all__ = ["AirbyteConnectorCache", "HttpCacheMode", "SerializationFormat"]

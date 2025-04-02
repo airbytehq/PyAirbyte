@@ -10,7 +10,7 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
-from airbyte.http_caching.cache import DOCKER_HOST, LOCALHOST
+from airbyte.http_caching.mitm_proxy import DOCKER_HOST, LOCALHOST
 
 
 if TYPE_CHECKING:

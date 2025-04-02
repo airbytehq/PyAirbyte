@@ -131,8 +131,7 @@ from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_ca
 from airbyte.datasets import CachedDataset
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import get_destination
-from airbyte.http_caching import AirbyteConnectorCache, HttpCacheMode
-from airbyte.http_caching.serialization import SerializationFormat
+from airbyte.http_caching import AirbyteConnectorCache, HttpCacheMode, SerializationFormat
 from airbyte.records import StreamRecord
 from airbyte.results import ReadResult, WriteResult
 from airbyte.secrets import SecretSourceEnum, get_secret

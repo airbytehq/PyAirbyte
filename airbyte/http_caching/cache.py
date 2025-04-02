@@ -3,24 +3,32 @@
 
 from __future__ import annotations
 
-import asyncio
-import logging
-import threading
-import time
 from pathlib import Path
-
-from mitmproxy import options
-from mitmproxy.tools.dump import DumpMaster
+from typing import TYPE_CHECKING
 
 from airbyte.constants import DEFAULT_HTTP_CACHE_DIR, DEFAULT_HTTP_CACHE_READ_DIR
-from airbyte.http_caching.proxy import HttpCacheMode, HttpCachingAddon
-from airbyte.http_caching.serialization import SerializationFormat
+from airbyte.http_caching.mitm_proxy import (
+    find_free_port,
+    get_proxy_host,
+)
+from airbyte.http_caching.mitm_proxy import (
+    get_docker_volumes as mitm_get_docker_volumes,
+)
+from airbyte.http_caching.mitm_proxy import (
+    get_proxy_env_vars as mitm_get_env_vars,
+)
+from airbyte.http_caching.mitm_proxy import (
+    start_proxy as mitm_start_proxy,
+)
+from airbyte.http_caching.mitm_proxy import (
+    stop_proxy as mitm_stop_proxy,
+)
+from airbyte.http_caching.modes import HttpCacheMode, SerializationFormat
 
 
-logger = logging.getLogger(__name__)
-
-LOCALHOST = "localhost"
-DOCKER_HOST = "host.docker.internal"
+if TYPE_CHECKING:
+    import subprocess
+    import tempfile
 
 
 class AirbyteConnectorCache:
@@ -47,9 +55,10 @@ class AirbyteConnectorCache:
             mode: The cache mode to use. Can be one of 'read_only', 'write_only',
                   'read_write', or 'read_only_fail_on_miss'.
             serialization_format: The format to use for serializing cached data. Can be
-                                 'json' or 'binary'.
+                                 'json' or 'native'.
         """
         self.cache_dir = Path(cache_dir) if cache_dir else DEFAULT_HTTP_CACHE_DIR
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         if read_dir:
             self.read_dir = Path(read_dir)
@@ -57,6 +66,8 @@ class AirbyteConnectorCache:
             self.read_dir = DEFAULT_HTTP_CACHE_READ_DIR
         else:
             self.read_dir = self.cache_dir
+
+        self.read_dir.mkdir(parents=True, exist_ok=True)
 
         self.mode = HttpCacheMode(mode) if isinstance(mode, str) else mode
 
@@ -67,32 +78,26 @@ class AirbyteConnectorCache:
         )
 
         self._proxy_port: int | None = None
-        self._proxy_thread: threading.Thread | None = None
-        self._proxy: DumpMaster | None = None
-        self._addon: HttpCachingAddon | None = None
+        self._mitm_process: subprocess.Popen | None = None
+        self._temp_dir: tempfile.TemporaryDirectory | None = None
+        self._ca_cert_path: Path | None = None
 
     @property
     def proxy_host(self) -> str:
         """Return 'localhost' or another host name."""
-        return "localhost"  # or another host name
+        return get_proxy_host()
 
     @property
-    def proxy_port(self) -> int | None:
+    def proxy_port(self) -> int:
         """Return the port number the proxy is listening on."""
+        if self._proxy_port is None:
+            self._proxy_port = find_free_port()
+        assert self._proxy_port is not None, "Proxy port should be set at this point"
         return self._proxy_port
 
-    def get_env_vars(self) -> dict[str, str]:
+    def get_proxy_env_vars(self) -> dict[str, str]:
         """Get the environment variables to apply to processes using the HTTP proxy."""
-        env_vars = {}
-        if self._proxy_port:
-            proxy_url = f"http://host.docker.internal:{self._proxy_port}"
-            env_vars = {
-                "HTTP_PROXY": proxy_url,
-                "HTTPS_PROXY": proxy_url,
-                "NO_PROXY": "localhost,127.0.0.1,http://host.docker.internal",
-                "no_proxy": "localhost,127.0.0.1,http://host.docker.internal",
-            }
-        return env_vars
+        return mitm_get_env_vars(self.proxy_port)
 
     def start(self) -> int:
         """Start the HTTP proxy.
@@ -100,53 +105,33 @@ class AirbyteConnectorCache:
         Returns:
             The port number the proxy is listening on.
         """
-        if self._proxy_port is not None:
+        if self._mitm_process is not None and self._proxy_port is not None:
+            # Proxy is already running
             return self._proxy_port
 
-        port = 8080
-
-        opts = options.Options(
-            listen_host="127.0.0.1",
-            listen_port=port,
-            ssl_insecure=True,  # Allow self-signed certificates
-            confdir=str(self.cache_dir),  # Store certificates in the cache directory
-        )
-
-        addon = HttpCachingAddon(
+        self._mitm_process, self._temp_dir, self._ca_cert_path = mitm_start_proxy(
             cache_dir=self.cache_dir,
             read_dir=self.read_dir,
-            mode=self.mode,
-            serialization_format=self.serialization_format,
+            mode=self.mode.value,
+            serialization_format=self.serialization_format.value,
+            proxy_port=self.proxy_port,
+            stop_callback=self.stop,
         )
-        self._addon = addon
 
-        def run_proxy() -> None:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        return self.proxy_port
 
-            try:
-                proxy = DumpMaster(opts, loop=loop)
-                self._proxy = proxy
-                proxy.addons.add(addon)
+    def get_docker_volumes(self) -> dict[str, str]:
+        """Get the Docker volume mappings needed for the proxy.
 
-                loop.run_until_complete(proxy.run())
-            except Exception:
-                logger.exception("Error running proxy")
-
-        thread = threading.Thread(target=run_proxy, daemon=True)
-        self._proxy_thread = thread
-        thread.start()
-
-        time.sleep(1)
-
-        self._proxy_port = port
-        return port
+        Returns:
+            A dictionary of host paths to container paths for Docker volume mappings.
+        """
+        return mitm_get_docker_volumes(self._ca_cert_path)
 
     def stop(self) -> None:
         """Stop the HTTP proxy."""
-        if self._proxy is not None:
-            self._proxy.shutdown()
-            self._proxy_thread = None
-            self._proxy = None
-            self._addon = None
-            self._proxy_port = None
+        mitm_stop_proxy(self._mitm_process, self._temp_dir, self.stop)
+        self._mitm_process = None
+        self._proxy_port = None
+        self._temp_dir = None
+        self._ca_cert_path = None

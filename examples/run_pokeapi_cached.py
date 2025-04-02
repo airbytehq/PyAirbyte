@@ -7,13 +7,15 @@ Usage (from PyAirbyte root directory):
 No setup is needed, but you may need to delete the .venv-source-pokeapi folder
 if your installation gets interrupted or corrupted.
 
-This example demonstrates HTTP caching using mitmproxy's native format.
+This example demonstrates HTTP caching using mitmproxy's CLI-based approach.
 It will make HTTP requests on the first run and use cached responses on subsequent runs.
+
+Requirements:
+- mitmproxy must be installed and available in the PATH
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 import airbyte as ab
 from pathlib import Path
@@ -30,8 +32,7 @@ http_cache = AirbyteConnectorCache(
     serialization_format="native",  # Use mitmproxy's native format
 )
 
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
+# Start the proxy - this will launch mitmdump in a separate process
 
 port = http_cache.start()
 print(f"HTTP cache started on port {port}")
@@ -59,3 +60,7 @@ print("Second run completed")
 print("Stopping HTTP cache...")
 http_cache.stop()
 print("HTTP cache stopped")
+
+print(
+    "Note: If you want to inspect the cached responses, check the .airbyte-http-cache directory"
+)
