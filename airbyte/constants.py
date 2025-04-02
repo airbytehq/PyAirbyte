@@ -124,3 +124,27 @@ the pipeline run.
 If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
+
+DEFAULT_HTTP_CACHE_DIR: Path = (
+    Path(".airbyte-http-cache")
+    if "AIRBYTE_HTTP_CACHE_DIR" not in os.environ
+    else Path(os.environ["AIRBYTE_HTTP_CACHE_DIR"])
+)
+"""Default HTTP cache directory is `.airbyte-http-cache` in the current working directory.
+
+The default location can be overridden by setting the `AIRBYTE_HTTP_CACHE_DIR` environment variable.
+
+This directory is used to store cached HTTP requests and responses when using the HTTP caching
+functionality with connectors.
+"""
+
+DEFAULT_HTTP_CACHE_READ_DIR: Path | None = (
+    None
+    if "AIRBYTE_HTTP_CACHE_READ_DIR" not in os.environ
+    else Path(os.environ["AIRBYTE_HTTP_CACHE_READ_DIR"])
+)
+"""Optional separate directory for reading HTTP cache files.
+
+If set, this directory will be used for reading cached HTTP responses, while the
+`DEFAULT_HTTP_CACHE_DIR` will be used for writing new cache files.
+"""

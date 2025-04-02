@@ -545,6 +545,7 @@ class Source(ConnectorBase):
         * Listen to the messages and return the AirbyteRecordMessages that come along.
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
+        * If HTTP caching is enabled, set up the HTTP_PROXY and HTTPS_PROXY environment variables
         """
         with as_temp_files(
             [

@@ -463,7 +463,7 @@ class ConnectorBase(abc.ABC):
                 connector_name=self.name,
                 log_text=self._last_log_messages,
                 original_exception=e,
-            ) from None
+            ) from e
 
 
 __all__ = [

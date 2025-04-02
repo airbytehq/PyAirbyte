@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import os
 import subprocess
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
@@ -9,11 +10,13 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
+from airbyte.http_caching.mitm_proxy import DOCKER_HOST, LOCALHOST
 
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
+    from airbyte.http_caching.cache import AirbyteConnectorCache
     from airbyte.sources.registry import ConnectorMetadata
 
 
@@ -62,6 +65,7 @@ def _stream_from_subprocess(
     *,
     stdin: IO[str] | AirbyteMessageIterator | None = None,
     log_file: IO[str] | None = None,
+    env: dict[str, str] | None = None,
 ) -> Generator[Iterable[str], None, None]:
     """Stream lines from a subprocess."""
     input_thread: Thread | None = None
@@ -74,6 +78,7 @@ def _stream_from_subprocess(
             stderr=log_file,
             universal_newlines=True,
             encoding="utf-8",
+            env=env,
         )
         input_thread = Thread(
             target=_pump_input,
@@ -102,6 +107,7 @@ def _stream_from_subprocess(
             stderr=log_file,
             universal_newlines=True,
             encoding="utf-8",
+            env=env,
         )
 
     if process.stdout is None:
@@ -154,6 +160,7 @@ class Executor(ABC):
         name: str | None = None,
         metadata: ConnectorMetadata | None = None,
         target_version: str | None = None,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
         """Initialize a connector executor.
 
@@ -167,6 +174,7 @@ class Executor(ABC):
         )  # metadata is not None here
         self.metadata: ConnectorMetadata | None = metadata
         self.enforce_version: bool = target_version is not None
+        self.http_cache: AirbyteConnectorCache | None = http_cache
 
         self.reported_version: str | None = None
         self.target_version: str | None = None
@@ -175,6 +183,42 @@ class Executor(ABC):
                 self.target_version = metadata.latest_available_version
             else:
                 self.target_version = target_version
+
+    @property
+    def _proxy_host(self) -> str | None:
+        """Return the host name of the proxy server.
+
+        This can be overridden in cases (like) docker, where we need to
+        remap localhost to host.docker.internal.
+        """
+        if self.http_cache:
+            return self.http_cache.proxy_host
+
+        return None
+
+    @property
+    def _proxy_env_vars(self) -> dict[str, str]:
+        """Return the environment variables for the proxy server.
+
+        This is used to set the HTTP_PROXY and HTTPS_PROXY environment variables.
+        """
+        if not self.http_cache:
+            return {}
+
+        # Generally proxy_host will be 'host.docker.internal' or 'localhost'
+        proxy_host = self._proxy_host
+        proxy_port = self.http_cache.proxy_port
+
+        if proxy_host and proxy_port:
+            return {
+                "HTTP_PROXY": f"http://{proxy_host}:{proxy_port}",
+                "HTTPS_PROXY": f"http://{proxy_host}:{proxy_port}",
+                "NO_PROXY": proxy_host,
+                # This doesn't work unfortunately:
+                # "REQUESTS_CA_BUNDLE": "/airbyte/mitm-certs/mitmproxy-ca-cert.pem",
+            }
+
+        return {}
 
     @property
     @abstractmethod
@@ -203,12 +247,35 @@ class Executor(ABC):
 
         If stdin is provided, it will be passed to the subprocess as STDIN.
         """
-        mapped_args = self.map_cli_args(args)
+        cli_cmd = [*self._cli, *self.map_cli_args(args)]
+        print("Executing command:", " ".join(cli_cmd))
         with _stream_from_subprocess(
-            [*self._cli, *mapped_args],
+            cli_cmd,
             stdin=stdin,
+            env=self.env_vars,
         ) as stream_lines:
             yield from stream_lines
+
+    @property
+    def env_vars(self) -> dict[str, str]:
+        """Get the environment variables for the connector.
+
+        By default, this is a copy of `os.environ`. Subclasses may override this method
+        to provide custom environment variables.
+
+        In the future, we may reduce the number of environment variables we pass to the
+        connector, but for now we pass all of them. This is useful for connectors that
+        rely on environment variables to configure their behavior.
+        """
+        result = os.environ.copy()
+        if self.http_cache:
+            host_name = self.http_cache.proxy_host
+            if host_name is LOCALHOST:
+                host_name = f"http://{DOCKER_HOST}"
+
+            result.update(self._proxy_env_vars)
+
+        return result
 
     @abstractmethod
     def ensure_installation(self, *, auto_fix: bool = True) -> None:

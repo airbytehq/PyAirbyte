@@ -20,6 +20,7 @@ from airbyte._util.venv_util import get_bin_dir
 
 
 if TYPE_CHECKING:
+    from airbyte.http_caching.cache import AirbyteConnectorCache
     from airbyte.sources.registry import ConnectorMetadata
 
 
@@ -32,6 +33,7 @@ class VenvExecutor(Executor):
         target_version: str | None = None,
         pip_url: str | None = None,
         install_root: Path | None = None,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
         """Initialize a connector executor that runs a connector in a virtual environment.
 
@@ -42,8 +44,14 @@ class VenvExecutor(Executor):
             pip_url: (Optional.) The pip URL of the connector to install.
             install_root: (Optional.) The root directory where the virtual environment will be
                 created. If not provided, the current working directory will be used.
+            http_cache: (Optional.) The HTTP cache to use for downloading the connector.
         """
-        super().__init__(name=name, metadata=metadata, target_version=target_version)
+        super().__init__(
+            name=name,
+            metadata=metadata,
+            target_version=target_version,
+            http_cache=http_cache,
+        )
 
         if not pip_url and metadata and not metadata.pypi_package_name:
             raise exc.AirbyteConnectorNotPyPiPublishedError(
