@@ -157,7 +157,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
                 "pip_url": pip_url,
             },
         )
-    
+
     if install_method_count > 1:
         raise exc.PyAirbyteInputError(
             message=(
