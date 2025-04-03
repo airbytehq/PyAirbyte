@@ -151,7 +151,10 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
 
     if version and pip_url:
         raise exc.PyAirbyteInputError(
-            message="Cannot specify both version and pip_url. Make sure to specify the connector version directly in the pip_url.",
+            message=(
+                "Cannot specify both version and pip_url. "
+                "Make sure to specify the connector version directly in the pip_url."
+            ),
             context={
                 "version": version,
                 "pip_url": pip_url,
