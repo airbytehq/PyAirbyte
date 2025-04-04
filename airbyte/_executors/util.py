@@ -124,7 +124,7 @@ def _get_local_executor(
     )
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branches/arguments/statements
+def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many branches/arguments/statements
     name: str,
     *,
     version: str | None = None,
@@ -148,6 +148,19 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
             bool(source_manifest),
         ]
     )
+
+    if version and pip_url:
+        raise exc.PyAirbyteInputError(
+            message=(
+                "Cannot specify both version and pip_url. "
+                "Make sure to specify the connector version directly in the pip_url."
+            ),
+            context={
+                "version": version,
+                "pip_url": pip_url,
+            },
+        )
+
     if install_method_count > 1:
         raise exc.PyAirbyteInputError(
             message=(
@@ -198,6 +211,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
                     source_manifest = True
                 case InstallType.PYTHON:
                     pip_url = metadata.pypi_package_name
+                    pip_url = f"{pip_url}=={version}" if version else pip_url
                 case _:
                     docker_image = True
 
