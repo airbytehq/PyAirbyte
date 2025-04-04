@@ -12,7 +12,7 @@ from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from airbyte.constants import TEMP_DIR_OVERRIDE
+from airbyte.constants import TEMP_DIR
 
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
                 mode="w+t",
                 delete=False,
                 encoding="utf-8",
-                dir=TEMP_DIR_OVERRIDE or None,
+                dir=TEMP_DIR,
                 suffix=".json" if use_json else ".txt",
             )
             temp_file.write(
