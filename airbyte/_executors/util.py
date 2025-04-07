@@ -1,7 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -11,18 +10,19 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
-from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
+from airbyte._executors.docker import DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
+    from airbyte.http_caching.cache import AirbyteConnectorCache
 
 
 VERSION_LATEST = "latest"
@@ -88,6 +88,8 @@ def _get_local_executor(
     name: str,
     local_executable: Path | str | Literal[True],
     version: str | None,
+    *,
+    http_cache: AirbyteConnectorCache | None = None,
 ) -> Executor:
     """Get a local executor for a connector."""
     if version:
@@ -121,6 +123,7 @@ def _get_local_executor(
     return PathExecutor(
         name=name,
         path=local_executable,
+        http_cache=http_cache,
     )
 
 
@@ -135,6 +138,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    http_cache: AirbyteConnectorCache | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
@@ -220,6 +224,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
             name=name,
             local_executable=local_executable,
             version=version,
+            http_cache=http_cache,
         )
 
     if docker_image:
@@ -240,34 +245,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
         if ":" not in docker_image:
             docker_image = f"{docker_image}:{version or 'latest'}"
 
-        host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
-        container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
-
-        local_mount_dir = Path().absolute() / name
-        local_mount_dir.mkdir(exist_ok=True)
-
-        volumes = {
-            local_mount_dir: "/local",
-            host_temp_dir: container_temp_dir,
-        }
-        docker_cmd = [
-            "docker",
-            "run",
-            "--rm",
-            "-i",
-        ]
-        for local_dir, container_dir in volumes.items():
-            docker_cmd.extend(["--volume", f"{local_dir}:{container_dir}"])
-
-        if use_host_network is True:
-            docker_cmd.extend(["--network", "host"])
-
-        docker_cmd.extend([docker_image])
-
         return DockerExecutor(
             name=name,
-            executable=docker_cmd,
-            volumes=volumes,
+            docker_image=docker_image,
+            use_host_network=use_host_network,
+            http_cache=http_cache,
         )
 
     if source_manifest:
@@ -275,6 +257,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
+                http_cache=http_cache,
             )
 
         if isinstance(source_manifest, str | bool):
@@ -287,6 +270,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
+                http_cache=http_cache,
             )
 
     # else: we are installing a connector in a Python virtual environment:
@@ -298,6 +282,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
             target_version=version,
             pip_url=pip_url,
             install_root=install_root,
+            http_cache=http_cache,
         )
         if install_if_missing:
             executor.ensure_installation()
