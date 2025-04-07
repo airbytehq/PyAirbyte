@@ -10,6 +10,8 @@ from airbyte._executors.base import Executor
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from airbyte.http_caching.cache import AirbyteConnectorCache
+
 
 class PathExecutor(Executor):
     def __init__(
@@ -18,6 +20,7 @@ class PathExecutor(Executor):
         *,
         path: Path,
         target_version: str | None = None,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
         """Initialize a connector executor that runs a connector from a local path.
 
@@ -26,7 +29,11 @@ class PathExecutor(Executor):
         """
         self.path: Path = path
         name = name or path.name
-        super().__init__(name=name, target_version=target_version)
+        super().__init__(
+            name=name,
+            target_version=target_version,
+            http_cache=http_cache,
+        )
 
     def ensure_installation(
         self,

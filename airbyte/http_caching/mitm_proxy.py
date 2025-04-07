@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import certifi
+
 from airbyte._util.text_util import generate_ulid
 from airbyte.http_caching.modes import HttpCacheMode
 
@@ -178,3 +180,14 @@ def mitm_stop_proxy(
 
         # Remove the cleanup function
         atexit.unregister(stop_callback)
+
+
+def build_combined_ca_bundle(
+    mitm_cert_path: Path,
+    output_cert_path: Path,
+) -> None:
+    """Build a combined CA bundle from certifi and mitmproxy certificates."""
+    with output_cert_path.open("w") as out:
+        out.write(Path(certifi.where()).read_text(encoding="utf-8"))
+        out.write("\n")
+        out.write(mitm_cert_path.read_text(encoding="utf-8"))

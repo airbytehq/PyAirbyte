@@ -88,6 +88,7 @@ class VenvExecutor(Executor):
             args,
             check=False,
             stderr=subprocess.PIPE,
+            env=self.env_vars,
         )
         if result.returncode != 0:
             raise exc.AirbyteSubprocessFailedError(

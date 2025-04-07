@@ -18,14 +18,13 @@ from __future__ import annotations
 
 import os
 from typing import Any
-
 import airbyte as ab
 from pathlib import Path
 from airbyte import AirbyteConnectorCache
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
-CONNECTOR_NAME = "source-github"
+CONNECTOR_NAME = "source-shopify"
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
@@ -75,6 +74,9 @@ connector_config = get_connector_config(CONNECTOR_NAME)
 # Start the proxy - this will launch mitmdump in a separate process
 port = http_cache.start()
 print(f"HTTP cache started on port {port}")
+
+# print("Holding for 60 seconds to allow time external testing...")
+# time.sleep(60)  # While I test externally
 
 source: ab.Source = ab.get_source(
     CONNECTOR_NAME,

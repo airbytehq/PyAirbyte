@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
+from typing_extensions import override
+
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte.constants import TEMP_DIR_OVERRIDE
@@ -87,6 +89,18 @@ class DockerExecutor(Executor):
             message="Connector cannot be uninstalled because it is not managed by PyAirbyte.",
             connector_name=self.name,
         )
+
+    @property
+    @override
+    def _proxy_env_vars(self) -> dict[str, str]:
+        """Return the environment variables for the proxy server.
+
+        This is used to set the HTTP_PROXY and HTTPS_PROXY environment variables.
+        """
+        env_vars = super()._proxy_env_vars
+        # Drop SSL_CERT_FILE since it won't help:
+        env_vars.pop("SSL_CERT_FILE", None)
+        return env_vars
 
     @property
     def _cli(self) -> list[str]:

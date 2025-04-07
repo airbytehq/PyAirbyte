@@ -10,7 +10,7 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 from airbyte import exceptions as exc
 from airbyte._message_iterators import AirbyteMessageIterator
-from airbyte.http_caching.mitm_proxy import DOCKER_HOST, LOCALHOST
+from airbyte.http_caching.mitm_proxy import LOCALHOST
 
 
 if TYPE_CHECKING:
@@ -210,12 +210,16 @@ class Executor(ABC):
         proxy_port = self.http_cache.proxy_port
 
         if proxy_host and proxy_port:
+            if proxy_host == LOCALHOST:
+                proxy_host = "127.0.0.1"
+
+            ca_cert_path = str(self.http_cache.ca_cert_path.absolute())
             return {
                 "HTTP_PROXY": f"http://{proxy_host}:{proxy_port}",
                 "HTTPS_PROXY": f"http://{proxy_host}:{proxy_port}",
-                "NO_PROXY": proxy_host,
-                # This doesn't work unfortunately:
-                # "REQUESTS_CA_BUNDLE": "/airbyte/mitm-certs/mitmproxy-ca-cert.pem",
+                "NO_PROXY": f"localhost,127.0.0.1,{proxy_host}",
+                "SSL_CERT_FILE": ca_cert_path,
+                "REQUESTS_CA_BUNDLE": ca_cert_path,
             }
 
         return {}
@@ -248,11 +252,12 @@ class Executor(ABC):
         If stdin is provided, it will be passed to the subprocess as STDIN.
         """
         cli_cmd = [*self._cli, *self.map_cli_args(args)]
+        env = self.env_vars
         print("Executing command:", " ".join(cli_cmd))
         with _stream_from_subprocess(
             cli_cmd,
             stdin=stdin,
-            env=self.env_vars,
+            env=env,
         ) as stream_lines:
             yield from stream_lines
 
@@ -269,11 +274,9 @@ class Executor(ABC):
         """
         result = os.environ.copy()
         if self.http_cache:
-            host_name = self.http_cache.proxy_host
-            if host_name is LOCALHOST:
-                host_name = f"http://{DOCKER_HOST}"
-
-            result.update(self._proxy_env_vars)
+            proxy_env_vars = self._proxy_env_vars
+            print(f"Appending proxy environment variables: {proxy_env_vars}")
+            result.update(proxy_env_vars)
 
         return result
 

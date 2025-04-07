@@ -11,6 +11,7 @@ from mitmproxy.io import FlowReader, FlowWriter
 
 from airbyte.constants import DEFAULT_HTTP_CACHE_DIR, DEFAULT_HTTP_CACHE_READ_DIR
 from airbyte.http_caching.mitm_proxy import (
+    build_combined_ca_bundle,
     find_free_port,
     get_proxy_host,
     mitm_get_proxy_env_vars,
@@ -81,7 +82,11 @@ class AirbyteConnectorCache:
     def _init_cache_dir(self) -> None:
         """Initialize the cache directory by invoking mitmdump with --version."""
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        if not self.ca_cert_path.exists():
+        if self.ca_cert_path.exists():
+            # If the (combined) CA certificate already exists, no need to create it again
+            return
+
+        if not self.mitmproxy_ca_cert_path.exists():
             # Create the CA certificate if it doesn't exist
             # Run mitmproxy to generate the certificate
             subprocess.run(
@@ -91,13 +96,26 @@ class AirbyteConnectorCache:
                 text=True,
             )
 
-        if not self.ca_cert_path.exists():
+        if not self.mitmproxy_ca_cert_path.exists():
             raise ValueError("Cert file could not be created.")
+
+        combined_cert_path = self.ca_cert_path
+        build_combined_ca_bundle(
+            mitm_cert_path=self.mitmproxy_ca_cert_path,
+            output_cert_path=combined_cert_path,
+        )
+        if not combined_cert_path.exists():
+            raise ValueError("Combined cert file could not be created.")
+
+    @property
+    def mitmproxy_ca_cert_path(self) -> Path:
+        """Return the path to the CA certificate file."""
+        return self.cache_dir / "mitmproxy-ca-cert.pem"
 
     @property
     def ca_cert_path(self) -> Path:
         """Return the path to the CA certificate file."""
-        return self.cache_dir / "mitmproxy-ca-cert.pem"
+        return self.cache_dir / "mitmproxy-ca-cert-combined.pem"
 
     @property
     def proxy_host(self) -> str:

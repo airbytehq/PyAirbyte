@@ -88,6 +88,8 @@ def _get_local_executor(
     name: str,
     local_executable: Path | str | Literal[True],
     version: str | None,
+    *,
+    http_cache: AirbyteConnectorCache | None = None,
 ) -> Executor:
     """Get a local executor for a connector."""
     if version:
@@ -121,6 +123,7 @@ def _get_local_executor(
     return PathExecutor(
         name=name,
         path=local_executable,
+        http_cache=http_cache,
     )
 
 
@@ -207,6 +210,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913 # Too many branches/argume
             name=name,
             local_executable=local_executable,
             version=version,
+            http_cache=http_cache,
         )
 
     if docker_image:
