@@ -48,8 +48,9 @@ class SnowflakeConfig(SqlConfig):
     data_retention_time_in_days: int | None = None
 
     @validator("password", "private_key_path")
+    @classmethod
     def validate_auth_method(
-        self, v: str | SecretString | None, values: dict[str, Any]
+        cls, v: str | SecretString | None, values: dict[str, Any]
     ) -> str | SecretString | None:
         """Validate that at least one authentication method is provided."""
         if (
