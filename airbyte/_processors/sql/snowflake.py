@@ -71,7 +71,7 @@ class SnowflakeConfig(SqlConfig):
 
         return v
 
-    def __init__(self, **data) -> None:
+    def __init__(self, **data: Any) -> None:
         """Initialize the SnowflakeConfig with a deprecation warning for password authentication."""
         super().__init__(**data)
 
