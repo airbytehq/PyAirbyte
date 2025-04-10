@@ -51,6 +51,26 @@ def test_snowflake_cache_config_no_data_retention_time_in_days(
     assert actual_cmd == expected_cmd
 
 
+def test_snowflake_cache_config_key_pair_auth(
+    mocker: pytest_mock.MockFixture,
+):
+    expected_cmd = """
+        CREATE TABLE airbyte_raw."table_name" (
+            col_name type
+        )
+        \n        """
+
+    def _execute_sql(cmd):
+        global actual_cmd
+        actual_cmd = cmd
+
+    mocker.patch.object(SnowflakeSqlProcessor, "_execute_sql", side_effect=_execute_sql)
+    config = _build_mocked_snowflake_processor_with_key_pair(mocker)
+    config._create_table(table_name="table_name", column_definition_str="col_name type")
+
+    assert actual_cmd == expected_cmd
+
+
 def _build_mocked_snowflake_processor(
     mocker: pytest_mock.MockFixture, data_retention_time_in_days: Optional[int] = None
 ):
@@ -58,6 +78,31 @@ def _build_mocked_snowflake_processor(
         account="foo",
         username="foo",
         password=SecretString("foo"),
+        warehouse="foo",
+        database="foo",
+        role="foo",
+        data_retention_time_in_days=data_retention_time_in_days,
+    )
+
+    mocker.patch.object(
+        SnowflakeSqlProcessor, "_ensure_schema_exists", return_value=None
+    )
+    return SnowflakeSqlProcessor(
+        catalog_provider=CatalogProvider(ConfiguredAirbyteCatalog(streams=[])),
+        temp_dir=Path(),
+        temp_file_cleanup=True,
+        sql_config=sql_config,
+    )
+
+
+def _build_mocked_snowflake_processor_with_key_pair(
+    mocker: pytest_mock.MockFixture, data_retention_time_in_days: Optional[int] = None
+):
+    sql_config = SnowflakeConfig(
+        account="foo",
+        username="foo",
+        private_key_path="/path/to/private_key.p8",
+        private_key_passphrase=SecretString("passphrase"),
         warehouse="foo",
         database="foo",
         role="foo",
