@@ -17,7 +17,7 @@ python = ">=3.10,<3.13"
 
 airbyte-api = "^0.52.1"
 airbyte-cdk = "^6.28.0"
-airbyte-protocol-models-pdv2 = "^0.13.0"
+airbyte-protocol-models-pdv2 = ">=0.13,<0.16"
 click = "^8.1.7"
 duckdb = "^1.1.0"
 duckdb-engine = "^0.13.2"
