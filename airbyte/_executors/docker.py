@@ -3,11 +3,20 @@ from __future__ import annotations
 
 import logging
 import shutil
+import tempfile
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
+
+from typing_extensions import override
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
+from airbyte.constants import TEMP_DIR_OVERRIDE
+from airbyte.http_caching.mitm_proxy import DOCKER_HOST, LOCALHOST
+
+
+if TYPE_CHECKING:
+    from airbyte.http_caching.cache import AirbyteConnectorCache
 
 
 logger = logging.getLogger("airbyte")
@@ -20,16 +29,34 @@ DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte/tmp"
 class DockerExecutor(Executor):
     def __init__(
         self,
-        name: str | None = None,
+        name: str,
+        docker_image: str,
         *,
-        executable: list[str],
-        target_version: str | None = None,
-        volumes: dict[Path, str] | None = None,
+        use_host_network: bool = False,
+        http_cache: AirbyteConnectorCache | None = None,
     ) -> None:
-        self.executable: list[str] = executable
-        self.volumes: dict[Path, str] = volumes or {}
-        name = name or executable[0]
-        super().__init__(name=name, target_version=target_version)
+        self.docker_image: str = docker_image
+        self.use_host_network: bool = use_host_network
+
+        local_mount_dir = Path().absolute() / name
+        local_mount_dir.mkdir(exist_ok=True)
+        self.volumes = {
+            local_mount_dir: "/local",
+            (TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())): DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR,
+        }
+        if http_cache:
+            # Mount the cache directory inside the container.
+            # This allows the connector to access the cached files.
+
+            # Add volumes from the HTTP cache
+            # This includes the CA certificate for SSL verification
+            for host_path, container_path in http_cache.get_docker_volumes().items():
+                self.volumes[Path(host_path)] = container_path
+
+        super().__init__(
+            name=name or self.docker_image,
+            http_cache=http_cache,
+        )
 
     def ensure_installation(
         self,
@@ -64,9 +91,58 @@ class DockerExecutor(Executor):
         )
 
     @property
+    @override
+    def _proxy_env_vars(self) -> dict[str, str]:
+        """Return the environment variables for the proxy server.
+
+        This is used to set the HTTP_PROXY and HTTPS_PROXY environment variables.
+        """
+        env_vars = super()._proxy_env_vars
+        # Drop SSL_CERT_FILE since it won't help:
+        env_vars.pop("SSL_CERT_FILE", None)
+        return env_vars
+
+    @property
     def _cli(self) -> list[str]:
-        """Get the base args of the CLI executable."""
-        return self.executable
+        """Get the executable CLI command.
+
+        For Docker executors, this is the `docker run` command with the necessary arguments
+        to run the connector in a Docker container. This will be extended (suffixed) by the
+        connector's CLI commands and arguments, such as 'spec' or 'check --config=...'.
+        """
+        result: list[str] = [
+            "docker",
+            "run",
+            "--rm",
+            "-i",
+        ]
+        for local_dir, container_dir in self.volumes.items():
+            result.extend(["--volume", f"{local_dir}:{container_dir}"])
+
+        for key, value in self._proxy_env_vars.items():
+            result.extend(["-e", f"{key}={value}"])
+
+        if self.use_host_network:
+            result.extend(["--network", "host"])
+
+        result.append(self.docker_image)
+        return result
+
+    @property
+    def _proxy_host(self) -> str | None:
+        """Return the host name of the proxy server.
+
+        This is used to set the HTTP_PROXY and HTTPS_PROXY environment variables.
+        """
+        result: str | None = None
+        if self.http_cache:
+            result = self.http_cache.proxy_host
+            if result == LOCALHOST:
+                # Docker containers cannot access localhost on the host machine.
+                # Use host.docker.internal instead.
+                return DOCKER_HOST
+
+        return result
 
     def map_cli_args(self, args: list[str]) -> list[str]:
         """Map local file paths to the container's volume paths."""

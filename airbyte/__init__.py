@@ -131,6 +131,7 @@ from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_ca
 from airbyte.datasets import CachedDataset
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import get_destination
+from airbyte.http_caching import AirbyteConnectorCache, HttpCacheMode, SerializationFormat
 from airbyte.records import StreamRecord
 from airbyte.results import ReadResult, WriteResult
 from airbyte.secrets import SecretSourceEnum, get_secret
@@ -154,6 +155,7 @@ if TYPE_CHECKING:
         documents,
         exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
         experimental,
+        http_caching,
         logs,
         records,
         results,
@@ -174,6 +176,7 @@ __all__ = [
     "documents",
     "exceptions",
     "experimental",
+    "http_caching",
     "logs",
     "records",
     "registry",
@@ -189,12 +192,15 @@ __all__ = [
     "get_source",
     "new_local_cache",
     # Classes
+    "AirbyteConnectorCache",
     "BigQueryCache",
     "CachedDataset",
     "Destination",
     "DuckDBCache",
+    "HttpCacheMode",
     "ReadResult",
     "SecretSourceEnum",
+    "SerializationFormat",
     "Source",
     "StreamRecord",
     "WriteResult",
