@@ -29,6 +29,7 @@ jsonschema = ">=3.2.0,<5.0"
 orjson = "^3.10"
 overrides = "^7.4.0"
 pandas = { version = ">=1.5.3,<3.0" }
+pandas-gbq = ">=0.26.1"
 psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
 psycopg2-binary =  "^2.9.9"
 pyarrow = ">=16.1,<18.0"
@@ -359,3 +360,4 @@ DEP002 = [
   "psycopg2-binary",
   "sqlalchemy-bigquery",
 ]
+
