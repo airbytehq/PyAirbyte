@@ -18,8 +18,10 @@ SCALE = 200_000
 
 
 def get_my_source() -> ab.Source:
+    # Create a token here: https://github.com/settings/tokens
+    # Then export as env var `GITHUB_PERSONAL_ACCESS_TOKEN`
     github_pat = ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")
-    assert str(github_pat)
+    assert str(github_pat), "Could not locate Github PAT"
     source = ab.get_source(
         "source-github",
         config={
@@ -28,7 +30,6 @@ def get_my_source() -> ab.Source:
                 "personal_access_token": github_pat,
             },
         },
-        # streams=["issues"],
     )
     source.check()
     source.select_streams(["issues"])
