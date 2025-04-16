@@ -11,17 +11,20 @@ exists and is excluded from git before running the script.
 
 Usage:
     poetry run python examples/run_gsm_connector_secret_fetch.py
+    poetry run python examples/run_gsm_connector_secret_fetch.py <connector_name>
+    poetry run python examples/run_gsm_connector_secret_fetch.py source-github
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import airbyte as ab
 from airbyte.secrets import GoogleGSMSecretManager, SecretHandle
 
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
-CONNECTOR_NAME = "source-klaviyo"
+CONNECTOR_NAME = sys.argv[1] if len(sys.argv) > 1 else "source-klaviyo"
 
 AIRBYTE_REPO_ROOT = Path(__file__).parent.parent.parent / "airbyte"
 
