@@ -41,6 +41,7 @@ if not AIRBYTE_REPO_ROOT.exists():
 if not CONNECTOR_SECRETS_DIR.exists():
     CONNECTOR_SECRETS_DIR.mkdir(parents=True, exist_ok=True)
 
+
 def main() -> None:
     secret_mgr = GoogleGSMSecretManager(
         project=AIRBYTE_INTERNAL_GCP_PROJECT,
