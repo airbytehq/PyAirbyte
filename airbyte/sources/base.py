@@ -445,9 +445,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     cursor_field=(
                         [self._cursor_key_overrides[stream.name]]
                         if stream.name in self._cursor_key_overrides
-                        else cast("list[str]", stream.source_defined_cursor)
-                        if stream.source_defined_cursor
-                        else None
+                        else stream.default_cursor_field
                     ),
                     # These are unused in the current implementation:
                     generation_id=None,
