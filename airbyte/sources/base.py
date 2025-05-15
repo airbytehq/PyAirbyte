@@ -185,9 +185,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._primary_key_overrides.update({
-            k: v if isinstance(v, list) else [v] for k, v in kwargs.items()
-        })
+        self._primary_key_overrides.update(
+            {k: v if isinstance(v, list) else [v] for k, v in kwargs.items()}
+        )
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
