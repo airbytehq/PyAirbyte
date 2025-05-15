@@ -91,16 +91,16 @@ def test_set_cursor_keys():
     with patch.object(Source, "_discover", return_value=Mock()):
         source = Source(executor=Mock(), name="test-source")
 
-        source.set_cursor_keys(kwargs={"stream1": "cursor1"})
+        source.set_cursor_keys(**{"stream1": "cursor1"})
         assert source._cursor_key_overrides == {"stream1": "cursor1"}
 
-        source.set_cursor_keys(kwargs={"stream2": "cursor2"})
+        source.set_cursor_keys(**{"stream2": "cursor2"})
         assert source._cursor_key_overrides == {
             "stream1": "cursor1",
             "stream2": "cursor2",
         }
 
-        source.set_cursor_keys(kwargs={"stream1": "new_cursor1"})
+        source.set_cursor_keys(**{"stream1": "new_cursor1"})
         assert source._cursor_key_overrides == {
             "stream1": "new_cursor1",
             "stream2": "cursor2",
@@ -145,7 +145,7 @@ def test_set_primary_keys(input_keys, expected_output):
     with patch.object(Source, "_discover", return_value=Mock()):
         source = Source(executor=Mock(), name="test-source")
 
-        source.set_primary_keys(kwargs=input_keys)
+        source.set_primary_keys(**input_keys)
 
         assert source._primary_key_overrides == expected_output
 
@@ -153,7 +153,7 @@ def test_set_primary_keys(input_keys, expected_output):
         expected_after_update = expected_output.copy()
         expected_after_update["stream3"] = ["pk3"]
 
-        source.set_primary_keys(kwargs=update_keys)
+        source.set_primary_keys(**update_keys)
         assert source._primary_key_overrides == expected_after_update
 
 
