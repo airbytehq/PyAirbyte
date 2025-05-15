@@ -84,8 +84,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
+
         self._cursor_key_overrides: dict[str, str] = {}
+        """A mapping of lower-cased stream names to cursor key overrides."""
+
         self._primary_key_overrides: dict[str, list[str]] = {}
+        """A mapping of lower-cased stream names to primary key overrides."""
+
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
@@ -117,10 +122,11 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - The cursor key must be a single field name.
         - Not all streams support custom cursors. If a stream does not support custom cursors,
           the override may be ignored.
-        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._cursor_key_overrides[stream_name] = cursor_key
+        self._cursor_key_overrides[stream_name.lower()] = cursor_key
 
     def set_cursor_keys(
         self,
@@ -139,10 +145,11 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - The cursor key must be a single field name.
         - Not all streams support custom cursors. If a stream does not support custom cursors,
           the override may be ignored.
-        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._cursor_key_overrides.update(kwargs)
+        self._cursor_key_overrides.update({k.lower(): v for k, v in kwargs.items()})
 
     def set_primary_key(
         self,
@@ -156,10 +163,11 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - The primary key must be a single field name or a list of field names.
         - Not all streams support overriding primary keys. If a stream does not support overriding
           primary keys, the override may be ignored.
-        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._primary_key_overrides[stream_name] = (
+        self._primary_key_overrides[stream_name.lower()] = (
             primary_key if isinstance(primary_key, list) else [primary_key]
         )
 
@@ -182,12 +190,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - The primary key must be a single field name or a list of field names.
         - Not all streams support overriding primary keys. If a stream does not support overriding
           primary keys, the override may be ignored.
-        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._primary_key_overrides.update(
-            {k: v if isinstance(v, list) else [v] for k, v in kwargs.items()}
-        )
+        self._primary_key_overrides.update({
+            k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()
+        })
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
@@ -467,13 +476,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     destination_sync_mode=DestinationSyncMode.overwrite,
                     sync_mode=SyncMode.incremental,
                     primary_key=(
-                        [self._primary_key_overrides[stream.name]]
-                        if stream.name in self._primary_key_overrides
+                        [self._primary_key_overrides[stream.name.lower()]]
+                        if stream.name.lower() in self._primary_key_overrides
                         else stream.source_defined_primary_key
                     ),
                     cursor_field=(
-                        [self._cursor_key_overrides[stream.name]]
-                        if stream.name in self._cursor_key_overrides
+                        [self._cursor_key_overrides[stream.name.lower()]]
+                        if stream.name.lower() in self._cursor_key_overrides
                         else stream.default_cursor_field
                     ),
                     # These are unused in the current implementation:
