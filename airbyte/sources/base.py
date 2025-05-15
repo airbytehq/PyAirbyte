@@ -91,9 +91,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         if streams is not None:
             self.select_streams(streams)
         if cursor_key_overrides is not None:
-            self.set_cursor_keys(kwargs=cursor_key_overrides)
+            self.set_cursor_keys(**cursor_key_overrides)
         if primary_key_overrides is not None:
-            self.set_primary_keys(kwargs=primary_key_overrides)
+            self.set_primary_keys(**primary_key_overrides)
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -105,44 +105,44 @@ class Source(ConnectorBase):  # noqa: PLR0904
         )
         self.select_streams(streams)
 
-    def set_cursor_keys(
-        self,
-        *,
-        kwargs: dict[str, str],
-    ) -> None:
-        """Override the cursor key for one or more streams.
-
-        This does not unset previously set cursors.
-        """
-        self._cursor_key_overrides.update(kwargs)
-
     def set_cursor_key(
         self,
         stream_name: str,
         cursor_key: str,
     ) -> None:
-        """Set the cursor for a single stream."""
+        """Set the cursor for a single stream.
+
+        Note:
+        - This does not unset previously set cursors.
+        - The cursor key must be a single field name.
+        - Not all streams support custom cursors. If a stream does not support custom cursors,
+          the override may be ignored.
+        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
         self._cursor_key_overrides[stream_name] = cursor_key
 
-    def set_primary_keys(
+    def set_cursor_keys(
         self,
-        *,
-        kwargs: dict[str, str | list[str]],
+        **kwargs: str,
     ) -> None:
-        """Override the primary keys for one or more streams.
+        """Override the cursor key for one or more streams.
 
-        This does not unset previously set primary keys.
+        Usage:
+            source.set_cursor_keys(
+                stream1="cursor1",
+                stream2="cursor2",
+            )
 
-        The primary key can be a single column name, or a list of fields which should comprise
-        the composite primary key.
-
-        Args:
-            kwargs: A dictionary mapping stream names to either a primary key column name, or a
-            list of fields which should comprise the composite primary key.
+        Note:
+        - This does not unset previously set cursors.
+        - The cursor key must be a single field name.
+        - Not all streams support custom cursors. If a stream does not support custom cursors,
+          the override may be ignored.
+        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
         """
-        self._primary_key_overrides.update(
-            {k: v if isinstance(v, list) else [v] for k, v in kwargs.items()}
-        )
+        self._cursor_key_overrides.update(kwargs)
 
     def set_primary_key(
         self,
@@ -151,14 +151,43 @@ class Source(ConnectorBase):  # noqa: PLR0904
     ) -> None:
         """Set the primary key for a single stream.
 
-        Args:
-            stream_name: The name of the stream.
-            primary_key: The primary key column name, or a list of fields which should comprise
-                the composite primary key.
+        Note:
+        - This does not unset previously set primary keys.
+        - The primary key must be a single field name or a list of field names.
+        - Not all streams support overriding primary keys. If a stream does not support overriding
+          primary keys, the override may be ignored.
+        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
         """
         self._primary_key_overrides[stream_name] = (
             primary_key if isinstance(primary_key, list) else [primary_key]
         )
+
+    def set_primary_keys(
+        self,
+        **kwargs: str | list[str],
+    ) -> None:
+        """Override the primary keys for one or more streams.
+
+        This does not unset previously set primary keys.
+
+        Usage:
+            source.set_primary_keys(
+                stream1="pk1",
+                stream2=["pk1", "pk2"],
+            )
+
+        Note:
+        - This does not unset previously set primary keys.
+        - The primary key must be a single field name or a list of field names.
+        - Not all streams support overriding primary keys. If a stream does not support overriding
+          primary keys, the override may be ignored.
+        - Stream names are case sensitive and are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._primary_key_overrides.update({
+            k: v if isinstance(v, list) else [v] for k, v in kwargs.items()
+        })
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
