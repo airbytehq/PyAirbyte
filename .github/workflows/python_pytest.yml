@@ -82,7 +82,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "1.7.1"
+        poetry-version: "2.0.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -157,7 +157,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "1.7.1"
+        poetry-version: "2.0.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -213,7 +213,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "1.7.1"
+        poetry-version: "2.0.1"
     - name: Install dependencies
       run: poetry install
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from airbyte.shared.state_writers import StateWriterBase
 
 
-class Source(ConnectorBase):
+class Source(ConnectorBase):  # noqa: PLR0904
     """A class representing a source that can be called."""
 
     connector_type = "source"
@@ -63,6 +63,8 @@ class Source(ConnectorBase):
         config_change_callback: ConfigChangeCallback | None = None,
         streams: str | list[str] | None = None,
         validate: bool = False,
+        cursor_key_overrides: dict[str, str] | None = None,
+        primary_key_overrides: dict[str, str | list[str]] | None = None,
     ) -> None:
         """Initialize the source.
 
@@ -82,10 +84,16 @@ class Source(ConnectorBase):
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
+        self._cursor_key_overrides: dict[str, str] = {}
+        self._primary_key_overrides: dict[str, list[str]] = {}
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
+        if cursor_key_overrides is not None:
+            self.set_cursor_keys(kwargs=cursor_key_overrides)
+        if primary_key_overrides is not None:
+            self.set_primary_keys(kwargs=primary_key_overrides)
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -96,6 +104,61 @@ class Source(ConnectorBase):
             stacklevel=2,
         )
         self.select_streams(streams)
+
+    def set_cursor_keys(
+        self,
+        *,
+        kwargs: dict[str, str],
+    ) -> None:
+        """Override the cursor key for one or more streams.
+
+        This does not unset previously set cursors.
+        """
+        self._cursor_key_overrides.update(kwargs)
+
+    def set_cursor_key(
+        self,
+        stream_name: str,
+        cursor_key: str,
+    ) -> None:
+        """Set the cursor for a single stream."""
+        self._cursor_key_overrides[stream_name] = cursor_key
+
+    def set_primary_keys(
+        self,
+        *,
+        kwargs: dict[str, str | list[str]],
+    ) -> None:
+        """Override the primary keys for one or more streams.
+
+        This does not unset previously set primary keys.
+
+        The primary key can be a single column name, or a list of fields which should comprise
+        the composite primary key.
+
+        Args:
+            kwargs: A dictionary mapping stream names to either a primary key column name, or a
+            list of fields which should comprise the composite primary key.
+        """
+        self._primary_key_overrides.update(
+            {k: v if isinstance(v, list) else [v] for k, v in kwargs.items()}
+        )
+
+    def set_primary_key(
+        self,
+        stream_name: str,
+        primary_key: str | list[str],
+    ) -> None:
+        """Set the primary key for a single stream.
+
+        Args:
+            stream_name: The name of the stream.
+            primary_key: The primary key column name, or a list of fields which should comprise
+                the composite primary key.
+        """
+        self._primary_key_overrides[stream_name] = (
+            primary_key if isinstance(primary_key, list) else [primary_key]
+        )
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
@@ -373,8 +436,23 @@ class Source(ConnectorBase):
                 ConfiguredAirbyteStream(
                     stream=stream,
                     destination_sync_mode=DestinationSyncMode.overwrite,
-                    primary_key=stream.source_defined_primary_key,
                     sync_mode=SyncMode.incremental,
+                    primary_key=(
+                        [self._primary_key_overrides[stream.name]]
+                        if stream.name in self._primary_key_overrides
+                        else stream.source_defined_primary_key
+                    ),
+                    cursor_field=(
+                        [self._cursor_key_overrides[stream.name]]
+                        if stream.name in self._cursor_key_overrides
+                        else cast("list[str]", stream.source_defined_cursor)
+                        if stream.source_defined_cursor
+                        else None
+                    ),
+                    # These are unused in the current implementation:
+                    generation_id=None,
+                    minimum_generation_id=None,
+                    sync_id=None,
                 )
                 for stream in self.discovered_catalog.streams
                 if stream.name in selected_streams
@@ -431,18 +509,7 @@ class Source(ConnectorBase):
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
         """
-        discovered_catalog: AirbyteCatalog = self.discovered_catalog
-        configured_catalog = ConfiguredAirbyteCatalog(
-            streams=[
-                ConfiguredAirbyteStream(
-                    stream=s,
-                    sync_mode=SyncMode.full_refresh,
-                    destination_sync_mode=DestinationSyncMode.overwrite,
-                )
-                for s in discovered_catalog.streams
-                if s.name == stream
-            ],
-        )
+        configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
             raise exc.PyAirbyteInputError(
                 message="Requested stream does not exist.",
