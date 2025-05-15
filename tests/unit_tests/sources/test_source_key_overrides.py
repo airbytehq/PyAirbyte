@@ -1,9 +1,9 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import pytest
 from unittest.mock import Mock, patch
 
+import pytest
 from airbyte.sources.base import Source
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -17,7 +17,9 @@ def mock_stream():
     stream = Mock(spec=AirbyteStream)
     stream.name = "test_stream"
     stream.source_defined_primary_key = [["original_pk"]]
-    stream.source_defined_cursor = ["original_cursor"]
+    stream.source_defined_cursor = True
+    stream.default_cursor_field = ["original_cursor"]
+
     return stream
 
 
