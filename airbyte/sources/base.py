@@ -140,9 +140,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
             kwargs: A dictionary mapping stream names to either a primary key column name, or a
             list of fields which should comprise the composite primary key.
         """
-        self._primary_key_overrides.update({
-            k: v if isinstance(v, list) else [v] for k, v in kwargs.items()
-        })
+        self._primary_key_overrides.update(
+            {k: v if isinstance(v, list) else [v] for k, v in kwargs.items()}
+        )
 
     def set_primary_key(
         self,
