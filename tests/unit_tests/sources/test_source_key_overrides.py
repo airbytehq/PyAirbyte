@@ -46,8 +46,8 @@ def test_source_init_with_overrides():
                     primary_key_overrides=pk_overrides,
                 )
 
-                mock_set_cursor.assert_called_once_with(kwargs=cursor_overrides)
-                mock_set_pk.assert_called_once_with(kwargs=pk_overrides)
+                mock_set_cursor.assert_called_once_with(**cursor_overrides)
+                mock_set_pk.assert_called_once_with(**pk_overrides)
 
 
 @pytest.mark.parametrize(
