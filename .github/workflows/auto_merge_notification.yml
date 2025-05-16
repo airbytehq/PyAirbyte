@@ -28,4 +28,4 @@ jobs:
         with:
           add_markdown: |
             > [!NOTE]
-            > **Auto-merge was disabled.**
+            > **Auto-merge may have been disabled. Please check the PR status to confirm.**
