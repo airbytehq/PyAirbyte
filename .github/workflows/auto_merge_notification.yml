@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Add Auto-Merge Notice
         if: github.event.action == 'auto_merge_enabled'
-        uses: bcgov/action-pr-description-add@main
+        uses: bcgov/action-pr-description-add@v2.0.0
         with:
           add_markdown: |
             > [!IMPORTANT]
@@ -24,6 +24,6 @@ jobs:
 
       - name: Remove Auto-Merge Notice
         if: github.event.action == 'auto_merge_disabled'
-        uses: bcgov/action-pr-description-add@main
+        uses: bcgov/action-pr-description-add@v2.0.0
         with:
           add_markdown: ""  # Empty string to remove the notice
