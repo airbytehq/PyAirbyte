@@ -1,7 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -16,7 +15,7 @@ from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
@@ -132,6 +131,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
     local_executable: Path | str | None = None,
     docker_image: bool | str | None = None,
     use_host_network: bool = False,
+    host_temp_dir: Path | str | None = None,
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
@@ -240,7 +240,9 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
         if ":" not in docker_image:
             docker_image = f"{docker_image}:{version or 'latest'}"
 
-        host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        if not host_temp_dir:
+            host_temp_dir = TEMP_DIR
+
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
         local_mount_dir = Path().absolute() / name
