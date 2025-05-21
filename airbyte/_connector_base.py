@@ -6,6 +6,7 @@ from __future__ import annotations
 import abc
 import json
 from pathlib import Path
+from time import sleep
 from typing import TYPE_CHECKING, Any, Literal
 
 import jsonschema
@@ -324,6 +325,8 @@ class ConnectorBase(abc.ABC):
                             name=self.name,
                             state=EventState.FAILED,
                         )
+                        # Give logs a chance to be flushed.
+                        sleep(1)
                         raise exc.AirbyteConnectorCheckFailedError(
                             connector_name=self.name,
                             help_url=self.docs_url,

@@ -185,6 +185,14 @@ class Executor(ABC):
         """
         ...
 
+    def map_cli_args(self, args: list[str]) -> list[str]:
+        """Map CLI args if needed.
+
+        By default, this is a no-op. Subclasses may override this method in order to
+        map CLI args into the format expected by the connector.
+        """
+        return args
+
     def execute(
         self,
         args: list[str],
@@ -195,8 +203,9 @@ class Executor(ABC):
 
         If stdin is provided, it will be passed to the subprocess as STDIN.
         """
+        mapped_args = self.map_cli_args(args)
         with _stream_from_subprocess(
-            [*self._cli, *args],
+            [*self._cli, *mapped_args],
             stdin=stdin,
         ) as stream_lines:
             yield from stream_lines

@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from airbyte.shared.state_writers import StateWriterBase
 
 
-class Source(ConnectorBase):
+class Source(ConnectorBase):  # noqa: PLR0904
     """A class representing a source that can be called."""
 
     connector_type = "source"
@@ -63,6 +63,8 @@ class Source(ConnectorBase):
         config_change_callback: ConfigChangeCallback | None = None,
         streams: str | list[str] | None = None,
         validate: bool = False,
+        cursor_key_overrides: dict[str, str] | None = None,
+        primary_key_overrides: dict[str, str | list[str]] | None = None,
     ) -> None:
         """Initialize the source.
 
@@ -82,10 +84,21 @@ class Source(ConnectorBase):
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
+
+        self._cursor_key_overrides: dict[str, str] = {}
+        """A mapping of lower-cased stream names to cursor key overrides."""
+
+        self._primary_key_overrides: dict[str, list[str]] = {}
+        """A mapping of lower-cased stream names to primary key overrides."""
+
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
+        if cursor_key_overrides is not None:
+            self.set_cursor_keys(**cursor_key_overrides)
+        if primary_key_overrides is not None:
+            self.set_primary_keys(**primary_key_overrides)
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -96,6 +109,94 @@ class Source(ConnectorBase):
             stacklevel=2,
         )
         self.select_streams(streams)
+
+    def set_cursor_key(
+        self,
+        stream_name: str,
+        cursor_key: str,
+    ) -> None:
+        """Set the cursor for a single stream.
+
+        Note:
+        - This does not unset previously set cursors.
+        - The cursor key must be a single field name.
+        - Not all streams support custom cursors. If a stream does not support custom cursors,
+          the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._cursor_key_overrides[stream_name.lower()] = cursor_key
+
+    def set_cursor_keys(
+        self,
+        **kwargs: str,
+    ) -> None:
+        """Override the cursor key for one or more streams.
+
+        Usage:
+            source.set_cursor_keys(
+                stream1="cursor1",
+                stream2="cursor2",
+            )
+
+        Note:
+        - This does not unset previously set cursors.
+        - The cursor key must be a single field name.
+        - Not all streams support custom cursors. If a stream does not support custom cursors,
+          the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._cursor_key_overrides.update({k.lower(): v for k, v in kwargs.items()})
+
+    def set_primary_key(
+        self,
+        stream_name: str,
+        primary_key: str | list[str],
+    ) -> None:
+        """Set the primary key for a single stream.
+
+        Note:
+        - This does not unset previously set primary keys.
+        - The primary key must be a single field name or a list of field names.
+        - Not all streams support overriding primary keys. If a stream does not support overriding
+          primary keys, the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._primary_key_overrides[stream_name.lower()] = (
+            primary_key if isinstance(primary_key, list) else [primary_key]
+        )
+
+    def set_primary_keys(
+        self,
+        **kwargs: str | list[str],
+    ) -> None:
+        """Override the primary keys for one or more streams.
+
+        This does not unset previously set primary keys.
+
+        Usage:
+            source.set_primary_keys(
+                stream1="pk1",
+                stream2=["pk1", "pk2"],
+            )
+
+        Note:
+        - This does not unset previously set primary keys.
+        - The primary key must be a single field name or a list of field names.
+        - Not all streams support overriding primary keys. If a stream does not support overriding
+          primary keys, the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._primary_key_overrides.update(
+            {k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()}
+        )
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
@@ -373,8 +474,21 @@ class Source(ConnectorBase):
                 ConfiguredAirbyteStream(
                     stream=stream,
                     destination_sync_mode=DestinationSyncMode.overwrite,
-                    primary_key=stream.source_defined_primary_key,
                     sync_mode=SyncMode.incremental,
+                    primary_key=(
+                        [self._primary_key_overrides[stream.name.lower()]]
+                        if stream.name.lower() in self._primary_key_overrides
+                        else stream.source_defined_primary_key
+                    ),
+                    cursor_field=(
+                        [self._cursor_key_overrides[stream.name.lower()]]
+                        if stream.name.lower() in self._cursor_key_overrides
+                        else stream.default_cursor_field
+                    ),
+                    # These are unused in the current implementation:
+                    generation_id=None,
+                    minimum_generation_id=None,
+                    sync_id=None,
                 )
                 for stream in self.discovered_catalog.streams
                 if stream.name in selected_streams
@@ -431,18 +545,7 @@ class Source(ConnectorBase):
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
         """
-        discovered_catalog: AirbyteCatalog = self.discovered_catalog
-        configured_catalog = ConfiguredAirbyteCatalog(
-            streams=[
-                ConfiguredAirbyteStream(
-                    stream=s,
-                    sync_mode=SyncMode.full_refresh,
-                    destination_sync_mode=DestinationSyncMode.overwrite,
-                )
-                for s in discovered_catalog.streams
-                if s.name == stream
-            ],
-        )
+        configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
             raise exc.PyAirbyteInputError(
                 message="Requested stream does not exist.",
@@ -618,8 +721,8 @@ class Source(ConnectorBase):
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
-                one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
-                of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
+                one of "append", "merge", "replace", or "auto". If a WriteStrategy, it must be one
+                of WriteStrategy.APPEND, WriteStrategy.MERGE, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option

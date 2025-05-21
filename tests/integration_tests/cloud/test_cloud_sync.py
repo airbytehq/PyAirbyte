@@ -53,7 +53,9 @@ def test_get_previous_sync_result(
 
 
 @pytest.mark.super_slow
-# @pytest.mark.skip(reason="This test is not yet complete. It is hanging currently.")
+@pytest.mark.skip(
+    reason="This test is not yet working correctly. Config is invalid, missing property 'host'."
+)
 def test_deploy_and_run_connection(
     cloud_workspace: CloudWorkspace,
     new_deployable_destination,
