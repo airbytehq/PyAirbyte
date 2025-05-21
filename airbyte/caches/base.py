@@ -90,11 +90,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
         # Initialize the catalog and state backends
         self._catalog_backend = SqlCatalogBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
         self._state_backend = SqlStateBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
 
