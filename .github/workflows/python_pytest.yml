@@ -78,18 +78,6 @@ jobs:
         reporter: java-junit
         fail-on-error: false
 
-    - name: Publish Test Results (mikepenz)
-      uses: mikepenz/action-junit-report@v5
-      if: always()
-      with:
-        report_paths: 'build/test-results/**/*.xml'
-        check_name: 'PyAirbyte Test Results (mikepenz)'
-        fail_on_failure: false
-        require_tests: true
-        include_passed: true
-        detailed_summary: true
-        check_retries: true
-
     - name: Upload logs to GitHub Artifacts
       if: failure()
       uses: actions/upload-artifact@v4
@@ -136,6 +124,18 @@ jobs:
         poetry run coverage run -m pytest
         --durations=5 --exitfirst
         -m "not requires_creds and not linting and not super_slow and not flaky"
+
+    - name: Publish Test Results (mikepenz)
+      uses: mikepenz/action-junit-report@v5
+      if: always()
+      with:
+        report_paths: 'build/test-results/**/*.xml'
+        check_name: 'PyAirbyte Test Results (mikepenz)'
+        fail_on_failure: false
+        require_tests: true
+        include_passed: true
+        detailed_summary: true
+        check_retries: true
 
     - name: Print Coverage Report
       if: always()
