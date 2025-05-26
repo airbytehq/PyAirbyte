@@ -80,7 +80,7 @@ jobs:
       if: always() && !cancelled()
       continue-on-error: true
       with:
-        check_name: "Pytest (Fast) Test Results"
+        check_name: "PyTest Results (Fast Tests Only, No Creds)"
         large_files: true
         files: |
           build/test-results/**/*.xml
@@ -141,16 +141,6 @@ jobs:
       with:
         name: pytest-no-creds-test-logs
         path: /tmp/airbyte/logs/
-        
-    - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@v2
-      if: always() && !cancelled()
-      continue-on-error: true
-      with:
-        check_name: "Pytest (No Creds) Test Results"
-        large_files: true
-        files: |
-          build/test-results/**/*.xml
 
   pytest:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
@@ -234,7 +224,7 @@ jobs:
       if: always() && !cancelled() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
       continue-on-error: true
       with:
-        check_name: "Pytest (Python ${{ matrix.python-version }}, ${{ matrix.os }}) Test Results"
+        check_name: "PyTest Results (Full)"
         large_files: true
         files: |
           build/test-results/**/*.xml
