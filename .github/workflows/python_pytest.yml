@@ -74,7 +74,7 @@ jobs:
       if: always()
       with:
         name: PyAirbyte Test Results (dorny)
-        path: build/test-results/**/test-results.xml
+        path: build/test-results/**/*.xml
         reporter: java-junit
         fail-on-error: false
 
