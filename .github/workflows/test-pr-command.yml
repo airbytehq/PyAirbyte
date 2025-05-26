@@ -88,10 +88,12 @@ jobs:
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      # We exclude super-slow and flaky tests in order to expedite PR reviews
+      # and to reduce chance of unrelated noise in the review process.
       run: >
         poetry run pytest
         --verbose
-        -m "not super_slow"
+        -m "not super_slow and not flaky"
 
   log-success-comment:
     name: Append 'Success' Comment
