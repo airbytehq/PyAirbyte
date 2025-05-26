@@ -95,6 +95,16 @@ jobs:
         --verbose
         -m "not super_slow and not flaky"
 
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always() && !cancelled()
+      continue-on-error: true
+      with:
+        check_name: "PyTest Results (On-Demand)"
+        large_files: true
+        files: |
+          build/test-results/**/*.xml
+
   log-success-comment:
     name: Append 'Success' Comment
     needs: [pytest-on-demand]
