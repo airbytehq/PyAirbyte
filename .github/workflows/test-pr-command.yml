@@ -84,6 +84,9 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
+    - name: Create test results directory
+      run: mkdir -p build/test-results
+
     - name: Run Pytest
       timeout-minutes: 60
       env:
@@ -92,6 +95,16 @@ jobs:
         poetry run pytest
         --verbose
         -m "not super_slow"
+
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always() && !cancelled()
+      continue-on-error: true
+      with:
+        check_name: "On-Demand PR Test Results"
+        large_files: true
+        files: |
+          build/test-results/**/*.xml
 
   log-success-comment:
     name: Append 'Success' Comment
