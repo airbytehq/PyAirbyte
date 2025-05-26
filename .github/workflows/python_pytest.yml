@@ -74,7 +74,7 @@ jobs:
       if: always()
       with:
         name: PyAirbyte Test Results (dorny)
-        path: .coverage/junit/test-results.xml
+        path: build/test-results/**/test-results.xml
         reporter: java-junit
         fail-on-error: false
 
@@ -82,7 +82,7 @@ jobs:
       uses: mikepenz/action-junit-report@v5
       if: always()
       with:
-        report_paths: '.coverage/junit/test-results.xml'
+        report_paths: 'build/test-results/**/test-results.xml'
         check_name: 'PyAirbyte Test Results (mikepenz)'
         fail_on_failure: false
         require_tests: true
