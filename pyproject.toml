@@ -83,6 +83,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 # Pytest configuration as follows:
 # - No test can take longer than 10 minutes (600 seconds)
 # - Markers must be declared explicitly
+# - Generate junit test results at a deterministic location
 addopts = "-rs --strict-markers --timeout=600 --junit-xml=build/test-results/test-results.xml"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
