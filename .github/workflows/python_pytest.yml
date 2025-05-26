@@ -39,7 +39,6 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
       env:
@@ -72,7 +71,6 @@ jobs:
       with:
         name: pytest-fast-test-logs
         path: /tmp/airbyte/logs/
-        
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@v2
       if: always() && !cancelled()
@@ -103,7 +101,6 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-      
     - name: Run Pytest (No-Creds)
       timeout-minutes: 60
       env:
@@ -179,7 +176,6 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-      
     - name: Run Pytest
       timeout-minutes: 60
       env:
@@ -212,7 +208,6 @@ jobs:
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-logs
         path: /tmp/airbyte/logs/
-        
     - name: Publish Test Results
       uses: EnricoMi/publish-unit-test-result-action@v2
       if: always() && !cancelled() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
