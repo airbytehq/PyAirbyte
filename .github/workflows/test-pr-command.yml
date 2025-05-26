@@ -88,6 +88,8 @@ jobs:
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      # We exclude super-slow and flaky tests in order to expedite PR reviews
+      # and to reduce chance of unrelated noise in the review process.
       run: >
         poetry run pytest
         --verbose
