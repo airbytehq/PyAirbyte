@@ -39,8 +39,6 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    - name: Create test results directory
-      run: mkdir -p build/test-results
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
@@ -105,8 +103,6 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-    - name: Create test results directory
-      run: mkdir -p build/test-results
       
     - name: Run Pytest (No-Creds)
       timeout-minutes: 60
@@ -183,8 +179,6 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-    - name: Create test results directory
-      run: mkdir -p build/test-results
       
     - name: Run Pytest
       timeout-minutes: 60

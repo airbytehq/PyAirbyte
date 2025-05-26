@@ -84,8 +84,6 @@ jobs:
     - name: Install dependencies
       run: poetry install
 
-    - name: Create test results directory
-      run: mkdir -p build/test-results
 
     - name: Run Pytest
       timeout-minutes: 60
