@@ -1,5 +1,6 @@
 import pytest
 
+
 def test_passing_example():
     """This test should pass to demonstrate successful test reporting."""
     assert True
