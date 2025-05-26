@@ -101,7 +101,7 @@ jobs:
       if: always() && !cancelled()
       continue-on-error: true
       with:
-        check_name: "On-Demand PR Test Results"
+        check_name: "PyTest Results (On-Demand)"
         large_files: true
         files: |
           build/test-results/**/*.xml
