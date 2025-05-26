@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import airbyte as ab
-import pandas as pd
 import pytest
 from airbyte import cloud
 from airbyte.caches.base import CacheBase
@@ -74,14 +73,7 @@ def test_read_from_deployed_connection(
 
     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
-    data_as_list = list(dataset)
-    assert len(data_as_list) == 100
-
-    # TODO: Fails on BigQuery: https://github.com/airbytehq/PyAirbyte/issues/165
-    # pandas_df = dataset.to_pandas()
-
-    pandas_df = pd.DataFrame(data_as_list)
-
+    pandas_df = dataset.to_pandas()
     assert pandas_df.shape[0] == 100
     assert pandas_df.shape[1] in {  # Column count diff depending on when it was created
         20,
@@ -188,14 +180,8 @@ def test_read_from_previous_job(
     assert "users" in sync_result.stream_names
     dataset: ab.CachedDataset = sync_result.get_dataset(stream_name="users")
     assert dataset.stream_name == "users"
-    data_as_list = list(dataset)
-    assert len(data_as_list) == 100
 
-    # TODO: Fails on BigQuery: https://github.com/airbytehq/PyAirbyte/issues/165
-    # pandas_df = dataset.to_pandas()
-
-    pandas_df = pd.DataFrame(data_as_list)
-
+    pandas_df = dataset.to_pandas()
     assert pandas_df.shape[0] == 100
     assert pandas_df.shape[1] in {  # Column count diff depending on when it was created
         20,
