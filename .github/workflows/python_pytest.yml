@@ -80,7 +80,6 @@ jobs:
         list-suites: all
         list-tests: all
         max-annotations: 50
-        detailed-summary: true
         only-summary: false
 
     - name: Upload logs to GitHub Artifacts
@@ -141,12 +140,9 @@ jobs:
         include_passed: true
         detailed_summary: true
         check_retries: true
-        include_passed_in_summary: true
-        include_skipped_in_summary: true
         include_time_in_summary: true
         verbose_summary: true
-        comment_mode: create
-        comment_title: 'PyAirbyte Test Results (mikepenz)'
+        comment: true
 
     - name: Print Coverage Report
       if: always()
