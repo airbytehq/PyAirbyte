@@ -23,6 +23,10 @@ jobs:
   pytest-fast:
     name: Pytest (Fast)
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+      contents: read
     steps:
     # Common steps:
     - name: Checkout code
@@ -64,6 +68,19 @@ jobs:
       with:
         name: fasttest-coverage
         path: htmlcov/
+
+    - name: Publish Test Results (dorny)
+      uses: dorny/test-reporter@v2
+      if: always()
+      with:
+        name: PyAirbyte Test Results (dorny)
+        path: build/test-results/**/*.xml
+        reporter: java-junit
+        fail-on-error: false
+        list-suites: all
+        list-tests: all
+        max-annotations: 50
+        only-summary: false
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
@@ -111,6 +128,21 @@ jobs:
         poetry run coverage run -m pytest
         --durations=5 --exitfirst
         -m "not requires_creds and not linting and not super_slow and not flaky"
+
+    - name: Publish Test Results (mikepenz)
+      uses: mikepenz/action-junit-report@v5
+      if: always()
+      with:
+        report_paths: 'build/test-results/**/*.xml'
+        check_name: 'PyAirbyte Test Results (mikepenz)'
+        fail_on_failure: false
+        require_tests: true
+        include_passed: true
+        detailed_summary: false
+        check_retries: true
+        include_time_in_summary: true
+        verbose_summary: false
+        comment: true
 
     - name: Print Coverage Report
       if: always()
