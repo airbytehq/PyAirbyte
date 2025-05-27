@@ -138,10 +138,10 @@ jobs:
         fail_on_failure: false
         require_tests: true
         include_passed: true
-        detailed_summary: true
+        detailed_summary: false
         check_retries: true
         include_time_in_summary: true
-        verbose_summary: true
+        verbose_summary: false
         comment: true
 
     - name: Print Coverage Report
