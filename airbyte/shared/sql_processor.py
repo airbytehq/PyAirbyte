@@ -9,7 +9,7 @@ import enum
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 import pandas as pd
 import sqlalchemy
@@ -92,6 +92,9 @@ class SqlConfig(BaseModel, abc.ABC):
     table_prefix: str | None = ""
     """A prefix to add to created table names."""
 
+    connect_args: dict[Any, Any] = {}
+    """Additional arguments to pass to the SQLAlchemy engine."""
+
     @abc.abstractmethod
     def get_sql_alchemy_url(self) -> SecretString:
         """Returns a SQL Alchemy URL."""
@@ -137,6 +140,7 @@ class SqlConfig(BaseModel, abc.ABC):
                 "schema_translate_map": {None: self.schema_name},
             },
             future=True,
+            connect_args=self.connect_args,
         )
 
     def get_vendor_client(self) -> object:
