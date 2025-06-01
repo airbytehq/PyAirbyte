@@ -47,29 +47,6 @@ class SnowflakeConfig(SqlConfig):
     schema_name: str = Field(default=DEFAULT_CACHE_SCHEMA_NAME)
     data_retention_time_in_days: int | None = None
 
-    @property
-    def connect_args(self) -> dict[str, Any]:
-        """Return the connection arguments for key pair authentication."""
-        if self.private_key_file is None:
-            return {}
-
-        with Path(self.private_key_file).open("rb") as f:
-            private_key = serialization.load_pem_private_key(
-                f.read(),
-                password=self.private_key_file_pwd.encode("utf-8")
-                if self.private_key_file_pwd is not None
-                else None,
-                backend=default_backend(),
-            )
-
-        private_key_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.DER,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption(),
-        )
-
-        return {"private_key": private_key_bytes}
-
     @overrides
     def get_create_table_extra_clauses(self) -> list[str]:
         """Return a list of clauses to append on CREATE TABLE statements."""
@@ -86,6 +63,26 @@ class SnowflakeConfig(SqlConfig):
         return self.database
 
     @overrides
+    def get_sql_alchemy_connect_args(self) -> dict[str, Any]:
+        """Return the connect_args for key pair authentication."""
+        if self.private_key_file is None:
+            return {}
+        with Path(self.private_key_file).open("rb") as f:
+            private_key = serialization.load_pem_private_key(
+                f.read(),
+                password=self.private_key_file_pwd.encode("utf-8")
+                if self.private_key_file_pwd is not None
+                else None,
+                backend=default_backend(),
+            )
+        private_key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        return {"private_key": private_key_bytes}
+
+    @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
         config = {
@@ -97,7 +94,6 @@ class SnowflakeConfig(SqlConfig):
             "role": self.role,
         }
         # password is absent when using key pair authentication
-        # and a key pair cannot be included in the URL
         if self.password:
             config["password"] = self.password
         return SecretString(URL(**config))
