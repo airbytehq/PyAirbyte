@@ -111,10 +111,12 @@ class SnowflakeConfig(SqlConfig):
         if self.password:
             connection_config["password"] = self.password
         if self.private_key_file:
-            connection_config.update({
-                "authenticator": "SNOWFLAKE_JWT",
-                "private_key_file": str(self.private_key_file)
-            })
+            connection_config.update(
+                {
+                    "authenticator": "SNOWFLAKE_JWT",
+                    "private_key_file": str(self.private_key_file),
+                }
+            )
             if self.private_key_file_pwd:
                 connection_config["private_key_file_pwd"] = self.private_key_file_pwd
         return connector.connect(**connection_config)
