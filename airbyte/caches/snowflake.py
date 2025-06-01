@@ -11,6 +11,9 @@ cache = SnowflakeCache(
     account="myaccount",
     username="myusername",
     password=ab.get_secret("SNOWFLAKE_PASSWORD"),
+    # For key-pair authentication
+    # private_key_file="path/to/private_key.p8",
+    # private_key_file_pwd=ab.get_secret("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"),
     warehouse="mywarehouse",
     database="mydatabase",
     role="myrole",
