@@ -31,6 +31,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
+    - uses: actions/create-github-app-token@v1
+      id: get-app-token
+      with:
+        owner: "airbytehq"
+        repositories: "PyAirbyte"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
+
     - name: Create URL to the run output
       id: vars
       run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
@@ -51,14 +59,6 @@ jobs:
       uses: cloudposse-github-actions/get-pr@v2.0.0
       with:
         id: ${{ inputs.pr }}
-
-    - uses: actions/create-github-app-token@v1
-      id: get-app-token
-      with:
-        owner: "airbytehq"
-        repositories: "PyAirbyte"
-        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
-        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     outputs:
       source-repo: ${{ fromJSON(steps.pr-info.outputs.json).head.repo.full_name }}
