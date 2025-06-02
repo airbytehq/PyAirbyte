@@ -11,8 +11,6 @@ on:
         description: 'Comment ID (Optional)'
         type: string
         required: false
-  # Temporary: for testing:
-  push:
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
