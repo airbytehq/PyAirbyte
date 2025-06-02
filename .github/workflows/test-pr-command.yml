@@ -78,6 +78,7 @@ jobs:
       uses: LouisBrunner/checks-action@v2.0.0
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
+        repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
         status: in_progress
         token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -124,6 +125,7 @@ jobs:
       uses: LouisBrunner/checks-action@v2.0.0
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
+        repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
         status: completed
         conclusion: ${{ job.status }}
         token: ${{ secrets.GITHUB_TOKEN }}
