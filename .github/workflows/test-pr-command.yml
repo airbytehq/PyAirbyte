@@ -107,8 +107,9 @@ jobs:
         repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
-        token: ${{ steps.get-app-token.outputs.token }}
+        action_url: ${{ needs.start-workflow.outputs.job-run-url }}
         details_url: ${{ needs.start-workflow.outputs.job-run-url }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
     # Same as the `python_pytest.yml` file:
 
@@ -148,7 +149,7 @@ jobs:
     # Post completion status to the PR.
     # This is required because otherwise slash commands won't automatically
     # update the PR checks status.
-    - name: Create Status Check
+    - name: Create Final Check Status
       if: always()
       uses: LouisBrunner/checks-action@v2.0.0
       with:
@@ -157,8 +158,9 @@ jobs:
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: completed
         conclusion: ${{ job.status }}
-        token: ${{ steps.get-app-token.outputs.token }}
+        action_url: ${{ needs.start-workflow.outputs.job-run-url }}
         details_url: ${{ needs.start-workflow.outputs.job-run-url }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
   log-success-comment:
     name: Append 'Success' Comment
