@@ -65,7 +65,7 @@ jobs:
       commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
       pr-number: ${{ steps.pr-info.outputs.number }}
       pr-title: ${{ steps.pr-info.outputs.title }}
-      gh-app-token: ${{ needs.get-app-token.outputs.token }}
+      gh-app-token: ${{ steps.get-app-token.outputs.token }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
