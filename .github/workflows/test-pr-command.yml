@@ -11,6 +11,8 @@ on:
         description: 'Comment ID (Optional)'
         type: string
         required: false
+  # Temporary: for testing:
+  push:
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
@@ -53,8 +55,10 @@ jobs:
     - uses: actions/create-github-app-token@v1
       id: get-app-token
       with:
-        app-id: ${{ vars.OCTAVIA_GITHUB_APP_ID }}
-        private-key: ${{ secrets.OCTAVIA_GITHUB_APP_PRIVATE_KEY }}
+        owner: "airbytehq"
+        repositories: "PyAirbyte"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     outputs:
       source-repo: ${{ fromJSON(steps.pr-info.outputs.json).head.repo.full_name }}
