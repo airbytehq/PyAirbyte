@@ -20,6 +20,8 @@ permissions:
   pull-requests: write
   issues: write
   checks: write
+  actions: write
+  statuses: write
 
 jobs:
   start-workflow:
@@ -96,7 +98,7 @@ jobs:
         repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
 
     # Same as the `python_pytest.yml` file:
 
@@ -145,7 +147,7 @@ jobs:
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: completed
         conclusion: ${{ job.status }}
-        token: ${{ secrets.GITHUB_TOKEN }}
+        token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
 
   log-success-comment:
     name: Append 'Success' Comment
