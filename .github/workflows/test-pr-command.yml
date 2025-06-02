@@ -103,7 +103,7 @@ jobs:
       uses: LouisBrunner/checks-action@v2.0.0
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
-        repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
+        repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
         token: ${{ steps.get-app-token.outputs.token }}
@@ -151,7 +151,7 @@ jobs:
       uses: LouisBrunner/checks-action@v2.0.0
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
-        repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
+        repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: completed
         conclusion: ${{ job.status }}
