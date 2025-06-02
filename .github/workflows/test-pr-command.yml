@@ -56,6 +56,7 @@ jobs:
       commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
       pr-number: ${{ steps.pr-info.outputs.number }}
       pr-title: ${{ steps.pr-info.outputs.title }}
+      job-run-url: ${{ steps.vars.outputs.run-url }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
@@ -107,6 +108,7 @@ jobs:
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
         token: ${{ steps.get-app-token.outputs.token }}
+        details_url: ${{ needs.start-workflow.outputs.job-run-url }}
 
     # Same as the `python_pytest.yml` file:
 
@@ -156,6 +158,7 @@ jobs:
         status: completed
         conclusion: ${{ job.status }}
         token: ${{ steps.get-app-token.outputs.token }}
+        details_url: ${{ needs.start-workflow.outputs.job-run-url }}
 
   log-success-comment:
     name: Append 'Success' Comment
