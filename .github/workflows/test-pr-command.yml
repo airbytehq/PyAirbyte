@@ -70,6 +70,17 @@ jobs:
       with:
         pr: ${{ github.event.inputs.pr }}
 
+    # Post "In Progress" status to the PR.
+    # This is required because otherwise slash commands won't automatically
+    # update the PR checks status.
+    - name: Create "Pending" Check Status
+      if: always() && !cancelled()
+      uses: LouisBrunner/checks-action@v2.0.0
+      with:
+        name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
+        status: in_progress
+        token: ${{ secrets.GITHUB_TOKEN }}
+
     # Same as the `python_pytest.yml` file:
 
     - name: Set up Poetry
@@ -104,6 +115,18 @@ jobs:
         large_files: true
         files: |
           build/test-results/**/*.xml
+
+    # Post completion status to the PR.
+    # This is required because otherwise slash commands won't automatically
+    # update the PR checks status.
+    - name: Create Status Check
+      if: always()
+      uses: LouisBrunner/checks-action@v2.0.0
+      with:
+        name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
+        status: completed
+        conclusion: ${{ job.status }}
+        token: ${{ secrets.GITHUB_TOKEN }}
 
   log-success-comment:
     name: Append 'Success' Comment
