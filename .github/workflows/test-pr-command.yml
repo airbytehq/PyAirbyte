@@ -29,15 +29,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-    - name: Authenticate as GitHub App
-      uses: actions/create-github-app-token@v1
-      id: get-app-token
-      with:
-        owner: "airbytehq"
-        repositories: "PyAirbyte"
-        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
-        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
-
     - name: Create URL to the run output
       id: vars
       run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
@@ -65,7 +56,6 @@ jobs:
       commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
       pr-number: ${{ steps.pr-info.outputs.number }}
       pr-title: ${{ steps.pr-info.outputs.title }}
-      gh-app-token: ${{ steps.get-app-token.outputs.token }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
@@ -90,7 +80,14 @@ jobs:
       PYTHONIOENCODING: utf-8
     steps:
 
-    # Custom steps to fetch the PR and checkout the code:
+    - name: Authenticate as GitHub App
+      uses: actions/create-github-app-token@v1
+      id: get-app-token
+      with:
+        owner: "airbytehq"
+        repositories: "PyAirbyte"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     - name: Checkout PR
       uses: actions/checkout@v4
@@ -109,7 +106,7 @@ jobs:
         repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
-        token: ${{ needs.start-workflow.outputs.gh-app-token }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
     # Same as the `python_pytest.yml` file:
 
@@ -158,7 +155,7 @@ jobs:
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: completed
         conclusion: ${{ job.status }}
-        token: ${{ needs.start-workflow.outputs.gh-app-token }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
   log-success-comment:
     name: Append 'Success' Comment
