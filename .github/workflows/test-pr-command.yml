@@ -25,9 +25,18 @@ permissions:
 
 jobs:
   start-workflow:
-    name: Append 'Starting' Comment
+    name: Start Workflow
     runs-on: ubuntu-latest
     steps:
+
+    - name: Authenticate as GitHub App
+      uses: actions/create-github-app-token@v1
+      id: get-app-token
+      with:
+        owner: "airbytehq"
+        repositories: "PyAirbyte"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     - name: Create URL to the run output
       id: vars
@@ -49,12 +58,14 @@ jobs:
       uses: cloudposse-github-actions/get-pr@v2.0.0
       with:
         id: ${{ inputs.pr }}
+
     outputs:
       source-repo: ${{ fromJSON(steps.pr-info.outputs.json).head.repo.full_name }}
       source-branch: ${{ fromJSON(steps.pr-info.outputs.json).head.ref }}
       commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
       pr-number: ${{ steps.pr-info.outputs.number }}
       pr-title: ${{ steps.pr-info.outputs.title }}
+      gh-app-token: ${{ steps.get-app-token.outputs.token }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
@@ -98,7 +109,7 @@ jobs:
         repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
-        token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
+        token: ${{ needs.start-workflow.outputs.gh-app-token }}
 
     # Same as the `python_pytest.yml` file:
 
@@ -147,7 +158,7 @@ jobs:
         sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: completed
         conclusion: ${{ job.status }}
-        token: ${{ secrets.GH_PAT_MAINTENANCE_OCTAVIA }}
+        token: ${{ needs.start-workflow.outputs.gh-app-token }}
 
   log-success-comment:
     name: Append 'Success' Comment
