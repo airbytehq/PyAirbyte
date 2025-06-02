@@ -36,6 +36,18 @@ jobs:
 
           [1]: ${{ steps.vars.outputs.run-url }}
 
+    - name: Get PR Info
+      id: pr-info
+      uses: cloudposse-github-actions/get-pr@v2.0.0
+      with:
+        id: ${{ inputs.pr }}
+    outputs:
+      source-repo: ${{ fromJSON(steps.pr-info.outputs.json).head.repo.full_name }}
+      source-branch: ${{ fromJSON(steps.pr-info.outputs.json).head.ref }}
+      commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
+      pr-number: ${{ steps.pr-info.outputs.number }}
+      pr-title: ${{ steps.pr-info.outputs.title }}
+
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
   pytest-on-demand:
@@ -65,10 +77,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Checkout PR (${{ github.event.inputs.pr }})
-      uses: dawidd6/action-checkout-pr@v1
-      with:
-        pr: ${{ github.event.inputs.pr }}
+        ref: ${{ needs.start-workflow.outputs.commit-sha }}
 
     # Post "In Progress" status to the PR.
     # This is required because otherwise slash commands won't automatically
@@ -79,6 +88,7 @@ jobs:
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
         repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
+        sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: in_progress
         token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -126,6 +136,7 @@ jobs:
       with:
         name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
         repo: "airbytehq/airbyte"  # Post to the Airbyte repo, not the fork
+        sha: ${{ needs.start-workflow.outputs.commit-sha }}
         status: completed
         conclusion: ${{ job.status }}
         token: ${{ secrets.GITHUB_TOKEN }}
