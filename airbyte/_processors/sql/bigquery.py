@@ -47,6 +47,10 @@ class BigQueryConfig(SqlConfig):
     """The path to the credentials file to use.
     If not passed, falls back to the default inferred from the environment."""
 
+    dataset_location: str = "US"
+    """The geographic location of the BigQuery dataset (e.g., 'US', 'EU', etc.).
+    Defaults to 'US'. See: https://cloud.google.com/bigquery/docs/locations"""
+
     @property
     def project_name(self) -> str:
         """Return the project name (alias of self.database_name)."""
