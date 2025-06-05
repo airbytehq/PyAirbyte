@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from airbyte_api.models import (
     BatchedStandardInserts,
+    DatasetLocation,
     DestinationBigquery,
     DestinationDuckdb,
     DestinationPostgres,
@@ -122,10 +123,11 @@ def bigquery_cache_to_destination_configuration(
         if cache.credentials_path
         else None
     )
+
     return DestinationBigquery(
         project_id=cache.project_name,
         dataset_id=cache.dataset_name,
-        dataset_location="US",
+        dataset_location=DatasetLocation(cache.dataset_location),
         credentials_json=credentials_json,
         loading_method=BatchedStandardInserts(),
     )

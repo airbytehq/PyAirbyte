@@ -90,6 +90,7 @@ def bigquery_destination_to_cache(
         project_name=destination_configuration.project_id,
         dataset_name=destination_configuration.dataset_id,
         credentials_path=credentials_path,
+        dataset_location=destination_configuration.dataset_location,
     )
 
 
