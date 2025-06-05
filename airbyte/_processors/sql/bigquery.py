@@ -210,10 +210,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         project = self.sql_config.project_name
         schema = self.sql_config.schema_name
         location = self.sql_config.dataset_location
-        sql = (
-            f"CREATE SCHEMA IF NOT EXISTS `{project}.{schema}` "
-            f'OPTIONS(location="{location}")'
-        )
+        sql = f"CREATE SCHEMA IF NOT EXISTS `{project}.{schema}` " f'OPTIONS(location="{location}")'
         try:
             self._execute_sql(sql)
         except Exception as ex:
