@@ -94,7 +94,7 @@ class BigQueryConfig(SqlConfig):
         else:
             credentials, _ = google.auth.default()
 
-        return bigquery.Client(credentials=credentials)
+        return bigquery.Client(credentials=credentials, location=self.dataset_location)
 
 
 class BigQueryTypeConverter(SQLTypeConverter):
@@ -207,7 +207,10 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         if self._schema_exists:
             return
 
-        sql = f"CREATE SCHEMA IF NOT EXISTS {self.sql_config.schema_name}"
+        sql = (
+            f"CREATE SCHEMA IF NOT EXISTS `{self.sql_config.project_name}.{self.sql_config.schema_name}` "
+            f"OPTIONS(location=\"{self.sql_config.dataset_location}\")"
+        )
         try:
             self._execute_sql(sql)
         except Exception as ex:
