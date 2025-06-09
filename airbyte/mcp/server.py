@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import mcp.server.stdio
+import yaml
 from mcp.server.fastmcp import FastMCP
 
 from airbyte import get_source
@@ -85,11 +86,15 @@ def list_connectors(
 
 
 @app.tool()
-def get_config_spec(connector_name: str) -> str:
-    """Get the JSON schema configuration specification for a connector."""
+def get_config_spec(connector_name: str, output_format: str = "yaml") -> str:
+    """Get the configuration specification for a connector in YAML or JSON format."""
     source = get_source(connector_name)
     spec = source.config_spec
-    return json.dumps(spec, indent=2)
+
+    if output_format.lower() == "json":
+        return json.dumps(spec, indent=2)
+
+    return yaml.dump(spec, default_flow_style=False, indent=2)
 
 
 @app.tool()
