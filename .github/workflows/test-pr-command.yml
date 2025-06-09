@@ -82,7 +82,7 @@ jobs:
     steps:
 
     - name: Authenticate as GitHub App
-      uses: actions/create-github-app-token@v1
+      uses: actions/create-github-app-token@v2
       id: get-app-token
       with:
         owner: "airbytehq"
