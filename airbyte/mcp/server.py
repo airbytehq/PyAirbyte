@@ -8,7 +8,7 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, List, Dict
 
 import mcp.server.stdio
 from mcp.server.fastmcp import FastMCP
@@ -21,7 +21,7 @@ from airbyte.sources import get_available_connectors
 app = FastMCP("airbyte-mcp")
 
 
-def _detect_hardcoded_secrets(config: dict[str, Any], spec: dict[str, Any]) -> list[str]:
+def _detect_hardcoded_secrets(config: Dict[str, Any], spec: Dict[str, Any]) -> List[str]:
     """Detect hardcoded secrets in config that should be environment variables."""
     hardcoded_secrets = []
     properties = spec.get("properties", {})
@@ -56,14 +56,14 @@ def _detect_hardcoded_secrets(config: dict[str, Any], spec: dict[str, Any]) -> l
 
 @app.tool()
 def list_connectors(
-    keyword_filter: str | None = None,
-    connector_type_filter: str | None = None,
-    language_filter: str | None = None,
-) -> str:
+    keyword_filter=None,
+    connector_type_filter=None,
+    language_filter=None,
+):
     """List available Airbyte connectors with optional filtering."""
-    connectors: list[str] = get_available_connectors()
+    connectors: List[str] = get_available_connectors()
 
-    filtered_connectors: list[str] = []
+    filtered_connectors: List[str] = []
     for connector in connectors:
         if keyword_filter and keyword_filter.lower() not in connector.lower():
             continue
@@ -85,7 +85,7 @@ def list_connectors(
 
 
 @app.tool()
-def get_config_spec(connector_name: str) -> str:
+def get_config_spec(connector_name):
     """Get the JSON schema configuration specification for a connector."""
     source = get_source(connector_name)
     spec = source.config_spec
@@ -93,7 +93,7 @@ def get_config_spec(connector_name: str) -> str:
 
 
 @app.tool()
-def create_config_markdown(connector_name: str) -> str:
+def create_config_markdown(connector_name):
     """Generate markdown documentation for a connector's configuration."""
     source = get_source(connector_name)
 
@@ -109,7 +109,7 @@ def create_config_markdown(connector_name: str) -> str:
 
 
 @app.tool()
-def validate_config(connector_name: str, config: dict[str, Any]) -> str:
+def validate_config(connector_name, config):
     """Validate a connector configuration, ensuring no hardcoded secrets."""
     source = get_source(connector_name)
     spec = source.config_spec
@@ -133,7 +133,7 @@ def validate_config(connector_name: str, config: dict[str, Any]) -> str:
 
 
 @app.tool()
-def run_sync(connector_name: str, config: dict[str, Any]) -> str:
+def run_sync(connector_name, config):
     """Run a sync from a source connector to the default DuckDB cache."""
     validation_result = validate_config(connector_name, config)
     if "valid" not in validation_result.lower():
