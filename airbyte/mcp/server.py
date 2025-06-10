@@ -1,14 +1,45 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 
-"""PyAirbyte MCP Server implementation."""
+"""Experimental MCP (Model Context Protocol) server for PyAirbyte connector management.
+
+> **NOTE:**
+> This MCP server implementation is experimental and may change without notice between minor
+> versions of PyAirbyte. The API may be modified or entirely refactored in future versions.
+
+
+This module provides a Model Context Protocol server that enables AI assistants and other MCP
+clients to interact with PyAirbyte connectors. The server exposes tools for listing connectors,
+retrieving configuration specifications, validating configurations, and running sync operations.
+
+
+Start the MCP server with stdio transport:
+
+```python
+from airbyte.mcp.server import PyAirbyteServer
+import asyncio
+
+
+async def main():
+    server = PyAirbyteServer()
+    await server.run_stdio()
+
+
+asyncio.run(main())
+```
+
+
+- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+
+You can help improve this experimental feature by reporting issues and providing feedback in our
+[GitHub issue tracker](https://github.com/airbytehq/pyairbyte/issues).
+"""
 
 from __future__ import annotations
 
 import json
 import os
-import tempfile
-from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import mcp.server.stdio
 import yaml
@@ -57,11 +88,22 @@ def _detect_hardcoded_secrets(config: dict[str, Any], spec: dict[str, Any]) -> l
 
 @app.tool()
 def list_connectors(
-    keyword_filter: str | None = None,
-    connector_type_filter: str | None = None,
-    language_filter: str | None = None,
-) -> str:
-    """List available Airbyte connectors with optional filtering."""
+    keyword_filter=None,
+    connector_type_filter=None,
+    language_filter=None,
+    output_format="markdown",
+):
+    """List available Airbyte connectors with optional filtering.
+
+    Args:
+        keyword_filter: Filter connectors by keyword (case-insensitive substring match).
+        connector_type_filter: Filter connectors by type (case-insensitive substring match).
+        language_filter: Filter connectors by implementation language (currently unused).
+        output_format: Output format, either "markdown" or "json".
+
+    Returns:
+        Formatted string containing the list of connectors in the specified format.
+    """
     connectors: list[str] = get_available_connectors()
 
     filtered_connectors: list[str] = []
@@ -77,6 +119,11 @@ def list_connectors(
 
         filtered_connectors.append(connector)
 
+    if output_format.lower() == "json":
+        return json.dumps(
+            {"count": len(filtered_connectors), "connectors": filtered_connectors}, indent=2
+        )
+
     result = f"Found {len(filtered_connectors)} connectors:\n\n"
     for connector in filtered_connectors:
         result += f"- **{connector}**\n"
@@ -86,7 +133,7 @@ def list_connectors(
 
 
 @app.tool()
-def get_config_spec(connector_name: str, output_format: str = "yaml") -> str:
+def get_config_spec(connector_name, output_format="yaml"):
     """Get the configuration specification for a connector in YAML or JSON format."""
     source = get_source(connector_name)
     spec = source.config_spec
@@ -98,23 +145,7 @@ def get_config_spec(connector_name: str, output_format: str = "yaml") -> str:
 
 
 @app.tool()
-def create_config_markdown(connector_name: str) -> str:
-    """Generate markdown documentation for a connector's configuration."""
-    source = get_source(connector_name)
-
-    with tempfile.NamedTemporaryFile(
-        mode="w+", suffix=".yaml", delete=False, encoding="utf-8"
-    ) as temp_file:
-        source.print_config_spec(format="yaml", output_file=temp_file.name)
-
-    content = Path(temp_file.name).read_text(encoding="utf-8")
-    Path(temp_file.name).unlink()
-
-    return f"# {connector_name} Configuration\n\n```yaml\n{content}\n```"
-
-
-@app.tool()
-def validate_config(connector_name: str, config: dict[str, Any]) -> str:
+def validate_config(connector_name, config):
     """Validate a connector configuration, ensuring no hardcoded secrets."""
     source = get_source(connector_name)
     spec = source.config_spec
@@ -138,7 +169,7 @@ def validate_config(connector_name: str, config: dict[str, Any]) -> str:
 
 
 @app.tool()
-def run_sync(connector_name: str, config: dict[str, Any]) -> str:
+def run_sync(connector_name, config):
     """Run a sync from a source connector to the default DuckDB cache."""
     validation_result = validate_config(connector_name, config)
     if "valid" not in validation_result.lower():
