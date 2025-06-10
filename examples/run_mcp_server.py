@@ -80,14 +80,14 @@ async def demonstrate_mcp_tools() -> None:
 
 async def run_mcp_server() -> None:
     """Start the MCP server with stdio transport.
-    
+
     In production, this would be run as a separate process and accessed
     by MCP clients via stdin/stdout communication.
     """
     print("Starting PyAirbyte MCP Server...")
     print("Note: This would normally run indefinitely, waiting for MCP client requests")
     print("Press Ctrl+C to stop the server\n")
-    
+
     server = PyAirbyteServer()
     try:
         await server.run_stdio()
@@ -98,10 +98,10 @@ async def run_mcp_server() -> None:
 async def main() -> None:
     """Main entry point - demonstrate tools then optionally start server."""
     await demonstrate_mcp_tools()
-    
+
     print("\nTo start the MCP server interactively, uncomment the line below:")
     print("# await run_mcp_server()")
-    
+
     print("\nTo use the MCP server with an MCP client:")
     print("python examples/run_mcp_server.py")
 
