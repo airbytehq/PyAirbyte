@@ -38,7 +38,7 @@ class SnowflakeConfig(SqlConfig):
 
     account: str
     username: str
-    password: SecretString
+    private_key: SecretString
     warehouse: str
     database: str
     role: str
@@ -67,7 +67,7 @@ class SnowflakeConfig(SqlConfig):
             URL(
                 account=self.account,
                 user=self.username,
-                password=self.password,
+                private_key=self.private_key,
                 database=self.database,
                 warehouse=self.warehouse,
                 schema=self.schema_name,
@@ -79,7 +79,7 @@ class SnowflakeConfig(SqlConfig):
         """Return the Snowflake connection object."""
         return connector.connect(
             user=self.username,
-            password=self.password,
+            private_key=self.private_key,
             account=self.account,
             warehouse=self.warehouse,
             database=self.database,
