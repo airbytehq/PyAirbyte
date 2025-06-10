@@ -1,4 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+# ruff: noqa: ANN001, ANN201
+# mypy: disable-error-code=no-untyped-def
 
 """Experimental MCP (Model Context Protocol) server for PyAirbyte connector management.
 
