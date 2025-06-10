@@ -78,7 +78,7 @@ def _detect_hardcoded_secrets(config: dict[str, Any], spec: dict[str, Any]) -> l
         if is_secret and isinstance(field_value, str):
             is_env_var = (
                 (field_value.startswith("${") and field_value.endswith("}"))
-                or field_value in os.environ
+                or os.environ.get(field_value) is not None
                 or field_value.startswith("$")
             )
 
