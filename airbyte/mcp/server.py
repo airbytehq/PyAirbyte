@@ -88,11 +88,11 @@ def _detect_hardcoded_secrets(config: dict[str, Any], spec: dict[str, Any]) -> l
 
 @app.tool()
 def list_connectors(
-    keyword_filter: str | None = None,
-    connector_type_filter: str | None = None,
-    language_filter: str | None = None,
-    output_format: str = "markdown",
-) -> str:
+    keyword_filter=None,
+    connector_type_filter=None,
+    language_filter=None,
+    output_format="markdown",
+):
     """List available Airbyte connectors with optional filtering.
 
     Args:
@@ -133,7 +133,7 @@ def list_connectors(
 
 
 @app.tool()
-def get_config_spec(connector_name: str, output_format: str = "yaml") -> str:
+def get_config_spec(connector_name, output_format="yaml"):
     """Get the configuration specification for a connector in YAML or JSON format."""
     source = get_source(connector_name)
     spec = source.config_spec
@@ -145,7 +145,7 @@ def get_config_spec(connector_name: str, output_format: str = "yaml") -> str:
 
 
 @app.tool()
-def validate_config(connector_name: str, config: dict[str, Any]) -> str:
+def validate_config(connector_name, config):
     """Validate a connector configuration, ensuring no hardcoded secrets."""
     source = get_source(connector_name)
     spec = source.config_spec
@@ -169,7 +169,7 @@ def validate_config(connector_name: str, config: dict[str, Any]) -> str:
 
 
 @app.tool()
-def run_sync(connector_name: str, config: dict[str, Any]) -> str:
+def run_sync(connector_name, config):
     """Run a sync from a source connector to the default DuckDB cache."""
     validation_result = validate_config(connector_name, config)
     if "valid" not in validation_result.lower():
