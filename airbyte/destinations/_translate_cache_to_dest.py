@@ -12,7 +12,7 @@ from airbyte_api.models import (
     DestinationDuckdb,
     DestinationPostgres,
     DestinationSnowflake,
-    UsernameAndPassword,
+    KeyPairAuthentication
 )
 
 from airbyte.secrets.base import SecretString
@@ -107,8 +107,8 @@ def snowflake_cache_to_destination_configuration(
         warehouse=cache.warehouse,
         role=cache.role,
         username=cache.username,
-        credentials=UsernameAndPassword(
-            password=cache.password,
+        credentials=KeyPairAuthentication(
+            private_key=cache.private_key,
         ),
     )
 
