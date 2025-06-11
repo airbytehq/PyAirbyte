@@ -196,8 +196,7 @@ class PyAirbyteServer:
 
     async def run_stdio(self) -> None:
         """Run the server with stdio transport."""
-        async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-            await self.app.run(read_stream, write_stream)  # type: ignore[func-returns-value]
+        await self.app.run_stdio_async()
 
 
 async def main() -> None:
