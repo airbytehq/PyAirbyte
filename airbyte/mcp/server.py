@@ -43,7 +43,6 @@ import json
 import os
 from typing import Any
 
-import mcp.server.stdio
 import yaml
 from mcp.server.fastmcp import FastMCP
 
