@@ -113,9 +113,58 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
 
-# [tool.mypy]
-# MyPy moved to dedicated config file: `.mypy.ini`
+[tool.mypy]
+# Platform configuration
+python_version = "3.10"
+# imports related
+ignore_missing_imports = true
+follow_imports = "silent"
+# None and Optional handling
+no_implicit_optional = true
+strict_optional = true
+# Configuring warnings
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+warn_return_any = false
+# Untyped definitions and calls
+check_untyped_defs = true
+disallow_untyped_calls = false
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+disallow_untyped_decorators = false
+# Disallow dynamic typing
+disallow_subclassing_any = true
+disallow_any_unimported = false
+disallow_any_expr = false
+disallow_any_decorated = false
+disallow_any_explicit = false
+disallow_any_generics = false
+# Miscellaneous strictness flags
+allow_untyped_globals = false
+allow_redefinition = false
+local_partial_types = false
+implicit_reexport = true
+strict_equality = true
+# Configuring error messages
+show_error_context = false
+show_column_numbers = false
+show_error_codes = true
+exclude = [
+    "tests/integration_tests/fixtures/source-broken",
+    "tests/integration_tests/fixtures/source-test",
+    "docs",
+    "tests",
+]
 
+[[tool.mypy.overrides]]
+ignore_missing_imports = true  # No stubs yet (😢)
+module = [
+    "airbyte_protocol",
+    "airbyte_protocol.models",
+]
 
 [tool.pyright]
 pythonVersion = "3.10"
