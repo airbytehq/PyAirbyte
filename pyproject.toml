@@ -113,7 +113,7 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
 
-[tool.mypy]
+# [tool.mypy]
 # MyPy moved to dedicated config file: `.mypy.ini`
 
 
