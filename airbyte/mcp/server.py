@@ -50,8 +50,12 @@ from airbyte import get_source
 from airbyte.caches.util import get_default_cache
 from airbyte.sources import get_available_connectors
 
+from airbyte.mcp.connector_development import register_connector_development_tools
+
 
 app = FastMCP("airbyte-mcp")
+
+register_connector_development_tools(app)
 
 
 def _detect_hardcoded_secrets(config: dict[str, Any], spec: dict[str, Any]) -> list[str]:
