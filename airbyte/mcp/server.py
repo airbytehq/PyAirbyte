@@ -179,6 +179,8 @@ def run_sync(connector_name, config):
     source = get_source(connector_name, config=config)
     cache = get_default_cache()
 
+    source.select_all_streams()
+
     source.read(cache=cache)
 
     summary = f"Sync completed for {connector_name}!\n\n"
