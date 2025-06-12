@@ -52,6 +52,7 @@ typing-extensions = "*"
 uuid7 = "^0.1.0"
 mcp = "^1.9.3"
 pydantic-ai = {extras = ["mcp"], version = "^0.2.16"}
+six = "^1.17.0"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
