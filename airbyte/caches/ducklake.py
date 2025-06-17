@@ -36,7 +36,10 @@ class DuckLakeConfig(DuckDBConfig):
     """Configuration for the DuckLake cache."""
 
     db_path: Path | str = Field(default="ducklake-dummy-db.duckdb")
-    """Path to the DuckDB database file."""
+    """Path to the DuckDB database file.
+    
+    We don't store any data here.
+    """
 
     metadata_connection_string: str = Field(default="sqlite:metadata.db")
     """Connection string for DuckLake metadata database.
