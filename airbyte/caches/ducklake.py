@@ -20,7 +20,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from airbyte_api.models import DestinationDuckdb
 from overrides import overrides
 from pydantic import Field
 
@@ -49,15 +48,30 @@ class DuckLakeConfig(DuckDBConfig):
     """
 
     data_path: Path | str = Field(default="data")
-    """Local directory path for storing Parquet data files."""
+    """Root path for storing Parquet data files.
+    
+    Examples (Cloud Storage):
+    - `s3://my-bucket/my-data`
+
+    For testing purposes, you can also use local file storage for testing.
+    Note that these will not be portable to cloud-based runners:
+
+    Examples (local files):
+    - `/path/to/my/data-root`
+    - `./relative/path/to/data-root/`
+    
+    If not specified, defaults to local storage: `self.cach_dir / 'data'`.
+    """
 
     catalog_name: str = Field(default="ducklake_catalog")
     """Name for the attached DuckLake catalog."""
 
     storage_credentials: dict | None = Field(default=None)
-    """Optional dictionary of storage credentials for accessing data files."""
+    """Optional dictionary of storage credentials for accessing data files.
+    
+    NOTE: This is not yet supported.
+    """
 
-    _paired_destination_name: str = "destination-duckdb"
 
     def __init__(self, **data) -> None:
         """Initialize DuckLakeConfig with cache_dir-relative defaults."""
@@ -101,14 +115,6 @@ class DuckLakeCache(DuckLakeConfig, DuckDBCache):
     """Cache that uses DuckLake table format for data storage."""
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = DuckDBSqlProcessor
-
-    paired_destination_name: ClassVar[str | None] = "destination-duckdb"
-    paired_destination_config_class: ClassVar[type | None] = DestinationDuckdb
-
-    @property
-    def paired_destination_config(self) -> DestinationDuckdb:
-        """Return a dictionary of destination configuration values."""
-        return duckdb_cache_to_destination_configuration(cache=self)
 
 
 __all__ = [
