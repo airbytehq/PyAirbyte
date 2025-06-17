@@ -555,8 +555,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._update_display(force_refresh=True)
         self._stop_rich_view()
         self._print_info_message(
-            f"Failed `{self.job_description}` sync at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
+            f"Failed `{self.job_description}` sync at `{ab_datetime_now().strftime('%H:%M:%S')}`."
         )
         self._send_telemetry(
             state=EventState.FAILED,

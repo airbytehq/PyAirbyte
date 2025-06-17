@@ -156,7 +156,7 @@ class DuckDBSqlProcessor(SqlProcessorBase):
                 [{files_list}],
                 format = 'newline_delimited',
                 union_by_name = true,
-                columns = {{ { columns_type_map } }}
+                columns = {{ {columns_type_map} }}
             )
             """
         )

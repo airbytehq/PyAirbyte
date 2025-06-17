@@ -523,9 +523,9 @@ class SqlProcessorBase(abc.ABC):
 
         if DEBUG_MODE:
             found_schemas = schemas_list
-            assert (
-                schema_name in found_schemas
-            ), f"Schema {schema_name} was not created. Found: {found_schemas}"
+            assert schema_name in found_schemas, (
+                f"Schema {schema_name} was not created. Found: {found_schemas}"
+            )
 
     def _quote_identifier(self, identifier: str) -> str:
         """Return the given identifier, quoted."""
@@ -992,10 +992,10 @@ class SqlProcessorBase(abc.ABC):
         self._execute_sql(
             f"""
             INSERT INTO {self._fully_qualified(final_table_name)} (
-            {f',{nl}  '.join(columns)}
+            {f",{nl}  ".join(columns)}
             )
             SELECT
-            {f',{nl}  '.join(columns)}
+            {f",{nl}  ".join(columns)}
             FROM {self._fully_qualified(temp_table_name)}
             """,
         )
@@ -1020,8 +1020,7 @@ class SqlProcessorBase(abc.ABC):
         deletion_name = f"{final_table_name}_deleteme"
         commands = "\n".join(
             [
-                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME "
-                f"TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME TO {deletion_name};",
                 f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME "
                 f"TO {final_table_name};",
                 f"DROP TABLE {self._fully_qualified(deletion_name)};",
@@ -1061,10 +1060,10 @@ class SqlProcessorBase(abc.ABC):
                 {set_clause}
             WHEN NOT MATCHED THEN INSERT
             (
-                {f',{nl}    '.join(columns)}
+                {f",{nl}    ".join(columns)}
             )
             VALUES (
-                tmp.{f',{nl}    tmp.'.join(columns)}
+                tmp.{f",{nl}    tmp.".join(columns)}
             );
             """,
         )

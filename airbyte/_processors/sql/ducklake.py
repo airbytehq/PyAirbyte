@@ -1,5 +1,4 @@
-
-
+# Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """A DuckLake implementation of the cache, built on the DuckDB implementation."""
 
 from __future__ import annotations
@@ -52,7 +51,7 @@ class DuckLakeSqlProcessor(DuckDBSqlProcessor):
         data_path = self.sql_config.data_path
 
         attach_sql = (
-            f"ATTACH 'ducklake:{metadata_conn}' AS {catalog_name} " f"(DATA_PATH '{data_path}')"
+            f"ATTACH 'ducklake:{metadata_conn}' AS {catalog_name} (DATA_PATH '{data_path}')"
         )
 
         try:
@@ -80,7 +79,7 @@ class DuckLakeSqlProcessor(DuckDBSqlProcessor):
             data_path = self.sql_config.data_path
 
             attach_sql = (
-                f"ATTACH 'ducklake:{metadata_conn}' AS {catalog_name} " f"(DATA_PATH '{data_path}')"
+                f"ATTACH 'ducklake:{metadata_conn}' AS {catalog_name} (DATA_PATH '{data_path}')"
             )
             connection.execute(attach_sql)
             connection.execute(f"USE {self.sql_config.catalog_name}")
