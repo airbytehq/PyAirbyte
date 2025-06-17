@@ -84,5 +84,6 @@ class DuckLakeSqlProcessor(DuckDBSqlProcessor):
                 f"(DATA_PATH '{data_path}')"
             )
             connection.execute(attach_sql)
+            connection.execute(f"USE {self.catalog_name}"
         except Exception:
             pass
