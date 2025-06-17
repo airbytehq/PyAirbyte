@@ -492,11 +492,12 @@ class SqlProcessorBase(abc.ABC):
                     sqlalchemy.MetaData(schema=self.sql_config.schema_name),
                 )
 
-            self._cached_table_definitions[table_name] = sqlalchemy.Table(
-                table_name,
-                sqlalchemy.MetaData(schema=self.sql_config.schema_name),
-                autoload_with=self.get_sql_engine(),
-            )
+            with self.get_sql_connection() as db_conn:
+                self._cached_table_definitions[table_name] = sqlalchemy.Table(
+                    table_name,
+                    sqlalchemy.MetaData(schema=self.sql_config.schema_name),
+                    autoload_with=db_conn,
+                )
 
         return self._cached_table_definitions[table_name]
 

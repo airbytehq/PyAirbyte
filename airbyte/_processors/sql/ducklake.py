@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from overrides import overrides
+from sqlalchemy import text
 
 from airbyte._processors.sql.duckdb import DuckDBSqlProcessor
 from airbyte._writers.jsonl import JsonlWriter
@@ -38,11 +39,8 @@ class DuckLakeSqlProcessor(DuckDBSqlProcessor):
 
     def _install_ducklake_extension(self) -> None:
         """Install the DuckLake extension if not already installed."""
-        try:
-            self._execute_sql("INSTALL ducklake;")
-            self._execute_sql("LOAD ducklake;")
-        except Exception:
-            pass
+        self._execute_sql("INSTALL ducklake;")
+        self._execute_sql("LOAD ducklake;")
 
     def _attach_ducklake_catalog(self) -> None:
         """Attach the DuckLake catalog to the DuckDB connection."""
@@ -71,17 +69,15 @@ class DuckLakeSqlProcessor(DuckDBSqlProcessor):
         """
         super()._init_connection_settings(connection)
 
-        try:
-            connection.execute("LOAD ducklake;")
+        connection.execute(text("LOAD ducklake;"))
 
-            metadata_conn = self.sql_config.metadata_connection_string
-            catalog_name = self.sql_config.catalog_name
-            data_path = self.sql_config.data_path
+        metadata_conn = self.sql_config.metadata_connection_string
+        catalog_name = self.sql_config.catalog_name
+        data_path = self.sql_config.data_path
 
-            attach_sql = (
-                f"ATTACH 'ducklake:{metadata_conn}' AS {catalog_name} (DATA_PATH '{data_path}')"
-            )
-            connection.execute(attach_sql)
-            connection.execute(f"USE {self.sql_config.catalog_name}")
-        except Exception:
-            pass
+        attach_sql = (
+            f"ATTACH IF NOT EXISTS 'ducklake:{metadata_conn}' AS {catalog_name} (DATA_PATH '{data_path}')"
+        )
+        connection.execute(text(attach_sql))
+        connection.execute(text(f"USE {self.sql_config.get_database_name()}"))
+        connection.execute(text(f"USE {self.sql_config.get_database_name()}.main"))

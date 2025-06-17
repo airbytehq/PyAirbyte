@@ -100,6 +100,7 @@ class DuckLakeCache(DuckLakeConfig, DuckDBCache):
     """Cache that uses DuckLake table format for data storage."""
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = DuckLakeSqlProcessor
+    supports_merge_insert: bool = False  # TODO: Neither MERGE nor UPDATE Syntax is supported as of now: https://github.com/duckdb/ducklake/issues/66
 
     def model_post_init(self, __context: dict[str, Any] | None, /) -> None:
         """Initialize paths relative to cache_dir after model creation."""

@@ -18,6 +18,7 @@ source = ab.get_source(
     "source-faker",
     config={"count": 10000, "seed": 0, "parallelism": 1, "always_updated": False},
     install_if_missing=True,
+    docker_image=True,
 )
 source.check()
 source.select_all_streams()
@@ -39,7 +40,7 @@ print(f"  Metadata DB path: {metadata_db_path}")
 if metadata_db_path.exists():
     conn = sqlite3.connect(metadata_db_path)
     cursor = conn.cursor()
-    
+
     try:
         cursor.execute("SELECT COUNT(*) FROM main.ducklake_data_file")
         row_count = cursor.fetchone()[0]
@@ -53,14 +54,16 @@ if metadata_db_path.exists():
                 print(f"    {path[0]}")
         else:
             print("  No data files found in metadata database")
-            
+
     except Exception as e:
         print(f"  Error querying metadata database: {e}")
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         tables = cursor.fetchall()
         print(f"  Available tables: {[table[0] for table in tables]}")
-    
+
     conn.close()
 else:
     print(f"  Metadata DB not found at {metadata_db_path}")
-    print(f"  Cache directory contents: {list(cache.cache_dir.iterdir()) if cache.cache_dir.exists() else 'Cache dir does not exist'}")
+    print(
+        f"  Cache directory contents: {list(cache.cache_dir.iterdir()) if cache.cache_dir.exists() else 'Cache dir does not exist'}"
+    )
