@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 class DuckLakeConfig(DuckDBConfig):
     """Configuration for the DuckLake cache."""
 
-    db_path: Path | str = Field(default="ducklake.db")
+    db_path: Path | str = Field(default="ducklake-dummy-db.duckdb")
     """Path to the DuckDB database file."""
 
     metadata_connection_string: str = Field(default="sqlite:metadata.db")
