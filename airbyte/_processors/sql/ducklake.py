@@ -75,9 +75,7 @@ class DuckLakeSqlProcessor(DuckDBSqlProcessor):
         catalog_name = self.sql_config.catalog_name
         data_path = self.sql_config.data_path
 
-        attach_sql = (
-            f"ATTACH IF NOT EXISTS 'ducklake:{metadata_conn}' AS {catalog_name} (DATA_PATH '{data_path}')"
-        )
+        attach_sql = f"ATTACH IF NOT EXISTS 'ducklake:{metadata_conn}' AS {catalog_name} (DATA_PATH '{data_path}')"
         connection.execute(text(attach_sql))
         connection.execute(text(f"USE {self.sql_config.get_database_name()}"))
         connection.execute(text(f"USE {self.sql_config.get_database_name()}.main"))
