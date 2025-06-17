@@ -22,6 +22,7 @@ source.select_all_streams()
 
 cache = DuckLakeCache(
     catalog_name="airbyte_ducklake_test",
+    data_path="ducklake-data",
 )
 
 result = source.read(cache=cache, force_full_refresh=True)

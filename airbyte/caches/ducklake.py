@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from overrides import overrides
 from pydantic import Field
 
-from airbyte._processors.sql.duckdb import DuckDBConfig, DuckDBSqlProcessor
+from airbyte._processors.sql.duckdb import DuckDBConfig
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.secrets import SecretString
 
@@ -31,13 +31,15 @@ from airbyte.secrets import SecretString
 if TYPE_CHECKING:
     from airbyte.shared.sql_processor import SqlProcessorBase
 
+from airbyte._processors.sql.ducklake import DuckLakeSqlProcessor
+
 
 class DuckLakeConfig(DuckDBConfig):
     """Configuration for the DuckLake cache."""
 
     db_path: Path | str = Field(default="ducklake-dummy-db.duckdb")
     """Path to the DuckDB database file.
-    
+
     We don't store any data here.
     """
 
@@ -97,7 +99,7 @@ class DuckLakeConfig(DuckDBConfig):
 class DuckLakeCache(DuckLakeConfig, DuckDBCache):
     """Cache that uses DuckLake table format for data storage."""
 
-    _sql_processor_class: ClassVar[type[SqlProcessorBase]] = DuckDBSqlProcessor
+    _sql_processor_class: ClassVar[type[SqlProcessorBase]] = DuckLakeSqlProcessor
 
     def model_post_init(self, __context: dict[str, Any] | None, /) -> None:
         """Initialize paths relative to cache_dir after model creation."""
