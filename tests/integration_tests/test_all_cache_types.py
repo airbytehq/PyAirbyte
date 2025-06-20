@@ -158,15 +158,11 @@ def test_faker_read(
     assert "Read **0** records" not in status_msg
     assert f"Read **{configured_count}** records" in status_msg
 
-    if "bigquery" not in new_generic_cache.get_sql_alchemy_url():
-        # BigQuery doesn't support to_arrow
-        # https://github.com/airbytehq/PyAirbyte/issues/165
-        arrow_dataset = read_result["users"].to_arrow(max_chunk_size=10)
-        assert arrow_dataset.count_rows() == FAKER_SCALE_A
-        assert sum(1 for _ in arrow_dataset.to_batches()) == FAKER_SCALE_A / 10
+    arrow_dataset = read_result["users"].to_arrow(max_chunk_size=10)
+    assert arrow_dataset.count_rows() == FAKER_SCALE_A
+    assert sum(1 for _ in arrow_dataset.to_batches()) == FAKER_SCALE_A / 10
 
-    # TODO: Uncomment this line after resolving https://github.com/airbytehq/PyAirbyte/issues/165
-    # assert len(result["users"].to_pandas()) == FAKER_SCALE_A
+    assert len(read_result["users"].to_pandas()) == FAKER_SCALE_A
 
 
 @pytest.mark.requires_creds

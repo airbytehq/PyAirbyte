@@ -28,6 +28,8 @@ from airbyte.shared.state_writers import StdOutStateWriter
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from sqlalchemy.engine import Engine
+
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
     from airbyte.progress import ProgressTracker
@@ -67,7 +69,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     paired_destination_config_class: ClassVar[type | None] = None
 
     @property
-    def paired_destination_config(self) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
+    def paired_destination_config(
+        self,
+    ) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
         """Return a dictionary of destination configuration values."""
         raise NotImplementedError(
             f"The type '{type(self).__name__}' does not define an equivalent destination "
@@ -178,6 +182,14 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
     # Read methods:
 
+    def _read_to_pandas_dataframe(
+        self,
+        table_name: str,
+        con: Engine,
+        **kwargs,
+    ) -> pd.DataFrame:
+        return pd.read_sql_table(table_name, con=con, **kwargs)
+
     def get_records(
         self,
         stream_name: str,
@@ -192,7 +204,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         """Return a Pandas data frame with the stream's data."""
         table_name = self._read_processor.get_sql_table_name(stream_name)
         engine = self.get_sql_engine()
-        return pd.read_sql_table(table_name, engine, schema=self.schema_name)
+        return self._read_to_pandas_dataframe(
+            table_name=table_name,
+            con=engine,
+            schema=self.schema_name,
+        )
 
     def get_arrow_dataset(
         self,
@@ -205,7 +221,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         engine = self.get_sql_engine()
 
         # Read the table in chunks to handle large tables which does not fits in memory
-        pandas_chunks = pd.read_sql_table(
+        pandas_chunks = self._read_to_pandas_dataframe(
             table_name=table_name,
             con=engine,
             schema=self.schema_name,
