@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from textwrap import indent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from overrides import overrides
 from pydantic import Field
 from snowflake import connector
@@ -24,8 +27,6 @@ from airbyte.types import SQLTypeConverter
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from sqlalchemy.engine import Connection
 
 
@@ -37,7 +38,9 @@ class SnowflakeConfig(SqlConfig):
 
     account: str
     username: str
-    password: SecretString
+    password: SecretString | None = None
+    private_key_file: str | Path | None = None
+    private_key_file_pwd: SecretString | None = None
     warehouse: str
     database: str
     role: str
@@ -60,31 +63,63 @@ class SnowflakeConfig(SqlConfig):
         return self.database
 
     @overrides
+    def get_sql_alchemy_connect_args(self) -> dict[str, Any]:
+        """Return the connect_args for key pair authentication."""
+        if self.private_key_file is None:
+            return {}
+        with Path(self.private_key_file).open("rb") as f:
+            private_key = serialization.load_pem_private_key(
+                f.read(),
+                password=self.private_key_file_pwd.encode("utf-8")
+                if self.private_key_file_pwd is not None
+                else None,
+                backend=default_backend(),
+            )
+        private_key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        return {"private_key": private_key_bytes}
+
+    @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return SecretString(
-            URL(
-                account=self.account,
-                user=self.username,
-                password=self.password,
-                database=self.database,
-                warehouse=self.warehouse,
-                schema=self.schema_name,
-                role=self.role,
-            )
-        )
+        config = {
+            "account": self.account,
+            "user": self.username,
+            "database": self.database,
+            "warehouse": self.warehouse,
+            "schema": self.schema_name,
+            "role": self.role,
+        }
+        # password is absent when using key pair authentication
+        if self.password:
+            config["password"] = self.password
+        return SecretString(URL(**config))
 
     def get_vendor_client(self) -> object:
         """Return the Snowflake connection object."""
-        return connector.connect(
-            user=self.username,
-            password=self.password,
-            account=self.account,
-            warehouse=self.warehouse,
-            database=self.database,
-            schema=self.schema_name,
-            role=self.role,
-        )
+        connection_config = {
+            "user": self.username,
+            "account": self.account,
+            "warehouse": self.warehouse,
+            "database": self.database,
+            "schema": self.schema_name,
+            "role": self.role,
+        }
+        if self.password:
+            connection_config["password"] = self.password
+        if self.private_key_file:
+            connection_config.update(
+                {
+                    "authenticator": "SNOWFLAKE_JWT",
+                    "private_key_file": str(self.private_key_file),
+                }
+            )
+            if self.private_key_file_pwd:
+                connection_config["private_key_file_pwd"] = self.private_key_file_pwd
+        return connector.connect(**connection_config)
 
 
 class SnowflakeTypeConverter(SQLTypeConverter):
