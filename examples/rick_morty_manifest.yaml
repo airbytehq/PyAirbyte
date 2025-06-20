@@ -1,0 +1,77 @@
+version: "6.30.0"
+type: DeclarativeSource
+
+check:
+  type: CheckStream
+  stream_names:
+    - characters
+
+definitions:
+  streams:
+    characters:
+      type: DeclarativeStream
+      name: characters
+      primary_key:
+        - id
+      retriever:
+        type: SimpleRetriever
+        requester:
+          $ref: "#/definitions/base_requester"
+          path: "/character"
+          http_method: GET
+        record_selector:
+          type: RecordSelector
+          extractor:
+            type: DpathExtractor
+            field_path: ["results"]
+        paginator:
+          type: DefaultPaginator
+          page_size_option:
+            type: RequestOption
+            inject_into: request_parameter
+            field_name: page
+          page_token_option:
+            type: RequestOption
+            inject_into: request_parameter
+            field_name: page
+          pagination_strategy:
+            type: PageIncrement
+            start_from_page: 1
+      schema_loader:
+        type: InlineSchemaLoader
+        schema:
+          $ref: "#/schemas/characters"
+  base_requester:
+    type: HttpRequester
+    url_base: "https://rickandmortyapi.com/api"
+    authenticator:
+      type: NoAuth
+
+streams:
+  - $ref: "#/definitions/streams/characters"
+
+spec:
+  type: Spec
+  connection_specification:
+    type: object
+    $schema: http://json-schema.org/draft-07/schema#
+    properties: {}
+
+schemas:
+  characters:
+    type: object
+    properties:
+      id:
+        type: integer
+      name:
+        type: string
+      status:
+        type: string
+      species:
+        type: string
+      gender:
+        type: string
+      image:
+        type: string
+      url:
+        type: string
