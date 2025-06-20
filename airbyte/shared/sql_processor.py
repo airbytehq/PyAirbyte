@@ -492,11 +492,12 @@ class SqlProcessorBase(abc.ABC):
                     sqlalchemy.MetaData(schema=self.sql_config.schema_name),
                 )
 
-            self._cached_table_definitions[table_name] = sqlalchemy.Table(
-                table_name,
-                sqlalchemy.MetaData(schema=self.sql_config.schema_name),
-                autoload_with=self.get_sql_engine(),
-            )
+            with self.get_sql_connection() as db_conn:
+                self._cached_table_definitions[table_name] = sqlalchemy.Table(
+                    table_name,
+                    sqlalchemy.MetaData(schema=self.sql_config.schema_name),
+                    autoload_with=db_conn,
+                )
 
         return self._cached_table_definitions[table_name]
 
@@ -992,10 +993,10 @@ class SqlProcessorBase(abc.ABC):
         self._execute_sql(
             f"""
             INSERT INTO {self._fully_qualified(final_table_name)} (
-            {f',{nl}  '.join(columns)}
+            {f",{nl}  ".join(columns)}
             )
             SELECT
-            {f',{nl}  '.join(columns)}
+            {f",{nl}  ".join(columns)}
             FROM {self._fully_qualified(temp_table_name)}
             """,
         )
@@ -1020,8 +1021,7 @@ class SqlProcessorBase(abc.ABC):
         deletion_name = f"{final_table_name}_deleteme"
         commands = "\n".join(
             [
-                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME "
-                f"TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME TO {deletion_name};",
                 f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME "
                 f"TO {final_table_name};",
                 f"DROP TABLE {self._fully_qualified(deletion_name)};",
@@ -1061,10 +1061,10 @@ class SqlProcessorBase(abc.ABC):
                 {set_clause}
             WHEN NOT MATCHED THEN INSERT
             (
-                {f',{nl}    '.join(columns)}
+                {f",{nl}    ".join(columns)}
             )
             VALUES (
-                tmp.{f',{nl}    tmp.'.join(columns)}
+                tmp.{f",{nl}    tmp.".join(columns)}
             );
             """,
         )
