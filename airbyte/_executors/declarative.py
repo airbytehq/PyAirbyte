@@ -73,7 +73,7 @@ class DeclarativeExecutor(Executor):
         self._validate_manifest(self._manifest_dict)
         self.declarative_source = ManifestDeclarativeSource(
             source_config=self._manifest_dict,
-            config=config_dict if config_dict else None,
+            config=config_dict or None,
         )
 
         self.reported_version: str | None = self._manifest_dict.get("version", None)
