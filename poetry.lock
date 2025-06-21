@@ -34,26 +34,29 @@ dev = ["pylint (==3.1.0)"]
 
 [[package]]
 name = "airbyte-cdk"
-version = "6.41.8"
+version = "6.56.1"
 description = "A framework for writing Airbyte Connectors."
 optional = false
 python-versions = "<3.13,>=3.10"
 groups = ["main"]
 markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
 files = [
-    {file = "airbyte_cdk-6.41.8-py3-none-any.whl", hash = "sha256:0a06428464ea9adc21a7c4ad092ac3fd962afef72d0b30a2f6993f00c9e4fcfb"},
-    {file = "airbyte_cdk-6.41.8.tar.gz", hash = "sha256:e88ef8659b2de726b58f7f44fa1e9e261d091d07acdf22be6ef84a2a5e4292aa"},
+    {file = "airbyte_cdk-6.56.1-py3-none-any.whl", hash = "sha256:b7ddb88a1a7aaada24ed30f5c753448cc63f323183f0c18b97b956dbb52f4c36"},
+    {file = "airbyte_cdk-6.56.1.tar.gz", hash = "sha256:3304859129b7d1ac41252f3c747afb836891b46876551ac76a6f0d7e23575a24"},
 ]
 
 [package.dependencies]
-airbyte-protocol-models-dataclasses = ">=0.14,<0.15"
+airbyte-protocol-models-dataclasses = ">=0.17.1,<0.18.0"
 anyascii = ">=0.3.2,<0.4.0"
 backoff = "*"
+boltons = ">=25.0.0,<26.0.0"
 cachetools = "*"
+click = ">=8.1.8,<9.0.0"
 cryptography = ">=44.0.0,<45.0.0"
 dpath = ">=2.1.6,<3.0.0"
 dunamai = ">=1.22.0,<2.0.0"
 genson = "1.3.0"
+google-cloud-secret-manager = ">=2.17.0,<3.0.0"
 isodate = ">=0.6.1,<0.7.0"
 Jinja2 = ">=3.1.2,<3.2.0"
 jsonref = ">=0.2,<0.3"
@@ -75,28 +78,32 @@ PyYAML = ">=6.0.1,<7.0.0"
 rapidfuzz = ">=3.10.1,<4.0.0"
 requests = "*"
 requests_cache = "*"
+rich = "*"
+rich-click = ">=1.8.8,<2.0.0"
 serpyco-rs = ">=1.10.2,<2.0.0"
+setuptools = ">=80.9.0,<81.0.0"
 typing-extensions = "*"
 wcmatch = "10.0"
 whenever = ">=0.6.16,<0.7.0"
 xmltodict = ">=0.13,<0.15"
 
 [package.extras]
+dev = ["pytest (>=7,<8)"]
 file-based = ["avro (>=1.11.2,<1.13.0)", "fastavro (>=1.8.0,<1.9.0)", "markdown", "pdf2image (==1.16.3)", "pdfminer.six (==20221105)", "pyarrow (>=19.0.0,<20.0.0)", "pytesseract (==0.3.10)", "python-calamine (==0.2.3)", "python-snappy (==0.7.3)", "unstructured.pytesseract (>=0.3.12)", "unstructured[docx,pptx] (==0.10.27)"]
 sql = ["sqlalchemy (>=2.0,!=2.0.36,<3.0)"]
 vector-db-based = ["cohere (==4.21)", "langchain (==0.1.16)", "openai[embeddings] (==0.27.9)", "tiktoken (==0.8.0)"]
 
 [[package]]
 name = "airbyte-protocol-models-dataclasses"
-version = "0.14.2"
+version = "0.17.1"
 description = "Declares the Airbyte Protocol using Python Dataclasses. Dataclasses in Python have less performance overhead compared to Pydantic models, making them a more efficient choice for scenarios where speed and memory usage are critical"
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
 files = [
-    {file = "airbyte_protocol_models_dataclasses-0.14.2-py3-none-any.whl", hash = "sha256:ae06a406df031afa42f1156bacc587958197e5c7d9bbaf11893480903d4ded8b"},
-    {file = "airbyte_protocol_models_dataclasses-0.14.2.tar.gz", hash = "sha256:9279237156b722cdd54e7b9ec8f97d264bd96e3f3008bc5fc47c215288a2212a"},
+    {file = "airbyte_protocol_models_dataclasses-0.17.1-py3-none-any.whl", hash = "sha256:ef83ac56de6208afe0a21ce05bcfbcfc98b98300a76fb3cdf4db2e7f720f1df0"},
+    {file = "airbyte_protocol_models_dataclasses-0.17.1.tar.gz", hash = "sha256:cbccfdf84fabd0b6e325cc57fa0682ae9d386fce8fcb5943faa5df2b7e599919"},
 ]
 
 [[package]]
@@ -223,6 +230,19 @@ markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
 files = [
     {file = "backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8"},
     {file = "backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba"},
+]
+
+[[package]]
+name = "boltons"
+version = "25.0.0"
+description = "When they're not builtins, they're boltons."
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "boltons-25.0.0-py3-none-any.whl", hash = "sha256:dc9fb38bf28985715497d1b54d00b62ea866eca3938938ea9043e254a3a6ca62"},
+    {file = "boltons-25.0.0.tar.gz", hash = "sha256:e110fbdc30b7b9868cb604e3f71d4722dd8f4dcb4a5ddd06028ba8f1ab0b5ace"},
 ]
 
 [[package]]
@@ -3423,6 +3443,28 @@ typing-extensions = {version = ">=4.0.0,<5.0", markers = "python_version < \"3.1
 jupyter = ["ipywidgets (>=7.5.1,<9)"]
 
 [[package]]
+name = "rich-click"
+version = "1.8.9"
+description = "Format click help output nicely with rich"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "rich_click-1.8.9-py3-none-any.whl", hash = "sha256:c3fa81ed8a671a10de65a9e20abf642cfdac6fdb882db1ef465ee33919fbcfe2"},
+    {file = "rich_click-1.8.9.tar.gz", hash = "sha256:fd98c0ab9ddc1cf9c0b7463f68daf28b4d0033a74214ceb02f761b3ff2af3136"},
+]
+
+[package.dependencies]
+click = ">=7"
+rich = ">=10.7"
+typing_extensions = ">=4"
+
+[package.extras]
+dev = ["mypy", "packaging", "pre-commit", "pytest", "pytest-cov", "rich-codex", "ruff", "types-setuptools"]
+docs = ["markdown_include", "mkdocs", "mkdocs-glightbox", "mkdocs-material-extensions", "mkdocs-material[imaging] (>=9.5.18,<9.6.0)", "mkdocs-rss-plugin", "mkdocstrings[python]", "rich-codex"]
+
+[[package]]
 name = "rpds-py"
 version = "0.22.3"
 description = "Python bindings to Rust's persistent data structures (rpds)"
@@ -3636,6 +3678,28 @@ files = [
 [package.dependencies]
 attributes-doc = "*"
 typing-extensions = "*"
+
+[[package]]
+name = "setuptools"
+version = "80.9.0"
+description = "Easily download, build, install, upgrade, and uninstall Python packages"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "setuptools-80.9.0-py3-none-any.whl", hash = "sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922"},
+    {file = "setuptools-80.9.0.tar.gz", hash = "sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c"},
+]
+
+[package.extras]
+check = ["pytest-checkdocs (>=2.4)", "pytest-ruff (>=0.2.1)", "ruff (>=0.8.0)"]
+core = ["importlib_metadata (>=6)", "jaraco.functools (>=4)", "jaraco.text (>=3.7)", "more_itertools", "more_itertools (>=8.8)", "packaging (>=24.2)", "platformdirs (>=4.2.2)", "tomli (>=2.0.1)", "wheel (>=0.43.0)"]
+cover = ["pytest-cov"]
+doc = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "pygments-github-lexers (==0.0.5)", "pyproject-hooks (!=1.1)", "rst.linker (>=1.9)", "sphinx (>=3.5)", "sphinx-favicon", "sphinx-inline-tabs", "sphinx-lint", "sphinx-notfound-page (>=1,<2)", "sphinx-reredirects", "sphinxcontrib-towncrier", "towncrier (<24.7)"]
+enabler = ["pytest-enabler (>=2.2)"]
+test = ["build[virtualenv] (>=1.0.3)", "filelock (>=3.4.0)", "ini2toml[lite] (>=0.14)", "jaraco.develop (>=7.21)", "jaraco.envs (>=2.2)", "jaraco.path (>=3.7.2)", "jaraco.test (>=5.5)", "packaging (>=24.2)", "pip (>=19.1)", "pyproject-hooks (!=1.1)", "pytest (>=6,!=8.1.*)", "pytest-home (>=0.5)", "pytest-perf", "pytest-subprocess", "pytest-timeout", "pytest-xdist (>=3)", "tomli-w (>=1.0.0)", "virtualenv (>=13.0.0)", "wheel (>=0.44.0)"]
+type = ["importlib_metadata (>=7.0.2)", "jaraco.develop (>=7.21)", "mypy (==1.14.*)", "pytest-mypy"]
 
 [[package]]
 name = "six"
@@ -4354,4 +4418,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "158a6fdedd286e935b616f99bc485295ff8f30b1d59275522174e5575aa620f2"
+content-hash = "1930be83b378b2c587be895cd1f84b7879819423843e087f8b367d4800166a0b"
