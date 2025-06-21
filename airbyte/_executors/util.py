@@ -35,26 +35,26 @@ DEFAULT_COMPONENTS_URL = (
 )
 
 
-def _try_get_source_manifest(
+def _try_get_source_files(
     source_name: str,
-    manifest_url: str | None,
+    manifest_url: str | None = None,
+    components_url: str | None = None,
     version: str | None = None,
-) -> dict:
-    """Try to get a source manifest from a URL.
+) -> tuple[dict, str | None, str | None]:
+    """Try to get source manifest and components.py from URLs.
 
-    If the URL is not provided, we'll try the default URL in the Airbyte registry.
+    Returns tuple of (manifest_dict, components_py_content, components_checksum).
+    Components values are None if components.py is not found (404 is handled gracefully).
 
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
-        - `AirbyteConnectorInstallationError`: If the registry file cannot be downloaded or if the
-          manifest YAML cannot be parsed.
+        - `AirbyteConnectorInstallationError`: If the manifest cannot be downloaded or parsed,
+          or if components.py cannot be downloaded (excluding 404 errors).
     """
     if source_name is None:
         raise exc.PyAirbyteInputError(
             message="Param 'source_name' is required.",
         )
-
-    # If manifest URL was provided, we'll use the default URL from the Airbyte registry.
 
     cleaned_version = (version or VERSION_LATEST).removeprefix("v")
     manifest_url = manifest_url or DEFAULT_MANIFEST_URL.format(
@@ -67,7 +67,7 @@ def _try_get_source_manifest(
         headers={"User-Agent": f"PyAirbyte/{get_version()}"},
     )
     try:
-        response.raise_for_status()  # Raise HTTPError exception if the download failed
+        response.raise_for_status()
     except requests.exceptions.HTTPError as ex:
         raise exc.AirbyteConnectorInstallationError(
             message="Failed to download the connector manifest.",
@@ -77,7 +77,7 @@ def _try_get_source_manifest(
         ) from ex
 
     try:
-        return cast("dict", yaml.safe_load(response.text))
+        manifest_dict = cast("dict", yaml.safe_load(response.text))
     except yaml.YAMLError as ex:
         raise exc.AirbyteConnectorInstallationError(
             message="Failed to parse the connector manifest YAML.",
@@ -87,28 +87,6 @@ def _try_get_source_manifest(
             },
         ) from ex
 
-
-def _try_get_source_components(
-    source_name: str,
-    components_url: str | None,
-    version: str | None = None,
-) -> tuple[str, str] | None:
-    """Try to get source components.py from a URL.
-
-    Returns tuple of (components_py_content, md5_checksum) if found, None if not found.
-    Components.py files are optional, so 404 errors are handled gracefully.
-
-    Raises:
-        - `PyAirbyteInputError`: If `source_name` is `None`.
-        - `AirbyteConnectorInstallationError`: If the components.py file cannot be downloaded
-          (excluding 404 errors which are handled gracefully).
-    """
-    if source_name is None:
-        raise exc.PyAirbyteInputError(
-            message="Param 'source_name' is required.",
-        )
-
-    cleaned_version = (version or VERSION_LATEST).removeprefix("v")
     components_url = components_url or DEFAULT_COMPONENTS_URL.format(
         source_name=source_name,
         version=cleaned_version,
@@ -120,7 +98,7 @@ def _try_get_source_components(
     )
 
     if response.status_code == 404:  # noqa: PLR2004
-        return None
+        return manifest_dict, None, None
 
     try:
         response.raise_for_status()
@@ -133,9 +111,9 @@ def _try_get_source_components(
         ) from ex
 
     components_content = response.text
-    md5_checksum = hashlib.md5(components_content.encode()).hexdigest()
+    components_checksum = hashlib.md5(components_content.encode()).hexdigest()
 
-    return components_content, md5_checksum
+    return manifest_dict, components_content, components_checksum
 
 
 def _get_local_executor(
@@ -333,22 +311,17 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
 
         if isinstance(source_manifest, str | bool):
             # Source manifest is either a URL or a boolean (True)
-            source_manifest = _try_get_source_manifest(
+            manifest_dict, components_py, components_checksum = _try_get_source_files(
                 source_name=name,
                 manifest_url=None if source_manifest is True else source_manifest,
                 version=version,
             )
 
-            components = _try_get_source_components(
-                source_name=name,
-                components_url=None,
-                version=version,
-            )
-
             return DeclarativeExecutor(
                 name=name,
-                manifest=source_manifest,
-                components=components,
+                manifest=manifest_dict,
+                components_py=components_py,
+                components_checksum=components_checksum,
             )
 
     # else: we are installing a connector in a Python virtual environment:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -42,15 +43,16 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
-        components: tuple[str, str] | None = None,
+        components_py: str | None = None,
+        components_checksum: str | None = None,
     ) -> None:
         """Initialize a declarative executor.
 
         - If `manifest` is a path, it will be read as a json file.
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
-        - If `components` is provided, it should be a tuple of
-          (components_py_content, md5_checksum).
+        - If `components_py` is provided, components will be injected into the source.
+        - If `components_checksum` is not provided, it will be auto-calculated from components_py.
         """
         _suppress_cdk_pydantic_deprecation_warnings()
 
@@ -63,11 +65,13 @@ class DeclarativeExecutor(Executor):
             self._manifest_dict = manifest
 
         config_dict: dict[str, Any] = {}
-        if components:
-            components_content, md5_checksum = components
-            config_dict["__injected_components_py"] = components_content
+        if components_py:
+            if components_checksum is None:
+                components_checksum = hashlib.md5(components_py.encode()).hexdigest()
+
+            config_dict["__injected_components_py"] = components_py
             config_dict["__injected_components_py_checksums"] = {
-                "md5": md5_checksum,
+                "md5": components_checksum,
             }
 
         self._validate_manifest(self._manifest_dict)
