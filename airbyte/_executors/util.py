@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -28,6 +29,9 @@ if TYPE_CHECKING:
 VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
     "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
+)
+DEFAULT_COMPONENTS_URL = (
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/components.py"
 )
 
 
@@ -82,6 +86,56 @@ def _try_get_source_manifest(
                 "manifest_url": manifest_url,
             },
         ) from ex
+
+
+def _try_get_source_components(
+    source_name: str,
+    components_url: str | None,
+    version: str | None = None,
+) -> tuple[str, str] | None:
+    """Try to get source components.py from a URL.
+
+    Returns tuple of (components_py_content, md5_checksum) if found, None if not found.
+    Components.py files are optional, so 404 errors are handled gracefully.
+
+    Raises:
+        - `PyAirbyteInputError`: If `source_name` is `None`.
+        - `AirbyteConnectorInstallationError`: If the components.py file cannot be downloaded
+          (excluding 404 errors which are handled gracefully).
+    """
+    if source_name is None:
+        raise exc.PyAirbyteInputError(
+            message="Param 'source_name' is required.",
+        )
+
+    cleaned_version = (version or VERSION_LATEST).removeprefix("v")
+    components_url = components_url or DEFAULT_COMPONENTS_URL.format(
+        source_name=source_name,
+        version=cleaned_version,
+    )
+
+    response = requests.get(
+        url=components_url,
+        headers={"User-Agent": f"PyAirbyte/{get_version()}"},
+    )
+
+    if response.status_code == 404:  # noqa: PLR2004
+        return None
+
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as ex:
+        raise exc.AirbyteConnectorInstallationError(
+            message="Failed to download the connector components.py file.",
+            context={
+                "components_url": components_url,
+            },
+        ) from ex
+
+    components_content = response.text
+    md5_checksum = hashlib.md5(components_content.encode()).hexdigest()
+
+    return components_content, md5_checksum
 
 
 def _get_local_executor(
@@ -282,11 +336,19 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
             source_manifest = _try_get_source_manifest(
                 source_name=name,
                 manifest_url=None if source_manifest is True else source_manifest,
+                version=version,
+            )
+
+            components = _try_get_source_components(
+                source_name=name,
+                components_url=None,
+                version=version,
             )
 
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
+                components=components,
             )
 
     # else: we are installing a connector in a Python virtual environment:

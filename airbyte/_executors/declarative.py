@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, cast
+from typing import IO, TYPE_CHECKING, Any, cast
 
 import pydantic
 import yaml
@@ -13,7 +13,6 @@ import yaml
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
-from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 
 
@@ -43,12 +42,15 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
+        components: tuple[str, str] | None = None,
     ) -> None:
         """Initialize a declarative executor.
 
         - If `manifest` is a path, it will be read as a json file.
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
+        - If `components` is provided, it should be a tuple of
+          (components_py_content, md5_checksum).
         """
         _suppress_cdk_pydantic_deprecation_warnings()
 
@@ -60,8 +62,19 @@ class DeclarativeExecutor(Executor):
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
 
+        config_dict: dict[str, Any] = {}
+        if components:
+            components_content, md5_checksum = components
+            config_dict["__injected_components_py"] = components_content
+            config_dict["__injected_components_py_checksums"] = {
+                "md5": md5_checksum,
+            }
+
         self._validate_manifest(self._manifest_dict)
-        self.declarative_source = ManifestDeclarativeSource(source_config=self._manifest_dict)
+        self.declarative_source = ManifestDeclarativeSource(
+            source_config=self._manifest_dict,
+            config=config_dict if config_dict else None,
+        )
 
         self.reported_version: str | None = self._manifest_dict.get("version", None)
 
@@ -77,17 +90,7 @@ class DeclarativeExecutor(Executor):
 
     def _validate_manifest(self, manifest_dict: dict) -> None:
         """Validate the manifest."""
-        manifest_text = yaml.safe_dump(manifest_dict)
-        if "class_name:" in manifest_text:
-            raise exc.AirbyteConnectorInstallationError(
-                message=(
-                    "The provided manifest requires additional code files (`class_name` key "
-                    "detected). This feature is not compatible with the declarative YAML "
-                    "executor. To use this executor, please try again with the Python "
-                    "executor."
-                ),
-                connector_name=self.name,
-            )
+        pass
 
     @property
     def _cli(self) -> list[str]:
