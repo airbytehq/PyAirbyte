@@ -55,6 +55,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     local_executable: Path | str | None = None,
     docker_image: bool | str | None = None,
     use_host_network: bool = False,
+    host_temp_dir: Path | str | None = None,
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
@@ -95,6 +96,9 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             the host network. This is useful for connectors that need to access resources on
             the host machine, such as a local database. This parameter is ignored when
             `docker_image` is not set.
+        host_temp_dir: If set, along with docker_image, this replaces the volume exposing the
+            temporary files directory, ensuring compatibility when the Docker engine runs on a
+            different host (e.g., Docker in Docker), where paths may differ.
         source_manifest: If set, the connector will be executed based on a declarative YAML
             source definition. This input can be `True` to attempt to auto-download a YAML spec,
             `dict` to accept a Python dictionary as the manifest, `Path` to pull a manifest from
@@ -116,6 +120,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             local_executable=local_executable,
             docker_image=docker_image,
             use_host_network=use_host_network,
+            host_temp_dir=host_temp_dir,
             source_manifest=source_manifest,
             install_if_missing=install_if_missing,
             install_root=install_root,

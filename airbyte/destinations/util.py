@@ -28,6 +28,7 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
     local_executable: Path | str | None = None,
     docker_image: str | bool | None = None,
     use_host_network: bool = False,
+    host_temp_dir: Path | str | None = None,
     install_if_missing: bool = True,
 ) -> Destination:
     """Get a connector by name and version.
@@ -56,6 +57,9 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             the host network. This is useful for connectors that need to access resources on
             the host machine, such as a local database. This parameter is ignored when
             `docker_image` is not set.
+        host_temp_dir: If set, along with docker_image, this replaces the volume exposing the
+            temporary files directory, ensuring compatibility when the Docker engine runs on a
+            different host (e.g., Docker in Docker), where paths may differ.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
     """
@@ -70,6 +74,7 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             local_executable=local_executable,
             docker_image=docker_image,
             use_host_network=use_host_network,
+            host_temp_dir=host_temp_dir,
             install_if_missing=install_if_missing,
         ),
     )
