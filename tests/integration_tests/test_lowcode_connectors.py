@@ -19,7 +19,6 @@ UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
 
 
 # This goes stale often, such as when python code is added to a no-code connector.
-@pytest.mark.flaky(reruns=0)
 @pytest.mark.parametrize(
     "connector_name",
     airbyte.get_available_connectors(install_type="yaml"),
@@ -44,7 +43,6 @@ def test_nocode_connectors_setup(connector_name: str) -> None:
 
 
 # This goes stale often, such as when low-code connectors are made fully no-code.
-@pytest.mark.flaky(reruns=0)
 @pytest.mark.parametrize(
     "failure_group, exception_type",
     [
