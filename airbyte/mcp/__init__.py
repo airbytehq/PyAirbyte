@@ -72,7 +72,7 @@ touch $MCP_CLI_CONFIG_PATH
 
 # Then you can symlink your file to also be available in Claude Desktop path:
 mkdir -p ~/Library/"Application Support"/Claude
-ln -s ~/.mcp/mcp_server_config.json ~/Library/"Application Support"/Claude/claude_desktop_config.json
+ln -s $MCP_CLI_CONFIG_PATH ~/Library/"Application Support"/Claude/claude_desktop_config.json
 
 # Confirm the Claude Desktop symlink is working:
 cat ~/Library/"Application Support"/Claude/claude_desktop_config.json
