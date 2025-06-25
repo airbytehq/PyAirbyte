@@ -222,7 +222,7 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
         pypi_package_name=pypi_package_name if pypi_enabled else None,
         language=language,
         install_types=install_types,
-        suggested_streams=entry.get("suggestedStreams", None),
+        suggested_streams=entry.get("suggestedStreams", {}).get("streams", None),
     )
 
 
