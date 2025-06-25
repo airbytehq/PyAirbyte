@@ -129,17 +129,26 @@ class ConnectorBase(abc.ABC):
         self._config_dict = config
 
     def get_config(self) -> dict[str, Any]:
-        """Get the config for the connector."""
-        return self._config
+        """Get the config for the connector.
 
-    @property
-    def _config(self) -> dict[str, Any]:
+        If secrets are passed by reference (`secret_reference::*`), this will return the raw config
+        dictionary without secrets hydrated.
+        """
         if self._config_dict is None:
             raise exc.AirbyteConnectorConfigurationMissingError(
                 connector_name=self.name,
-                guidance="Provide via get_destination() or set_config()",
+                guidance="Provide via `set_config()`",
             )
+
         return self._config_dict
+
+    @property
+    def _hydrated_config(self) -> dict[str, Any]:
+        """Internal property used to get a hydrated config dictionary.
+
+        This will have secrets hydrated, so it can be passed to the connector.
+        """
+        return hydrate_secrets(self.get_config())
 
     @property
     def config_hash(self) -> str | None:
@@ -163,7 +172,8 @@ class ConnectorBase(abc.ABC):
         If config is not provided, the already-set config will be validated.
         """
         spec = self._get_spec(force_refresh=False)
-        config = hydrate_secrets(self._config) if config is None else config
+        config = hydrate_secrets(config) if config else self._hydrated_config
+
         try:
             jsonschema.validate(config, spec.connectionSpecification)
             log_config_validation_result(
@@ -310,7 +320,7 @@ class ConnectorBase(abc.ABC):
         * Listen to the messages and return the first AirbyteCatalog that comes along.
         * Make sure the subprocess is killed when the function returns.
         """
-        with as_temp_files([self._config]) as [config_file]:
+        with as_temp_files([self._hydrated_config]) as [config_file]:
             try:
                 for msg in self._execute(["check", "--config", config_file]):
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
