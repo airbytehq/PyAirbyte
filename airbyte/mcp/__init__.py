@@ -29,7 +29,9 @@ Assuming `uv` is installed, you can use the following configuration:
     "airbyte": {
       "command": "uvx",
       "args": ["--from=airbyte", "airbyte-mcp"],
-      "env": {}
+      "env": {
+        "AIRBYTE_MCP_ENV_FILE": "~/.mcp/airbyte_mcp.env"
+      }
     }
   }
 }
