@@ -124,11 +124,13 @@ def _get_connector_secrets_mask(
     result: list[str] = []
     for field_keys, field_value in _walk_dict(spec_json_schema):
         if isinstance(field_value, dict):
-            is_secret: bool = any((
-                field_value.get("writeOnly") is True,
-                field_value.get("format") == "password",
-                field_value.get("airbyte_secret") is True,
-            ))
+            is_secret: bool = any(
+                (
+                    field_value.get("writeOnly") is True,
+                    field_value.get("format") == "password",
+                    field_value.get("airbyte_secret") is True,
+                )
+            )
             if is_secret:
                 result.append(field_keys[-1])
 
