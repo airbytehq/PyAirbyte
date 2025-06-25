@@ -36,5 +36,5 @@ def get_cloud_sync_status(
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
-    """Register all cloud ops tools with the FastMCP app."""
+    """Register tools with the FastMCP app."""
     app.tool(get_cloud_sync_status)

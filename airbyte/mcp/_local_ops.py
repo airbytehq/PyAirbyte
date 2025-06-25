@@ -167,7 +167,7 @@ def sync_source_to_cache(
 
 
 def register_local_ops_tools(app: FastMCP) -> None:
-    """Register all connector development tools with the FastMCP app."""
+    """Register tools with the FastMCP app."""
     for tool in (
         validate_connector_config,
         list_source_streams,

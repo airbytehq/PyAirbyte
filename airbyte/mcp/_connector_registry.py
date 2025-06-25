@@ -121,6 +121,6 @@ def get_connector_info(
 
 
 def register_connector_registry_tools(app: FastMCP) -> None:
-    """Register all connector development tools with the FastMCP app."""
+    """Register tools with the FastMCP app."""
     app.tool(list_connectors)
     app.tool(get_connector_info)
