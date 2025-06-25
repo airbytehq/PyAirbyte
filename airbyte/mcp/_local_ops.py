@@ -99,10 +99,12 @@ def list_connector_config_secrets(
     secrets_names: list[str] = []
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, GoogleGSMSecretManager):
-            secrets_names.extend([
-                secret_handle.secret_name.split("/")[-1]
-                for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
-            ])
+            secrets_names.extend(
+                [
+                    secret_handle.secret_name.split("/")[-1]
+                    for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
+                ]
+            )
 
     return secrets_names
 
@@ -211,7 +213,9 @@ def read_source_stream_records(
     except Exception as ex:
         tb_str = traceback.format_exc()
         # If any error occurs, we print the error message to stderr and return an empty list.
-        return f"Error reading records from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+        return (
+            f"Error reading records from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+        )
 
     else:
         return records
