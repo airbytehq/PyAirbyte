@@ -33,6 +33,7 @@ from airbyte._util.telemetry import (
 )
 from airbyte._util.temp_files import as_temp_files
 from airbyte.logs import new_passthrough_file_logger
+from airbyte.secrets.hydration import hydrate_secrets
 
 
 if TYPE_CHECKING:
@@ -123,7 +124,7 @@ class ConnectorBase(abc.ABC):
         is called.
         """
         if validate:
-            self.validate_config(config)
+            self.validate_config(hydrate_secrets(config))
 
         self._config_dict = config
 
@@ -150,7 +151,7 @@ class ConnectorBase(abc.ABC):
             return None
 
         try:
-            return one_way_hash(self._config_dict)
+            return one_way_hash(hydrate_secrets(self._config_dict))
         except Exception:
             # This can fail if there are unhashable values in the config,
             # or unexpected data types. In this case, return None.
@@ -162,7 +163,7 @@ class ConnectorBase(abc.ABC):
         If config is not provided, the already-set config will be validated.
         """
         spec = self._get_spec(force_refresh=False)
-        config = self._config if config is None else config
+        config = hydrate_secrets(self._config) if config is None else config
         try:
             jsonschema.validate(config, spec.connectionSpecification)
             log_config_validation_result(

@@ -7,86 +7,111 @@ managing Airbyte connectors through MCP-compatible clients. This experimental fe
 allows you to list connectors, validate configurations, and run sync operations using
 the MCP protocol.
 
-
 The Model Context Protocol (MCP) is an open standard that enables AI assistants and
 other tools to securely connect to data sources, tools, and services. PyAirbyte's MCP
-server implementation allows you to interact with Airbyte connectors through this
-standardized protocol.
-
-
-The PyAirbyte MCP server provides four main tools:
-
-1. **`list_connectors`** - List all available Airbyte source connectors
-2. **`get_config_spec`** - Get the configuration specification for a specific connector
-3. **`validate_config`** - Validate a connector configuration (includes secret detection)
-4. **`run_sync`** - Execute a sync operation from a source connector to DuckDB cache
-
-
-- Python 3.10 or higher
-- PyAirbyte installed with MCP dependencies: `pip install airbyte[mcp]`
-- MCP CLI tool: `pip install devin-mcp-cli`
-
-
+server implementation allows you to build and interact with Airbyte connectors through
+this standardized protocol.
 
 Create a JSON configuration file to register the PyAirbyte MCP server with your MCP
 client. Create a file named `server_config.json`:
 
+> **NOTE:**
+> This MCP server implementation is experimental and may change without notice between minor
+> versions of PyAirbyte. The API may be modified or entirely refactored in future versions.
+
+# MCP Server Configuration
+
+Assuming `uv` is installed, you can use the following configuration:
+
 ```json
 {
   "mcpServers": {
-    "pyairbyte": {
-      "command": "python",
-      "args": ["-m", "airbyte.mcp.server"],
+    "airbyte": {
+      "command": "uvx",
+      "args": ["--from=airbyte", "airbyte-mcp"],
       "env": {}
     }
   }
 }
 ```
 
+If you prefer to pre-install, first run `uv install airbyte` or `pipx install airbyte`,
+and then create the configuration file as follows:
 
-Export the configuration path so the MCP CLI can find your server:
-
-```bash
-export MCP_CLI_CONFIG_PATH=/path/to/your/server_config.json
+```json
+{
+  "mcpServers": {
+    "airbyte": {
+      "command": "airbyte-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
 ```
 
+## Testing the MCP Server
 
-Check that your server is properly registered:
+You can use your tool of choice to test the MCP server. Below we'll use the Devin `mcp-cli`
+tool. First, we install our MCP CLI client:
+
+```
+uv tool install devin-mcp-cli
+```
+
+Next, we export the configuration path so that MCP CLI can find your server:
+
+```bash
+# You can use a custom path in your home directory:
+export MCP_CLI_CONFIG_PATH=~/.mcp/mcp_server_config.json
+touch $MCP_CLI_CONFIG_PATH
+
+# Then you can symlink your file to also be available in Claude Desktop path:
+mkdir -p ~/Library/"Application Support"/Claude
+ln -s ~/.mcp/mcp_server_config.json ~/Library/"Application Support"/Claude/claude_desktop_config.json
+
+# Confirm the Claude Desktop symlink is working:
+cat ~/Library/"Application Support"/Claude/claude_desktop_config.json
+```
+
+### Check that your server is properly registered
 
 ```bash
 mcp-cli server list
+mcp-cli tool list
 ```
 
-This should show `pyairbyte` in the list of available servers.
+This should show `airbyte` in the list of available servers.
 
-
-Verify the server can be reached:
+### Verify the server can be reached
 
 ```bash
 mcp-cli server check
 ```
 
-This should show `✓ Connected` for the pyairbyte server with 4 available tools.
+This should show `✓ Connected` for the Airbyte server with a list of available tools.
 
+### Test the MCP Tools
 
-
-```bash
-mcp-cli tool call list_connectors --server pyairbyte
-```
-
-This returns a markdown-formatted list of all available Airbyte source connectors.
-
+You should now be able to validate specific tools:
 
 ```bash
-mcp-cli tool call get_config_spec --server pyairbyte --input '{"connector_name": "source-pokeapi"}'
-```
+# Show a list of all available Airbyte source connectors:
+mcp-cli tool call list_connectors --server airbyte
 
-This returns the JSON schema defining the required configuration parameters for the
-specified connector.
+# Get JSON schema of expected config for the specified connector:
+mcp-cli tool call get_config_spec --server airbyte --input '{"connector_name": "source-pokeapi"}'
 
+# Validate the provided configuration:
+mcp-cli tool call validate_config --server airbyte --input '{
+  "connector_name": "source-pokeapi",
+  "config": {
+    "pokemon_name": "pikachu"
+  }
+}'
 
-```bash
-mcp-cli tool call validate_config --server pyairbyte --input '{
+# Run a sync operation with the provided configuration:
+mcp-cli tool call run_sync --server airbyte --input '{
   "connector_name": "source-pokeapi",
   "config": {
     "pokemon_name": "pikachu"
@@ -94,124 +119,57 @@ mcp-cli tool call validate_config --server pyairbyte --input '{
 }'
 ```
 
-This validates the provided configuration and checks for hardcoded secrets.
+## Contributing to PyAirbyte and the Airbyte MCP Server
 
+The Airbyte MCP server is part of the PyAirbyte project. Contributions are welcome!
+
+You can contribute to the MCP server by adding new tools, improving existing functionality, or
+fixing bugs. The server is built using the FastMCP framework, which provides a flexible
+interface for defining tools and handling requests.
+
+As a starting point, you can clone the repo and inspect the server definition using the `fastmcp`
+CLI tool:
 
 ```bash
-mcp-cli tool call run_sync --server pyairbyte --input '{
-  "connector_name": "source-pokeapi",
-  "config": {
-    "pokemon_name": "pikachu"
+poetry install --all-extras
+poetry run fastmcp inspect airbyte/mcp/server.py:app
+```
+
+In your MCP config, you can test your development updates using `poetry` as the entrypoint:
+
+```json
+{
+  "mcpServers": {
+    "airbyte": {
+      "command": "poetry",
+      "args": [
+        "--directory=~/repos/PyAirbyte",
+        "run",
+        "airbyte-mcp"
+      ],
+      "env": {
+        "ENV_VAR": "value"
+      }
+    }
   }
-}'
-```
-
-This executes a full sync operation, reading data from the source and writing it to a
-local DuckDB cache.
-
-
-
-The Pokemon API connector is a simple example that requires minimal configuration:
-
-```json
-{
-  "pokemon_name": "ditto"
 }
 ```
 
-Valid pokemon names must match the pattern `^[a-z0-9_\\-]+$` (lowercase letters,
-numbers, underscores, and hyphens only).
+### Additional resources
 
-
-For connectors that read from files, you might need to provide file paths:
-
-```json
-{
-  "url": "https://example.com/data.csv",
-  "format": "csv"
-}
-```
-
-
-Database connectors typically require connection details:
-
-```json
-{
-  "host": "localhost",
-  "port": 5432,
-  "database": "mydb",
-  "username": "user",
-  "password": "secret"
-}
-```
-
-**Note:** The MCP server includes secret detection and will warn if hardcoded secrets
-are found in configurations.
-
-
-- **Secret Detection**: The server automatically scans configurations for hardcoded
-  secrets and issues warnings
-- **Local Execution**: The MCP server runs locally and does not send data to external services
-- **Stdio Transport**: Communication uses stdio transport for secure local process communication
-
-
-
-If `mcp-cli server list` doesn't show your server:
-- Verify the `server_config.json` file exists and has correct syntax
-- Check that `MCP_CLI_CONFIG_PATH` environment variable is set correctly
-- Ensure PyAirbyte is installed with MCP dependencies
-
-
-If `mcp-cli server check` shows connection problems:
-- Verify Python is available in your PATH
-- Check that all PyAirbyte dependencies are installed: `pip install airbyte[mcp]`
-- Try running the server directly: `python -m airbyte.mcp.server`
-
-
-If tool calls fail:
-- Verify the connector name exists using `list_connectors`
-- Check that your configuration matches the connector's specification using `get_config_spec`
-- Validate your configuration using `validate_config` before running sync operations
-
-
-The PyAirbyte MCP server is designed to work with AI assistants and other
-MCP-compatible clients. The standardized protocol allows AI systems to:
-
-- Discover available data connectors
-- Understand configuration requirements
-- Validate configurations before execution
-- Execute data sync operations safely
-
-
-- **Experimental Feature**: The MCP server is experimental and may change without notice
-- **Local Execution Only**: Currently designed for local development and testing
-- **DuckDB Cache**: Sync operations write to local DuckDB cache by default
-- **Python Dependencies**: Requires Python environment with all connector dependencies
-
-
-For detailed information about the MCP server implementation, see the
-`airbyte.mcp.server` module documentation.
-
-
-The PyAirbyte MCP server is part of the PyAirbyte project. Contributions are welcome!
-Please see the [PyAirbyte Contributing Guide](https://github.com/airbytehq/PyAirbyte/blob/main/docs/CONTRIBUTING.md)
-for more information.
-
+- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
+- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
 
 For issues and questions:
+- [PyAirbyte Contributing Guide](https://github.com/airbytehq/PyAirbyte/blob/main/docs/CONTRIBUTING.md)
 - [PyAirbyte GitHub Issues](https://github.com/airbytehq/pyairbyte/issues)
 - [PyAirbyte Discussions](https://github.com/airbytehq/pyairbyte/discussions)
 
-----------------------
-
 """  # noqa: D415
 
-from __future__ import annotations
-
 from airbyte.mcp import server
-from airbyte.mcp.server import PyAirbyteServer
 
 
-__all__ = ["PyAirbyteServer", "server"]
+__all__: list[str] = ["server"]
 
 __docformat__ = "google"

@@ -56,6 +56,31 @@ If you need to build your own secret manager, you can subclass the
 `airbyte.secrets.CustomSecretManager` class. This allows you to build a custom secret manager that
 can be used with the `get_secret()` function, securely storing and retrieving secrets as needed.
 
+## Using "Secrets References" to Decouple Secrets from Configuration
+
+PyAirbyte now allows you to decouple secrets from configuration parameters. This means you can
+use the `secret_reference::` prefix to specify a reference to a named secret instead of the secret
+value directly in your configuration.
+
+For example, in your JSON or `dict` configuration, you can specify a secret reference like this:
+
+```json
+{
+  "credentials": {
+    "personal_access_token": "secret_reference::GITHUB_PERSONAL_ACCESS_TOKEN"
+  }
+}
+```
+
+This allows you to keep your connector configuration clean and free of sensitive information,
+while still allowing PyAirbyte to dynamically resolve the secrets at runtime.
+
+By default, PyAirbyte will automatically resolve these references with a call to `get_secret()`,
+utilizing whichever secret managers have been registered using `register_secret_manager()`.
+
+If you've not already registered a secret manager, PyAirbyte will use the default
+`EnvVarSecretManager`, which retrieves secrets from named environment variables.
+
 ## API Reference
 
 _Below are the classes and functions available in the `airbyte.secrets` module._

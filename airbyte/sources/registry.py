@@ -8,11 +8,11 @@ import logging
 import os
 import warnings
 from copy import copy
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 import requests
+from pydantic import BaseModel
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
@@ -137,8 +137,7 @@ class Language(str, Enum):
     MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
-@dataclass
-class ConnectorMetadata:
+class ConnectorMetadata(BaseModel):
     """Metadata for a connector."""
 
     name: str

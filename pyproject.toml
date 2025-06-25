@@ -50,9 +50,7 @@ sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
 sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }
 typing-extensions = "*"
 uuid7 = "^0.1.0"
-mcp = "^1.9.3"
-pydantic-ai = {extras = ["mcp"], version = "^0.2.16"}
-six = "^1.17.0"
+fastmcp = "^2.8.1"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
@@ -232,7 +230,7 @@ known-first-party = [
     "airbyte_protocol_dataclasses",
 ]
 known-local-folder = ["airbyte"]
-required-imports = ["from __future__ import annotations"]
+# required-imports = ["from __future__ import annotations"]
 known-third-party = []
 section-order = [
     "future",
@@ -324,6 +322,7 @@ venv = ".venv"
 [tool.poetry.scripts]
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
+airbyte-mcp = "airbyte.mcp.server:main"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }
