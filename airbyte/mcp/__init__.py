@@ -150,7 +150,7 @@ In your MCP config, you can test your development updates using `poetry` as the 
         "airbyte-mcp"
       ],
       "env": {
-        "ENV_VAR": "value"
+        "AIRBYTE_MCP_ENV_FILE": "~/.mcp/airbyte_mcp.env"
       }
     }
   }
