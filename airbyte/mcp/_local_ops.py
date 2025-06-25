@@ -17,6 +17,26 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
+CONFIG_HELP = """
+You can provide `config` as JSON or a Path to a YAML/JSON file.
+If a `dict` is provided, it must not contain hardcoded secrets.
+Instead, secrets should be provided using environment variables,
+and the config should reference them using the format
+`secret_reference::ENV_VAR_NAME`.
+
+You can also provide a `config_secret_name` to use a specific
+secret name for the configuration. This is useful if you want to
+validate a configuration that is stored in a secrets manager.
+
+If `config_secret_name` is provided, it should point to a string
+that contains valid JSON or YAML.
+
+If both `config` and `config_secret_name` are provided, the
+`config` will be loaded first and then the referenced secret config
+will be layered on top of the non-secret config.
+"""
+
+
 # @app.tool()  # << deferred
 def validate_config(
     connector_name: str,
@@ -24,23 +44,6 @@ def validate_config(
     config_secret_name: str | None = None,
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
-
-    You can provide `config` as JSON or a Path to a YAML/JSON file.
-    If a `dict` is provided, it must not contain hardcoded secrets.
-    Instead, secrets should be provided using environment variables,
-    and the config should reference them using the format
-    `secret_reference::ENV_VAR_NAME`.
-
-    You can also provide a `config_secret_name` to use a specific
-    secret name for the configuration. This is useful if you want to
-    validate a configuration that is stored in a secrets manager.
-
-    If `config_secret_name` is provided, it should point to a string
-    that contains valid JSON or YAML.
-
-    If both `config` and `config_secret_name` are provided, the
-    `config` will be loaded first and then the referenced secret config
-    will be layered on top of the non-secret config.
 
     Returns a tuple of (is_valid: bool, message: str).
     """
@@ -65,36 +68,6 @@ def validate_config(
         return False, f"Configuration for {connector_name} is invalid: {ex}"
 
     return True, f"Configuration for {connector_name} is valid!"
-
-
-# @app.tool()  # << deferred
-def run_sync(
-    connector_name: str,
-    config: dict | Path | None = None,
-    config_secret_name: str | None = None,
-    streams: list[str] | Literal["suggested", "*"] = "suggested",
-) -> str:
-    """Run a sync from a source connector to the default DuckDB cache."""
-    source = get_source(connector_name)
-    config_dict = resolve_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=source.config_spec,
-    )
-    source.set_config(config_dict)
-    cache = get_default_cache()
-
-    if isinstance(streams, str) and streams == "suggested":
-        streams = "*"  # TODO: obtain the real suggested streams list from `metadata.yaml`
-
-    source.read(
-        cache=cache,
-        streams=streams,
-    )
-
-    summary: str = f"Sync completed for '{connector_name}'!\n\n"
-    summary += "Data written to default DuckDB cache\n"
-    return summary
 
 
 # @app.tool()  # << deferred
@@ -163,10 +136,47 @@ def get_records(
     return records
 
 
+# @app.tool()  # << deferred
+def run_sync(
+    connector_name: str,
+    config: dict | Path | None = None,
+    config_secret_name: str | None = None,
+    streams: list[str] | Literal["suggested", "*"] = "suggested",
+) -> str:
+    """Run a sync from a source connector to the default DuckDB cache."""
+    source = get_source(connector_name)
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=source.config_spec,
+    )
+    source.set_config(config_dict)
+    cache = get_default_cache()
+
+    if isinstance(streams, str) and streams == "suggested":
+        streams = "*"  # TODO: obtain the real suggested streams list from `metadata.yaml`
+
+    source.read(
+        cache=cache,
+        streams=streams,
+    )
+
+    summary: str = f"Sync completed for '{connector_name}'!\n\n"
+    summary += "Data written to default DuckDB cache\n"
+    return summary
+
+
 def register_local_ops_tools(app: FastMCP) -> None:
     """Register all connector development tools with the FastMCP app."""
-    app.tool(validate_config)
-    app.tool(run_sync)
-    app.tool(list_streams)
-    app.tool(get_stream_json_schema)
-    app.tool(get_records)
+    for tool in (
+        validate_config,
+        list_streams,
+        get_stream_json_schema,
+        get_records,
+        run_sync,
+    ):
+        # Register each tool with the FastMCP app.
+        app.tool(
+            tool,
+            description=(tool.__doc__ or "") + CONFIG_HELP,
+        )
