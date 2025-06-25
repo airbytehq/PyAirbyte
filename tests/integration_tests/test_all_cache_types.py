@@ -141,7 +141,7 @@ def test_faker_read(
         read_result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
-    configured_count = source_faker_seed_a._hydrated_config["count"]
+    configured_count = source_faker_seed_a.get_config()["count"]
 
     # Check row counts match:
     assert len(list(read_result.cache.streams["users"])) == FAKER_SCALE_A
