@@ -7,6 +7,7 @@ import warnings
 from typing import Any, cast
 
 from airbyte import exceptions as exc
+from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.secrets.base import SecretManager, SecretSourceEnum, SecretString
 from airbyte.secrets.config import _get_secret_sources
 
@@ -28,6 +29,11 @@ def get_secret(
     If `allow_prompt` is `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then
     the user will be prompted to enter the secret if it is not found in any of the other sources.
     """
+    if secret_name.startswith(SECRETS_HYDRATION_PREFIX):
+        # If the secret name starts with the hydration prefix, we assume it's a secret reference.
+        # We strip the prefix and get the actual secret name.
+        secret_name = secret_name.removeprefix(SECRETS_HYDRATION_PREFIX).lstrip()
+
     if "source" in kwargs:
         warnings.warn(
             message="The `source` argument is deprecated. Use the `sources` argument instead.",

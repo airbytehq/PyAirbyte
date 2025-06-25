@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
+
 from fastmcp import FastMCP
 
 from airbyte import cloud, secrets
@@ -27,7 +28,7 @@ def get_cloud_sync_status(
         client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
         api_root=api_root or CLOUD_API_ROOT,  # Defaults to the Airbyte Cloud API root if None.
     )
-    connection = workspace.get_connection(connection_id=connection_id,)
+    connection = workspace.get_connection(connection_id=connection_id)
 
     # If a job ID is provided, get the job by ID.
     sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)

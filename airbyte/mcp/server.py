@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Experimental MCP (Model Context Protocol) server for PyAirbyte connector management."""
+
 import asyncio
 import sys
 

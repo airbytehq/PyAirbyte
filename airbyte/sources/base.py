@@ -283,7 +283,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
             self.select_streams(self._to_be_selected_streams)
             self._to_be_selected_streams = []
 
-
     def _discover(self) -> AirbyteCatalog:
         """Call discover on the connector.
 
@@ -637,11 +636,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        with as_temp_files([
-            self._hydrated_config,
-            catalog.model_dump_json(),
-            state.to_state_input_file_text() if state else "[]",
-        ]) as [
+        with as_temp_files(
+            [
+                self._hydrated_config,
+                catalog.model_dump_json(),
+                state.to_state_input_file_text() if state else "[]",
+            ]
+        ) as [
             config_file,
             catalog_file,
             state_file,

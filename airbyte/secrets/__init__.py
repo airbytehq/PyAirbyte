@@ -59,8 +59,8 @@ can be used with the `get_secret()` function, securely storing and retrieving se
 ## Using "Secrets References" to Decouple Secrets from Configuration
 
 PyAirbyte now allows you to decouple secrets from configuration parameters. This means you can
-use the `secret_reference::` prefix to specify a reference to a named secret instead of the secret
-value directly in your configuration.
+use the `secret_reference::` prefix (`airbyte.constants.SECRETS_HYDRATION_PREFIX`) to specify a
+reference to a named secret instead of hard-coding the secret value directly in your configuration.
 
 For example, in your JSON or `dict` configuration, you can specify a secret reference like this:
 
