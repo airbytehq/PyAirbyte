@@ -137,14 +137,14 @@ def read_source_stream_records(
 
 
 # @app.tool()  # << deferred
-def run_source_sync(
-    connector_name: str,
+def sync_source_to_cache(
+    source_connector_name: str,
     config: dict | Path | None = None,
     config_secret_name: str | None = None,
     streams: list[str] | Literal["suggested", "*"] = "suggested",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
-    source = get_source(connector_name)
+    source = get_source(source_connector_name)
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,
@@ -161,7 +161,7 @@ def run_source_sync(
         streams=streams,
     )
 
-    summary: str = f"Sync completed for '{connector_name}'!\n\n"
+    summary: str = f"Sync completed for '{source_connector_name}'!\n\n"
     summary += "Data written to default DuckDB cache\n"
     return summary
 
@@ -173,10 +173,10 @@ def register_local_ops_tools(app: FastMCP) -> None:
         list_source_streams,
         get_source_stream_json_schema,
         read_source_stream_records,
-        run_source_sync,
+        sync_source_to_cache,
     ):
         # Register each tool with the FastMCP app.
         app.tool(
             tool,
-            description=(tool.__doc__ or "") + CONFIG_HELP,
+            description=(tool.__doc__ or "").rstrip() + "\n" + CONFIG_HELP,
         )
