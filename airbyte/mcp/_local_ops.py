@@ -38,7 +38,7 @@ will be layered on top of the non-secret config.
 
 
 # @app.tool()  # << deferred
-def validate_config(
+def validate_connector_config(
     connector_name: str,
     config: dict | Path | None = None,
     config_secret_name: str | None = None,
@@ -71,8 +71,8 @@ def validate_config(
 
 
 # @app.tool()  # << deferred
-def list_streams(
-    connector_name: str,
+def list_source_streams(
+    source_connector_name: str,
     config: dict | Path | None = None,
     config_secret_name: str | None = None,
 ) -> list[str]:
@@ -81,7 +81,7 @@ def list_streams(
     This operation (generally) requires a valid configuration, including any required secrets.
     """
     source: Source = get_source(
-        connector_name,
+        source_connector_name,
     )
     config_dict = resolve_config(
         config=config,
@@ -93,16 +93,16 @@ def list_streams(
 
 
 # @app.tool()  # << deferred
-def get_stream_json_schema(
-    connector_name: str,
+def get_source_stream_json_schema(
+    source_connector_name: str,
     stream_name: str,
     config: dict | Path | None = None,
     config_secret_name: str | None = None,
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
-    source: Source = get_source(connector_name)
+    source: Source = get_source(source_connector_name)
     config_dict = resolve_config(
-        config,
+        config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )
@@ -111,8 +111,8 @@ def get_stream_json_schema(
 
 
 # @app.tool()  # << deferred
-def get_records(
-    connector_name: str,
+def read_source_stream_records(
+    source_connector_name: str,
     config: dict | Path,
     config_secret_name: str | None = None,
     *,
@@ -120,9 +120,9 @@ def get_records(
     max_records: int,
 ) -> list[dict[str, Any]]:
     """Get records from a source connector."""
-    source = get_source(connector_name)
+    source = get_source(source_connector_name)
     config_dict = resolve_config(
-        config,
+        config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )
@@ -137,7 +137,7 @@ def get_records(
 
 
 # @app.tool()  # << deferred
-def run_sync(
+def run_source_sync(
     connector_name: str,
     config: dict | Path | None = None,
     config_secret_name: str | None = None,
@@ -169,11 +169,11 @@ def run_sync(
 def register_local_ops_tools(app: FastMCP) -> None:
     """Register all connector development tools with the FastMCP app."""
     for tool in (
-        validate_config,
-        list_streams,
-        get_stream_json_schema,
-        get_records,
-        run_sync,
+        validate_connector_config,
+        list_source_streams,
+        get_source_stream_json_schema,
+        read_source_stream_records,
+        run_source_sync,
     ):
         # Register each tool with the FastMCP app.
         app.tool(
