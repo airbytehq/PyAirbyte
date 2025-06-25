@@ -58,8 +58,11 @@ def resolve_config(
     if isinstance(config, Path):
         config_dict.update(yaml.safe_load(config.read_text()))
     elif isinstance(config, dict):
-        if isinstance(config, dict) and config_spec_jsonschema is not None:
-            hardcoded_secrets = detect_hardcoded_secrets(config_dict, config_spec_jsonschema)
+        if config_spec_jsonschema is not None:
+            hardcoded_secrets = detect_hardcoded_secrets(
+                config,
+                config_spec_jsonschema,
+            )
             if hardcoded_secrets:
                 error_msg = f"Configuration contains hardcoded secrets in fields: {', '.join(hardcoded_secrets)}\n"
                 error_msg += "Please use environment variables instead. For example:\n"
