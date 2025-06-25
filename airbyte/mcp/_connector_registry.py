@@ -52,9 +52,7 @@ def list_connectors(
         List of connector names.
     """
     connectors: list[str] = get_available_connectors()
-    if not install_types:
-        connectors = get_available_connectors()
-    else:
+    if install_types:
         # If install_types is provided, filter connectors based on the specified install types.
         connectors = [
             connector
