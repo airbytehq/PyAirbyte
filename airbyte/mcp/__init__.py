@@ -29,7 +29,9 @@ Assuming `uv` is installed, you can use the following configuration:
     "airbyte": {
       "command": "uvx",
       "args": ["--from=airbyte", "airbyte-mcp"],
-      "env": {}
+      "env": {
+        "AIRBYTE_MCP_ENV_FILE": "~/.mcp/airbyte_mcp.env"
+      }
     }
   }
 }
@@ -150,7 +152,7 @@ In your MCP config, you can test your development updates using `poetry` as the 
         "airbyte-mcp"
       ],
       "env": {
-        "ENV_VAR": "value"
+        "AIRBYTE_MCP_ENV_FILE": "~/.mcp/airbyte_mcp.env"
       }
     }
   }

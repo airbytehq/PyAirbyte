@@ -50,7 +50,7 @@ def hydrate_secrets(
     Returns:
         dict: The hydrated configuration dictionary with secrets resolved.
     """
-    result: dict = cast("dict", deepcopy(config))
+    result: dict = deepcopy(config)
     _hydrate_recursive(result)
     return result
 
