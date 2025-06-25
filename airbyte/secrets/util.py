@@ -12,6 +12,23 @@ from airbyte.secrets.base import SecretManager, SecretSourceEnum, SecretString
 from airbyte.secrets.config import _get_secret_sources
 
 
+def is_secret_available(
+    secret_name: str,
+) -> bool:
+    """Check if a secret is available in any of the configured secret sources.
+
+    This function checks all available secret sources for the given secret name.
+    If the secret is found in any source, it returns `True`; otherwise, it returns `False`.
+    """
+    try:
+        _ = get_secret(secret_name, allow_prompt=False)
+    except exc.PyAirbyteSecretNotFoundError:
+        return False
+    else:
+        # If no exception was raised, the secret was found.
+        return True
+
+
 def get_secret(
     secret_name: str,
     /,

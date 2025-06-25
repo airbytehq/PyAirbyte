@@ -44,7 +44,9 @@ and then create the configuration file as follows:
     "airbyte": {
       "command": "airbyte-mcp",
       "args": [],
-      "env": {}
+      "env": {
+        "AIRBYTE_MCP_ENV_FILE": "~/.mcp/airbyte_mcp.env"
+      }
     }
   }
 }

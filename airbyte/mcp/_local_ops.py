@@ -2,6 +2,7 @@
 """Local MCP operations."""
 
 import sys
+import traceback
 from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -11,6 +12,8 @@ from fastmcp import FastMCP
 from airbyte import get_source
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
+from airbyte.secrets.config import _get_secret_sources
+from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
 if TYPE_CHECKING:
@@ -71,6 +74,27 @@ def validate_connector_config(
 
 
 # @app.tool()  # << deferred
+def list_connector_config_secrets(
+    connector_name: str,
+) -> list[str]:
+    """List all `config_secret_name` options that are known for the given connector.
+
+    This can be used to find out which already-created config secret names are available
+    for a given connector. The return value is a list of secret names, but it will not
+    return the actual secret values.
+    """
+    secrets_names: list[str] = []
+    for secrets_mgr in _get_secret_sources():
+        if isinstance(secrets_mgr, GoogleGSMSecretManager):
+            secrets_names.extend([
+                secret_handle.secret_name.split("/")[-1]
+                for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
+            ])
+
+    return secrets_names
+
+
+# @app.tool()  # << deferred
 def list_source_streams(
     source_connector_name: str,
     config: dict | Path | None = None,
@@ -113,27 +137,35 @@ def get_source_stream_json_schema(
 # @app.tool()  # << deferred
 def read_source_stream_records(
     source_connector_name: str,
-    config: dict | Path,
+    config: dict | Path | None = None,
     config_secret_name: str | None = None,
     *,
     stream_name: str,
     max_records: int,
-) -> list[dict[str, Any]]:
+) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
-    source = get_source(source_connector_name)
-    config_dict = resolve_config(
-        config=config,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=source.config_spec,
-    )
-    source.set_config(config_dict)
-    # First we get a generator for the records in the specified stream.
-    record_generator = source.get_records(stream_name)
-    # Next we load a limited number of records from the generator into our list.
-    records = list(islice(record_generator, max_records))
+    try:
+        source = get_source(source_connector_name)
+        config_dict = resolve_config(
+            config=config,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=source.config_spec,
+        )
+        source.set_config(config_dict)
+        # First we get a generator for the records in the specified stream.
+        record_generator = source.get_records(stream_name)
+        # Next we load a limited number of records from the generator into our list.
+        records: list[dict[str, Any]] = list(islice(record_generator, max_records))
 
-    print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
-    return records
+        print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
+
+    except Exception as ex:
+        tb_str = traceback.format_exc()
+        # If any error occurs, we print the error message to stderr and return an empty list.
+        return f"Error reading records from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+
+    else:
+        return records
 
 
 # @app.tool()  # << deferred
@@ -141,7 +173,7 @@ def sync_source_to_cache(
     source_connector_name: str,
     config: dict | Path | None = None,
     config_secret_name: str | None = None,
-    streams: list[str] | Literal["suggested", "*"] = "suggested",
+    streams: list[str] | str = "suggested",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
     source = get_source(source_connector_name)
@@ -153,8 +185,11 @@ def sync_source_to_cache(
     source.set_config(config_dict)
     cache = get_default_cache()
 
-    if isinstance(streams, str) and streams == "suggested":
-        streams = "*"  # TODO: obtain the real suggested streams list from `metadata.yaml`
+    if isinstance(streams, str):
+        if streams == "suggested":
+            streams = "*"  # TODO: obtain the real suggested streams list from `metadata.yaml`
+        if streams != "*":
+            streams = [streams]  # Ensure streams is a list
 
     source.read(
         cache=cache,
@@ -168,6 +203,7 @@ def sync_source_to_cache(
 
 def register_local_ops_tools(app: FastMCP) -> None:
     """Register tools with the FastMCP app."""
+    app.tool(list_connector_config_secrets)
     for tool in (
         validate_connector_config,
         list_source_streams,

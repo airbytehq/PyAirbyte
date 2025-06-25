@@ -1,13 +1,46 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Internal utility functions for MCP."""
 
+import os
 from pathlib import Path
 from typing import Any
 
+import dotenv
 import yaml
 
+from airbyte.secrets import GoogleGSMSecretManager, register_secret_manager
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
-from airbyte.secrets.util import get_secret
+from airbyte.secrets.util import get_secret, is_secret_available
+
+
+AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
+
+
+def _load_dotenv_file(dotenv_path: Path | str) -> None:
+    """Load environment variables from a .env file."""
+    if isinstance(dotenv_path, str):
+        dotenv_path = Path(dotenv_path)
+    if not dotenv_path.exists():
+        raise FileNotFoundError(f".env file not found: {dotenv_path}")
+
+    dotenv.load_dotenv(dotenv_path=dotenv_path)
+
+
+def initialize_secrets() -> None:
+    """Initialize dotenv to load environment variables from .env files."""
+    # Load the .env file from the current working directory.
+    if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
+        dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR])
+        _load_dotenv_file(dotenv_path)
+
+    if is_secret_available("GCP_GSM_CREDENTIALS") and is_secret_available("GCP_GSM_PROJECT_ID"):
+        # Initialize the GoogleGSMSecretManager if the credentials and project are set.
+        register_secret_manager(
+            GoogleGSMSecretManager(
+                project=get_secret("GCP_GSM_PROJECT_ID"),
+                credentials_json=get_secret("GCP_GSM_CREDENTIALS"),
+            )
+        )
 
 
 def resolve_config(
@@ -27,6 +60,7 @@ def resolve_config(
 
     if isinstance(config, Path):
         config_dict.update(yaml.safe_load(config.read_text()))
+
     elif isinstance(config, dict):
         if config_spec_jsonschema is not None:
             hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
@@ -56,7 +90,7 @@ def resolve_config(
 
     if config_secret_name is not None:
         # Assume this is a secret name that points to a JSON/YAML config.
-        secret_config = yaml.safe_load(get_secret(config_secret_name))
+        secret_config = yaml.safe_load(str(get_secret(config_secret_name)))
         if not isinstance(secret_config, dict):
             raise ValueError(
                 f"Secret '{config_secret_name}' must contain a valid JSON or YAML object, "
