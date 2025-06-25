@@ -51,7 +51,12 @@ def deep_update(
     target: dict,
     source: dict,
 ) -> None:
-    """Recursively update the target dictionary with values from the source dictionary."""
+    """Recursively update the target dictionary with values from the source dictionary.
+
+    This is most often used to merge a non-secret configuration with a secret one, allowing
+    users to keep non-secret config in source control while secrets are stored securely in
+    a second configuration file or in environment variables.
+    """
     for key, value in source.items():
         if isinstance(value, dict) and key in target and isinstance(target[key], dict):
             deep_update(target[key], value)
