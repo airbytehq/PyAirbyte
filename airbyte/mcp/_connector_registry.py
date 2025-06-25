@@ -91,7 +91,10 @@ class ConnectorInfo(BaseModel):
 
 
 def get_connector_info(
-    connector_name: str,
+    connector_name: Annotated[
+        str,
+        Field(description="The name of the connector to get information for."),
+    ],
 ) -> ConnectorInfo | Literal["Connector not found."]:
     """Get the documentation URL for a connector."""
     if connector_name not in get_available_connectors():

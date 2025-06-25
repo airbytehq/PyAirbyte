@@ -5,9 +5,10 @@ import sys
 import traceback
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastmcp import FastMCP
+from pydantic import Field
 
 from airbyte import get_source
 from airbyte.caches.util import get_default_cache
@@ -42,9 +43,18 @@ will be layered on top of the non-secret config.
 
 # @app.tool()  # << deferred
 def validate_connector_config(
-    connector_name: str,
-    config: dict | Path | None = None,
-    config_secret_name: str | None = None,
+    connector_name: Annotated[
+        str,
+        Field(description="The name of the connector to validate."),
+    ],
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the connector."),
+    ] = None,
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ] = None,
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
 
@@ -75,7 +85,10 @@ def validate_connector_config(
 
 # @app.tool()  # << deferred
 def list_connector_config_secrets(
-    connector_name: str,
+    connector_name: Annotated[
+        str,
+        Field(description="The name of the connector."),
+    ],
 ) -> list[str]:
     """List all `config_secret_name` options that are known for the given connector.
 
@@ -96,9 +109,18 @@ def list_connector_config_secrets(
 
 # @app.tool()  # << deferred
 def list_source_streams(
-    source_connector_name: str,
-    config: dict | Path | None = None,
-    config_secret_name: str | None = None,
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the source connector."),
+    ] = None,
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ] = None,
 ) -> list[str]:
     """List all streams available in a source connector.
 
@@ -118,10 +140,22 @@ def list_source_streams(
 
 # @app.tool()  # << deferred
 def get_source_stream_json_schema(
-    source_connector_name: str,
-    stream_name: str,
-    config: dict | Path | None = None,
-    config_secret_name: str | None = None,
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream."),
+    ],
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the source connector."),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
     source: Source = get_source(source_connector_name)
@@ -136,12 +170,27 @@ def get_source_stream_json_schema(
 
 # @app.tool()  # << deferred
 def read_source_stream_records(
-    source_connector_name: str,
-    config: dict | Path | None = None,
-    config_secret_name: str | None = None,
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the source connector."),
+    ] = None,
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ] = None,
     *,
-    stream_name: str,
-    max_records: int,
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream to read records from."),
+    ],
+    max_records: Annotated[
+        int,
+        Field(description="The maximum number of records to read."),
+    ] = 1000,
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
@@ -170,10 +219,22 @@ def read_source_stream_records(
 
 # @app.tool()  # << deferred
 def sync_source_to_cache(
-    source_connector_name: str,
-    config: dict | Path | None = None,
-    config_secret_name: str | None = None,
-    streams: list[str] | str = "suggested",
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the source connector."),
+    ] = None,
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ] = None,
+    streams: Annotated[
+        list[str] | str,
+        Field(description="The streams to sync."),
+    ] = "suggested",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
     source = get_source(source_connector_name)

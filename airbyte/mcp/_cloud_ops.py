@@ -1,7 +1,10 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+from typing import Annotated
+
 from fastmcp import FastMCP
+from pydantic import Field
 
 from airbyte import cloud, secrets
 from airbyte._util.api_imports import JobStatusEnum
@@ -10,10 +13,28 @@ from airbyte._util.api_util import CLOUD_API_ROOT
 
 # @app.tool()  # << deferred
 def get_cloud_sync_status(
-    workspace_id: str,
-    connection_id: str,
-    api_root: str | None = None,
-    job_id: int | None = None,
+    workspace_id: Annotated[
+        str,
+        Field(
+            description="The ID of the Airbyte Cloud workspace.",
+        ),
+    ],
+    connection_id: Annotated[
+        str,
+        Field(
+            description="The ID of the Airbyte Cloud connection.",
+        ),
+    ],
+    api_root: Annotated[
+        str | None,
+        Field(
+            description="Optional Cloud API root URL override.",
+        ),
+    ],
+    job_id: Annotated[
+        int | None,
+        Field(description="Optional job ID. If not provided, the latest job will be used."),
+    ] = None,
 ) -> JobStatusEnum | None:
     """Get the status of a sync job from the Airbyte Cloud.
 
