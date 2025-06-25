@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast, overload
+from typing import TYPE_CHECKING, cast
 
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -194,19 +194,6 @@ class CloudConnection:
             )
             for sync_log in sync_logs
         ]
-
-    # Tell the type checker that return value never null (`None`) when job_id is specified.
-    @overload
-    def get_sync_result(
-        self,
-        job_id: int,
-    ) -> SyncResult: ...
-
-    @overload
-    def get_sync_result(
-        self,
-        job_id: None,
-    ) -> SyncResult | None: ...
 
     def get_sync_result(
         self,
