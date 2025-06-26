@@ -155,6 +155,7 @@ if TYPE_CHECKING:
         exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
         experimental,
         logs,
+        mcp,
         records,
         results,
         secrets,
@@ -175,6 +176,7 @@ __all__ = [
     "exceptions",
     "experimental",
     "logs",
+    "mcp",
     "records",
     "registry",
     "results",

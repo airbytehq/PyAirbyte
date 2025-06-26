@@ -8,11 +8,11 @@ import logging
 import os
 import warnings
 from copy import copy
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 import requests
+from pydantic import BaseModel
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
@@ -69,8 +69,7 @@ class Language(str, Enum):
     MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
-@dataclass
-class ConnectorMetadata:
+class ConnectorMetadata(BaseModel):
     """Metadata for a connector."""
 
     name: str
@@ -87,6 +86,9 @@ class ConnectorMetadata:
 
     install_types: set[InstallType]
     """The supported install types for the connector."""
+
+    suggested_streams: list[str] | None = None
+    """A list of suggested streams for the connector, if available."""
 
     @property
     def default_install_type(self) -> InstallType:
@@ -152,6 +154,7 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
         pypi_package_name=pypi_package_name if pypi_enabled else None,
         language=language,
         install_types=install_types,
+        suggested_streams=entry.get("suggestedStreams", {}).get("streams", None),
     )
 
 

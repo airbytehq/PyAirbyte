@@ -264,7 +264,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
 
         with as_temp_files(
             files_contents=[
-                self._config,
+                self._hydrated_config,
                 catalog_provider.configured_catalog.model_dump_json(),
             ]
         ) as [

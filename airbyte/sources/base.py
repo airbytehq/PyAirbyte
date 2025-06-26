@@ -283,19 +283,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
             self.select_streams(self._to_be_selected_streams)
             self._to_be_selected_streams = []
 
-    def get_config(self) -> dict[str, Any]:
-        """Get the config for the connector."""
-        return self._config
-
-    @property
-    def _config(self) -> dict[str, Any]:
-        if self._config_dict is None:
-            raise exc.AirbyteConnectorConfigurationMissingError(
-                connector_name=self.name,
-                guidance="Provide via get_source() or set_config()",
-            )
-        return self._config_dict
-
     def _discover(self) -> AirbyteCatalog:
         """Call discover on the connector.
 
@@ -305,7 +292,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - Listen to the messages and return the first AirbyteCatalog that comes along.
         - Make sure the subprocess is killed when the function returns.
         """
-        with as_temp_files([self._config]) as [config_file]:
+        with as_temp_files([self._hydrated_config]) as [config_file]:
             for msg in self._execute(["discover", "--config", config_file]):
                 if msg.type == Type.CATALOG and msg.catalog:
                     return msg.catalog
@@ -651,7 +638,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """
         with as_temp_files(
             [
-                self._config,
+                self._hydrated_config,
                 catalog.model_dump_json(),
                 state.to_state_input_file_text() if state else "[]",
             ]
