@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 
 from airbyte.mcp._cloud_ops import register_cloud_ops_tools
 from airbyte.mcp._connector_registry import register_connector_registry_tools
+from airbyte.mcp._local_dev import register_local_dev_tools
 from airbyte.mcp._local_ops import register_local_ops_tools
 from airbyte.mcp._util import initialize_secrets
 
@@ -17,6 +18,7 @@ initialize_secrets()
 app: FastMCP = FastMCP("airbyte-mcp")
 register_connector_registry_tools(app)
 register_local_ops_tools(app)
+register_local_dev_tools(app)
 register_cloud_ops_tools(app)
 
 
