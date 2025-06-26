@@ -342,6 +342,127 @@ class TestGetVendorClient:
         assert client == mock_client
 
 
+class TestValidateAuthenticationConfig:
+    """Tests for _validate_authentication_config method."""
+
+    def test_validate_no_authentication_method(self, basic_config):
+        """Test validation passes when no authentication method is provided."""
+        basic_config._validate_authentication_config()
+
+    def test_validate_passphrase_without_primary_auth(self):
+        """Test validation fails when passphrase is provided without primary auth."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            private_key_passphrase=SecretString("test_passphrase"),
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        with pytest.raises(ValueError, match="You have to provide a primary authentication method if you want to use a private key passphrase"):
+            config._validate_authentication_config()
+
+    def test_validate_multiple_primary_auth_methods(self):
+        """Test validation fails when multiple primary auth methods are provided."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            password=SecretString("test_password"),
+            private_key=SecretString("test_private_key"),
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        with pytest.raises(ValueError, match="Multiple primary authentication methods provided: password, private_key"):
+            config._validate_authentication_config()
+
+    def test_validate_password_and_private_key_path(self):
+        """Test validation fails when both password and private_key_path are provided."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            password=SecretString("test_password"),
+            private_key_path="/path/to/key",
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        with pytest.raises(ValueError, match="Multiple primary authentication methods provided: password, private_key_path"):
+            config._validate_authentication_config()
+
+    def test_validate_all_three_auth_methods(self):
+        """Test validation fails when all three primary auth methods are provided."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            password=SecretString("test_password"),
+            private_key=SecretString("test_private_key"),
+            private_key_path="/path/to/key",
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        with pytest.raises(ValueError, match="Multiple primary authentication methods provided: password, private_key, private_key_path"):
+            config._validate_authentication_config()
+
+    def test_validate_passphrase_with_password(self):
+        """Test validation fails when passphrase is used with password authentication."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            password=SecretString("test_password"),
+            private_key_passphrase=SecretString("test_passphrase"),
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        with pytest.raises(ValueError, match="private_key_passphrase cannot be used with password authentication"):
+            config._validate_authentication_config()
+
+    def test_validate_password_only(self, password_config):
+        """Test validation passes with password authentication only."""
+        password_config._validate_authentication_config()
+
+    def test_validate_private_key_only(self, private_key_config):
+        """Test validation passes with private key authentication only."""
+        private_key_config._validate_authentication_config()
+
+    def test_validate_private_key_with_passphrase(self, private_key_with_passphrase_config):
+        """Test validation passes with private key and passphrase authentication."""
+        private_key_with_passphrase_config._validate_authentication_config()
+
+    def test_validate_private_key_path_only(self):
+        """Test validation passes with private key path authentication only."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            private_key_path="/path/to/key",
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        config._validate_authentication_config()
+
+    def test_validate_private_key_path_with_passphrase(self):
+        """Test validation passes with private key path and passphrase authentication."""
+        config = SnowflakeConfig(
+            account="test_account",
+            username="test_user",
+            private_key_path="/path/to/key",
+            private_key_passphrase=SecretString("test_passphrase"),
+            warehouse="test_warehouse",
+            database="test_database",
+            role="test_role",
+        )
+
+        config._validate_authentication_config()
+
 def _generate_test_private_key() -> bytes:
     """Generate a test private key for testing purposes."""
     private_key = rsa.generate_private_key(

@@ -50,6 +50,37 @@ class SnowflakeConfig(SqlConfig):
     schema_name: str = Field(default=DEFAULT_CACHE_SCHEMA_NAME)
     data_retention_time_in_days: int | None = None
 
+    def _validate_authentication_config(self) -> None:
+        """Validate that authentication configuration is correct."""
+        auth_methods = {
+            "password": self.password is not None,
+            "private_key": self.private_key is not None,
+            "private_key_path": self.private_key_path is not None,
+        }
+        has_passphrase = self.private_key_passphrase is not None
+        primary_auth_count = sum(auth_methods.values())
+
+        if primary_auth_count == 0:
+            if has_passphrase:
+                raise ValueError(
+                    "You have to provide a primary authentication method if you want to use a private key passphrase."
+                )
+            return
+
+        if primary_auth_count > 1:
+            provided_methods = [method for method, has_method in auth_methods.items() if has_method]
+            raise ValueError(
+                f"Multiple primary authentication methods provided: {', '.join(provided_methods)}. "
+                "Please provide only one of: 'password', 'private_key', or 'private_key_path'."
+            )
+
+        if has_passphrase and auth_methods["password"]:
+            raise ValueError(
+                "private_key_passphrase cannot be used with password authentication. "
+                "It can only be used with 'private_key' or 'private_key_path'."
+            )
+
+
     def _get_private_key_content(self) -> bytes:
         """Get the private key content from either private_key or private_key_path."""
         if self.private_key:
@@ -105,6 +136,8 @@ class SnowflakeConfig(SqlConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
+        self._validate_authentication_config()
+
         config = {
             "account": self.account,
             "user": self.username,
@@ -120,6 +153,8 @@ class SnowflakeConfig(SqlConfig):
 
     def get_vendor_client(self) -> object:
         """Return the Snowflake connection object."""
+        self._validate_authentication_config()
+
         connection_config = {
             "user": self.username,
             "account": self.account,
