@@ -3,6 +3,8 @@
 
 ## Usage Example
 
+# Password connection:
+
 ```python
 from airbyte as ab
 from airbyte.caches import SnowflakeCache
@@ -11,6 +13,42 @@ cache = SnowflakeCache(
     account="myaccount",
     username="myusername",
     password=ab.get_secret("SNOWFLAKE_PASSWORD"),
+    warehouse="mywarehouse",
+    database="mydatabase",
+    role="myrole",
+    schema_name="myschema",
+)
+```
+
+# Key pair connection:
+
+```python
+from airbyte as ab
+from airbyte.caches import SnowflakeCache
+
+cache = SnowflakeCache(
+    account="myaccount",
+    username="myusername",
+    private_key=ab.get_secret("SNOWFLAKE_PRIVATE_KEY"),
+    private_key_passphrase=ab.get_secret("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"), # optional
+    warehouse="mywarehouse",
+    database="mydatabase",
+    role="myrole",
+    schema_name="myschema",
+)
+```
+
+# Private key path connection:
+
+```python
+from airbyte as ab
+from airbyte.caches import SnowflakeCache
+
+cache = SnowflakeCache(
+    account="myaccount",
+    username="myusername",
+    private_key_path="path/to/my/private_key.pem",
+    private_key_passphrase=ab.get_secret("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE"), # optional
     warehouse="mywarehouse",
     database="mydatabase",
     role="myrole",
