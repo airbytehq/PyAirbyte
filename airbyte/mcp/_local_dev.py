@@ -83,6 +83,9 @@ if __name__ == "__main__":
     main()
 '''
 
+    source_name = source_connector_name.replace("source-", "")
+    dest_name = destination_connector_name.replace("destination-", "")
+
     setup_instructions = f"""# {pipeline_name} Setup Instructions
 
 1. Install PyAirbyte:
@@ -112,8 +115,8 @@ python {pipeline_name.lower().replace(' ', '_')}.py
 - Add stream selection if you only need specific data streams
 - Set up scheduling using your preferred orchestration tool (Airflow, Dagster, etc.)
 
-- Source connector docs: https://docs.airbyte.com/integrations/sources/{source_connector_name.replace('source-', '')}
-- Destination connector docs: https://docs.airbyte.com/integrations/destinations/{destination_connector_name.replace('destination-', '')}
+- Source connector docs: https://docs.airbyte.com/integrations/sources/{source_name}
+- Destination connector docs: https://docs.airbyte.com/integrations/destinations/{dest_name}
 - PyAirbyte docs: https://docs.airbyte.com/using-airbyte/pyairbyte/getting-started
 """
 
