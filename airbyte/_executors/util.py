@@ -35,15 +35,13 @@ DEFAULT_COMPONENTS_URL = (
 )
 
 
-def _try_get_source_files(
+def _try_get_manifest_connector_files(
     source_name: str,
-    manifest_url: str | None = None,
-    components_url: str | None = None,
     version: str | None = None,
 ) -> tuple[dict, str | None, str | None]:
     """Try to get source manifest and components.py from URLs.
 
-    Returns tuple of (manifest_dict, components_py_content, components_checksum).
+    Returns tuple of (manifest_dict, components_py_content, components_py_checksum).
     Components values are None if components.py is not found (404 is handled gracefully).
 
     Raises:
@@ -57,7 +55,7 @@ def _try_get_source_files(
         )
 
     cleaned_version = (version or VERSION_LATEST).removeprefix("v")
-    manifest_url = manifest_url or DEFAULT_MANIFEST_URL.format(
+    manifest_url = DEFAULT_MANIFEST_URL.format(
         source_name=source_name,
         version=cleaned_version,
     )
@@ -87,7 +85,7 @@ def _try_get_source_files(
             },
         ) from ex
 
-    components_url = components_url or DEFAULT_COMPONENTS_URL.format(
+    components_url = DEFAULT_COMPONENTS_URL.format(
         source_name=source_name,
         version=cleaned_version,
     )
@@ -111,9 +109,9 @@ def _try_get_source_files(
         ) from ex
 
     components_content = response.text
-    components_checksum = hashlib.md5(components_content.encode()).hexdigest()
+    components_py_checksum = hashlib.md5(components_content.encode()).hexdigest()
 
-    return manifest_dict, components_content, components_checksum
+    return manifest_dict, components_content, components_py_checksum
 
 
 def _get_local_executor(
@@ -304,24 +302,33 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many 
 
     if source_manifest:
         if isinstance(source_manifest, dict | Path):
+            components_py_path: Path | None = None
+            if isinstance(source_manifest, Path):
+                # If source_manifest is a Path, check if there's an associated components.py file
+                components_py_path = source_manifest.with_name("components.py")
+                if not components_py_path.exists():
+                    components_py_path = None
+
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
+                components_py=components_py_path,
             )
 
         if isinstance(source_manifest, str | bool):
             # Source manifest is either a URL or a boolean (True)
-            manifest_dict, components_py, components_checksum = _try_get_source_files(
-                source_name=name,
-                manifest_url=None if source_manifest is True else source_manifest,
-                version=version,
+            manifest_dict, components_py, components_py_checksum = (
+                _try_get_manifest_connector_files(
+                    source_name=name,
+                    version=version,
+                )
             )
 
             return DeclarativeExecutor(
                 name=name,
                 manifest=manifest_dict,
                 components_py=components_py,
-                components_checksum=components_checksum,
+                components_py_checksum=components_py_checksum,
             )
 
     # else: we are installing a connector in a Python virtual environment:

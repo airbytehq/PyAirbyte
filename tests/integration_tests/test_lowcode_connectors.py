@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import airbyte
 import jsonschema
 import pytest
+
+import airbyte as ab
 from airbyte import exceptions as exc
 from airbyte import get_source
 from airbyte.sources.registry import (
@@ -15,13 +16,14 @@ from airbyte.sources.registry import (
     _LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
 )
 
+
 UNIT_TEST_DB_PATH: Path = Path(".cache") / "unit_tests" / "test_db.duckdb"
 
 
 # This goes stale often, such as when python code is added to a no-code connector.
 @pytest.mark.parametrize(
     "connector_name",
-    airbyte.get_available_connectors(install_type="yaml"),
+    ab.get_available_connectors(install_type="yaml"),
 )
 def test_nocode_connectors_setup(connector_name: str) -> None:
     """Test that all connectors can be initialized.
@@ -39,7 +41,7 @@ def test_nocode_connectors_setup(connector_name: str) -> None:
         raise AssertionError(
             f"Expected '{connector_name}' init success but got '{type(ex).__name__}'."
             f"You may need to update the `_LOWCODE_CONNECTORS_NEEDING_PYTHON` declaration. \n{ex}"
-        )
+        ) from None
 
 
 # This goes stale often, such as when low-code connectors are made fully no-code.

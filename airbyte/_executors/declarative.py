@@ -43,8 +43,8 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
-        components_py: str | None = None,
-        components_checksum: str | None = None,
+        components_py: str | Path | None = None,
+        components_py_checksum: str | None = None,
     ) -> None:
         """Initialize a declarative executor.
 
@@ -52,7 +52,7 @@ class DeclarativeExecutor(Executor):
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
         - If `components_py` is provided, components will be injected into the source.
-        - If `components_checksum` is not provided, it will be auto-calculated from components_py.
+        - If `components_py_checksum` is not provided, it will be auto-calculated from components_py.
         """
         _suppress_cdk_pydantic_deprecation_warnings()
 
@@ -66,15 +66,17 @@ class DeclarativeExecutor(Executor):
 
         config_dict: dict[str, Any] = {}
         if components_py:
-            if components_checksum is None:
-                components_checksum = hashlib.md5(components_py.encode()).hexdigest()
+            if isinstance(components_py, Path):
+                components_py = components_py.read_text()
+
+            if components_py_checksum is None:
+                components_py_checksum = hashlib.md5(components_py.encode()).hexdigest()
 
             config_dict["__injected_components_py"] = components_py
             config_dict["__injected_components_py_checksums"] = {
-                "md5": components_checksum,
+                "md5": components_py_checksum,
             }
 
-        self._validate_manifest(self._manifest_dict)
         self.declarative_source = ManifestDeclarativeSource(
             source_config=self._manifest_dict,
             config=config_dict or None,
@@ -91,10 +93,6 @@ class DeclarativeExecutor(Executor):
         """Detect the version of the connector installed."""
         _ = raise_on_error, recheck  # Not used
         return self.reported_version
-
-    def _validate_manifest(self, manifest_dict: dict) -> None:
-        """Validate the manifest."""
-        pass
 
     @property
     def _cli(self) -> list[str]:
