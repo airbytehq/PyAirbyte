@@ -52,7 +52,7 @@ class DeclarativeExecutor(Executor):
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
         - If `components_py` is provided, components will be injected into the source.
-        - If `components_py_checksum` is not provided, it will be auto-calculated from components_py.
+        - If `components_py_checksum` is not provided, it will be calculated automatically.
         """
         _suppress_cdk_pydantic_deprecation_warnings()
 

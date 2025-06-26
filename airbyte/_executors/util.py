@@ -154,7 +154,7 @@ def _get_local_executor(
     )
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915, C901 # Too many branches/arguments/statements
+def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # Too complex
     name: str,
     *,
     version: str | None = None,
