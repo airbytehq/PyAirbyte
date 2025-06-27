@@ -63,7 +63,8 @@ class SnowflakeConfig(SqlConfig):
         if primary_auth_count == 0:
             if has_passphrase:
                 raise ValueError(
-                    "You have to provide a primary authentication method if you want to use a private key passphrase."
+                    "You have to provide a primary authentication method "
+                    "if you want to use a private key passphrase."
                 )
             return
 
@@ -80,15 +81,13 @@ class SnowflakeConfig(SqlConfig):
                 "It can only be used with 'private_key' or 'private_key_path'."
             )
 
-
     def _get_private_key_content(self) -> bytes:
         """Get the private key content from either private_key or private_key_path."""
         if self.private_key:
             return str(self.private_key).encode("utf-8")
-        elif self.private_key_path:
+        if self.private_key_path:
             return Path(self.private_key_path).read_bytes()
-        else:
-            raise ValueError("No private key provided")
+        raise ValueError("No private key provided")
 
     def _get_private_key_bytes(self) -> bytes:
         private_key_content = self._get_private_key_content()
@@ -103,13 +102,11 @@ class SnowflakeConfig(SqlConfig):
             backend=default_backend(),
         )
 
-        private_key_bytes = private_key.private_bytes(
+        return private_key.private_bytes(
             encoding=serialization.Encoding.DER,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption(),
         )
-
-        return private_key_bytes
 
     @overrides
     def get_sql_alchemy_connect_args(self) -> dict[str, Any]:
@@ -168,10 +165,10 @@ class SnowflakeConfig(SqlConfig):
             connection_config["password"] = self.password
         elif self.private_key_path:
             connection_config["private_key_file"] = self.private_key_path
-            connection_config["private_key_file_pwd"] = self.private_key_passphrase
+            connection_config["private_key_file_pwd"] = str(self.private_key_passphrase)
             connection_config["authenticator"] = "SNOWFLAKE_JWT"
         else:
-            connection_config["private_key"] = self._get_private_key_bytes()
+            connection_config["private_key"] = str(self._get_private_key_bytes())
             connection_config["authenticator"] = "SNOWFLAKE_JWT"
 
         return connector.connect(**connection_config)

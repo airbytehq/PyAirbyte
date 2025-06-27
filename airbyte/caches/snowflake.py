@@ -12,7 +12,7 @@ from airbyte.caches import SnowflakeCache
 cache = SnowflakeCache(
     account="myaccount",
     username="myusername",
-    password=ab.get_secret("SNOWFLAKE_PASSWORD"),
+    password=ab.get_secret("SNOWFLAKE_PASSWORD"), # optional
     warehouse="mywarehouse",
     database="mydatabase",
     role="myrole",
@@ -20,7 +20,7 @@ cache = SnowflakeCache(
 )
 ```
 
-# Key pair connection:
+# Private key connection:
 
 ```python
 from airbyte as ab

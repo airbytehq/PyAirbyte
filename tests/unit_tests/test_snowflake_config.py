@@ -360,7 +360,10 @@ class TestValidateAuthenticationConfig:
             role="test_role",
         )
 
-        with pytest.raises(ValueError, match="You have to provide a primary authentication method if you want to use a private key passphrase"):
+        with pytest.raises(
+            ValueError,
+            match="You have to provide a primary authentication method if you want to use a private key passphrase",
+        ):
             config._validate_authentication_config()
 
     def test_validate_multiple_primary_auth_methods(self):
@@ -375,7 +378,10 @@ class TestValidateAuthenticationConfig:
             role="test_role",
         )
 
-        with pytest.raises(ValueError, match="Multiple primary authentication methods provided: password, private_key"):
+        with pytest.raises(
+            ValueError,
+            match="Multiple primary authentication methods provided: password, private_key",
+        ):
             config._validate_authentication_config()
 
     def test_validate_password_and_private_key_path(self):
@@ -390,7 +396,10 @@ class TestValidateAuthenticationConfig:
             role="test_role",
         )
 
-        with pytest.raises(ValueError, match="Multiple primary authentication methods provided: password, private_key_path"):
+        with pytest.raises(
+            ValueError,
+            match="Multiple primary authentication methods provided: password, private_key_path",
+        ):
             config._validate_authentication_config()
 
     def test_validate_all_three_auth_methods(self):
@@ -406,7 +415,10 @@ class TestValidateAuthenticationConfig:
             role="test_role",
         )
 
-        with pytest.raises(ValueError, match="Multiple primary authentication methods provided: password, private_key, private_key_path"):
+        with pytest.raises(
+            ValueError,
+            match="Multiple primary authentication methods provided: password, private_key, private_key_path",
+        ):
             config._validate_authentication_config()
 
     def test_validate_passphrase_with_password(self):
@@ -421,7 +433,10 @@ class TestValidateAuthenticationConfig:
             role="test_role",
         )
 
-        with pytest.raises(ValueError, match="private_key_passphrase cannot be used with password authentication"):
+        with pytest.raises(
+            ValueError,
+            match="private_key_passphrase cannot be used with password authentication",
+        ):
             config._validate_authentication_config()
 
     def test_validate_password_only(self, password_config):
@@ -432,7 +447,9 @@ class TestValidateAuthenticationConfig:
         """Test validation passes with private key authentication only."""
         private_key_config._validate_authentication_config()
 
-    def test_validate_private_key_with_passphrase(self, private_key_with_passphrase_config):
+    def test_validate_private_key_with_passphrase(
+        self, private_key_with_passphrase_config
+    ):
         """Test validation passes with private key and passphrase authentication."""
         private_key_with_passphrase_config._validate_authentication_config()
 
@@ -462,6 +479,7 @@ class TestValidateAuthenticationConfig:
         )
 
         config._validate_authentication_config()
+
 
 def _generate_test_private_key() -> bytes:
     """Generate a test private key for testing purposes."""
