@@ -117,34 +117,35 @@ def _stream_from_subprocess(
         yield _stream_from_file(process.stdout)
         process.wait()
     finally:
-        # Close the stdout stream
-        if process.stdout:
-            process.stdout.close()
+        try:
+            # Terminate the process if it is still running
+            if process.poll() is None:  # Check if the process is still running
+                process.terminate()
+                try:
+                    # Wait for a short period to allow process to terminate gracefully
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    # If the process does not terminate within the timeout, force kill it
+                    process.kill()
 
-        # Terminate the process if it is still running
-        if process.poll() is None:  # Check if the process is still running
-            process.terminate()
-            try:
-                # Wait for a short period to allow process to terminate gracefully
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                # If the process does not terminate within the timeout, force kill it
-                process.kill()
+            # Now, the process is either terminated or killed. Check the exit code.
+            exit_code = process.wait()
 
-        # Now, the process is either terminated or killed. Check the exit code.
-        exit_code = process.wait()
-
-        # If the exit code is not 0 or -15 (SIGTERM), raise an exception
-        if exit_code not in {0, -15}:
-            raise exc.AirbyteSubprocessFailedError(
-                run_args=args,
-                exit_code=exit_code,
-                original_exception=(
-                    exception_holder.exception
-                    if not isinstance(exception_holder.exception, BrokenPipeError)
-                    else None
-                ),
-            )
+            # If the exit code is not 0 or -15 (SIGTERM), raise an exception
+            if exit_code not in {0, -15}:
+                raise exc.AirbyteSubprocessFailedError(
+                    run_args=args,
+                    exit_code=exit_code,
+                    original_exception=(
+                        exception_holder.exception
+                        if not isinstance(exception_holder.exception, BrokenPipeError)
+                        else None
+                    ),
+                )
+        finally:
+            # Close the stdout stream
+            if process.stdout:
+                process.stdout.close()
 
 
 class Executor(ABC):
