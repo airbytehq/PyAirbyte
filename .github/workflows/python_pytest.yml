@@ -136,7 +136,7 @@ jobs:
         name: pytest-no-creds-test-logs
         path: /tmp/airbyte/logs/
 
-  pytest:
+  pytest-matrix:
     name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
     # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
     if: >
