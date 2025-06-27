@@ -152,7 +152,7 @@ class SnowflakeConfig(SqlConfig):
         """Return the Snowflake connection object."""
         self._validate_authentication_config()
 
-        connection_config = {
+        connection_config: dict[str, Any] = {
             "user": self.username,
             "account": self.account,
             "warehouse": self.warehouse,
@@ -165,10 +165,11 @@ class SnowflakeConfig(SqlConfig):
             connection_config["password"] = self.password
         elif self.private_key_path:
             connection_config["private_key_file"] = self.private_key_path
-            connection_config["private_key_file_pwd"] = str(self.private_key_passphrase)
+            if self.private_key_passphrase:
+                connection_config["private_key_file_pwd"] = self.private_key_passphrase
             connection_config["authenticator"] = "SNOWFLAKE_JWT"
         else:
-            connection_config["private_key"] = str(self._get_private_key_bytes())
+            connection_config["private_key"] = self._get_private_key_bytes()
             connection_config["authenticator"] = "SNOWFLAKE_JWT"
 
         return connector.connect(**connection_config)
