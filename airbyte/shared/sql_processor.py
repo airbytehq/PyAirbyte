@@ -9,7 +9,7 @@ import enum
 from collections import defaultdict
 from contextlib import contextmanager
 from functools import cached_property
-from typing import TYPE_CHECKING, cast, final
+from typing import TYPE_CHECKING, Any, cast, final
 
 import pandas as pd
 import sqlalchemy
@@ -128,6 +128,10 @@ class SqlConfig(BaseModel, abc.ABC):
         """Return a list of clauses to append on CREATE TABLE statements."""
         return []
 
+    def get_sql_alchemy_connect_args(self) -> dict[str, Any]:
+        """Return the SQL Alchemy connect_args."""
+        return {}
+
     def get_sql_engine(self) -> Engine:
         """Return a new SQL engine to use."""
         return create_engine(
@@ -137,6 +141,7 @@ class SqlConfig(BaseModel, abc.ABC):
                 "schema_translate_map": {None: self.schema_name},
             },
             future=True,
+            connect_args=self.get_sql_alchemy_connect_args(),
         )
 
     def get_vendor_client(self) -> object:
