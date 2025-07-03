@@ -6,6 +6,7 @@ from __future__ import annotations
 import abc
 import functools
 import re
+import uuid
 from typing import TYPE_CHECKING
 
 from airbyte import exceptions as exc
@@ -68,6 +69,10 @@ class LowerCaseNormalizer(NameNormalizerBase):
         - "-1" -> "_1"
         """
         result = name
+        if not result:
+            # Use a short hash of the original name to avoid collisions.
+            uuid_suffix = uuid.uuid1().hex[:4]
+            return f"undefined_key_{uuid_suffix}"
 
         # Replace all non-alphanumeric characters with underscores.
         result = re.sub(r"[^A-Za-z0-9]", "_", result.lower())
