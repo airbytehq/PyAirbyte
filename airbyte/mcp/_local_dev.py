@@ -6,6 +6,7 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
+from airbyte.mcp._local_code_templates import DOCS_TEMPLATE, SCRIPT_TEMPLATE
 from airbyte.sources import get_available_connectors
 
 
@@ -50,80 +51,29 @@ def generate_pyairbyte_pipeline(
             )
         }
 
-    pipeline_code = f'''#!/usr/bin/env python3
-"""
-{pipeline_name} - PyAirbyte Pipeline
-Generated pipeline for {source_connector_name} -> {destination_connector_name}
-"""
-
-import airbyte as ab
-
-def main():
-    """Main pipeline function."""
-    source = ab.get_source(
-        "{source_connector_name}",
-        config={{
-        }}
+    # Generate the pipeline code
+    pipeline_code = SCRIPT_TEMPLATE.format(
+        source_connector_name=source_connector_name,
+        source_config_dict={},  # Placeholder for source config
+        destination_connector_name=destination_connector_name,
+        destination_config_dict={},  # Placeholder for destination config
     )
 
-    destination = ab.get_destination(
-        "{destination_connector_name}",
-        config={{
-        }}
+    pipeline_id = pipeline_name.lower().replace(" ", "_").replace("'", "")
+    source_short_name = source_connector_name.replace("source-", "")
+    destination_short_name = destination_connector_name.replace("destination-", "")
+    setup_instructions = DOCS_TEMPLATE.format(
+        source_connector_name=source_short_name,
+        destination_connector_name=destination_short_name,
+        pipeline_id=pipeline_id,
+        source_short_name=source_short_name,
+        dest_short_name=destination_short_name,
     )
-
-    read_result = source.read()
-
-    write_result = destination.write(read_result)
-
-    print(f"Pipeline completed successfully!")
-    print(f"Records processed: {{write_result.processed_records}}")
-
-if __name__ == "__main__":
-    main()
-'''
-
-    source_name = source_connector_name.replace("source-", "")
-    dest_name = destination_connector_name.replace("destination-", "")
-
-    setup_instructions = f"""# {pipeline_name} Setup Instructions
-
-1. Install PyAirbyte:
-   ```bash
-   pip install airbyte
-   ```
-
-2. Install the required connectors:
-   ```bash
-   python -c "import airbyte as ab; ab.get_source('{source_connector_name}').install()"
-   python -c "import airbyte as ab; ab.get_destination('{destination_connector_name}').install()"
-   ```
-
-## Configuration
-1. Update the source configuration in the pipeline script with your actual connection details
-2. Update the destination configuration in the pipeline script with your actual connection details
-3. Refer to the Airbyte documentation for each connector's required configuration fields
-
-## Running the Pipeline
-```bash
-python {pipeline_name.lower().replace(' ', '_')}.py
-```
-
-- Configure your source and destination connectors with actual credentials
-- Add error handling and logging as needed
-- Consider using environment variables for sensitive configuration
-- Add stream selection if you only need specific data streams
-- Set up scheduling using your preferred orchestration tool (Airflow, Dagster, etc.)
-
-- Source connector docs: https://docs.airbyte.com/integrations/sources/{source_name}
-- Destination connector docs: https://docs.airbyte.com/integrations/destinations/{dest_name}
-- PyAirbyte docs: https://docs.airbyte.com/using-airbyte/pyairbyte/getting-started
-"""
 
     return {
         "code": pipeline_code,
         "instructions": setup_instructions,
-        "filename": f"{pipeline_name.lower().replace(' ', '_')}.py",
+        "filename": f"{pipeline_id}.py",
     }
 
 
