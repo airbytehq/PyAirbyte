@@ -1,16 +1,81 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Internal utility functions for MCP."""
 
+import logging
 import os
+import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 import dotenv
+import structlog
 import yaml
 
+from airbyte.constants import NO_LIVE_PROGRESS
+from airbyte.logs import AIRBYTE_STRUCTURED_LOGGING
 from airbyte.secrets import GoogleGSMSecretManager, register_secret_manager
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret, is_secret_available
+
+
+if not NO_LIVE_PROGRESS:
+    os.environ["NO_LIVE_PROGRESS"] = "1"
+
+
+@lru_cache
+def get_mcp_logger() -> logging.Logger | structlog.BoundLogger:
+    """Get a logger for MCP server operations that respects structured logging settings."""
+    if AIRBYTE_STRUCTURED_LOGGING:
+        structlog.configure(
+            processors=[
+                structlog.processors.TimeStamper(fmt="%Y-%m-%d %H:%M:%S"),
+                structlog.stdlib.add_log_level,
+                structlog.stdlib.PositionalArgumentsFormatter(),
+                structlog.processors.StackInfoRenderer(),
+                structlog.processors.format_exc_info,
+                structlog.processors.JSONRenderer(),
+            ],
+            context_class=dict,
+            logger_factory=structlog.stdlib.LoggerFactory(),
+            wrapper_class=structlog.stdlib.BoundLogger,
+            cache_logger_on_first_use=True,
+        )
+
+        logger = logging.getLogger("airbyte.mcp")
+        logger.setLevel(logging.INFO)
+        logger.propagate = False
+
+        for handler in logger.handlers:
+            logger.removeHandler(handler)
+
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+
+        return structlog.get_logger("airbyte.mcp")
+    logger = logging.getLogger("airbyte.mcp")
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    for handler in logger.handlers:
+        logger.removeHandler(handler)
+
+    handler = logging.StreamHandler(sys.stderr)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+
+    return logger
+
+
+def log_mcp_message(message: str, level: str = "info", **kwargs: Any) -> None:
+    """Log a message using the MCP logger with appropriate formatting."""
+    logger = get_mcp_logger()
+
+    if AIRBYTE_STRUCTURED_LOGGING:
+        getattr(logger, level)(message, **kwargs)
+    else:
+        getattr(logger, level)(message)
 
 
 AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"

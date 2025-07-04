@@ -1,7 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Local MCP operations."""
 
-import sys
 import traceback
 from itertools import islice
 from pathlib import Path
@@ -12,7 +11,7 @@ from pydantic import Field
 
 from airbyte import get_source
 from airbyte.caches.util import get_default_cache
-from airbyte.mcp._util import resolve_config
+from airbyte.mcp._util import log_mcp_message, resolve_config
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.registry import get_connector_metadata
@@ -209,7 +208,13 @@ def read_source_stream_records(
         # Next we load a limited number of records from the generator into our list.
         records: list[dict[str, Any]] = list(islice(record_generator, max_records))
 
-        print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
+        log_mcp_message(
+            f"Retrieved {len(records)} records from stream '{stream_name}'",
+            component="local_ops",
+            event="records_retrieved",
+            stream_name=stream_name,
+            record_count=len(records),
+        )
 
     except Exception as ex:
         tb_str = traceback.format_exc()

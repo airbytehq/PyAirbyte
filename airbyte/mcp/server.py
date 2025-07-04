@@ -9,7 +9,7 @@ from fastmcp import FastMCP
 from airbyte.mcp._cloud_ops import register_cloud_ops_tools
 from airbyte.mcp._connector_registry import register_connector_registry_tools
 from airbyte.mcp._local_ops import register_local_ops_tools
-from airbyte.mcp._util import initialize_secrets
+from airbyte.mcp._util import initialize_secrets, log_mcp_message
 
 
 initialize_secrets()
@@ -22,16 +22,24 @@ register_cloud_ops_tools(app)
 
 def main() -> None:
     """Main entry point for the MCP server."""
-    print("Starting Airbyte MCP server.", file=sys.stderr)
+    log_mcp_message("Starting Airbyte MCP server", component="mcp_server", event="startup")
     try:
         asyncio.run(app.run_stdio_async())
     except KeyboardInterrupt:
-        print("Airbyte MCP server interrupted by user.", file=sys.stderr)
+        log_mcp_message(
+            "Airbyte MCP server interrupted by user", component="mcp_server", event="interrupt"
+        )
     except Exception as ex:
-        print(f"Error running Airbyte MCP server: {ex}", file=sys.stderr)
+        log_mcp_message(
+            f"Error running Airbyte MCP server: {ex}",
+            level="error",
+            component="mcp_server",
+            event="error",
+            error=str(ex),
+        )
         sys.exit(1)
 
-    print("Airbyte MCP server stopped.", file=sys.stderr)
+    log_mcp_message("Airbyte MCP server stopped", component="mcp_server", event="shutdown")
 
 
 if __name__ == "__main__":
