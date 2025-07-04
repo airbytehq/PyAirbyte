@@ -20,9 +20,12 @@ def generate_pyairbyte_pipeline(
         Field(description="The name of the destination connector (e.g., 'destination-duckdb')."),
     ],
     pipeline_name: Annotated[
-        str,
-        Field(description="A descriptive name for the pipeline."),
-    ] = "my_pipeline",
+        str | None,
+        Field(
+            description="A descriptive name for the pipeline. "
+            "If not provided, a default name will be generated.",
+        ),
+    ] = None,
 ) -> dict[str, str]:
     """Generate a PyAirbyte pipeline script with setup instructions.
 
@@ -33,8 +36,13 @@ def generate_pyairbyte_pipeline(
     Returns a dictionary with 'code' and 'instructions' keys containing the
     generated pipeline script and setup instructions respectively.
     """
-    available_connectors = get_available_connectors()
+    source_short_name = source_connector_name.replace("source-", "")
+    destination_short_name = destination_connector_name.replace("destination-", "")
+    if not pipeline_name:
+        pipeline_name = f"{source_short_name}_to_{destination_short_name}_pipeline"
 
+    pipeline_id = pipeline_name.lower().replace(" ", "_").replace("'", "")
+    available_connectors: list[str] = get_available_connectors()
     if source_connector_name not in available_connectors:
         return {
             "error": (
@@ -51,18 +59,14 @@ def generate_pyairbyte_pipeline(
             )
         }
 
-    # Generate the pipeline code
-    pipeline_code = SCRIPT_TEMPLATE.format(
+    pipeline_code: str = SCRIPT_TEMPLATE.format(
         source_connector_name=source_connector_name,
         source_config_dict={},  # Placeholder for source config
         destination_connector_name=destination_connector_name,
         destination_config_dict={},  # Placeholder for destination config
     )
 
-    pipeline_id = pipeline_name.lower().replace(" ", "_").replace("'", "")
-    source_short_name = source_connector_name.replace("source-", "")
-    destination_short_name = destination_connector_name.replace("destination-", "")
-    setup_instructions = DOCS_TEMPLATE.format(
+    setup_instructions: str = DOCS_TEMPLATE.format(
         source_connector_name=source_short_name,
         destination_connector_name=destination_short_name,
         pipeline_id=pipeline_id,
