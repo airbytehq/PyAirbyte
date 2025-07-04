@@ -175,20 +175,6 @@ if __name__ == "__main__":
 """
 
 
-def get_full_script_text(
-    source_connector_name: str,
-    source_config_dict: dict,
-    destination_connector_name: str,
-    destination_config_dict: dict,
-) -> str:
-    return SCRIPT_TEMPLATE.format(
-        source_name=source_connector_name,
-        source_config_dict=source_config_dict,
-        destination_name=destination_connector_name,
-        destination_config_dict=destination_config_dict,
-    )
-
-
 DOCS_TEMPLATE = """# PyAirbyte Pipeline Setup Instructions
 
 1. Install PyAirbyte:
