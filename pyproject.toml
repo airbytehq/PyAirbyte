@@ -51,6 +51,7 @@ sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
 sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }
 typing-extensions = "*"
 uuid7 = "^0.1.0"
+fastmcp = "^2.8.1"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
@@ -75,6 +76,7 @@ types-jsonschema = "^4.20.0.0"
 types-pyyaml = "^6.0.12.12"
 types-requests = "2.31.0.4"
 viztracer = ">=0.16.3,<1.1.0"
+pydantic-ai = {extras = ["mcp"], version = "^0.2.16"}
 
 [build-system]
 requires = ["poetry-core>=1.0.0,<2.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
@@ -109,7 +111,6 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # CDK has these refs:
     "ignore::pydantic.warnings.PydanticDeprecatedSince20",
 ]
-
 
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
@@ -175,6 +176,7 @@ venv = ".venv"
 [tool.poetry.scripts]
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
+airbyte-mcp = "airbyte.mcp.server:main"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }

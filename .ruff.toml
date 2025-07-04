@@ -119,7 +119,6 @@ known-first-party = [
     "airbyte_protocol_dataclasses",
 ]
 known-local-folder = ["airbyte"]
-required-imports = ["from __future__ import annotations"]
 known-third-party = []
 section-order = [
     "future",
