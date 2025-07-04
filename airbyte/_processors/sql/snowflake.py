@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from textwrap import indent
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
 from overrides import overrides
 from pydantic import Field
 from snowflake import connector
@@ -24,8 +27,6 @@ from airbyte.types import SQLTypeConverter
 
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from sqlalchemy.engine import Connection
 
 
@@ -37,12 +38,82 @@ class SnowflakeConfig(SqlConfig):
 
     account: str
     username: str
-    password: SecretString
+    password: SecretString | None = None
+
+    private_key: SecretString | None = None
+    private_key_path: str | None = None
+    private_key_passphrase: SecretString | None = None
+
     warehouse: str
     database: str
     role: str
     schema_name: str = Field(default=DEFAULT_CACHE_SCHEMA_NAME)
     data_retention_time_in_days: int | None = None
+
+    def _validate_authentication_config(self) -> None:
+        """Validate that authentication configuration is correct."""
+        auth_methods = {
+            "password": self.password is not None,
+            "private_key": self.private_key is not None,
+            "private_key_path": self.private_key_path is not None,
+        }
+        has_passphrase = self.private_key_passphrase is not None
+        primary_auth_count = sum(auth_methods.values())
+
+        if primary_auth_count == 0:
+            if has_passphrase:
+                raise ValueError(
+                    "You have to provide a primary authentication method "
+                    "if you want to use a private key passphrase."
+                )
+            return
+
+        if primary_auth_count > 1:
+            provided_methods = [method for method, has_method in auth_methods.items() if has_method]
+            raise ValueError(
+                f"Multiple primary authentication methods provided: {', '.join(provided_methods)}. "
+                "Please provide only one of: 'password', 'private_key', or 'private_key_path'."
+            )
+
+        if has_passphrase and auth_methods["password"]:
+            raise ValueError(
+                "private_key_passphrase cannot be used with password authentication. "
+                "It can only be used with 'private_key' or 'private_key_path'."
+            )
+
+    def _get_private_key_content(self) -> bytes:
+        """Get the private key content from either private_key or private_key_path."""
+        if self.private_key:
+            return str(self.private_key).encode("utf-8")
+        if self.private_key_path:
+            return Path(self.private_key_path).read_bytes()
+        raise ValueError("No private key provided")
+
+    def _get_private_key_bytes(self) -> bytes:
+        private_key_content = self._get_private_key_content()
+
+        passphrase = None
+        if self.private_key_passphrase:
+            passphrase = str(self.private_key_passphrase).encode("utf-8")
+
+        private_key = serialization.load_pem_private_key(
+            private_key_content,
+            password=passphrase,
+            backend=default_backend(),
+        )
+
+        return private_key.private_bytes(
+            encoding=serialization.Encoding.DER,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+    @overrides
+    def get_sql_alchemy_connect_args(self) -> dict[str, Any]:
+        """Return the SQL Alchemy connect_args."""
+        if self.private_key is None and self.private_key_path is None:
+            return {}
+        return {"private_key": self._get_private_key_bytes()}
 
     @overrides
     def get_create_table_extra_clauses(self) -> list[str]:
@@ -62,29 +133,46 @@ class SnowflakeConfig(SqlConfig):
     @overrides
     def get_sql_alchemy_url(self) -> SecretString:
         """Return the SQLAlchemy URL to use."""
-        return SecretString(
-            URL(
-                account=self.account,
-                user=self.username,
-                password=self.password,
-                database=self.database,
-                warehouse=self.warehouse,
-                schema=self.schema_name,
-                role=self.role,
-            )
-        )
+        self._validate_authentication_config()
+
+        config = {
+            "account": self.account,
+            "user": self.username,
+            "database": self.database,
+            "warehouse": self.warehouse,
+            "schema": self.schema_name,
+            "role": self.role,
+        }
+        # password is absent when using key pair authentication
+        if self.password:
+            config["password"] = self.password
+        return SecretString(URL(**config))
 
     def get_vendor_client(self) -> object:
         """Return the Snowflake connection object."""
-        return connector.connect(
-            user=self.username,
-            password=self.password,
-            account=self.account,
-            warehouse=self.warehouse,
-            database=self.database,
-            schema=self.schema_name,
-            role=self.role,
-        )
+        self._validate_authentication_config()
+
+        connection_config: dict[str, Any] = {
+            "user": self.username,
+            "account": self.account,
+            "warehouse": self.warehouse,
+            "database": self.database,
+            "schema": self.schema_name,
+            "role": self.role,
+        }
+
+        if self.password:
+            connection_config["password"] = self.password
+        elif self.private_key_path:
+            connection_config["private_key_file"] = self.private_key_path
+            if self.private_key_passphrase:
+                connection_config["private_key_file_pwd"] = self.private_key_passphrase
+            connection_config["authenticator"] = "SNOWFLAKE_JWT"
+        else:
+            connection_config["private_key"] = self._get_private_key_bytes()
+            connection_config["authenticator"] = "SNOWFLAKE_JWT"
+
+        return connector.connect(**connection_config)
 
 
 class SnowflakeTypeConverter(SQLTypeConverter):

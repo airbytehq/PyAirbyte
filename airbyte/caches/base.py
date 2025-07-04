@@ -90,11 +90,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
         # Initialize the catalog and state backends
         self._catalog_backend = SqlCatalogBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
         self._state_backend = SqlStateBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
 
@@ -312,6 +312,13 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             streams = source.get_selected_streams() or "*"
 
         catalog_provider = CatalogProvider(source.get_configured_catalog(streams=streams))
+
+        # Register the incoming source catalog
+        self.register_source(
+            source_name=source.name,
+            incoming_source_catalog=catalog_provider.configured_catalog,
+            stream_names=set(catalog_provider.stream_names),
+        )
 
         # Ensure schema exists
         self.processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
