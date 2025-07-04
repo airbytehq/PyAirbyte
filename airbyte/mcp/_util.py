@@ -68,7 +68,9 @@ def get_mcp_logger() -> logging.Logger | structlog.BoundLogger:
     return logger
 
 
-def log_mcp_message(message: str, level: str = "info", **kwargs: Any) -> None:
+def log_mcp_message(
+    message: str, level: str = "info", **kwargs: str | float | bool | None
+) -> None:
     """Log a message using the MCP logger with appropriate formatting."""
     logger = get_mcp_logger()
 
