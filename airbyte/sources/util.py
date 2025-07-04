@@ -104,6 +104,8 @@ def get_source(  # noqa: PLR0913 # Too many arguments
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
     """
+    streams = streams or "suggested"
+
     return Source(
         name=name,
         config=config,
@@ -168,7 +170,7 @@ def get_benchmark_source(
                 "max": num_records,
             },
         },
-        streams="*",
+        streams=None,
         install_if_missing=install_if_missing,
     )
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
@@ -32,6 +32,7 @@ from airbyte.progress import ProgressStyle, ProgressTracker
 from airbyte.records import StreamRecord, StreamRecordHandler
 from airbyte.results import ReadResult
 from airbyte.shared.catalog_providers import CatalogProvider
+from airbyte.sources.registry import get_connector_metadata
 from airbyte.strategies import WriteStrategy
 
 
@@ -70,7 +71,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
         If config is provided, it will be validated against the spec if validate is True.
         """
-        self._to_be_selected_streams: list[str] | str = []
+        self._to_be_selected_streams: list[str] | str | None = []
         """Used to hold selection criteria before catalog is known."""
 
         super().__init__(
@@ -80,6 +81,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             config_change_callback=config_change_callback,
             validate=validate,
         )
+        self._executor = executor
         self._config_dict: dict[str, Any] | None = None
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
@@ -223,22 +225,34 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
         self._selected_stream_names = self.get_available_streams()
 
-    def select_streams(self, streams: str | list[str]) -> None:
+    def select_streams(self, streams: str | list[str] | None = None) -> None:
         """Select the stream names that should be read from the connector.
 
         Args:
             streams: A list of stream names to select. If set to "*", all streams will be selected.
+                    If set to "suggested" or None, suggested streams will be used if available,
+                    otherwise all streams will be selected.
 
-        Currently, if this is not set, all streams will be read.
+        Currently, if this is not set, suggested streams will be used if available,
+        otherwise all streams will be read.
         """
         if self._config_dict is None:
             self._to_be_selected_streams = streams
-            self._log_warning_preselected_stream(streams)
+            if streams is not None:
+                self._log_warning_preselected_stream(streams)
             return
 
         if streams == "*":
             self.select_all_streams()
             return
+
+        if streams is None or streams == "suggested":
+            suggested_streams = self.get_suggested_streams(none_if_na=True)
+            if suggested_streams:
+                streams = suggested_streams
+            else:
+                self.select_all_streams()
+                return
 
         if isinstance(streams, str):
             # If a single stream is provided, convert it to a one-item list
@@ -304,6 +318,46 @@ class Source(ConnectorBase):  # noqa: PLR0904
     def get_available_streams(self) -> list[str]:
         """Get the available streams from the spec."""
         return [s.name for s in self.discovered_catalog.streams]
+
+    @overload
+    def get_suggested_streams(self, *, none_if_na: Literal[False] = False) -> list[str]: ...
+
+    @overload
+    def get_suggested_streams(self, *, none_if_na: bool) -> list[str] | None: ...
+
+    def get_suggested_streams(self, *, none_if_na: bool = False) -> list[str] | None:
+        """Get the suggested streams for this connector.
+
+        Args:
+            none_if_na: If True, return None when no suggestions available.
+                       If False, return all available streams as fallback.
+
+        Returns:
+            List of suggested stream names if available.
+            If none_if_na=True: None when no suggestions available.
+            If none_if_na=False: All available streams when no suggestions available.
+
+        For manifest-only connectors, this fetches from metadata.yaml.
+        For registry-based connectors, this uses the registry suggested_streams.
+        """
+        if (
+            hasattr(self._executor, "_metadata_dict")
+            and getattr(self._executor, "_metadata_dict", None)
+        ):
+            metadata = self._executor._metadata_dict  # noqa: SLF001
+            suggested_streams_data = metadata.get("data", {}).get("suggestedStreams", {})
+            suggested_streams = suggested_streams_data.get("streams")
+            if suggested_streams:
+                return suggested_streams
+
+        try:
+            metadata = get_connector_metadata(self.name)
+            if metadata and metadata.suggested_streams:
+                return metadata.suggested_streams
+        except Exception:
+            pass
+
+        return None if none_if_na else self.get_available_streams()
 
     def _get_incremental_stream_names(self) -> list[str]:
         """Get the name of streams that support incremental sync."""
@@ -434,7 +488,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
     def get_configured_catalog(
         self,
-        streams: Literal["*"] | list[str] | None = None,
+        streams: Literal["*", "suggested"] | list[str] | None = None,
     ) -> ConfiguredAirbyteCatalog:
         """Get a configured catalog for the given streams.
 
@@ -445,9 +499,19 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """
         selected_streams: list[str] = []
         if streams is None:
-            selected_streams = self._selected_stream_names or self.get_available_streams()
+            suggested_streams = self.get_suggested_streams(none_if_na=True)
+            if suggested_streams and isinstance(suggested_streams, list):
+                selected_streams = suggested_streams
+            else:
+                selected_streams = self._selected_stream_names or self.get_available_streams()
         elif streams == "*":
             selected_streams = self.get_available_streams()
+        elif streams == "suggested":
+            suggested_streams = self.get_suggested_streams(none_if_na=True)
+            if suggested_streams and isinstance(suggested_streams, list):
+                selected_streams = suggested_streams
+            else:
+                selected_streams = self.get_available_streams()
         elif isinstance(streams, list):
             selected_streams = streams
         else:
@@ -607,7 +671,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
     def _get_airbyte_message_iterator(
         self,
         *,
-        streams: Literal["*"] | list[str] | None = None,
+        streams: Literal["*", "suggested"] | list[str] | None = None,
         state_provider: StateProviderBase | None = None,
         progress_tracker: ProgressTracker,
         force_full_refresh: bool = False,

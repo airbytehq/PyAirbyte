@@ -297,7 +297,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     def create_source_tables(
         self,
         source: Source,
-        streams: Literal["*"] | list[str] | None = None,
+        streams: Literal["*", "suggested"] | list[str] | None = None,
     ) -> None:
         """Create tables in the cache for the provided source if they do not exist already.
 

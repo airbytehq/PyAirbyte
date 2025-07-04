@@ -252,7 +252,6 @@ def sync_source_to_cache(
     cache = get_default_cache()
 
     if isinstance(streams, str) and streams == "suggested":
-        streams = "*"  # Default to all streams if 'suggested' is not otherwise specified.
         try:
             metadata = get_connector_metadata(
                 source_connector_name,
@@ -260,8 +259,7 @@ def sync_source_to_cache(
         except Exception:
             streams = "*"  # Fallback to all streams if suggested streams fail.
         else:
-            if metadata is not None:
-                streams = metadata.suggested_streams or "*"
+            streams = metadata.suggested_streams or "*" if metadata is not None else "*"
 
     if isinstance(streams, str) and streams != "*":
         streams = [streams]  # Ensure streams is a list

@@ -192,7 +192,7 @@ def _resolve_source_job(
         pip_url: Optional. A location from which to install the connector.
     """
     config_dict = _resolve_config(config) if config else None
-    streams_list: str | list[str] = streams or "*"
+    streams_list: str | list[str] = streams or "suggested"
     if isinstance(streams, str) and streams != "*":
         streams_list = [stream.strip() for stream in streams.split(",")]
 
@@ -394,7 +394,7 @@ def validate(
 )
 def benchmark(
     source: str | None = None,
-    streams: str = "*",
+    streams: str = "suggested",
     num_records: int | str = "5e5",  # 500,000 records
     destination: str | None = None,
     config: str | None = None,

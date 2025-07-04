@@ -27,12 +27,92 @@ if TYPE_CHECKING:
 
 
 VERSION_LATEST = "latest"
-DEFAULT_MANIFEST_URL = (
-    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
+DEFAULT_CONNECTOR_REGISTRY_URL_ROOT = (
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/"
 )
-DEFAULT_COMPONENTS_URL = (
-    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/components.py"
-)
+MANIFEST_FILENAME = "manifest.yaml"
+COMPONENTS_FILENAME = "components.py"
+METADATA_FILENAME = "metadata.yaml"
+
+
+def _try_get_connector_registry_files(
+    source_name: str,
+    version: str | None = None,
+    filenames: list[str] | None = None,
+) -> dict[str, str | dict | None]:
+    """Try to get connector files from registry URLs.
+
+    Args:
+        source_name: The connector name.
+        version: The connector version.
+        filenames: List of filenames to fetch. If None, defaults to all known files.
+
+    Returns:
+        Dictionary mapping filename to content (None if file not found/404).
+
+    Raises:
+        - `PyAirbyteInputError`: If `source_name` is `None`.
+        - `AirbyteConnectorInstallationError`: If files cannot be downloaded or parsed
+          (excluding 404 errors which are handled gracefully).
+    """
+    if source_name is None:
+        raise exc.PyAirbyteInputError(
+            message="Param 'source_name' is required.",
+        )
+
+    if AIRBYTE_OFFLINE_MODE:
+        return dict.fromkeys(
+            filenames or [MANIFEST_FILENAME, COMPONENTS_FILENAME, METADATA_FILENAME]
+        )
+
+    if filenames is None:
+        filenames = [MANIFEST_FILENAME, COMPONENTS_FILENAME, METADATA_FILENAME]
+
+    cleaned_version = (version or VERSION_LATEST).removeprefix("v")
+    base_url = DEFAULT_CONNECTOR_REGISTRY_URL_ROOT.format(
+        source_name=source_name,
+        version=cleaned_version,
+    )
+
+    results: dict[str, str | dict | None] = {}
+    for filename in filenames:
+        file_url = f"{base_url}{filename}"
+
+        response = requests.get(
+            url=file_url,
+            headers={"User-Agent": f"PyAirbyte/{get_version()}"},
+        )
+
+        if response.status_code == 404:  # noqa: PLR2004
+            results[filename] = None
+            continue
+
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as ex:
+            raise exc.AirbyteConnectorInstallationError(
+                message=f"Failed to download the connector {filename} file.",
+                context={
+                    "file_url": file_url,
+                },
+            ) from ex
+
+        if filename.endswith(".yaml"):
+            try:
+                content_dict = cast("dict", yaml.safe_load(response.text))
+                results[filename] = content_dict
+            except yaml.YAMLError as ex:
+                raise exc.AirbyteConnectorInstallationError(
+                    message=f"Failed to parse the connector {filename} YAML.",
+                    connector_name=source_name,
+                    context={
+                        "file_url": file_url,
+                    },
+                ) from ex
+        else:
+            results[filename] = response.text
+
+    return results
 
 
 def _try_get_manifest_connector_files(
@@ -43,75 +123,57 @@ def _try_get_manifest_connector_files(
 
     Returns tuple of (manifest_dict, components_py_content, components_py_checksum).
     Components values are None if components.py is not found (404 is handled gracefully).
-
-    Raises:
-        - `PyAirbyteInputError`: If `source_name` is `None`.
-        - `AirbyteConnectorInstallationError`: If the manifest cannot be downloaded or parsed,
-          or if components.py cannot be downloaded (excluding 404 errors).
     """
-    if source_name is None:
-        raise exc.PyAirbyteInputError(
-            message="Param 'source_name' is required.",
-        )
-
-    cleaned_version = (version or VERSION_LATEST).removeprefix("v")
-    manifest_url = DEFAULT_MANIFEST_URL.format(
+    files = _try_get_connector_registry_files(
         source_name=source_name,
-        version=cleaned_version,
+        version=version,
+        filenames=[MANIFEST_FILENAME, COMPONENTS_FILENAME],
     )
 
-    response = requests.get(
-        url=manifest_url,
-        headers={"User-Agent": f"PyAirbyte/{get_version()}"},
-    )
-    try:
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as ex:
+    manifest_dict = files[MANIFEST_FILENAME]
+    components_content = files[COMPONENTS_FILENAME]
+
+    if manifest_dict is None:
         raise exc.AirbyteConnectorInstallationError(
             message="Failed to download the connector manifest.",
             context={
-                "manifest_url": manifest_url,
+                "source_name": source_name,
+                "version": version,
             },
-        ) from ex
+        )
 
-    try:
-        manifest_dict = cast("dict", yaml.safe_load(response.text))
-    except yaml.YAMLError as ex:
+    components_py_checksum = None
+    if components_content and isinstance(components_content, str):
+        components_py_checksum = hashlib.md5(components_content.encode()).hexdigest()
+
+    if not isinstance(manifest_dict, dict):
         raise exc.AirbyteConnectorInstallationError(
-            message="Failed to parse the connector manifest YAML.",
-            connector_name=source_name,
+            message="Failed to download the connector manifest.",
             context={
-                "manifest_url": manifest_url,
+                "source_name": source_name,
+                "version": version,
             },
-        ) from ex
+        )
+    
+    return manifest_dict, components_content if isinstance(components_content, str) else None, components_py_checksum
 
-    components_url = DEFAULT_COMPONENTS_URL.format(
+
+def _try_get_connector_metadata_file(
+    source_name: str,
+    version: str | None = None,
+) -> dict | None:
+    """Try to get source metadata.yaml from URL.
+
+    Returns metadata dict if found, None if 404 (graceful handling).
+    """
+    files = _try_get_connector_registry_files(
         source_name=source_name,
-        version=cleaned_version,
+        version=version,
+        filenames=[METADATA_FILENAME],
     )
 
-    response = requests.get(
-        url=components_url,
-        headers={"User-Agent": f"PyAirbyte/{get_version()}"},
-    )
-
-    if response.status_code == 404:  # noqa: PLR2004
-        return manifest_dict, None, None
-
-    try:
-        response.raise_for_status()
-    except requests.exceptions.HTTPError as ex:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Failed to download the connector components.py file.",
-            context={
-                "components_url": components_url,
-            },
-        ) from ex
-
-    components_content = response.text
-    components_py_checksum = hashlib.md5(components_content.encode()).hexdigest()
-
-    return manifest_dict, components_content, components_py_checksum
+    metadata_file = files[METADATA_FILENAME]
+    return metadata_file if isinstance(metadata_file, dict) else None
 
 
 def _get_local_executor(
@@ -324,11 +386,17 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 )
             )
 
+            metadata_dict = _try_get_connector_metadata_file(
+                source_name=name,
+                version=version,
+            )
+
             return DeclarativeExecutor(
                 name=name,
                 manifest=manifest_dict,
                 components_py=components_py,
                 components_py_checksum=components_py_checksum,
+                metadata=metadata_dict,
             )
 
     # else: we are installing a connector in a Python virtual environment:

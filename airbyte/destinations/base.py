@@ -65,7 +65,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         self,
         source_data: Source | ReadResult,
         *,
-        streams: list[str] | Literal["*"] | None = None,
+        streams: list[str] | Literal["*", "suggested"] | None = None,
         cache: CacheBase | Literal[False] | None = None,
         state_cache: CacheBase | Literal[False] | None = None,
         write_strategy: WriteStrategy = WriteStrategy.AUTO,

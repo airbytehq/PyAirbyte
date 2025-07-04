@@ -45,6 +45,7 @@ class DeclarativeExecutor(Executor):
         manifest: dict | Path,
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
+        metadata: dict | None = None,
     ) -> None:
         """Initialize a declarative executor.
 
@@ -57,6 +58,7 @@ class DeclarativeExecutor(Executor):
         _suppress_cdk_pydantic_deprecation_warnings()
 
         self.name = name
+        self._metadata_dict = metadata
         self._manifest_dict: dict
         if isinstance(manifest, Path):
             self._manifest_dict = cast("dict", yaml.safe_load(manifest.read_text()))
