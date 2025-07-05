@@ -176,6 +176,7 @@ class EventType(str, Enum):
     SYNC = "sync"
     VALIDATE = "validate"
     CHECK = "check"
+    MCP_TOOL_CALL = "mcp_tool_call"
 
 
 @lru_cache
@@ -192,6 +193,7 @@ def get_env_flags() -> dict[str, Any]:
             if meta.is_vscode_notebook()
             else False
         ),
+        "MCP_SESSION": os.getenv("AIRBYTE_MCP_SESSION", "false").lower() in {"true", "1", "yes"},
     }
     # Drop these flags if value is False or None
     return {k: v for k, v in flags.items() if v is not None and v is not False}
@@ -306,5 +308,28 @@ def log_install_state(
         cache=None,
         state=state,
         event_type=EventType.INSTALL,
+        exception=exception,
+    )
+
+
+def log_mcp_tool_call(
+    tool_name: str,
+    state: EventState,
+    connector_name: str | None = None,
+    exception: Exception | None = None,
+) -> None:
+    """Log an MCP tool call event."""
+    source_info = (
+        ConnectorRuntimeInfo(name=connector_name or tool_name)
+        if connector_name or tool_name
+        else None
+    )
+
+    send_telemetry(
+        source=source_info,
+        destination=None,
+        cache=None,
+        state=state,
+        event_type=EventType.MCP_TOOL_CALL,
         exception=exception,
     )

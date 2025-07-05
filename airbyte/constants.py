@@ -87,13 +87,13 @@ TEMP_FILE_CLEANUP = _str_to_bool(
 
 NO_LIVE_PROGRESS = _str_to_bool(
     os.getenv(
-        key="NO_LIVE_PROGRESS",
-        default="false",
+        key="AIRBYTE_NO_LIVE_PROGRESS",
+        default=os.getenv(key="NO_LIVE_PROGRESS", default="false"),
     )
 )
 """Whether to disable live progress displays.
 
-When enabled, this prevents Rich live progress views from interfering with MCP client communication
+When set, this prevents Rich live progress views from interfering with MCP client communication
 or other systems that use Rich simultaneously. This value is read from the `NO_LIVE_PROGRESS`
 environment variable. If the variable is not set, the default value is `False`.
 """

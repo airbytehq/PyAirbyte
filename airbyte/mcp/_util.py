@@ -12,6 +12,7 @@ import dotenv
 import structlog
 import yaml
 
+from airbyte._util.telemetry import EventState, log_mcp_tool_call
 from airbyte.constants import NO_LIVE_PROGRESS
 from airbyte.logs import AIRBYTE_STRUCTURED_LOGGING
 from airbyte.secrets import GoogleGSMSecretManager, register_secret_manager
@@ -21,6 +22,8 @@ from airbyte.secrets.util import get_secret, is_secret_available
 
 if not NO_LIVE_PROGRESS:
     os.environ["NO_LIVE_PROGRESS"] = "1"
+
+os.environ["AIRBYTE_MCP_SESSION"] = "true"
 
 
 @lru_cache
@@ -68,9 +71,7 @@ def get_mcp_logger() -> logging.Logger | structlog.BoundLogger:
     return logger
 
 
-def log_mcp_message(
-    message: str, level: str = "info", **kwargs: str | float | bool | None
-) -> None:
+def log_mcp_message(message: str, level: str = "info", **kwargs: str | float | bool | None) -> None:
     """Log a message using the MCP logger with appropriate formatting."""
     logger = get_mcp_logger()
 
@@ -78,6 +79,28 @@ def log_mcp_message(
         getattr(logger, level)(message, **kwargs)
     else:
         getattr(logger, level)(message)
+
+    component = kwargs.get("component")
+    event = kwargs.get("event")
+    connector_name_raw = kwargs.get("connector_name")
+
+    connector_name = str(connector_name_raw) if connector_name_raw is not None else None
+
+    if component and event:
+        tool_name = f"{component}_{event}"
+
+        if level == "error":
+            telemetry_state = EventState.FAILED
+        elif event in {"startup", "records_retrieved", "shutdown", "completed"}:
+            telemetry_state = EventState.SUCCEEDED
+        else:
+            telemetry_state = EventState.STARTED
+
+        log_mcp_tool_call(
+            tool_name=tool_name,
+            state=telemetry_state,
+            connector_name=connector_name,
+        )
 
 
 AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
