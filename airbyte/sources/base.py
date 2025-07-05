@@ -73,6 +73,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """
         self._to_be_selected_streams: list[str] | str | None = []
         """Used to hold selection criteria before catalog is known."""
+        
+        self._initializing: bool = True
+        """Flag to track if we're still in initialization to avoid registry access."""
 
         super().__init__(
             executor=executor,
@@ -101,6 +104,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
             self.set_cursor_keys(**cursor_key_overrides)
         if primary_key_overrides is not None:
             self.set_primary_keys(**primary_key_overrides)
+            
+        self._initializing = False
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -247,12 +252,16 @@ class Source(ConnectorBase):  # noqa: PLR0904
             return
 
         if streams is None or streams == "suggested":
-            suggested_streams = self.get_suggested_streams(none_if_na=True)
-            if suggested_streams:
-                streams = suggested_streams
-            else:
-                self.select_all_streams()
+            if self._config_dict is None or getattr(self, '_initializing', False):
+                self._to_be_selected_streams = streams
                 return
+            else:
+                suggested_streams = self.get_suggested_streams(none_if_na=True)
+                if suggested_streams:
+                    streams = suggested_streams
+                else:
+                    self.select_all_streams()
+                    return
 
         if isinstance(streams, str):
             # If a single stream is provided, convert it to a one-item list
@@ -349,12 +358,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
             if suggested_streams:
                 return suggested_streams
 
-        try:
-            metadata = get_connector_metadata(self.name)
-            if metadata and metadata.suggested_streams:
-                return metadata.suggested_streams
-        except Exception:
-            pass
+        if self._config_dict is not None:
+            try:
+                metadata = get_connector_metadata(self.name)
+                if metadata and metadata.suggested_streams:
+                    return metadata.suggested_streams
+            except Exception:
+                pass
 
         return None if none_if_na else self.get_available_streams()
 
@@ -498,11 +508,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """
         selected_streams: list[str] = []
         if streams is None:
-            suggested_streams = self.get_suggested_streams(none_if_na=True)
-            if suggested_streams and isinstance(suggested_streams, list):
-                selected_streams = suggested_streams
-            else:
-                selected_streams = self._selected_stream_names or self.get_available_streams()
+            selected_streams = self._selected_stream_names or self.get_available_streams()
         elif streams == "*":
             selected_streams = self.get_available_streams()
         elif streams == "suggested":
