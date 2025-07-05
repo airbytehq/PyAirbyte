@@ -73,7 +73,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """
         self._to_be_selected_streams: list[str] | str | None = []
         """Used to hold selection criteria before catalog is known."""
-        
+
         self._initializing: bool = True
         """Flag to track if we're still in initialization to avoid registry access."""
 
@@ -104,7 +104,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             self.set_cursor_keys(**cursor_key_overrides)
         if primary_key_overrides is not None:
             self.set_primary_keys(**primary_key_overrides)
-            
+
         self._initializing = False
 
     def set_streams(self, streams: list[str]) -> None:
@@ -252,16 +252,15 @@ class Source(ConnectorBase):  # noqa: PLR0904
             return
 
         if streams is None or streams == "suggested":
-            if self._config_dict is None or getattr(self, '_initializing', False):
+            if self._config_dict is None or getattr(self, "_initializing", False):
                 self._to_be_selected_streams = streams
                 return
+            suggested_streams = self.get_suggested_streams(none_if_na=True)
+            if suggested_streams:
+                streams = suggested_streams
             else:
-                suggested_streams = self.get_suggested_streams(none_if_na=True)
-                if suggested_streams:
-                    streams = suggested_streams
-                else:
-                    self.select_all_streams()
-                    return
+                self.select_all_streams()
+                return
 
         if isinstance(streams, str):
             # If a single stream is provided, convert it to a one-item list
