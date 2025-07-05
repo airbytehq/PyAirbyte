@@ -346,9 +346,15 @@ class Source(ConnectorBase):  # noqa: PLR0904
             If none_if_na=True: None when no suggestions available.
             If none_if_na=False: All available streams when no suggestions available.
 
-        For manifest-only connectors, this fetches from metadata.yaml.
-        For registry-based connectors, this uses the registry suggested_streams.
+        Prefers registry JSON data over metadata.yaml files for efficiency.
         """
+        try:
+            metadata = get_connector_metadata(self.name)
+            if metadata and metadata.suggested_streams:
+                return metadata.suggested_streams
+        except Exception:
+            pass
+
         if hasattr(self._executor, "_metadata_dict") and getattr(
             self._executor, "_metadata_dict", None
         ):
@@ -357,14 +363,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
             suggested_streams = suggested_streams_data.get("streams")
             if suggested_streams:
                 return suggested_streams
-
-        if self._config_dict is not None:
-            try:
-                metadata = get_connector_metadata(self.name)
-                if metadata and metadata.suggested_streams:
-                    return metadata.suggested_streams
-            except Exception:
-                pass
 
         return None if none_if_na else self.get_available_streams()
 
