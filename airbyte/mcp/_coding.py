@@ -6,7 +6,7 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from airbyte.mcp._local_code_templates import DOCS_TEMPLATE, SCRIPT_TEMPLATE
+from airbyte.mcp._coding_templates import DOCS_TEMPLATE, SCRIPT_TEMPLATE
 from airbyte.sources import get_available_connectors
 
 
@@ -81,6 +81,6 @@ def generate_pyairbyte_pipeline(
     }
 
 
-def register_local_dev_tools(app: FastMCP) -> None:
+def register_coding_tools(app: FastMCP) -> None:
     """Register development tools with the FastMCP app."""
     app.tool(generate_pyairbyte_pipeline)
