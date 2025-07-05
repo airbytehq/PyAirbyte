@@ -97,7 +97,7 @@ def _try_get_connector_registry_files(
                 },
             ) from ex
 
-        if filename.endswith(".yaml"):
+        if filename.endswith((".yaml", ".yml")):
             try:
                 content_dict = cast("dict", yaml.safe_load(response.text))
                 results[filename] = content_dict
@@ -154,8 +154,12 @@ def _try_get_manifest_connector_files(
                 "version": version,
             },
         )
-    
-    return manifest_dict, components_content if isinstance(components_content, str) else None, components_py_checksum
+
+    return (
+        manifest_dict,
+        components_content if isinstance(components_content, str) else None,
+        components_py_checksum,
+    )
 
 
 def _try_get_connector_metadata_file(
