@@ -357,8 +357,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
         if hasattr(self._executor, "_metadata_dict") and getattr(
             self._executor, "_metadata_dict", None
         ):
-            metadata = self._executor._metadata_dict  # noqa: SLF001
-            suggested_streams_data = metadata.get("data", {}).get("suggestedStreams", {})
+            metadata_dict = self._executor._metadata_dict  # noqa: SLF001
+            suggested_streams_data = metadata_dict.get("data", {}).get("suggestedStreams", {})
             suggested_streams = suggested_streams_data.get("streams")
             if suggested_streams:
                 return suggested_streams
