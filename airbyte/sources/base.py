@@ -340,9 +340,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
         For manifest-only connectors, this fetches from metadata.yaml.
         For registry-based connectors, this uses the registry suggested_streams.
         """
-        if (
-            hasattr(self._executor, "_metadata_dict")
-            and getattr(self._executor, "_metadata_dict", None)
+        if hasattr(self._executor, "_metadata_dict") and getattr(
+            self._executor, "_metadata_dict", None
         ):
             metadata = self._executor._metadata_dict  # noqa: SLF001
             suggested_streams_data = metadata.get("data", {}).get("suggestedStreams", {})
