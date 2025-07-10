@@ -69,6 +69,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
         - "-1" -> "_1"
         """
         result = name
+
         # Replace all non-alphanumeric characters with underscores.
         result = re.sub(r"[^A-Za-z0-9]", "_", result.lower())
 
