@@ -256,38 +256,19 @@ def get_global_stats_logger() -> structlog.BoundLogger:
         cache_logger_on_first_use=True,
     )
 
-    logfile_path: Path | None = get_global_stats_log_path()
-    if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
-        # No temp directory available, so return no-op logger without handlers
+    handlers = _get_global_stats_handlers()
+    if len(handlers) == 0:
         return structlog.get_logger("airbyte.stats")
-
-    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}")
 
     # Remove any existing handlers
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    folder = AIRBYTE_LOGGING_ROOT
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        warn_once(
-            f"Failed to create logging directory at '{folder!s}'.",
-            with_stack=False,
-        )
-        return structlog.get_logger("airbyte.stats")
-
-    file_handler = logging.FileHandler(
-        filename=logfile_path,
-        encoding="utf-8",
-    )
-
     # Create a formatter and set it for the handler
     formatter = logging.Formatter("%(message)s")
-    file_handler.setFormatter(formatter)
-
-    # Add the file handler to the logger
-    logger.addHandler(file_handler)
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     # Create a logger
     return structlog.get_logger("airbyte.stats")
@@ -378,6 +359,18 @@ def _get_global_handlers() -> list[logging.Handler]:
     return [h for h in handlers if h is not None]
 
 
+def _get_global_stats_handlers() -> list[logging.Handler]:
+    handlers: list[logging.Handler | None] = []
+    match AIRBYTE_LOGGING_BEHAVIOR:
+        case LoggingBehavior.FILE_ONLY:
+            handlers.append(_get_global_stats_file_handler())
+        case LoggingBehavior.CONSOLE_ONLY:
+            handlers.append(_get_console_handler())
+        case LoggingBehavior.FILE_AND_CONSOLE:
+            handlers.extend([_get_global_stats_file_handler(), _get_console_handler()])
+    return [h for h in handlers if h is not None]
+
+
 def _get_global_file_handler() -> logging.FileHandler | None:
     if AIRBYTE_LOGGING_ROOT is None:
         # No temp directory available, so return None
@@ -397,6 +390,18 @@ def _get_global_file_handler() -> logging.FileHandler | None:
     logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
     print(f"Writing PyAirbyte logs to file: {logfile_path!s}")
 
+    return logging.FileHandler(
+        filename=logfile_path,
+        encoding="utf-8",
+    )
+
+
+def _get_global_stats_file_handler() -> logging.FileHandler | None:
+    logfile_path: Path | None = get_global_stats_log_path()
+    if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
+        return None
+
+    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}")
     return logging.FileHandler(
         filename=logfile_path,
         encoding="utf-8",
