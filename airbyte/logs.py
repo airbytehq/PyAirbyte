@@ -131,42 +131,20 @@ def get_global_file_logger() -> logging.Logger | None:
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    if AIRBYTE_LOGGING_ROOT is None:
-        # No temp directory available, so return None
+    handlers = _get_global_handlers()
+    if len(handlers) == 0:
         return None
-
-    # Else, configure the logger to write to a file
 
     # Remove any existing handlers
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    yyyy_mm_dd: str = ab_datetime_now().strftime("%Y-%m-%d")
-    folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        warn_once(
-            f"Failed to create logging directory at '{folder!s}'.",
-            with_stack=False,
-        )
-        return None
-
-    logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
-    print(f"Writing PyAirbyte logs to file: {logfile_path!s}")
-
-    file_handler = logging.FileHandler(
-        filename=logfile_path,
-        encoding="utf-8",
-    )
-
     if AIRBYTE_STRUCTURED_LOGGING:
-        # Create a formatter and set it for the handler
+        # Create a formatter and set it for the handlers
         formatter = logging.Formatter("%(message)s")
-        file_handler.setFormatter(formatter)
-
-        # Add the file handler to the logger
-        logger.addHandler(file_handler)
+        for handler in handlers:
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
         # Configure structlog
         structlog.configure(
@@ -187,15 +165,15 @@ def get_global_file_logger() -> logging.Logger | None:
         # Create a logger
         return structlog.get_logger("airbyte")
 
-    # Create and configure file handler
-    file_handler.setFormatter(
-        logging.Formatter(
-            fmt="%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+    # Configure handlers
+    formatter = logging.Formatter(
+        fmt="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
-    logger.addHandler(file_handler)
     return logger
 
 
@@ -344,3 +322,36 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
 
     logger.addHandler(file_handler)
     return logger
+
+
+def _get_global_handlers() -> list[logging.Handler]:
+    handlers: list[logging.Handler] = []
+    handlers.append(_get_global_file_handler())
+
+    return [h for h in handlers if h is not None]
+
+
+def _get_global_file_handler() -> logging.FileHandler | None:
+    if AIRBYTE_LOGGING_ROOT is None:
+        # No temp directory available, so return None
+        return None
+
+    yyyy_mm_dd: str = ab_datetime_now().strftime("%Y-%m-%d")
+    folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
+        )
+        return None
+
+    logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
+    print(f"Writing PyAirbyte logs to file: {logfile_path!s}")
+
+    return logging.FileHandler(
+        filename=logfile_path,
+        encoding="utf-8",
+    )
+
