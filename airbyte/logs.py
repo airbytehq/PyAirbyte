@@ -7,13 +7,21 @@ files within the same directory, under a subfolder with the name of the connecto
 
 PyAirbyte supports structured JSON logging, which is disabled by default. To enable structured
 logging in JSON, set `AIRBYTE_STRUCTURED_LOGGING` to `True`.
+
+PyAirbyte supports different logging behaviors controlled by the `AIRBYTE_LOGGING_BEHAVIOR`
+environment variable:
+- `FILE_ONLY`: Write logs only to files (default)
+- `CONSOLE_ONLY`: Write logs only to stdout/stderr
+- `FILE_AND_CONSOLE`: Write logs to both files and stdout/stderr
 """
 
 from __future__ import annotations
 
+import enum
 import logging
 import os
 import platform
+import sys
 import tempfile
 import warnings
 from functools import lru_cache
@@ -25,9 +33,26 @@ import ulid
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
 
+class LoggingBehavior(enum.Enum):
+    """Enumeration for PyAirbyte logging behavior."""
+
+    FILE_ONLY = "FILE_ONLY"
+    CONSOLE_ONLY = "CONSOLE_ONLY"
+    FILE_AND_CONSOLE = "FILE_AND_CONSOLE"
+
+
 def _str_to_bool(value: str) -> bool:
     """Convert a string value of an environment values to a boolean value."""
     return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+
+
+def _parse_logging_behavior(value: str) -> LoggingBehavior:
+    """Parse logging behavior from environment variable string."""
+    default_logging_behavior = LoggingBehavior.FILE_ONLY
+    try:
+        return LoggingBehavior(value.upper())
+    except ValueError:
+        return default_logging_behavior
 
 
 AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
@@ -40,6 +65,22 @@ AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
 
 This value is read from the `AIRBYTE_STRUCTURED_LOGGING` environment variable. If the variable is
 not set, the default value is `False`.
+"""
+
+AIRBYTE_LOGGING_BEHAVIOR: LoggingBehavior = _parse_logging_behavior(
+    os.getenv(
+        key="AIRBYTE_LOGGING_BEHAVIOR",
+        default="FILE_ONLY",
+    )
+)
+"""The logging behavior for PyAirbyte.
+
+This value is read from the `AIRBYTE_LOGGING_BEHAVIOR` environment variable. Valid values are:
+- `FILE_ONLY`: Write logs only to files (default)
+- `CONSOLE_ONLY`: Write logs only to stdout/stderr
+- `FILE_AND_CONSOLE`: Write logs to both files and stdout/stderr
+
+If an invalid value is provided, the default `FILE_ONLY` behavior is used.
 """
 
 _warned_messages: set[str] = set()
@@ -125,7 +166,7 @@ set this value to `None`.
 def get_global_file_logger() -> logging.Logger | None:
     """Return the global logger for PyAirbyte.
 
-    This logger is configured to write logs to the console and to a file in the log directory.
+    This logger is configured based on the AIRBYTE_LOGGING_BEHAVIOR setting.
     """
     logger = logging.getLogger("airbyte")
     logger.setLevel(logging.INFO)
@@ -325,8 +366,14 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
 
 
 def _get_global_handlers() -> list[logging.Handler]:
-    handlers: list[logging.Handler] = []
-    handlers.append(_get_global_file_handler())
+    handlers: list[logging.Handler | None] = []
+    match AIRBYTE_LOGGING_BEHAVIOR:
+        case LoggingBehavior.FILE_ONLY:
+            handlers.append(_get_global_file_handler())
+        case LoggingBehavior.CONSOLE_ONLY:
+            handlers.append(_get_console_handler())
+        case LoggingBehavior.FILE_AND_CONSOLE:
+            handlers.extend([_get_global_file_handler(), _get_console_handler()])
 
     return [h for h in handlers if h is not None]
 
@@ -355,3 +402,6 @@ def _get_global_file_handler() -> logging.FileHandler | None:
         encoding="utf-8",
     )
 
+
+def _get_console_handler() -> logging.StreamHandler:
+    return logging.StreamHandler(sys.stdout)
