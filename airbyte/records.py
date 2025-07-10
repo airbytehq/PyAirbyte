@@ -217,9 +217,10 @@ class StreamRecord(dict[str, Any]):
                 be used.
         """
         # warn if any keys in from_dict are empty and remove them.
-        if "" in from_dict:
-            warn_once(f"Empty key found in StreamRecord. Ignoring.", with_stack=False)
-            from_dict = {k: v for k, v in from_dict.items() if k != ""}
+        for k in from_dict:
+            if not k:
+                warn_once("Empty key found in StreamRecord. Ignoring.", with_stack=False)
+                from_dict = {k: v for k, v in from_dict.items() if k}
 
         self._stream_handler: StreamRecordHandler = stream_record_handler
 
