@@ -176,9 +176,8 @@ def get_global_file_logger() -> logging.Logger | None:
     if len(handlers) == 0:
         return None
 
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
+    # We are going to set our own handlers.
+    _remove_all_handlers(logger)
 
     if AIRBYTE_STRUCTURED_LOGGING:
         # Create a formatter and set it for the handlers
@@ -242,9 +241,8 @@ def get_global_stats_logger() -> structlog.BoundLogger:
     if len(handlers) == 0:
         return structlog.get_logger("airbyte.stats")
 
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
+    # We are going to set our own handlers.
+    _remove_all_handlers(logger)
 
     # Create a formatter and set it for the handler
     formatter = logging.Formatter("%(message)s")
@@ -268,9 +266,8 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     if len(handlers) == 0:
         return logger
 
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
+    # We are going to set our own handlers.
+    _remove_all_handlers(logger)
 
     if AIRBYTE_STRUCTURED_LOGGING:
         # Create a formatter and set it for the handler
@@ -425,3 +422,8 @@ def get_global_stats_log_path() -> Path | None:
         return None
 
     return folder / "airbyte-stats.log"
+
+
+def _remove_all_handlers(logger: logging.Logger) -> None:
+    """Remove all handlers from a logger."""
+    logger.handlers.clear()
