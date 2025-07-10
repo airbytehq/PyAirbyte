@@ -218,24 +218,6 @@ def get_global_file_logger() -> logging.Logger | None:
     return logger
 
 
-def get_global_stats_log_path() -> Path | None:
-    """Return the path to the performance log file."""
-    if AIRBYTE_LOGGING_ROOT is None:
-        return None
-
-    folder = AIRBYTE_LOGGING_ROOT
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        warn_once(
-            f"Failed to create logging directory at '{folder!s}'.",
-            with_stack=False,
-        )
-        return None
-
-    return folder / "airbyte-stats.log"
-
-
 @lru_cache
 def get_global_stats_logger() -> structlog.BoundLogger:
     """Create a stats logger for performance metrics."""
@@ -410,3 +392,21 @@ def _get_global_stats_file_handler() -> logging.FileHandler | None:
 
 def _get_console_handler() -> logging.StreamHandler:
     return logging.StreamHandler(sys.stdout)
+
+
+def get_global_stats_log_path() -> Path | None:
+    """Return the path to the performance log file."""
+    if AIRBYTE_LOGGING_ROOT is None:
+        return None
+
+    folder = AIRBYTE_LOGGING_ROOT
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
+        )
+        return None
+
+    return folder / "airbyte-stats.log"
