@@ -264,37 +264,20 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     # Prevent logging to stderr by stopping propagation to the root logger
     logger.propagate = False
 
-    if AIRBYTE_LOGGING_ROOT is None:
-        # No temp directory available, so return a basic logger
+    handlers = _get_passthrough_handlers(connector_name)
+    if len(handlers) == 0:
         return logger
-
-    # Else, configure the logger to write to a file
 
     # Remove any existing handlers
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    folder = AIRBYTE_LOGGING_ROOT / connector_name
-    folder.mkdir(parents=True, exist_ok=True)
-
-    # Create a file handler
-    global_logger = get_global_file_logger()
-    logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
-    logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
-    print(logfile_msg)
-    if global_logger:
-        global_logger.info(logfile_msg)
-
-    file_handler = logging.FileHandler(logfile_path)
-    file_handler.setLevel(logging.INFO)
-
     if AIRBYTE_STRUCTURED_LOGGING:
         # Create a formatter and set it for the handler
         formatter = logging.Formatter("%(message)s")
-        file_handler.setFormatter(formatter)
-
-        # Add the file handler to the logger
-        logger.addHandler(file_handler)
+        for handler in handlers:
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
         # Configure structlog
         structlog.configure(
@@ -316,15 +299,14 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
         return structlog.get_logger(f"airbyte.{connector_name}")
 
     # Else, write logs in plain text
-
-    file_handler.setFormatter(
-        logging.Formatter(
-            fmt="%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+    formatter = logging.Formatter(
+        fmt="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
-    logger.addHandler(file_handler)
     return logger
 
 
@@ -350,6 +332,18 @@ def _get_global_stats_handlers() -> list[logging.Handler]:
             handlers.append(_get_console_handler())
         case LoggingBehavior.FILE_AND_CONSOLE:
             handlers.extend([_get_global_stats_file_handler(), _get_console_handler()])
+    return [h for h in handlers if h is not None]
+
+
+def _get_passthrough_handlers(connector_name: str) -> list[logging.Handler]:
+    handlers: list[logging.Handler | None] = []
+    match AIRBYTE_LOGGING_BEHAVIOR:
+        case LoggingBehavior.FILE_ONLY:
+            handlers.append(_get_passthrough_file_handler(connector_name))
+        case LoggingBehavior.CONSOLE_ONLY:
+            handlers.append(_get_console_handler())
+        case LoggingBehavior.FILE_AND_CONSOLE:
+            handlers.extend([_get_passthrough_file_handler(connector_name), _get_console_handler()])
     return [h for h in handlers if h is not None]
 
 
@@ -388,6 +382,27 @@ def _get_global_stats_file_handler() -> logging.FileHandler | None:
         filename=logfile_path,
         encoding="utf-8",
     )
+
+
+def _get_passthrough_file_handler(connector_name: str) -> logging.FileHandler | None:
+    if AIRBYTE_LOGGING_ROOT is None:
+        return None
+
+    folder = AIRBYTE_LOGGING_ROOT / connector_name
+    folder.mkdir(parents=True, exist_ok=True)
+
+    # Create a file handler
+    global_logger = get_global_file_logger()
+    logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
+    logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
+    print(logfile_msg)
+    if global_logger:
+        global_logger.info(logfile_msg)
+
+    file_handler = logging.FileHandler(logfile_path)
+    file_handler.setLevel(logging.INFO)
+
+    return file_handler
 
 
 def _get_console_handler() -> logging.StreamHandler:
