@@ -81,6 +81,7 @@ from airbyte.constants import (
     AB_META_COLUMN,
     AB_RAW_ID_COLUMN,
 )
+from airbyte.logs import warn_once
 
 
 if TYPE_CHECKING:
@@ -215,6 +216,11 @@ class StreamRecord(dict[str, Any]):
             extracted_at: The time the record was extracted. If not provided, the current time will
                 be used.
         """
+        # warn if any keys in from_dict are empty and remove them.
+        if "" in from_dict:
+            warn_once(f"Empty key found in StreamRecord. Ignoring.", with_stack=False)
+            del from_dict[""]
+
         self._stream_handler: StreamRecordHandler = stream_record_handler
 
         # Start by initializing all values to None
