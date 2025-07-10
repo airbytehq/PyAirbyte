@@ -6,7 +6,6 @@ from __future__ import annotations
 import abc
 import functools
 import re
-import uuid
 from typing import TYPE_CHECKING
 
 from airbyte import exceptions as exc
