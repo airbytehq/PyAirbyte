@@ -40,7 +40,8 @@ _LOWCODE_CONNECTORS_FAILING_VALIDATION: list[str] = []
 # Connectors that return 404 or some other misc exception.
 _LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
     "source-adjust",
-    "source-amazon-ads",
+    "source-amazon-seller-partner",
+    "source-gitlab",
     "source-marketo",
 ]
 # (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
