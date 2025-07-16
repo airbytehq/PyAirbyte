@@ -14,13 +14,12 @@ from airbyte.secrets.prompt import SecretsPrompt
 
 if TYPE_CHECKING:
     from airbyte.secrets.base import SecretSourceEnum
-    from airbyte.secrets.custom import CustomSecretManager
 
 
 _SECRETS_SOURCES: list[SecretManager] = []
 
 
-def _get_secret_sources() -> list[SecretManager]:
+def get_secret_sources() -> list[SecretManager]:
     """Initialize the default secret sources."""
     if len(_SECRETS_SOURCES) == 0:
         # Initialize the default secret sources
@@ -40,11 +39,11 @@ def _get_secret_sources() -> list[SecretManager]:
 
 
 # Ensure the default secret sources are initialized
-_ = _get_secret_sources()
+_ = get_secret_sources()
 
 
 def register_secret_manager(
-    secret_manager: CustomSecretManager,
+    secret_manager: SecretManager,
     *,
     as_backup: bool = False,
     replace_existing: bool = False,

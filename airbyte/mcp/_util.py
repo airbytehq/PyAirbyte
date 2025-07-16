@@ -5,25 +5,15 @@ import os
 from pathlib import Path
 from typing import Any
 
-import dotenv
 import yaml
 
 from airbyte.secrets import GoogleGSMSecretManager, register_secret_manager
+from airbyte.secrets.env_vars import DotenvSecretManager
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
-from airbyte.secrets.util import get_secret, is_secret_available
+from airbyte.secrets.util import get_secret, is_secret_available, list_available_secrets
 
 
 AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
-
-
-def _load_dotenv_file(dotenv_path: Path | str) -> None:
-    """Load environment variables from a .env file."""
-    if isinstance(dotenv_path, str):
-        dotenv_path = Path(dotenv_path)
-    if not dotenv_path.exists():
-        raise FileNotFoundError(f".env file not found: {dotenv_path}")
-
-    dotenv.load_dotenv(dotenv_path=dotenv_path)
 
 
 def initialize_secrets() -> None:
@@ -31,7 +21,7 @@ def initialize_secrets() -> None:
     # Load the .env file from the current working directory.
     if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
         dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR])
-        _load_dotenv_file(dotenv_path)
+        register_secret_manager(DotenvSecretManager(dotenv_path=dotenv_path))
 
     if is_secret_available("GCP_GSM_CREDENTIALS") and is_secret_available("GCP_GSM_PROJECT_ID"):
         # Initialize the GoogleGSMSecretManager if the credentials and project are set.

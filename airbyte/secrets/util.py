@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import warnings
-from typing import Any, cast
+from typing import Any, Literal, cast, overload
 
 from airbyte import exceptions as exc
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.secrets.base import SecretManager, SecretSourceEnum, SecretString
-from airbyte.secrets.config import _get_secret_sources
+from airbyte.secrets.config import get_secret_sources
 
 
 def is_secret_available(
@@ -29,14 +29,39 @@ def is_secret_available(
         return True
 
 
+@overload
 def get_secret(
     secret_name: str,
     /,
     *,
     sources: list[SecretManager | SecretSourceEnum] | None = None,
     allow_prompt: bool = True,
+    or_none: Literal[False] = False,  # Not-null return if False or not specified
     **kwargs: dict[str, Any],
-) -> SecretString:
+) -> SecretString: ...
+
+
+@overload
+def get_secret(
+    secret_name: str,
+    /,
+    *,
+    sources: list[SecretManager | SecretSourceEnum] | None = None,
+    allow_prompt: bool = True,
+    or_none: Literal[True],  # Nullable return if True
+    **kwargs: dict[str, Any],
+) -> SecretString | None: ...
+
+
+def get_secret(
+    secret_name: str,
+    /,
+    *,
+    sources: list[SecretManager | SecretSourceEnum] | None = None,
+    allow_prompt: bool = True,
+    or_none: bool = False,
+    **kwargs: dict[str, Any],
+) -> SecretString | None:
     """Get a secret from the environment.
 
     The optional `sources` argument of enum type `SecretSourceEnum` or list of `SecretSourceEnum`
@@ -45,6 +70,9 @@ def get_secret(
 
     If `allow_prompt` is `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then
     the user will be prompted to enter the secret if it is not found in any of the other sources.
+
+    If `or_none` is `True`, then `allow_prompt` will be assumed to be 'False' and the function
+    will return `None` if the secret is not found in any of the sources.
     """
     if secret_name.startswith(SECRETS_HYDRATION_PREFIX):
         # If the secret name starts with the hydration prefix, we assume it's a secret reference.
@@ -60,7 +88,7 @@ def get_secret(
         sources = kwargs.pop("source")  # type: ignore [assignment]
 
     available_sources: dict[str, SecretManager] = {}
-    for available_source in _get_secret_sources():
+    for available_source in get_secret_sources():
         # Add available sources to the dict. Order matters.
         available_sources[available_source.name] = available_source
 
@@ -94,8 +122,8 @@ def get_secret(
             secret_managers.index(SecretSourceEnum.PROMPT),  # type: ignore [arg-type]
         )
 
-        if allow_prompt:
-            # Always check prompt last. Add it to the end of the list.
+        if allow_prompt and or_none is False:
+            # Check prompt last, and only if `or_none` is False.
             secret_managers.append(prompt_source)
 
     for secret_mgr in secret_managers:
@@ -103,7 +131,31 @@ def get_secret(
         if val:
             return SecretString(val)
 
+    if or_none:
+        # If or_none is True, return None when the secret is not found.
+        return None
+
     raise exc.PyAirbyteSecretNotFoundError(
         secret_name=secret_name,
         sources=[str(s) for s in available_sources],
     )
+
+
+def list_available_secrets() -> list[tuple[str, str]]:
+    """List all available secrets from the configured secret sources.
+
+    Returns:
+        A set of tuples containing the secret name and the source name.
+    """
+    def _if_none(value: Any, if_none: Any) -> Any:
+        """Return the default value if the value is None."""
+        return value if value is not None else if_none
+
+    secret_managers: list[SecretManager] = get_secret_sources()
+    result = sorted([
+        (secret_name, secret_mgr.name)
+        for secret_mgr in secret_managers
+        for secret_name in (_if_none(secret_mgr.list_secrets(), ["(multiple secrets not listed)"]))
+    ])
+
+    return result  # noqa: RET504 (unnecessary assignment)

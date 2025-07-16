@@ -11,6 +11,7 @@ from airbyte.mcp._coding import register_coding_tools
 from airbyte.mcp._connector_config import register_connector_config_tools
 from airbyte.mcp._connector_registry import register_connector_registry_tools
 from airbyte.mcp._local_ops import register_local_ops_tools
+from airbyte.mcp._secrets import register_secret_manager_tools
 from airbyte.mcp._util import initialize_secrets
 
 
@@ -22,6 +23,7 @@ register_local_ops_tools(app)
 register_coding_tools(app)
 register_cloud_ops_tools(app)
 register_connector_config_tools(app)
+register_secret_manager_tools(app)
 
 
 def main() -> None:
