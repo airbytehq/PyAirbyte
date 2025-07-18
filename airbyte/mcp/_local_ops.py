@@ -13,7 +13,7 @@ from pydantic import Field
 from airbyte import get_source
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
-from airbyte.secrets.config import _get_secret_sources
+from airbyte.secrets.config import get_secret_sources
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.registry import get_connector_metadata
 
@@ -98,7 +98,7 @@ def list_connector_config_secrets(
     return the actual secret values.
     """
     secrets_names: list[str] = []
-    for secrets_mgr in _get_secret_sources():
+    for secrets_mgr in get_secret_sources():
         if isinstance(secrets_mgr, GoogleGSMSecretManager):
             secrets_names.extend(
                 [

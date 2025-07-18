@@ -35,3 +35,12 @@ class ColabSecretManager(SecretManager):
         except Exception:
             # Secret name not found. Continue.
             return None
+
+    def is_secret_available(self, secret_name: str) -> bool:
+        """Check if a secret is available in Google Colab user secrets."""
+        return self.get_secret(secret_name) is not None
+
+    def list_secrets(self) -> None:
+        """Not supported. Always returns None."""
+        # Google Colab does not provide a way to list user secrets.
+        return

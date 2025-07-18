@@ -26,3 +26,15 @@ class SecretsPrompt(SecretManager):
             return SecretString(getpass(f"Enter the value for secret '{secret_name}': "))
 
         return None
+
+    def is_secret_available(
+        self,
+        secret_name: str,
+    ) -> bool:
+        """Always returns True because the prompt will always ask for the secret."""
+        _ = secret_name
+        return True
+
+    def list_secrets(self) -> None:
+        """Not supported. Always returns None."""
+        return

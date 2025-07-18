@@ -179,6 +179,38 @@ class SecretManager(ABC):
         """
         ...
 
+    @abstractmethod
+    def list_secrets(self) -> list[str] | None:
+        """List all secrets available in the secret manager.
+
+        This method should be implemented by subclasses to return a list of all
+        secrets available in the secret store. If the secret manager does not support
+        listing secrets, it can return None.
+        """
+
+    def is_secret_available(self, secret_name: str) -> bool:
+        """Check if a secret is available in the secret manager.
+
+        This method checks if the secret exists in the secret manager. If the secret is found,
+        it returns `True`; otherwise, it returns `False`.
+
+        Subclasses can override this method to provide a more optimized code path.
+        """
+        secrets_list: list[str] | None = self.list_secrets()
+        if secrets_list is not None:
+            # If the secret manager supports listing secrets, check if the secret is in the list
+            return secret_name in secrets_list
+
+        try:
+            # Otherwise, attempt to retrieve the secret
+            _ = self.get_secret(secret_name)
+        except Exception:
+            # If an exception is raised, the secret is not available
+            return False
+        else:
+            # If no exception was raised, the secret is available
+            return True
+
     def __str__(self) -> str:
         """Return the name of the secret manager."""
         return self.name

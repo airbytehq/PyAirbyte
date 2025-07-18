@@ -138,7 +138,7 @@ ignore-overlong-task-comments = true
 convention = "google"
 
 [lint.flake8-annotations]
-allow-star-arg-any = false
+allow-star-arg-any = true  # Allow *args and **kwargs to use `Any` type
 ignore-fully-untyped = false
 
 [format]
