@@ -8,9 +8,6 @@ You can test this version of PyAirbyte using the following:
 
 ```bash
 # Run PyAirbyte CLI from this branch:
-uvx --from 'git+https://github.com/{{ .repo_name }}.git@{{ .branch_name }}' pyab --help
-
-# Or use the full command name:
 uvx --from 'git+https://github.com/{{ .repo_name }}.git@{{ .branch_name }}' pyairbyte --help
 
 # Install PyAirbyte from this branch for development:
