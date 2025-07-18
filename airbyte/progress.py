@@ -28,6 +28,7 @@ from contextlib import suppress
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
+from rich.console import Console
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
@@ -211,6 +212,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         # Progress bar properties
         self._last_update_time: float | None = None
+        self._stderr_console: Console | None = None
         self._rich_view: RichLive | None = None
 
         self.reset_progress_style(style)
@@ -622,9 +624,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """
         if self.style == ProgressStyle.RICH and not self._rich_view:
             try:
+                if self._stderr_console is None:
+                    self._stderr_console = Console(stderr=True)
+
                 self._rich_view = RichLive(
                     auto_refresh=True,
                     refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
+                    console=self._stderr_console,
                 )
                 self._rich_view.start()
             except Exception:
