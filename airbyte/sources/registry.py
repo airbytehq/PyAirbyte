@@ -266,10 +266,6 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
         )
 
     if install_type == InstallType.JAVA:
-        warnings.warn(
-            message="Java connectors are not yet supported.",
-            stacklevel=2,
-        )
         return sorted(
             conn.name for conn in _get_registry_cache().values() if conn.language == Language.JAVA
         )
