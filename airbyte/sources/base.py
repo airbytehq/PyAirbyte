@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from airbyte.shared.state_writers import StateWriterBase
 
 
-class Source(ConnectorBase):  # noqa: PLR0904
+class Source(ConnectorBase):
     """A class representing a source that can be called."""
 
     connector_type = "source"
