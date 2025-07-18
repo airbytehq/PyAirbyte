@@ -166,7 +166,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
-    connector_tar_path: Path | str | None = None,
+    use_java_tar: Path | str | bool | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
@@ -178,7 +178,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             bool(docker_image),
             bool(pip_url),
             bool(source_manifest),
-            bool(connector_tar_path),
+            bool(use_java_tar),
         ]
     )
 
@@ -198,14 +198,14 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
-                "'source_manifest', 'pip_url', or 'connector_tar_path'."
+                "'source_manifest', 'pip_url', or 'use_java_tar'."
             ),
             context={
                 "local_executable": local_executable,
                 "docker_image": docker_image,
                 "pip_url": pip_url,
                 "source_manifest": source_manifest,
-                "connector_tar_path": connector_tar_path,
+                "use_java_tar": use_java_tar,
             },
         )
     metadata: ConnectorMetadata | None = None
@@ -247,9 +247,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                     pip_url = metadata.pypi_package_name
                     pip_url = f"{pip_url}=={version}" if version else pip_url
                 case InstallType.JAVA:
-                    if not connector_tar_path:
+                    if use_java_tar is True:
+                        pass
+                    elif not use_java_tar:
                         raise exc.PyAirbyteInputError(
-                            message="Java connectors require 'connector_tar_path' to be specified.",
+                            message="Java connectors require 'use_java_tar' to be specified.",
                         )
                 case _:
                     docker_image = True
@@ -340,7 +342,12 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 components_py_checksum=components_py_checksum,
             )
 
-    if connector_tar_path:
+    if use_java_tar:
+        if use_java_tar is True:
+            connector_tar_path = None  # Will be handled by JavaExecutor
+        else:
+            connector_tar_path = use_java_tar
+            
         return JavaExecutor(
             name=name,
             metadata=metadata,
