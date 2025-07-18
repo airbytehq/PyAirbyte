@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import jsonschema
 import rich
 import yaml
-from numpy import std
 from rich.syntax import Syntax
 
 from airbyte_protocol.models import (
