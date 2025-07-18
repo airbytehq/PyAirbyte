@@ -8,13 +8,13 @@ You can test this version of PyAirbyte using the following:
 
 ```bash
 # Run PyAirbyte CLI from this branch:
-uvx 'git+https://github.com/airbytehq/PyAirbyte.git@{{ .branch_name }}' pyab --help
+uvx 'git+https://github.com/{{ .repo_name }}.git@{{ .branch_name }}' pyab --help
 
 # Or use the full command name:
-uvx 'git+https://github.com/airbytehq/PyAirbyte.git@{{ .branch_name }}' pyairbyte --help
+uvx 'git+https://github.com/{{ .repo_name }}.git@{{ .branch_name }}' pyairbyte --help
 
 # Install PyAirbyte from this branch for development:
-pip install 'git+https://github.com/airbytehq/PyAirbyte.git@{{ .branch_name }}'
+pip install 'git+https://github.com/{{ .repo_name }}.git@{{ .branch_name }}'
 ```
 
 ### Helpful Resources
