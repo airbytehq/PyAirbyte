@@ -361,7 +361,7 @@ def _get_global_file_handler() -> logging.FileHandler | None:
         return None
 
     logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
-    print(f"Writing PyAirbyte logs to file: {logfile_path!s}")
+    print(f"Writing PyAirbyte logs to file: {logfile_path!s}", file=sys.stderr)
 
     return logging.FileHandler(
         filename=logfile_path,
@@ -374,7 +374,7 @@ def _get_global_stats_file_handler() -> logging.FileHandler | None:
     if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
         return None
 
-    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}")
+    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}", file=sys.stderr)
     return logging.FileHandler(
         filename=logfile_path,
         encoding="utf-8",
@@ -392,7 +392,7 @@ def _get_passthrough_file_handler(connector_name: str) -> logging.FileHandler | 
     global_logger = get_global_file_logger()
     logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
     logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
-    print(logfile_msg)
+    print(logfile_msg, file=sys.stderr)
     if global_logger:
         global_logger.info(logfile_msg)
 
