@@ -37,7 +37,7 @@ class JavaExecutor(Executor):
         *,
         metadata: ConnectorMetadata | None = None,
         target_version: str | None = None,
-        connector_tar_path: Path | str | None = None,
+        use_java_tar: Path | str | None = None,
     ) -> None:
         """Initialize a Java connector executor.
 
@@ -45,11 +45,11 @@ class JavaExecutor(Executor):
             name: The name of the connector.
             metadata: (Optional.) The metadata of the connector.
             target_version: (Optional.) The version of the connector to install.
-            connector_tar_path: (Optional.) Path to the connector tar file.
+            use_java_tar: (Optional.) Path to the connector tar file.
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
 
-        self.connector_tar_path = Path(connector_tar_path) if connector_tar_path else None
+        self.connector_tar_path = Path(use_java_tar) if use_java_tar else None
         self.java_version = "21"
         self.airbyte_home = Path.home() / ".airbyte"
         self.java_cache_dir = self.airbyte_home / "java"
