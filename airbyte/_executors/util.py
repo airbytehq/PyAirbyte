@@ -247,12 +247,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                     pip_url = metadata.pypi_package_name
                     pip_url = f"{pip_url}=={version}" if version else pip_url
                 case InstallType.JAVA:
-                    if use_java_tar is True:
-                        pass
-                    elif not use_java_tar:
-                        raise exc.PyAirbyteInputError(
-                            message="Java connectors require 'use_java_tar' to be specified.",
-                        )
+                    docker_image = True
                 case _:
                     docker_image = True
 
