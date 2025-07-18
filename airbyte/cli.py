@@ -61,6 +61,7 @@ pyab validate --connector=source-hardcoded-records --config='{count: 400_000}'
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -339,8 +340,8 @@ def validate(
             pip_url=pip_url,
         )
 
-    print("Getting `spec` output from connector...")
-    connector_obj.print_config_spec()
+    print("Getting `spec` output from connector...", file=sys.stderr)
+    connector_obj.print_config_spec(stderr=True)
 
     if config:
         print("Running connector check...")
@@ -435,7 +436,7 @@ def benchmark(
         else get_noop_destination()
     )
 
-    click.echo("Running benchmarks...")
+    click.echo("Running benchmarks...", sys.stderr)
     destination_obj.write(
         source_data=source_obj,
         cache=False,

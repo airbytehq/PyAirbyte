@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import abc
 import json
+import sys
 from pathlib import Path
 from time import sleep
 from typing import TYPE_CHECKING, Any, Literal
@@ -106,7 +107,7 @@ class ConnectorBase(abc.ABC):
         message: str,
     ) -> None:
         """Print a message to the console and the logger."""
-        rich.print(f"ERROR: {message}")
+        rich.print(f"ERROR: {message}", file=sys.stderr)
         if self._file_logger:
             self._file_logger.error(message)
 
@@ -248,6 +249,7 @@ class ConnectorBase(abc.ABC):
         format: Literal["yaml", "json"] = "yaml",  # noqa: A002
         *,
         output_file: Path | str | None = None,
+        stderr: bool = False,
     ) -> None:
         """Print the configuration spec for this connector.
 
@@ -255,7 +257,18 @@ class ConnectorBase(abc.ABC):
             format: The format to print the spec in. Must be "yaml" or "json".
             output_file: Optional. If set, the spec will be written to the given file path.
                 Otherwise, it will be printed to the console.
+            stderr: If True, print to stderr instead of stdout. This is useful when we
+                want to print the spec to the console but not interfere with other output.
         """
+        if output_file and stderr:
+            raise exc.PyAirbyteInputError(
+                message="You can set output_file or stderr but not both.",
+                context={
+                    "output_file": output_file,
+                    "stderr": stderr,
+                },
+            )
+
         if format not in {"yaml", "json"}:
             raise exc.PyAirbyteInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
@@ -274,7 +287,7 @@ class ConnectorBase(abc.ABC):
             return
 
         syntax_highlighted = Syntax(content, format)
-        rich.print(syntax_highlighted)
+        rich.print(syntax_highlighted, file=sys.stderr if stderr else None)
 
     @property
     def _yaml_spec(self) -> str:
@@ -325,7 +338,10 @@ class ConnectorBase(abc.ABC):
                 for msg in self._execute(["check", "--config", config_file]):
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
-                            rich.print(f"Connection check succeeded for `{self.name}`.")
+                            rich.print(
+                                f"Connection check succeeded for `{self.name}`.",
+                                file=sys.stderr,
+                            )
                             log_connector_check_result(
                                 name=self.name,
                                 state=EventState.SUCCEEDED,
@@ -359,7 +375,10 @@ class ConnectorBase(abc.ABC):
     def install(self) -> None:
         """Install the connector if it is not yet installed."""
         self.executor.install()
-        rich.print("For configuration instructions, see: \n" f"{self.docs_url}#reference\n")
+        rich.print(
+            f"For configuration instructions, see: \n{self.docs_url}#reference\n",
+            file=sys.stderr,
+        )
 
     def uninstall(self) -> None:
         """Uninstall the connector if it is installed.
