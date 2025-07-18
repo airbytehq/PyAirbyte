@@ -256,7 +256,6 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                     if use_java_tar is False:
                         docker_image = True
                     elif use_java_tar is None:
-
                         if is_docker_installed():
                             docker_image = True
                         else:
