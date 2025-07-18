@@ -3,14 +3,12 @@
 
 from __future__ import annotations
 
-import json
+import sys
 import warnings
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
-from rich.syntax import Syntax
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -202,12 +200,14 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """Logs a warning message indicating stream selection which are not selected yet."""
         if streams == "*":
             print(
-                "Warning: Config is not set yet. All streams will be selected after config is set."
+                "Warning: Config is not set yet. All streams will be selected after config is set.",
+                file=sys.stderr,
             )
         else:
             print(
                 "Warning: Config is not set yet. "
-                f"Streams to be selected after config is set: {streams}"
+                f"Streams to be selected after config is set: {streams}",
+                file=sys.stderr,
             )
 
     def select_all_streams(self) -> None:
@@ -346,39 +346,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
             dict: The JSON Schema configuration spec as a dictionary.
         """
         return self._get_spec(force_refresh=True).connectionSpecification
-
-    def print_config_spec(
-        self,
-        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
-        *,
-        output_file: Path | str | None = None,
-    ) -> None:
-        """Print the configuration spec for this connector.
-
-        Args:
-            format: The format to print the spec in. Must be "yaml" or "json".
-            output_file: Optional. If set, the spec will be written to the given file path.
-                Otherwise, it will be printed to the console.
-        """
-        if format not in {"yaml", "json"}:
-            raise exc.PyAirbyteInputError(
-                message="Invalid format. Expected 'yaml' or 'json'",
-                input_value=format,
-            )
-        if isinstance(output_file, str):
-            output_file = Path(output_file)
-
-        if format == "yaml":
-            content = yaml.dump(self.config_spec, indent=2)
-        elif format == "json":
-            content = json.dumps(self.config_spec, indent=2)
-
-        if output_file:
-            output_file.write_text(content)
-            return
-
-        syntax_highlighted = Syntax(content, format)
-        print(syntax_highlighted)
 
     @property
     def _yaml_spec(self) -> str:
@@ -690,7 +657,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             f"{incremental_streams}\n"
             "To perform a full refresh, set 'force_full_refresh=True' in 'airbyte.read()' method."
         )
-        print(log_message)
+        print(log_message, file=sys.stderr)
 
     def read(
         self,
