@@ -13,6 +13,7 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
+from airbyte._executors.java import JavaExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
@@ -165,6 +166,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    connector_tar_path: Path | str | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
@@ -176,6 +178,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             bool(docker_image),
             bool(pip_url),
             bool(source_manifest),
+            bool(connector_tar_path),
         ]
     )
 
@@ -195,13 +198,14 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
-                "'source_manifest', or 'pip_url'."
+                "'source_manifest', 'pip_url', or 'connector_tar_path'."
             ),
             context={
                 "local_executable": local_executable,
                 "docker_image": docker_image,
                 "pip_url": pip_url,
                 "source_manifest": source_manifest,
+                "connector_tar_path": connector_tar_path,
             },
         )
     metadata: ConnectorMetadata | None = None
@@ -242,6 +246,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 case InstallType.PYTHON:
                     pip_url = metadata.pypi_package_name
                     pip_url = f"{pip_url}=={version}" if version else pip_url
+                case InstallType.JAVA:
+                    if not connector_tar_path:
+                        raise exc.PyAirbyteInputError(
+                            message="Java connectors require 'connector_tar_path' to be specified.",
+                        )
                 case _:
                     docker_image = True
 
@@ -330,6 +339,14 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 components_py=components_py,
                 components_py_checksum=components_py_checksum,
             )
+
+    if connector_tar_path:
+        return JavaExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+            connector_tar_path=connector_tar_path,
+        )
 
     # else: we are installing a connector in a Python virtual environment:
 
