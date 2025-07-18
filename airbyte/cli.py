@@ -436,7 +436,7 @@ def benchmark(
         else get_noop_destination()
     )
 
-    click.echo("Running benchmarks...")
+    click.echo("Running benchmarks...", sys.stderr)
     destination_obj.write(
         source_data=source_obj,
         cache=False,
