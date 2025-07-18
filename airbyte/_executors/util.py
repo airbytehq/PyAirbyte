@@ -16,7 +16,7 @@ from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, Docker
 from airbyte._executors.java import JavaExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
-from airbyte._util.meta import which
+from airbyte._util.meta import is_docker_installed, which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
@@ -170,6 +170,12 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
+    For Java connectors (InstallType.JAVA), the fallback logic is:
+    - If use_java_tar is False: Use Docker (explicitly disabled Java)
+    - If use_java_tar is None and Docker is available: Use Docker (more stable option)
+    - If use_java_tar is None and Docker is not available: Use Java with auto-detection
+    - If use_java_tar is truthy (True, Path, or str): Use Java executor
+
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
     """
     install_method_count = sum(
@@ -247,7 +253,17 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                     pip_url = metadata.pypi_package_name
                     pip_url = f"{pip_url}=={version}" if version else pip_url
                 case InstallType.JAVA:
-                    docker_image = True
+                    if use_java_tar is False:
+                        docker_image = True
+                    elif use_java_tar is None:
+
+                        if is_docker_installed():
+                            docker_image = True
+                        else:
+                            use_java_tar = True
+                    else:
+                        # use_java_tar is truthy (True, Path, or str), use Java
+                        pass  # Will be handled by the use_java_tar block later
                 case _:
                     docker_image = True
 
