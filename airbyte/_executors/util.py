@@ -343,16 +343,13 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             )
 
     if use_java_tar:
-        if use_java_tar is True:
-            connector_tar_path = None  # Will be handled by JavaExecutor
-        else:
-            connector_tar_path = use_java_tar
-            
+        connector_tar_path = None if use_java_tar is True else use_java_tar
+
         return JavaExecutor(
             name=name,
             metadata=metadata,
             target_version=version,
-            connector_tar_path=connector_tar_path,
+            use_java_tar=connector_tar_path,
         )
 
     # else: we are installing a connector in a Python virtual environment:
