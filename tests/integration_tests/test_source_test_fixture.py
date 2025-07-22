@@ -13,12 +13,15 @@ from unittest.mock import patch
 import airbyte as ab
 import pandas as pd
 import pytest
-import ulid
 from airbyte import datasets
 from airbyte import exceptions as exc
-from airbyte._future_cdk.sql_processor import SqlProcessorBase
+from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.local import PathExecutor
+from airbyte._executors.python import VenvExecutor
+from airbyte._util import text_util
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache, SnowflakeCache
+from airbyte.caches.base import CacheBase
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
 from airbyte.results import ReadResult
@@ -28,7 +31,7 @@ from sqlalchemy import column, text
 
 
 @pytest.fixture(scope="function", autouse=True)
-def autouse_source_test_registry(source_test_registry):
+def autouse_source_test_registry(source_test_registry) -> None:
     return
 
 
@@ -42,12 +45,12 @@ def pop_internal_columns_from_dataset(
             if not isinstance(record, dict):
                 record = dict(record)
 
-            assert (
-                internal_column in record
-            ), f"Column '{internal_column}' should exist in stream data."
-            assert (
-                record[internal_column] is not None
-            ), f"Column '{internal_column}' should not contain null values."
+            assert internal_column in record, (
+                f"Column '{internal_column}' should exist in stream data."
+            )
+            assert record[internal_column] is not None, (
+                f"Column '{internal_column}' should not contain null values."
+            )
 
             record.pop(internal_column, None)
 
@@ -58,21 +61,21 @@ def pop_internal_columns_from_dataset(
 
 def pop_internal_columns_from_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for internal_column in AB_INTERNAL_COLUMNS:
-        assert (
-            internal_column in df.columns
-        ), f"Column '{internal_column}' should exist in stream data."
+        assert internal_column in df.columns, (
+            f"Column '{internal_column}' should exist in stream data."
+        )
 
-        assert (
-            df[internal_column].notnull().all()
-        ), f"Column '{internal_column}' should not contain null values "
+        assert df[internal_column].notnull().all(), (
+            f"Column '{internal_column}' should not contain null values "
+        )
 
     return df.drop(columns=AB_INTERNAL_COLUMNS)
 
 
 def assert_data_matches_cache(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-    cache: SqlProcessorBase,
-    streams: list[str] = None,
+    cache: CacheBase,
+    streams: list[str] | None = None,
 ) -> None:
     for stream_name in streams or expected_test_stream_data.keys():
         if len(cache[stream_name]) > 0:
@@ -94,7 +97,7 @@ def assert_data_matches_cache(
 
 
 @pytest.fixture(scope="module", autouse=True)
-def autouse_source_test_installation(source_test_installation):
+def autouse_source_test_installation(source_test_installation) -> None:
     return
 
 
@@ -104,7 +107,7 @@ def source_test(source_test_env) -> ab.Source:
 
 
 @pytest.fixture
-def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
+def expected_test_stream_data() -> dict[str, list[dict[str, str | int | None]]]:
     return {
         "stream1": [
             {
@@ -127,20 +130,53 @@ def expected_test_stream_data() -> dict[str, list[dict[str, str | int]]]:
             },
         ],
         "always-empty-stream": [],
+        "primary-key-with-dot": [
+            # Expect field names lowercase, with '.' replaced by '_':
+            {
+                "table1_column1": "value1",
+                "table1_column2": 1,
+                "table1_empty_column": None,
+                "table1_big_number": 1234567890123456,
+            }
+        ],
     }
 
 
-def test_registry_get():
+def test_registry_get() -> None:
     metadata = registry.get_connector_metadata("source-test")
+    assert metadata
     assert metadata.name == "source-test"
     assert metadata.latest_available_version == "0.0.1"
 
 
 def test_registry_list() -> None:
-    assert registry.get_available_connectors() == ["source-test"]
+    assert set(registry.get_available_connectors(install_type="docker")) == {
+        "source-test",
+        "source-docker-only",
+    }
+    assert registry.get_available_connectors(install_type="python") == [
+        "source-test",
+    ]
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=False,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+        }
+    with patch(
+        "airbyte.sources.registry.is_docker_installed",
+        return_value=True,
+    ):
+        assert set(registry.get_available_connectors()) == {
+            "source-test",
+            "source-docker-only",
+        }
 
 
-def test_list_streams(expected_test_stream_data: dict[str, list[dict[str, str | int]]]):
+def test_list_streams(
+    expected_test_stream_data: dict[str, list[dict[str, str | int]]],
+) -> None:
     source = ab.get_source(
         "source-test", config={"apiKey": "test"}, install_if_missing=False
     )
@@ -155,15 +191,15 @@ def test_invalid_config() -> None:
         source.check()
 
 
-def test_ensure_installation_detection():
+def test_ensure_installation_detection() -> None:
     """Assert that install isn't called, since the connector is already installed by the fixture."""
-    with patch(
-        "airbyte._executors.python.VenvExecutor.install"
-    ) as mock_venv_install, patch(
-        "airbyte.sources.base.Source.install"
-    ) as mock_source_install, patch(
-        "airbyte._executors.python.VenvExecutor.ensure_installation"
-    ) as mock_ensure_installed:
+    with (
+        patch("airbyte._executors.python.VenvExecutor.install") as mock_venv_install,
+        patch("airbyte.sources.base.Source.install") as mock_source_install,
+        patch(
+            "airbyte._executors.python.VenvExecutor.ensure_installation"
+        ) as mock_ensure_installed,
+    ):
         source = ab.get_source(
             "source-test",
             config={"apiKey": 1234},
@@ -175,21 +211,32 @@ def test_ensure_installation_detection():
         assert not mock_source_install.called
 
 
-def test_source_yaml_spec():
+def test_source_yaml_spec() -> None:
     source = ab.get_source(
         "source-test", config={"apiKey": 1234}, install_if_missing=False
     )
+    assert isinstance(source.executor, VenvExecutor), "Expected VenvExecutor."
     assert source._yaml_spec.startswith("connectionSpecification:\n  $schema:")
 
 
-def test_non_existing_connector():
-    with pytest.raises(Exception):
+def test_non_existing_connector() -> None:
+    with pytest.raises(exc.AirbyteConnectorNotRegisteredError):
         ab.get_source("source-not-existing", config={"apiKey": "abc"})
 
 
-def test_non_enabled_connector():
-    with pytest.raises(exc.AirbyteConnectorNotPyPiPublishedError):
-        ab.get_source("source-non-published", config={"apiKey": "abc"})
+def test_non_existing_connector_with_local_exe() -> None:
+    # We should not complain about the missing source if we provide a local executable
+    source = ab.get_source(
+        "source-not-existing",
+        local_executable=Path("dummy-exe-path"),
+        config={"apiKey": "abc"},
+    )
+    assert isinstance(source.executor, PathExecutor), "Expected PathExecutor."
+
+
+def test_docker_only_connector() -> None:
+    source = ab.get_source("source-docker-only", config={"apiKey": "abc"})
+    assert isinstance(source.executor, DockerExecutor), "Expected DockerExecutor."
 
 
 @pytest.mark.parametrize(
@@ -207,7 +254,7 @@ def test_version_enforcement(
     raises: bool,
     latest_available_version,
     requested_version,
-):
+) -> None:
     """ "
     Ensures version enforcement works as expected:
     * If no version is specified, the current version is accepted
@@ -252,7 +299,7 @@ def test_version_enforcement(
             source.executor.ensure_installation(auto_fix=False)
 
 
-def test_check():
+def test_check() -> None:
     source = ab.get_source(
         "source-test",
         config={"apiKey": "test"},
@@ -261,7 +308,7 @@ def test_check():
     source.check()
 
 
-def test_check_fail():
+def test_check_fail() -> None:
     source = ab.get_source("source-test", config={"apiKey": "wrong"})
 
     with pytest.raises(Exception):
@@ -284,14 +331,14 @@ def test_file_write_and_cleanup() -> None:
     _ = source.read(cache_wo_cleanup)
 
     # We expect all files to be cleaned up:
-    assert (
-        len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0
-    ), "Expected files to be cleaned up"
+    assert len(list(Path(temp_dir_1).glob("*.jsonl.gz"))) == 0, (
+        "Expected files to be cleaned up"
+    )
 
     # There are three streams, but only two of them have data:
-    assert (
-        len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 2
-    ), "Expected files to exist"
+    assert len(list(Path(temp_dir_2).glob("*.jsonl.gz"))) == 3, (
+        "Expected files to exist"
+    )
 
     with suppress(Exception):
         shutil.rmtree(str(temp_dir_root))
@@ -299,7 +346,7 @@ def test_file_write_and_cleanup() -> None:
 
 def test_sync_to_duckdb(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
@@ -307,24 +354,33 @@ def test_sync_to_duckdb(
 
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(expected_test_stream_data, cache)
 
 
-def test_read_result_mapping():
+def test_read_result_mapping() -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
     result: ReadResult = source.read(ab.new_local_cache())
-    assert len(result) == 3
+    assert len(result) == 4
     assert isinstance(result, Mapping)
     assert "stream1" in result
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
-def test_dataset_list_and_len(expected_test_stream_data):
+def test_dataset_list_and_len(
+    expected_test_stream_data,
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
@@ -346,16 +402,21 @@ def test_dataset_list_and_len(expected_test_stream_data):
     assert "stream2" in result
     assert "always-empty-stream" in result
     assert "stream3" not in result
-    assert result.keys() == {"stream1", "stream2", "always-empty-stream"}
+    assert result.keys() == {
+        "stream1",
+        "stream2",
+        "always-empty-stream",
+        "primary-key-with-dot",
+    }
 
 
 def test_read_from_cache(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     """
     Test that we can read from a cache that already has data (identifier by name)
     """
-    cache_name = str(ulid.ULID())
+    cache_name = text_util.generate_random_suffix()
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
@@ -371,11 +432,11 @@ def test_read_from_cache(
 
 def test_read_isolated_by_prefix(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     """
     Test that cache correctly isolates streams when different table prefixes are used
     """
-    cache_name = str(ulid.ULID())
+    cache_name = text_util.generate_random_suffix()
     db_path = Path(f"./.cache/{cache_name}.duckdb")
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
@@ -406,22 +467,33 @@ def test_read_isolated_by_prefix(
     second_no_prefix_cache = ab.DuckDBCache(db_path=db_path, table_prefix=None)
 
     # validate that the first cache still has full data, while the other two have partial data
-    assert_data_matches_cache(expected_test_stream_data, second_same_prefix_cache)
     assert_data_matches_cache(
-        expected_test_stream_data, second_different_prefix_cache, streams=["stream1"]
+        expected_test_stream_data,
+        second_same_prefix_cache,
     )
     assert_data_matches_cache(
-        expected_test_stream_data, second_no_prefix_cache, streams=["stream1"]
+        expected_test_stream_data,
+        second_different_prefix_cache,
+        streams=["stream1"],
+    )
+    assert_data_matches_cache(
+        expected_test_stream_data,
+        second_no_prefix_cache,
+        streams=["stream1"],
     )
 
 
 def test_merge_streams_in_cache(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     """
     Test that we can extend a cache with new streams
     """
-    cache_name = str(ulid.ULID())
+    expected_test_stream_data.pop(
+        "primary-key-with-dot"
+    )  # Stream not needed for this test.
+
+    cache_name = text_util.generate_random_suffix()
     source = ab.get_source("source-test", config={"apiKey": "test"})
     cache = ab.new_local_cache(cache_name)
 
@@ -452,7 +524,7 @@ def test_merge_streams_in_cache(
 
 def test_read_result_as_list(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
@@ -478,7 +550,7 @@ def test_read_result_as_list(
 
 def test_get_records_result_as_list(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
 
     stream_1_list = list(source.get_records("stream1"))
@@ -500,7 +572,7 @@ def test_get_records_result_as_list(
 
 def test_sync_with_merge_to_duckdb(
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -517,7 +589,7 @@ def test_sync_with_merge_to_duckdb(
     result: ReadResult = source.read(cache)
     result: ReadResult = source.read(cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == 4
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -601,7 +673,7 @@ def test_cached_dataset(
         )
 
 
-def test_cached_dataset_filter():
+def test_cached_dataset_filter() -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
@@ -631,21 +703,21 @@ def test_cached_dataset_filter():
         filtered_records: list[Mapping[str, Any]] = [row for row in filtered_dataset]
 
         # Check that the filter worked
-        assert (
-            len(filtered_records) == 1
-        ), f"Case '{case}' had incorrect number of records."
+        assert len(filtered_records) == 1, (
+            f"Case '{case}' had incorrect number of records."
+        )
 
         # Assert the stream name still matches
-        assert (
-            filtered_dataset.stream_name == stream_name
-        ), f"Case '{case}' had incorrect stream name."
+        assert filtered_dataset.stream_name == stream_name, (
+            f"Case '{case}' had incorrect stream name."
+        )
 
         # Check that chaining filters works
         chained_dataset = filtered_dataset.with_filter("column1 == 'value1'")
         chained_records = [row for row in chained_dataset]
-        assert (
-            len(chained_records) == 1
-        ), f"Case '{case}' had incorrect number of records after chaining filters."
+        assert len(chained_records) == 1, (
+            f"Case '{case}' had incorrect number of records after chaining filters."
+        )
 
 
 def test_lazy_dataset_from_source(
@@ -678,7 +750,10 @@ def test_lazy_dataset_from_source(
     for stream_name in source.get_available_streams():
         assert isinstance(stream_name, str)
 
-        lazy_dataset: LazyDataset = source.get_records(stream_name)
+        lazy_dataset: LazyDataset = source.get_records(
+            stream_name,
+            normalize_field_names=True,
+        )
         assert isinstance(lazy_dataset, LazyDataset)
 
         list_data = list(lazy_dataset)
@@ -708,7 +783,7 @@ def test_check_fail_on_missing_config(method_call):
 def test_sync_with_merge_to_postgres(
     new_postgres_cache: PostgresCache,
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     """Test that the merge strategy works as expected.
 
     In this test, we sync the same data twice. If the data is not duplicated, we assume
@@ -721,7 +796,9 @@ def test_sync_with_merge_to_postgres(
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
     result: ReadResult = source.read(new_postgres_cache, write_strategy="merge")
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     assert_data_matches_cache(
         expected_test_stream_data=expected_test_stream_data,
         cache=new_postgres_cache,
@@ -745,7 +822,9 @@ def test_sync_to_postgres(
 
     result: ReadResult = source.read(new_postgres_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_postgres_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -763,13 +842,15 @@ def test_sync_to_postgres(
 def test_sync_to_snowflake(
     new_snowflake_cache: SnowflakeCache,
     expected_test_stream_data: dict[str, list[dict[str, str | int]]],
-):
+) -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
     source.select_all_streams()
 
     result: ReadResult = source.read(new_snowflake_cache)
 
-    assert result.processed_records == 3
+    assert result.processed_records == sum(
+        len(stream_data) for stream_data in expected_test_stream_data.values()
+    )
     for stream_name, expected_data in expected_test_stream_data.items():
         if len(new_snowflake_cache[stream_name]) > 0:
             pd.testing.assert_frame_equal(
@@ -798,36 +879,35 @@ def test_sync_limited_streams(expected_test_stream_data):
     )
 
 
-def test_read_stream_nonexisting():
+def test_read_stream_nonexisting() -> None:
     source = ab.get_source("source-test", config={"apiKey": "test"})
 
     with pytest.raises(Exception):
         list(source.get_records("non-existing"))
 
 
-def test_failing_path_connector():
+def test_failing_path_connector() -> None:
     with pytest.raises(Exception):
-        ab.get_source("source-test", config={"apiKey": "test"}, use_local_install=True)
+        source = ab.get_source(
+            "source-test",
+            config={"apiKey": "test"},
+            local_executable=Path("non-existing"),
+        )
+        source.check()
 
 
-def test_succeeding_path_connector(monkeypatch):
+def test_succeeding_path_connector(monkeypatch) -> None:
     venv_bin_path = str(get_bin_dir(Path(".venv-source-test")))
-
-    # Add the bin directory to the PATH
-    new_path = f"{venv_bin_path}{os.pathsep}{os.environ['PATH']}"
-
-    # Patch the PATH env var to include the test venv bin folder
-    monkeypatch.setenv("PATH", new_path)
 
     source = ab.get_source(
         "source-test",
         config={"apiKey": "test"},
-        local_executable="source-test",
+        local_executable=Path(venv_bin_path) / "source-test",
     )
     source.check()
 
 
-def test_install_uninstall():
+def test_install_uninstall() -> None:
     with tempfile.TemporaryDirectory() as temp_dir:
         source = ab.get_source(
             "source-test",

@@ -107,6 +107,7 @@ has its own documentation and code samples related to effectively using the rela
 - **`airbyte.exceptions`** - Definitions of all exception and warning classes used in PyAirbyte.
 - **`airbyte.experimental`** - Experimental features and utilities that do not yet have a stable
     API.
+- **`airbyte.logs`** - Logging functionality and configuration.
 - **`airbyte.records`** - Internal record handling classes.
 - **`airbyte.results`** - Documents the classes returned when working with results from
     `Source.read` and `Destination.write`
@@ -122,22 +123,11 @@ has its own documentation and code samples related to effectively using the rela
 
 from __future__ import annotations
 
-from airbyte import (
-    caches,
-    cloud,
-    datasets,
-    destinations,
-    documents,
-    exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
-    experimental,
-    records,
-    results,
-    secrets,
-    sources,
-)
+from typing import TYPE_CHECKING
+
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.util import get_default_cache, new_local_cache
+from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_cache
 from airbyte.datasets import CachedDataset
 from airbyte.destinations.base import Destination
 from airbyte.destinations.util import get_destination
@@ -150,15 +140,43 @@ from airbyte.sources.registry import get_available_connectors
 from airbyte.sources.util import get_source
 
 
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TC004  # imports used for more than type checking
+    from airbyte import (
+        caches,
+        callbacks,
+        cli,
+        cloud,
+        constants,
+        datasets,
+        destinations,
+        documents,
+        exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
+        experimental,
+        logs,
+        mcp,
+        records,
+        results,
+        secrets,
+        sources,
+    )
+
+
 __all__ = [
     # Modules
-    "cloud",
     "caches",
+    "callbacks",
+    "cli",
+    "cloud",
+    "constants",
     "datasets",
     "destinations",
     "documents",
     "exceptions",
     "experimental",
+    "logs",
+    "mcp",
     "records",
     "registry",
     "results",
@@ -166,6 +184,7 @@ __all__ = [
     "sources",
     # Factories
     "get_available_connectors",
+    "get_colab_cache",
     "get_default_cache",
     "get_destination",
     "get_secret",

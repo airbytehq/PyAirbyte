@@ -3,17 +3,22 @@
 
 from __future__ import annotations
 
-import datetime
 import sys
 from collections.abc import Iterator
-from typing import IO, TYPE_CHECKING, Callable, cast
+from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
 from typing_extensions import final
 
+from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
+    AirbyteStreamStatus,
+    AirbyteStreamStatusTraceMessage,
+    AirbyteTraceMessage,
+    StreamDescriptor,
+    TraceType,
     Type,
 )
 
@@ -21,10 +26,36 @@ from airbyte.constants import AB_EXTRACTED_AT_COLUMN
 
 
 if TYPE_CHECKING:
-    from collections.abc import Generator, Iterable, Iterator
+    import datetime
+    from collections.abc import Callable, Generator, Iterable, Iterator
     from pathlib import Path
 
     from airbyte.results import ReadResult
+
+
+def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
+    """Return a new stream success message."""
+    return AirbyteMessage(
+        type=Type.TRACE,
+        trace=AirbyteTraceMessage(
+            type=TraceType.STREAM_STATUS,
+            emitted_at=ab_datetime_now().timestamp(),
+            stream_status=AirbyteStreamStatusTraceMessage(
+                stream_descriptor=StreamDescriptor(
+                    name=stream_name,
+                ),
+                status=AirbyteStreamStatus.COMPLETE,
+                reasons=None,
+            ),
+            estimate=None,
+            error=None,
+        ),
+        log=None,
+        record=None,
+        state=None,
+        catalog=None,
+        control=None,
+    )
 
 
 class AirbyteMessageIterator:
@@ -74,7 +105,7 @@ class AirbyteMessageIterator:
                             data=record,
                             emitted_at=int(
                                 cast(
-                                    datetime.datetime, record.get(AB_EXTRACTED_AT_COLUMN)
+                                    "datetime.datetime", record.get(AB_EXTRACTED_AT_COLUMN)
                                 ).timestamp()
                             ),
                             # `meta` and `namespace` are not handled:
@@ -89,6 +120,8 @@ class AirbyteMessageIterator:
                         type=Type.STATE,
                         state=state_provider.get_stream_state(stream_name),
                     )
+
+                yield _new_stream_success_message(stream_name)
 
         return cls(generator())
 
@@ -108,7 +141,7 @@ class AirbyteMessageIterator:
                     yield AirbyteMessage.model_validate_json(next_line)
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
-                    raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
+                    raise ValueError("Invalid JSON format")  # noqa: B904
 
         return cls(generator())
 
@@ -123,7 +156,7 @@ class AirbyteMessageIterator:
                     yield AirbyteMessage.model_validate_json(line)
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
-                    raise ValueError(f"Invalid JSON format in input string: {line}")  # noqa: B904, TRY003
+                    raise ValueError(f"Invalid JSON format in input string: {line}")  # noqa: B904
 
         return cls(generator())
 
@@ -167,6 +200,6 @@ class AirbyteMessageIterator:
                     # Handle JSON decoding errors
                     current_file_buffer.close()
                     current_file_buffer = None
-                    raise ValueError("Invalid JSON format")  # noqa: B904, TRY003
+                    raise ValueError("Invalid JSON format")  # noqa: B904
 
         return cls(generator())

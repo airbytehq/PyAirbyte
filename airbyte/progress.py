@@ -8,39 +8,54 @@ based on your execution environment.
 
 If you experience issues, you can force plain text status reporting by setting the environment
 variable `NO_LIVE_PROGRESS=1`.
+
+Logging is controlled by the `AIRBYTE_LOGGING_ROOT` and `AIRBYTE_STRUCTURED_LOGGING` environment
+variables, as described in `airbyte.logs`. If `AIRBYTE_STRUCTURED_LOGGING` is set, logs will be
+written in JSONL format. Otherwise, log files will be written as text.
 """
 
 from __future__ import annotations
 
 import datetime
 import importlib
+import json
 import math
 import os
 import sys
 import time
-import warnings
 from collections import defaultdict
 from contextlib import suppress
 from enum import Enum, auto
-from typing import IO, TYPE_CHECKING, Any, cast
+from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
-import pendulum
+from rich.console import Console
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
-from typing_extensions import Literal
 
-from airbyte_protocol.models import AirbyteStreamStatus, Type
+from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
+from airbyte_protocol.models import (
+    AirbyteMessage,
+    AirbyteStreamStatus,
+)
 
+from airbyte import logs
+from airbyte._message_iterators import _new_stream_success_message
 from airbyte._util import meta
-from airbyte._util.telemetry import EventState, EventType, send_telemetry
+from airbyte._util.telemetry import (
+    EventState,
+    EventType,
+    send_telemetry,
+)
+from airbyte.logs import get_global_file_logger
 
 
 if TYPE_CHECKING:
+    import logging
     from collections.abc import Generator, Iterable
     from types import ModuleType
 
-    from airbyte_protocol.models import AirbyteMessage
+    from structlog import BoundLogger
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches.base import CacheBase
@@ -157,6 +172,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._cache = cache
         self._destination = destination
 
+        self._file_logger: logging.Logger | None = get_global_file_logger()
+
         # Streams expected (for progress bar)
         self.num_streams_expected = len(expected_streams) if expected_streams else 0
 
@@ -175,6 +192,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self.stream_read_counts: dict[str, int] = defaultdict(int)
         self.stream_read_start_times: dict[str, float] = {}
         self.stream_read_end_times: dict[str, float] = {}
+        self.stream_bytes_read: dict[str, int] = defaultdict(int)
 
         # Cache Writes
         self.total_records_written = 0
@@ -194,13 +212,45 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         # Progress bar properties
         self._last_update_time: float | None = None
+        self._stderr_console: Console | None = None
         self._rich_view: RichLive | None = None
 
         self.reset_progress_style(style)
 
+    def _print_info_message(
+        self,
+        message: str,
+    ) -> None:
+        """Print a message to the console and the file logger."""
+        if self._file_logger:
+            self._file_logger.info(message)
+
+    @property
+    def bytes_tracking_enabled(self) -> bool:
+        """Return True if bytes are being tracked."""
+        return bool(self.stream_bytes_read)
+
+    @property
+    def total_bytes_read(self) -> int:
+        """Return the total number of bytes read.
+
+        Return None if bytes are not being tracked.
+        """
+        return sum(self.stream_bytes_read.values())
+
+    @property
+    def total_megabytes_read(self) -> float:
+        """Return the total number of bytes read.
+
+        Return None if no bytes have been read, as this is generally due to bytes not being tracked.
+        """
+        return self.total_bytes_read / 1_000_000
+
     def tally_records_read(
         self,
         messages: Iterable[AirbyteMessage],
+        *,
+        auto_close_streams: bool = False,
     ) -> Generator[AirbyteMessage, Any, None]:
         """This method simply tallies the number of records processed and yields the messages."""
         # Update the display before we start.
@@ -215,20 +265,25 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             yield message
 
             if message.record:
+                # If this is the first record, set the start time.
+                if self.first_record_received_time is None:
+                    self.first_record_received_time = time.time()
+
                 # Tally the record.
                 self.total_records_read += 1
 
                 if message.record.stream:
                     self.stream_read_counts[message.record.stream] += 1
 
-                    if self.stream_read_start_times:
-                        self._log_stream_read_start(stream_name=message.record.stream)
+                    if message.record.stream not in self.stream_read_start_times:
+                        self.log_stream_start(stream_name=message.record.stream)
 
-                if (
-                    message.trace
-                    and message.trace.stream_status
-                    and message.trace.stream_status.status is AirbyteStreamStatus.COMPLETE
-                ):
+            elif message.trace and message.trace.stream_status:
+                if message.trace.stream_status.status is AirbyteStreamStatus.STARTED:
+                    self.log_stream_start(
+                        stream_name=message.trace.stream_status.stream_descriptor.name
+                    )
+                if message.trace.stream_status.status is AirbyteStreamStatus.COMPLETE:
                     self._log_stream_read_end(
                         stream_name=message.trace.stream_status.stream_descriptor.name
                     )
@@ -237,15 +292,16 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             if count % update_period != 0:
                 continue
 
-            # If this is the first record, set the start time.
-            if self.first_record_received_time is None:
-                self.first_record_received_time = time.time()
-
             # Update the update period to the latest scale of data.
             update_period = self._get_update_period(count)
 
             # Update the display.
             self._update_display()
+
+        if auto_close_streams:
+            for stream_name in self._unclosed_stream_names:
+                yield _new_stream_success_message(stream_name)
+                self._log_stream_read_end(stream_name)
 
     def tally_pending_writes(
         self,
@@ -291,18 +347,25 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """
         self._start_rich_view()  # Start Rich's live view if not already running.
         for message in messages:
-            if message.type is Type.STATE:
+            if message.state:
                 # This is a state message from the destination. Tally the records written.
                 if message.state.stream and message.state.destinationStats:
                     stream_name = message.state.stream.stream_descriptor.name
-                    self.destination_stream_records_confirmed[stream_name] += (
-                        message.state.destinationStats.recordCount
+                    self.destination_stream_records_confirmed[stream_name] += int(
+                        message.state.destinationStats.recordCount or 0
                     )
                 self._update_display()
 
             yield message
 
         self._update_display(force_refresh=True)
+
+    def tally_bytes_read(self, bytes_read: int, stream_name: str) -> None:
+        """Tally the number of bytes read.
+
+        Unlike the other tally methods, this method does not yield messages.
+        """
+        self.stream_bytes_read[stream_name] += bytes_read
 
     # Logging methods
 
@@ -321,13 +384,39 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         return " -> ".join(steps)
 
+    def _send_telemetry(
+        self,
+        state: EventState,
+        number_of_records: int | None = None,
+        event_type: EventType = EventType.SYNC,
+        exception: Exception | None = None,
+    ) -> None:
+        """Send telemetry for the current job state.
+
+        A thin wrapper around `send_telemetry` that includes the job description.
+        """
+        send_telemetry(
+            source=self._source._get_connector_runtime_info() if self._source else None,  # noqa: SLF001
+            cache=self._cache._get_writer_runtime_info() if self._cache else None,  # noqa: SLF001
+            destination=(
+                self._destination._get_connector_runtime_info()  # noqa: SLF001
+                if self._destination
+                else None
+            ),
+            state=state,
+            number_of_records=number_of_records,
+            event_type=event_type,
+            exception=exception,
+        )
+
     def _log_sync_start(self) -> None:
         """Log the start of a sync operation."""
-        print(f"Started `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`...")
-        send_telemetry(
-            source=self._source,
-            cache=self._cache,
-            destination=self._destination,
+        self._print_info_message(
+            f"Started `{self.job_description}` sync at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+        )
+        # We access a non-public API here (noqa: SLF001) to get the runtime info for participants.
+        self._send_telemetry(
             state=EventState.STARTED,
             event_type=EventType.SYNC,
         )
@@ -346,11 +435,111 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         print(f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`...")
         self.stream_read_start_times[stream_name] = time.time()
 
+    def log_stream_start(self, stream_name: str) -> None:
+        """Log that a stream has started reading."""
+        if stream_name not in self.stream_read_start_times:
+            self._print_info_message(
+                f"Read started on stream `{stream_name}` at "
+                f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+            )
+            self.stream_read_start_times[stream_name] = time.time()
+
     def _log_stream_read_end(self, stream_name: str) -> None:
-        print(
-            f"Read completed on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`..."
+        self._print_info_message(
+            f"Read completed on stream `{stream_name}` at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
         )
         self.stream_read_end_times[stream_name] = time.time()
+
+    @property
+    def _job_info(self) -> dict[str, Any]:
+        """Return a dictionary of job information."""
+        job_info: dict[str, str | dict] = {
+            "description": self.job_description,
+        }
+        if self._source:
+            job_info["source"] = self._source._get_connector_runtime_info().to_dict()  # noqa: SLF001
+
+        if self._cache:
+            job_info["cache"] = self._cache._get_writer_runtime_info().to_dict()  # noqa: SLF001
+
+        if self._destination:
+            job_info["destination"] = self._destination._get_connector_runtime_info().to_dict()  # noqa: SLF001
+
+        return job_info
+
+    def _log_read_metrics(self) -> None:
+        """Log read performance metrics."""
+        # Source performance metrics
+        if not self.total_records_read or not self._file_logger:
+            return
+
+        log_dict = {
+            "job_type": "read",
+            "job_info": self._job_info,
+        }
+
+        perf_metrics: dict[str, Any] = {}
+        perf_metrics["records_read"] = self.total_records_read
+        perf_metrics["read_time_seconds"] = self.elapsed_read_seconds
+        perf_metrics["read_start_time"] = self.read_start_time
+        perf_metrics["read_end_time"] = self.read_end_time
+        if self.elapsed_read_seconds > 0:
+            perf_metrics["records_per_second"] = round(
+                self.total_records_read / self.elapsed_read_seconds, 4
+            )
+            if self.bytes_tracking_enabled:
+                mb_read = self.total_megabytes_read
+                perf_metrics["mb_read"] = mb_read
+                perf_metrics["mb_per_second"] = round(mb_read / self.elapsed_read_seconds, 4)
+
+        stream_metrics = {}
+        for stream_name, count in self.stream_read_counts.items():
+            stream_metrics[stream_name] = {
+                "records_read": count,
+                "read_start_time": self.stream_read_start_times.get(stream_name),
+                "read_end_time": self.stream_read_end_times.get(stream_name),
+            }
+            if (
+                stream_name in self.stream_read_end_times
+                and stream_name in self.stream_read_start_times
+                and count > 0
+            ):
+                duration: float = (
+                    self.stream_read_end_times[stream_name]
+                    - self.stream_read_start_times[stream_name]
+                )
+                stream_metrics[stream_name]["read_time_seconds"] = duration
+                if duration > 0:
+                    stream_metrics[stream_name]["records_per_second"] = round(
+                        count
+                        / (
+                            self.stream_read_end_times[stream_name]
+                            - self.stream_read_start_times[stream_name]
+                        ),
+                        4,
+                    )
+                    if self.bytes_tracking_enabled:
+                        mb_read = self.stream_bytes_read[stream_name] / 1_000_000
+                        stream_metrics[stream_name]["mb_read"] = mb_read
+                        stream_metrics[stream_name]["mb_per_second"] = round(mb_read / duration, 4)
+
+        perf_metrics["stream_metrics"] = stream_metrics
+        log_dict["performance_metrics"] = perf_metrics
+
+        self._file_logger.info(json.dumps(log_dict))
+
+        perf_logger: BoundLogger = logs.get_global_stats_logger()
+        perf_logger.info(**log_dict)
+
+    @property
+    def _unclosed_stream_names(self) -> list[str]:
+        """Return a list of streams that have not yet been fully read."""
+        return [
+            stream_name
+            for stream_name in self.stream_read_counts
+            if stream_name not in self.stream_read_end_times
+        ]
 
     def log_success(
         self,
@@ -375,10 +564,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             f"Completed `{self.job_description}` sync at "
             f"`{pendulum.now().format('HH:mm:ss')}`{streams_str}."
         )
-        send_telemetry(
-            source=self._source,
-            cache=self._cache,
-            destination=self._destination,
+        self._log_read_metrics()
+        self._send_telemetry(
             state=EventState.SUCCEEDED,
             number_of_records=self.total_records_read,
             event_type=EventType.SYNC,
@@ -391,12 +578,12 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """Log the failure of a sync operation."""
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        print(f"Failed `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
-        send_telemetry(
+        self._print_info_message(
+            f"Failed `{self.job_description}` sync at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
+        )
+        self._send_telemetry(
             state=EventState.FAILED,
-            source=self._source,
-            cache=self._cache,
-            destination=self._destination,
             number_of_records=self.total_records_read,
             exception=exception,
             event_type=EventType.SYNC,
@@ -459,15 +646,19 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """
         if self.style == ProgressStyle.RICH and not self._rich_view:
             try:
+                if self._stderr_console is None:
+                    self._stderr_console = Console(stderr=True)
+
                 self._rich_view = RichLive(
                     auto_refresh=True,
                     refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
+                    console=self._stderr_console,
                 )
                 self._rich_view.start()
             except Exception:
-                warnings.warn(
+                logs.warn_once(
                     "Failed to start Rich live view. Falling back to plain text progress.",
-                    stacklevel=2,
+                    with_stack=False,
                 )
                 self.style = ProgressStyle.PLAIN
                 self._stop_rich_view()
@@ -595,7 +786,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         if (
             not force_refresh
             and self._last_update_time  # if not set, then we definitely need to update
-            and cast(float, self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
+            and cast("float", self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
         ):
             return
 
@@ -620,8 +811,12 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
         records_per_second: float = 0.0
+        mb_per_second_str = ""
         if self.elapsed_read_seconds > 0:
             records_per_second = self.total_records_read / self.elapsed_read_seconds
+            if self.bytes_tracking_enabled:
+                mb_per_second = self.total_megabytes_read / self.elapsed_read_seconds
+                mb_per_second_str = f", {mb_per_second:,.2f} MB/s"
 
         status_message = HORIZONTAL_LINE + f"\n### Sync Progress: `{self.job_description}`\n\n"
 
@@ -637,7 +832,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 f"**Started reading from source at `{start_time_str}`:**\n\n"
                 f"- Read **{self.total_records_read:,}** records "
                 f"over **{self.elapsed_read_time_string}** "
-                f"({records_per_second:,.1f} records / second).\n\n"
+                f"({records_per_second:,.1f} records/s{mb_per_second_str}).\n\n"
             )
 
         if self.stream_read_counts:
@@ -704,7 +899,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 status_message += (
                     f"- Sent **{self.total_destination_records_delivered:,} records** "
                     f"to destination over **{self.total_destination_write_time_str}** "
-                    f"({self.destination_records_delivered_per_second:,.1f} records per second)."
+                    f"({self.destination_records_delivered_per_second:,.1f} records/s)."
                     "\n\n"
                 )
                 status_message += (

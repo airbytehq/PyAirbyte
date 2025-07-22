@@ -1,3 +1,4 @@
+# noqa: A005  # Allow shadowing the built-in 'types' module
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
 """Type conversion methods for SQL Caches."""
@@ -7,7 +8,7 @@ from __future__ import annotations
 from typing import cast
 
 import sqlalchemy
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 
 # Compare to documentation here: https://docs.airbyte.com/understanding-airbyte/supported-data-types
@@ -40,7 +41,7 @@ def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
 
     Subtype is only used for array types. Otherwise, subtype will return None.
     """
-    airbyte_type = cast(str, json_schema_property_def.get("airbyte_type", None))
+    airbyte_type = cast("str", json_schema_property_def.get("airbyte_type", None))
     if airbyte_type:
         return airbyte_type, None
 

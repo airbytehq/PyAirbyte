@@ -7,8 +7,26 @@ import warnings
 from typing import Any, cast
 
 from airbyte import exceptions as exc
+from airbyte.constants import SECRETS_HYDRATION_PREFIX
 from airbyte.secrets.base import SecretManager, SecretSourceEnum, SecretString
 from airbyte.secrets.config import _get_secret_sources
+
+
+def is_secret_available(
+    secret_name: str,
+) -> bool:
+    """Check if a secret is available in any of the configured secret sources.
+
+    This function checks all available secret sources for the given secret name.
+    If the secret is found in any source, it returns `True`; otherwise, it returns `False`.
+    """
+    try:
+        _ = get_secret(secret_name, allow_prompt=False)
+    except exc.PyAirbyteSecretNotFoundError:
+        return False
+    else:
+        # If no exception was raised, the secret was found.
+        return True
 
 
 def get_secret(
@@ -28,6 +46,11 @@ def get_secret(
     If `allow_prompt` is `True` or if SecretSourceEnum.PROMPT is declared in the `source` arg, then
     the user will be prompted to enter the secret if it is not found in any of the other sources.
     """
+    if secret_name.startswith(SECRETS_HYDRATION_PREFIX):
+        # If the secret name starts with the hydration prefix, we assume it's a secret reference.
+        # We strip the prefix and get the actual secret name.
+        secret_name = secret_name.removeprefix(SECRETS_HYDRATION_PREFIX).lstrip()
+
     if "source" in kwargs:
         warnings.warn(
             message="The `source` argument is deprecated. Use the `sources` argument instead.",
@@ -63,7 +86,7 @@ def get_secret(
 
             sources[sources.index(source)] = available_sources[source]
 
-    secret_managers = cast(list[SecretManager], sources)
+    secret_managers = cast("list[SecretManager]", sources)
 
     if SecretSourceEnum.PROMPT in secret_managers:
         prompt_source = secret_managers.pop(

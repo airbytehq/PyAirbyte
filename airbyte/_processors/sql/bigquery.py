@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import warnings
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, final
+from typing import TYPE_CHECKING, cast, final
 
 import google.oauth2
 import sqlalchemy
@@ -14,14 +14,15 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 from overrides import overrides
 from pydantic import Field
+from sqlalchemy import types as sqlalchemy_types
 from sqlalchemy.engine import make_url
 
 from airbyte import exceptions as exc
-from airbyte._future_cdk import SqlProcessorBase
-from airbyte._future_cdk.sql_processor import SqlConfig
-from airbyte._processors.file.jsonl import JsonlWriter
+from airbyte._writers.jsonl import JsonlWriter
 from airbyte.constants import DEFAULT_CACHE_SCHEMA_NAME
 from airbyte.secrets.base import SecretString
+from airbyte.shared import SqlProcessorBase
+from airbyte.shared.sql_processor import SqlConfig
 from airbyte.types import SQLTypeConverter
 
 
@@ -42,9 +43,13 @@ class BigQueryConfig(SqlConfig):
     schema_name: str = Field(alias="dataset_name", default=DEFAULT_CACHE_SCHEMA_NAME)
     """The name of the dataset to use. In BigQuery, this is equivalent to the schema name."""
 
-    credentials_path: Optional[str] = None
+    credentials_path: str | None = None
     """The path to the credentials file to use.
     If not passed, falls back to the default inferred from the environment."""
+
+    dataset_location: str = "US"
+    """The geographic location of the BigQuery dataset (e.g., 'US', 'EU', etc.).
+    Defaults to 'US'. See: https://cloud.google.com/bigquery/docs/locations"""
 
     @property
     def project_name(self) -> str:
@@ -89,7 +94,7 @@ class BigQueryConfig(SqlConfig):
         else:
             credentials, _ = google.auth.default()
 
-        return bigquery.Client(credentials=credentials)
+        return bigquery.Client(credentials=credentials, location=self.dataset_location)
 
 
 class BigQueryTypeConverter(SQLTypeConverter):
@@ -98,7 +103,7 @@ class BigQueryTypeConverter(SQLTypeConverter):
     @classmethod
     def get_string_type(cls) -> sqlalchemy.types.TypeEngine:
         """Return the string type for BigQuery."""
-        return "String"
+        return cast("sqlalchemy.types.TypeEngine", "String")  # BigQuery uses STRING for all strings
 
     @overrides
     def to_sql_type(
@@ -115,9 +120,9 @@ class BigQueryTypeConverter(SQLTypeConverter):
         if isinstance(sql_type, sqlalchemy.types.VARCHAR):
             return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
-            return "INT64"
+            return sqlalchemy_types.Integer()  # All integers are 64-bit in BigQuery
 
-        return sql_type.__class__.__name__
+        return sql_type
 
 
 class BigQuerySqlProcessor(SqlProcessorBase):
@@ -202,7 +207,10 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         if self._schema_exists:
             return
 
-        sql = f"CREATE SCHEMA IF NOT EXISTS {self.sql_config.schema_name}"
+        project = self.sql_config.project_name
+        schema = self.sql_config.schema_name
+        location = self.sql_config.dataset_location
+        sql = f"CREATE SCHEMA IF NOT EXISTS `{project}.{schema}` " f'OPTIONS(location="{location}")'
         try:
             self._execute_sql(sql)
         except Exception as ex:

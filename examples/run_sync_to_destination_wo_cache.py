@@ -18,16 +18,27 @@ SCALE = 200_000
 
 
 def get_my_source() -> ab.Source:
-    return ab.get_source(
-        "source-faker",
-        local_executable="source-faker",
+    # Create a token here: https://github.com/settings/tokens
+    # Then export as env var `GITHUB_PERSONAL_ACCESS_TOKEN`
+    github_pat = ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")
+    assert str(github_pat), "Could not locate Github PAT"
+    source = ab.get_source(
+        "source-github",
         config={
-            "count": SCALE,
-            "seed": 1234,
-            "parallelism": 16,
+            "repositories": ["airbytehq/PyAirbyte"],
+            "credentials": {
+                "personal_access_token": github_pat,
+            },
         },
-        install_if_missing=False,
-        streams=["purchases"],
+    )
+    source.check()
+    source.select_streams(["issues"])
+    return source
+
+
+def get_cache() -> ab.DuckDBCache:
+    return ab.new_local_cache(
+        cache_name="state_cache",
     )
 
 
@@ -50,9 +61,11 @@ def main() -> None:
     source.check()
     destination = get_my_destination()
     destination.check()
+    state_cache = get_cache()
     write_result: ab.WriteResult = destination.write(
         source,
         cache=False,
+        state_cache=state_cache,
     )
     print(
         f"Completed writing {write_result.processed_records:,} records "

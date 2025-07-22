@@ -13,8 +13,7 @@ import json
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Column, String
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 from airbyte_protocol.models import (
     AirbyteStream,
@@ -24,11 +23,11 @@ from airbyte_protocol.models import (
     SyncMode,
 )
 
-from airbyte._future_cdk.catalog_providers import CatalogProvider
+from airbyte.shared.catalog_providers import CatalogProvider
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    from airbyte.shared.sql_processor import SqlConfig
 
 
 STREAMS_TABLE_NAME = "_airbyte_streams"
@@ -111,10 +110,10 @@ class SqlCatalogBackend(CatalogBackendBase):
 
     def __init__(
         self,
-        engine: Engine,
+        sql_config: SqlConfig,
         table_prefix: str,
     ) -> None:
-        self._engine: Engine = engine
+        self._sql_config = sql_config
         self._table_prefix = table_prefix
         self._ensure_internal_tables()
         self._full_catalog: ConfiguredAirbyteCatalog = ConfiguredAirbyteCatalog(
@@ -126,8 +125,8 @@ class SqlCatalogBackend(CatalogBackendBase):
         self._source_catalogs: dict[str, ConfiguredAirbyteCatalog] = {}
 
     def _ensure_internal_tables(self) -> None:
-        engine = self._engine
-        SqlAlchemyModel.metadata.create_all(engine)
+        engine = self._sql_config.get_sql_engine()
+        SqlAlchemyModel.metadata.create_all(engine)  # type: ignore[attr-defined]
 
     def register_source(
         self,
@@ -182,7 +181,7 @@ class SqlCatalogBackend(CatalogBackendBase):
         incoming_stream_names: set[str],
     ) -> None:
         self._ensure_internal_tables()
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         with Session(engine) as session:
             # Delete and replace existing stream entries from the catalog cache
             table_name_entries_to_delete = [
@@ -218,7 +217,7 @@ class SqlCatalogBackend(CatalogBackendBase):
 
         The `source_name` and `table_prefix` args are optional filters.
         """
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         with Session(engine) as session:
             # load all the streams
             streams: list[CachedStream] = session.query(CachedStream).all()
@@ -232,7 +231,7 @@ class SqlCatalogBackend(CatalogBackendBase):
             ConfiguredAirbyteStream(
                 stream=AirbyteStream(
                     name=stream.stream_name,
-                    json_schema=json.loads(stream.catalog_metadata),
+                    json_schema=json.loads(stream.catalog_metadata),  # type: ignore[arg-type]
                     supported_sync_modes=[SyncMode.full_refresh],
                 ),
                 sync_mode=SyncMode.full_refresh,

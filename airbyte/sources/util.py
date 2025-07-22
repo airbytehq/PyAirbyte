@@ -4,14 +4,18 @@
 from __future__ import annotations
 
 import warnings
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 
 from airbyte._executors.util import get_connector_executor
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.sources.base import Source
 
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from airbyte.callbacks import ConfigChangeCallback
 
 
 def get_connector(
@@ -44,22 +48,34 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
     *,
+    config_change_callback: ConfigChangeCallback | None = None,
     streams: str | list[str] | None = None,
     version: str | None = None,
     pip_url: str | None = None,
     local_executable: Path | str | None = None,
-    docker_image: bool | str = False,
+    docker_image: bool | str | None = None,
     use_host_network: bool = False,
-    source_manifest: bool | dict | Path | str = False,
+    source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
+    If an explicit install or execution method is requested (e.g. `local_executable`,
+    `docker_image`, `pip_url`, `source_manifest`), the connector will be executed using this method.
+
+    Otherwise, an appropriate method will be selected based on the available connector metadata:
+    1. If the connector is registered and has a YAML source manifest is available, the YAML manifest
+       will be downloaded and used to to execute the connector.
+    2. Else, if the connector is registered and has a PyPI package, it will be installed via pip.
+    3. Else, if the connector is registered and has a Docker image, and if Docker is available, it
+       will be executed using Docker.
+
     Args:
         name: connector name
         config: connector config - if not provided, you need to set it later via the set_config
             method.
+        config_change_callback: callback function to be called when the connector config changes.
         streams: list of stream names to select for reading. If set to "*", all streams will be
             selected. If not provided, you can set it later via the `select_streams()` or
             `select_all_streams()` method.
@@ -91,6 +107,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     return Source(
         name=name,
         config=config,
+        config_change_callback=config_change_callback,
         streams=streams,
         executor=get_connector_executor(
             name=name,
@@ -106,6 +123,57 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     )
 
 
+def get_benchmark_source(
+    num_records: int | str = "5e5",
+    *,
+    install_if_missing: bool = True,
+) -> Source:
+    """Get a source for benchmarking.
+
+    This source will generate dummy records for performance benchmarking purposes.
+    You can specify the number of records to generate using the `num_records` parameter.
+    The `num_records` parameter can be an integer or a string in scientific notation.
+    For example, `"5e6"` will generate 5 million records. If underscores are providing
+    within a numeric a string, they will be ignored.
+
+    Args:
+        num_records: The number of records to generate. Defaults to "5e5", or
+            500,000 records.
+            Can be an integer (`1000`) or a string in scientific notation.
+            For example, `"5e6"` will generate 5 million records.
+        install_if_missing: Whether to install the source if it is not available locally.
+
+    Returns:
+        Source: The source object for benchmarking.
+    """
+    if isinstance(num_records, str):
+        try:
+            num_records = int(Decimal(num_records.replace("_", "")))
+        except InvalidOperation as ex:
+            raise PyAirbyteInputError(
+                message="Invalid number format.",
+                original_exception=ex,
+                input_value=str(num_records),
+            ) from None
+
+    return get_source(
+        name="source-e2e-test",
+        docker_image=True,
+        # docker_image="airbyte/source-e2e-test:latest",
+        config={
+            "type": "BENCHMARK",
+            "schema": "FIVE_STRING_COLUMNS",
+            "terminationCondition": {
+                "type": "MAX_RECORDS",
+                "max": num_records,
+            },
+        },
+        streams="*",
+        install_if_missing=install_if_missing,
+    )
+
+
 __all__ = [
     "get_source",
+    "get_benchmark_source",
 ]

@@ -1,11 +1,12 @@
 name: "Verify Semantic PR Title"
 
 on:
-  pull_request_target:
+  pull_request:
     types:
       - opened
       - edited
       - synchronize
+      - ready_for_review
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
@@ -19,30 +20,40 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: amannn/action-semantic-pull-request@v5
+        if: ${{ github.event.pull_request.draft == false }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # Configure which types are allowed (newline-delimited).
+          # These are intentionally case-insensitive, allowing title casing or all lowercase.
           # See: https://github.com/commitizen/conventional-commit-types/blob/master/index.json
           types: |
+            fix
             Fix
+            feat
             Feat
+            docs
             Docs
+            ci
             CI
+            chore
             Chore
+            build
             Build
+            test
             Test
 
           # # We don't use scopes as of now
           # scopes: |
           #   core
           #   ui
-          #   JIRA-\d+
 
-          # Require capitalization for the first letter of the subject.
-          subjectPattern: ^[A-Z].*$
-          # The variables `subject` and `title` can be used within the message.
-          subjectPatternError: |
-            The subject "{subject}" found in the pull request title "{title}"
-            didn't match the configured pattern. Please ensure that the subject
-            start with an uppercase character.
+      - name: Check for "do not merge" in PR title
+        if: ${{ github.event.pull_request.draft == false }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title.toLowerCase();
+            if (title.includes('do not merge') || title.includes('do-not-merge')) {
+              core.setFailed('PR title contains "do not merge" or "do-not-merge". Please remove this before merging.');
+            }

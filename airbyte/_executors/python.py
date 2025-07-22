@@ -7,11 +7,10 @@ import sys
 from contextlib import suppress
 from pathlib import Path
 from shutil import rmtree
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from overrides import overrides
-from rich import print
-from typing_extensions import Literal
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
@@ -114,7 +113,8 @@ class VenvExecutor(Executor):
         pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
         print(
             f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-            f"Running 'pip install {self.pip_url}'...\n"
+            f"Running 'pip install {self.pip_url}'...\n",
+            file=sys.stderr,
         )
         try:
             self._run_subprocess_and_raise_on_failure(
@@ -135,7 +135,8 @@ class VenvExecutor(Executor):
         print(
             f"Connector '{self.name}' installed successfully!\n"
             f"For more information, see the {self.name} documentation:\n"
-            f"{self.docs_url}#reference\n"
+            f"{self.docs_url}#reference\n",
+            file=sys.stderr,
         )
 
     @overrides
@@ -242,7 +243,8 @@ class VenvExecutor(Executor):
             # This is sometimes caused by a failed or partial installation.
             print(
                 "Connector executable not found within the virtual environment "
-                f"at {self._get_connector_path()!s}.\nReinstalling..."
+                f"at {self._get_connector_path()!s}.\nReinstalling...",
+                file=sys.stderr,
             )
             self.uninstall()
             self.install()

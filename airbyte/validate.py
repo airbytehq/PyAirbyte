@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from rich import print
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 import airbyte as ab
 from airbyte import exceptions as exc

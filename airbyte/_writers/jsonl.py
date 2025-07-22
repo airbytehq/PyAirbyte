@@ -10,7 +10,7 @@ from typing import IO, TYPE_CHECKING, cast
 import orjson
 from overrides import overrides
 
-from airbyte._processors.file.base import (
+from airbyte._writers.file_writers import (
     FileWriterBase,
 )
 
@@ -34,8 +34,8 @@ class JsonlWriter(FileWriterBase):
     ) -> IO[str]:
         """Open a new file for writing."""
         return cast(
-            IO[str],
-            gzip.open(
+            "IO[str]",
+            gzip.open(  # Avoiding context manager
                 file_path,
                 mode="wt",
                 encoding="utf-8",

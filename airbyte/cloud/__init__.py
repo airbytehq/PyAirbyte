@@ -5,7 +5,7 @@ You can use this module to interact with Airbyte Cloud, OSS, and Enterprise.
 
 ## Examples
 
-### Basic Usage Example:
+### Basic Sync Example:
 
 ```python
 import airbyte as ab
@@ -47,20 +47,22 @@ print(f"Table name: {users_table.name}")
 for record in dataset:
     print(record)
 ```
-
-ℹ️ **Experimental Features**
-
-You can use the `airbyte.cloud.experimental` module to access experimental features.
-These additional features are subject to change and may not be available in all environments.
-"""  # noqa: RUF002  # Allow emoji
+"""
 
 from __future__ import annotations
 
-from airbyte.cloud import connections, constants, sync_results, workspaces
+from typing import TYPE_CHECKING
+
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
+
+
+# Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
+if TYPE_CHECKING:
+    # ruff: noqa: TC004
+    from airbyte.cloud import connections, constants, sync_results, workspaces
 
 
 __all__ = [

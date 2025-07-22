@@ -6,28 +6,28 @@ from __future__ import annotations
 import warnings
 from pathlib import Path
 from textwrap import dedent, indent
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Literal
 
 from duckdb_engine import DuckDBEngineWarning
 from overrides import overrides
 from pydantic import Field
-from typing_extensions import Literal
+from sqlalchemy import text
 
-from airbyte._future_cdk import SqlProcessorBase
-from airbyte._future_cdk.sql_processor import SqlConfig
-from airbyte._processors.file import JsonlWriter
+from airbyte._writers.jsonl import JsonlWriter
 from airbyte.secrets.base import SecretString
+from airbyte.shared import SqlProcessorBase
+from airbyte.shared.sql_processor import SqlConfig
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
+    from sqlalchemy.engine import Connection, Engine
 
 
 # @dataclass
 class DuckDBConfig(SqlConfig):
     """Configuration for DuckDB."""
 
-    db_path: Union[Path, str] = Field()
+    db_path: Path | str = Field()
     """Normally db_path is a Path object.
 
     The database name will be inferred from the file name. For example, given a `db_path` of
@@ -162,3 +162,23 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         )
         self._execute_sql(insert_statement)
         return temp_table_name
+
+    def _do_checkpoint(
+        self,
+        connection: Connection | None = None,
+    ) -> None:
+        """Checkpoint the given connection.
+
+        We override this method to ensure that the DuckDB WAL is checkpointed explicitly.
+        Otherwise DuckDB will lazily flush the WAL to disk, which can cause issues for users
+        who want to manipulate the DB files after writing them.
+
+        For more info:
+        - https://duckdb.org/docs/sql/statements/checkpoint.html
+        """
+        if connection is not None:
+            connection.execute(text("CHECKPOINT"))
+            return
+
+        with self.get_sql_connection() as new_conn:
+            new_conn.execute(text("CHECKPOINT"))

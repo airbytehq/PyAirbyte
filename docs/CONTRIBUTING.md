@@ -4,9 +4,11 @@ Learn how you can become a contributor to PyAirbyte.
 
 ## Development
 
-- Make sure [Poetry is installed](https://python-poetry.org/docs/#).
+- Make sure [Poetry is installed](https://python-poetry.org/docs/#) (version 2.0 or higher).
 - Run `poetry install`
 - For examples, check out the `examples` folder. They can be run via `poetry run python examples/<example file>`
+
+Note: By default in Poetry 2.0, `poetry lock` only refreshes the lockfile without pulling new versions. This is the same behavior as the previous `poetry lock --no-update` command.
 - Unit tests and type checks can be run via `poetry run pytest`
 
 ## Documentation
@@ -16,12 +18,20 @@ Regular documentation lives in the `/docs` folder. Based on the doc strings of p
 To generate the documentation, run:
 
 ```console
-poe generate-docs
+poe docs-generate
 ```
 
-or `poetry run poe generate-docs` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
+Or to build and open in one step:
 
-The `generate-docs` CLI command is mapped to the `run()` function of `docs/generate.py`.
+
+```console
+poe docs-preview
+```
+
+
+or `poetry run poe docs-preview` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
+
+The `docs-generate` Poe task is mapped to the `run()` function of `docs/generate.py`.
 
 Documentation pages will be generated in the `docs/generated` folder. The `test_docs.py` test in pytest will automatically update generated content. This updates must be manually committed before docs tests will pass.
 

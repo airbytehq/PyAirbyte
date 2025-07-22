@@ -9,26 +9,24 @@ from typing import TYPE_CHECKING
 
 from pytz import utc
 from sqlalchemy import Column, DateTime, PrimaryKeyConstraint, String, and_
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, declarative_base
 
 from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
 )
 
-from airbyte._future_cdk.state_providers import StaticInputState
-from airbyte._future_cdk.state_writers import StateWriterBase
 from airbyte.caches._state_backend_base import (
     StateBackendBase,
 )
 from airbyte.exceptions import PyAirbyteInputError, PyAirbyteInternalError
+from airbyte.shared.state_providers import StaticInputState
+from airbyte.shared.state_writers import StateWriterBase
 
 
 if TYPE_CHECKING:
-    from sqlalchemy.engine import Engine
-
-    from airbyte._future_cdk.state_providers import StateProviderBase
+    from airbyte.shared.sql_processor import SqlConfig
+    from airbyte.shared.state_providers import StateProviderBase
 
 
 CACHE_STATE_TABLE_NAME = "_airbyte_state"
@@ -39,11 +37,11 @@ LEGACY_STATE_STREAM_NAME = "_LEGACY"
 GLOBAL_STATE_STREAM_NAMES = [GLOBAL_STATE_STREAM_NAME, LEGACY_STATE_STREAM_NAME]
 
 
-SqlAlchemyModel = declarative_base()
+SqlAlchemyModel: type = declarative_base()
 """A base class to use for SQLAlchemy ORM models."""
 
 
-class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,misc]
+class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
     """A SQLAlchemy ORM model to store state metadata for internal caches."""
 
     __tablename__ = CACHE_STATE_TABLE_NAME
@@ -66,7 +64,7 @@ class CacheStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,misc]
     """The last time the state was updated."""
 
 
-class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[valid-type,misc]
+class DestinationStreamStateModel(SqlAlchemyModel):  # type: ignore[misc]
     """A SQLAlchemy ORM model to store state metadata for destinations.
 
     This is a separate table from the cache state table. The destination state table
@@ -127,7 +125,7 @@ class SqlStateWriter(StateWriterBase):
             stream_name = GLOBAL_STATE_STREAM_NAME
         if state_message.type == AirbyteStateType.LEGACY:
             stream_name = LEGACY_STATE_STREAM_NAME
-        elif state_message.type == AirbyteStateType.STREAM:
+        elif state_message.type == AirbyteStateType.STREAM and state_message.stream:
             stream_name = state_message.stream.stream_descriptor.name
         else:
             raise PyAirbyteInternalError(
@@ -137,7 +135,7 @@ class SqlStateWriter(StateWriterBase):
 
         self._state_backend._ensure_internal_tables()  # noqa: SLF001  # Non-public member access
         table_prefix = self._state_backend._table_prefix  # noqa: SLF001
-        engine = self._state_backend._engine  # noqa: SLF001
+        engine = self._state_backend._sql_config.get_sql_engine()  # noqa: SLF001
 
         # Calculate the new state model to write.
         new_state = (
@@ -188,18 +186,18 @@ class SqlStateBackend(StateBackendBase):
 
     def __init__(
         self,
-        engine: Engine,
+        sql_config: SqlConfig,
         table_prefix: str = "",
     ) -> None:
         """Initialize the state manager with a static catalog state."""
-        self._engine: Engine = engine
+        self._sql_config = sql_config
         self._table_prefix = table_prefix
         super().__init__()
 
     def _ensure_internal_tables(self) -> None:
         """Ensure the internal tables exist in the SQL database."""
-        engine = self._engine
-        SqlAlchemyModel.metadata.create_all(engine)
+        engine = self._sql_config.get_sql_engine()
+        SqlAlchemyModel.metadata.create_all(engine)  # type: ignore[attr-defined]
 
     def get_state_provider(
         self,
@@ -224,7 +222,7 @@ class SqlStateBackend(StateBackendBase):
         else:
             stream_state_model = CacheStreamStateModel
 
-        engine = self._engine
+        engine = self._sql_config.get_sql_engine()
         with Session(engine) as session:
             query = session.query(stream_state_model).filter(
                 stream_state_model.source_name == source_name

@@ -14,6 +14,8 @@ from airbyte import exceptions as exc
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler, ValidationInfo
     from pydantic.json_schema import JsonSchemaValue
 
@@ -29,7 +31,7 @@ class SecretSourceEnum(str, Enum):
     PROMPT = "prompt"
 
 
-class SecretString(str):
+class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of UserStr
     """A string that represents a secret.
 
     This class is used to mark a string as a secret. When a secret is printed, it
@@ -122,14 +124,14 @@ class SecretString(str):
 
     @classmethod
     def __get_pydantic_json_schema__(  # noqa: PLW3201  # Pydantic dunder method
-        cls, _core_schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+        cls, core_schema_: core_schema.CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
         """Return a modified JSON schema for the secret string.
 
         - `writeOnly=True` is the official way to prevent secrets from being exposed inadvertently.
         - `Format=password` is a popular and readable convention to indicate the field is sensitive.
         """
-        _ = _core_schema, handler  # Unused
+        _ = core_schema_, handler  # Unused
         return {
             "type": "string",
             "format": "password",
@@ -224,7 +226,7 @@ class SecretHandle:
 
         Subclasses can optionally override this method to provide a more optimized code path.
         """
-        return cast(SecretString, self.parent.get_secret(self.secret_name))
+        return cast("SecretString", self.parent.get_secret(self.secret_name))
 
     def parse_json(self) -> dict:
         """Parse the secret as JSON.
@@ -234,3 +236,28 @@ class SecretHandle:
         string, a `PyAirbyteInputError` will be raised.
         """
         return self.get_value().parse_json()
+
+    def write_to_file(
+        self,
+        file_path: Path,
+        /,
+        *,
+        silent: bool = False,
+    ) -> None:
+        """Write the secret to a file.
+
+        If `silent` is True, the method will not print any output to the console. Otherwise,
+        the method will print a message to the console indicating the file path to which the secret
+        is being written.
+
+        This method is a convenience method that writes the secret to a file as text.
+        """
+        if not silent:
+            print(
+                f"Writing secret '{self.secret_name.split('/')[-1]}' to '{file_path.absolute()!s}'"
+            )
+
+        file_path.write_text(
+            str(self.get_value()),
+            encoding="utf-8",
+        )

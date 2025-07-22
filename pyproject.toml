@@ -13,72 +13,81 @@ version = "0.0.0"
 enable = true
 
 [tool.poetry.dependencies]
-python = ">=3.9,<4.0"
+python = ">=3.10,<3.13"
 
-airbyte-cdk = ">=2.0,<=3.0"
-duckdb = "^1.0.0"
-duckdb-engine = "^0.13.0"
+airbyte-api = "^0.52.1"
+airbyte-cdk = "^6.56.5"
+airbyte-protocol-models-pdv2 = "^0.13.0"
+click = "^8.1.7"
+cryptography = ">=44.0.0,<45.0.0"
+duckdb = "^1.1.0"
+duckdb-engine = "^0.13.2"
 google-auth = ">=2.27.0,<3.0"
 google-cloud-bigquery = ">=3.12.0,<4.0"
+google-cloud-bigquery-storage = "^2.25.0"
 google-cloud-secret-manager = "^2.17.0"
 jsonschema = ">=3.2.0,<5.0"
-numpy = "<2.0"  # v2.0 causes "ValueError: numpy.dtype size changed" error
-orjson = "3.9.15"
+orjson = "^3.10"
 overrides = "^7.4.0"
-pandas = ">=1.5.3,<=2.1.4"              # 2.2.0 breaks sqlalchemy interop - TODO: optionally retest higher versions
-pendulum = "<=3.0.0"
-psycopg2-binary = "^2.9.9"
-# psycopg = {extras = ["binary", "pool"], version = "^3.1.16"}
-# Psycopg3 is not supported in SQLAlchemy 1.x:
-pyarrow = "^16.1.0"
+pandas = { version = ">=1.5.3,<3.0" }
+psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
+psycopg2-binary =  "^2.9.9"
+pyarrow = ">=16.1,<18.0"
 pydantic = ">=2.0,<=3.0"
+pydantic-core = "*"
 python-dotenv = "^1.0.1"
-python-ulid = "^2.2.0"
-requests = "<=2.31.0"  # 3.32.0 breaks docker tests
+python-ulid = "^3.0.0"
+pytz = "*"
+pyyaml = "^6.0.2"
+requests = "!=3.32.0"  # 3.32.0 breaks docker tests
 rich = "^13.7.0"
-snowflake-connector-python = "^3.10.0"
-snowflake-sqlalchemy = "^1.5.1"
-sqlalchemy = "1.4.51"
-types-pyyaml = "^6.0.12.12"
+snowflake-connector-python = "^3.12.2"
+snowflake-sqlalchemy = "^1.6.1"
+structlog = "^24.4.0"
+# TODO: Remove SQLAlchemy version constraint once DuckDB engine bug is fixed (issue #423)
+sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
 
 # TODO: Remove this arbitrary python constraint once `sqlalchemy-bigquery` has done so.
-sqlalchemy-bigquery = { version = "1.9.0", python = "<3.13" }
-airbyte-api = "^0.49.2"
-google-cloud-bigquery-storage = "^2.25.0"
-pyiceberg = "^0.6.1"
+sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }
+typing-extensions = "*"
 uuid7 = "^0.1.0"
+fastmcp = "^2.8.1"
 
 [tool.poetry.group.dev.dependencies]
-docker = "^7.0.0"
+coverage = "^7.5.1"
+deptry = "^0.21.1"
+docker = "^7.1.0"
 faker = "^21.0.0"
-mypy = "^1.7.1"
+freezegun = "^1.4.0"
+mypy = "^1.11.2"
 pandas-stubs = "^2.1.4.231218"
 pdoc = "^14.3.0"
+poethepoet = ">=0.26.1,<0.32.0"
 pytest = "^8.2.0"
 pytest-docker = "^3.1.1"
-pytest-mypy = "^0.10.3"
-ruff = "0.4.1"
-types-jsonschema = "^4.20.0.0"
-types-requests = "2.31.0.4"
-freezegun = "^1.4.0"
-airbyte-source-faker = ">=6.2.0"
-tomli = "^2.0"
-responses = "^0.25.0"
 pytest-mock = "^3.14.0"
-poethepoet = "^0.26.1"
-coverage = "^7.5.1"
+pytest-mypy = "^0.10.3"
 pytest-timeout = "^2.3.1"
-viztracer = "^0.16.3"
+responses = "^0.25.0"
+ruff = "^0.8.2"
+sqlalchemy2-stubs = "^0.0.2a38"
+tomli = "^2.0"
+types-jsonschema = "^4.20.0.0"
+types-pyyaml = "^6.0.12.12"
+types-requests = "2.31.0.4"
+viztracer = ">=0.16.3,<1.1.0"
+pydantic-ai = {extras = ["mcp"], version = "^0.2.16"}
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+requires = ["poetry-core>=1.0.0,<2.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
 build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.pytest.ini_options]
 # Pytest configuration as follows:
 # - No test can take longer than 10 minutes (600 seconds)
 # - Markers must be declared explicitly
-addopts = "-rs --strict-markers --timeout=600"
+# - Generate junit test results at a deterministic location
+addopts = "-rs --strict-markers --timeout=600 --junit-xml=build/test-results/test-results.xml"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
@@ -88,173 +97,27 @@ markers = [
 ]
 filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Treat python warnings as errors in pytest
-    "error",
-    # TODO: Remove these ignores once we are able to fix the warnings:
-    "ignore::sqlalchemy.exc.MovedIn20Warning",
-    # Snowflake reregisters its functions, which is fine.
+    # "error",  # TODO: Revert. Currently disabled because `airbyte_cdk.sources.source.ExperimentalClassWarning` ignore is not working
+    # # Snowflake reregisters its functions, which is fine.
     "ignore::sqlalchemy.exc.SAWarning",  # "GenericFunction is already registered and is going to be overridden.""
     # Ignore these, specifically on Windows because of file cleanup and locking issues:
     "ignore:unclosed file:ResourceWarning",
+    "ignore:Failed to decode:UserWarning",  # https://github.com/airbytehq/pyairbyte/issues/320
     "ignore::pytest.PytestUnraisableExceptionWarning",
     # Order matters here. This must be last because it will fail if we
     # hit another warning during the import.
+    "ignore::airbyte_cdk.sources.source.ExperimentalClassWarning",
     "ignore::airbyte.exceptions.AirbyteExperimentalFeatureWarning",
     # CDK has these refs:
     "ignore::pydantic.warnings.PydanticDeprecatedSince20",
 ]
 
-[tool.ruff]
-target-version = "py39"
-preview = true
-line-length = 100
-
-[tool.ruff.lint]
-select = [
-    # For rules reference, see https://docs.astral.sh/ruff/rules/
-    "A",     # flake8-builtins
-    "ANN",   # flake8-annotations
-    "ARG",   # flake8-unused-arguments
-    "ASYNC", # flake8-async
-    "B",     # flake8-bugbear
-    "FBT",   # flake8-boolean-trap
-    "BLE",   # Blind except
-    "C4",    # flake8-comprehensions
-    "C90",   # mccabe (complexity)
-    "COM",   # flake8-commas
-    "CPY",   # missing copyright notice
-    "D",     # pydocstyle (Docstring conventions)
-    "DTZ",   # flake8-datetimez
-    "E",     # pycodestyle (errors)
-    "ERA",   # flake8-eradicate (commented out code)
-    "EXE",   # flake8-executable
-    "F",     # Pyflakes
-    "FA",    # flake8-future-annotations
-    "FIX",   # flake8-fixme
-    "FLY",   # flynt
-    "FURB",  # Refurb
-    "I",     # isort
-    "ICN",   # flake8-import-conventions
-    "INP",   # flake8-no-pep420
-    "INT",   # flake8-gettext
-    "ISC",   # flake8-implicit-str-concat
-    "ICN",   # flake8-import-conventions
-    "LOG",   # flake8-logging
-    "N",     # pep8-naming
-    "PD",    # pandas-vet
-    "PERF",  # Perflint
-    "PIE",   # flake8-pie
-    "PGH",   # pygrep-hooks
-    "PL",    # Pylint
-    "PT",    # flake8-pytest-style
-    "PTH",   # flake8-use-pathlib
-    "PYI",   # flake8-pyi
-    "Q",     # flake8-quotes
-    "RET",   # flake8-return
-    "RSE",   # flake8-raise
-    "RUF",   # Ruff-specific rules
-    "SIM",   # flake8-simplify
-    "SLF",   # flake8-self
-    "SLOT",  # flake8-slots
-    "T10",   # debugger calls
-    # "T20", # flake8-print # TODO: Re-enable once we have logging
-    "TCH",    # flake8-type-checking
-    "TD",     # flake8-todos
-    "TID",    # flake8-tidy-imports
-    "TRY",    # tryceratops
-    "TRY002", # Disallow raising vanilla Exception. Create or use a custom exception instead.
-    "TRY003", # Disallow vanilla string passing. Prefer kwargs to the exception constructur.
-    "UP",     # pyupgrade
-    "W",      # pycodestyle (warnings)
-    "YTT",    # flake8-2020
-]
-ignore = [
-    # For rules reference, see https://docs.astral.sh/ruff/rules/
-
-    # These we don't agree with or don't want to prioritize to enforce:
-    "ANN003",  # kwargs missing type annotations
-    "ANN101",  # Type annotations for 'self' args
-    "ANN102",  # Type annotations for 'cls' args
-    "COM812",  # Because it conflicts with ruff auto-format
-    "EM",      # flake8-errmsgs (may reconsider later)
-    "DJ",      # Django linting
-    "G",       # flake8-logging-format
-    "ISC001",  # Conflicts with ruff auto-format
-    "NPY",     # NumPy-specific rules
-    "PIE790",  # Allow unnecssary 'pass' (sometimes useful for readability)
-    "PERF203", # exception handling in loop
-    "PLR6301", # Allow class methods that don't use 'self' (otherwise noisy)
-    "RUF022",  # Allow unsorted __all__ (sometimes useful for grouping by type with pdoc)
-    "S",       # flake8-bandit (noisy, security related)
-    "SIM910",  # Allow "None" as second argument to Dict.get(). "Explicit is better than implicit."
-    "TD002",   # Require author for TODOs
-    "TRIO",    # flake8-trio (opinionated, noisy)
-    "INP001",  # Dir 'examples' is part of an implicit namespace package. Add an __init__.py.
-
-    # TODO: Consider re-enabling these before release:
-    "A003",    # Class attribute 'type' is shadowing a Python builtin
-    "BLE001",  # Do not catch blind exception: Exception
-    "ERA001",  # Remove commented-out code
-    "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
-    "PLW0603", # Using the global statement to update _cache is discouraged
-    "PLW0108", # Lambda may be unnecessary; consider inlining inner function
-    # "TD003",   # Require links for TODOs (now enabled)
-
-    "UP007", # Allow legacy `Union[a, b]` and `Optional[a]` for Pydantic, until we drop Python 3.9 (Pydantic doesn't like it)
-]
-fixable = ["ALL"]
-unfixable = [
-    "ERA001", # Commented-out code (avoid silent loss of code)
-    "T201",   # print() calls (avoid silent loss of code / log messages)
-]
-dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
-
-[tool.ruff.lint.pylint]
-max-args = 8      # Relaxed from default of 5
-max-branches = 15 # Relaxed from default of 12
-
-[tool.ruff.lint.flake8-import-conventions.aliases]
-airbyte = "ab"
-"airbyte.exceptions" = "exc"
-
-[tool.ruff.lint.isort]
-force-sort-within-sections = false
-lines-after-imports = 2
-known-first-party = ["airbyte_cdk", "airbyte_protocol"]
-known-local-folder = ["airbyte"]
-required-imports = ["from __future__ import annotations"]
-known-third-party = []
-section-order = [
-    "future",
-    "standard-library",
-    "third-party",
-    "first-party",
-    "local-folder",
-]
-
-[tool.ruff.lint.mccabe]
-max-complexity = 24
-
-[tool.ruff.lint.pycodestyle]
-ignore-overlong-task-comments = true
-
-[tool.ruff.lint.pydocstyle]
-convention = "google"
-
-[tool.ruff.lint.flake8-annotations]
-allow-star-arg-any = false
-ignore-fully-untyped = false
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-skip-magic-trailing-comma = false
-line-ending = "auto"
-preview = false
-docstring-code-format = true
+# [tool.ruff]
+# Ruff moved to dedicated config file: `.ruff.toml`
 
 [tool.mypy]
 # Platform configuration
-python_version = "3.9"
+python_version = "3.10"
 # imports related
 ignore_missing_imports = true
 follow_imports = "silent"
@@ -299,17 +162,21 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["airbyte_protocol", "airbyte_protocol.models"]
-ignore_missing_imports = true                            # No stubs yet (😢)
+ignore_missing_imports = true  # No stubs yet (😢)
+module = [
+    "airbyte_protocol",
+    "airbyte_protocol.models",
+]
 
 [tool.pyright]
-pythonVersion = "3.9"
+pythonVersion = "3.10"
 venvPath = "./"       # Assuming .venv is at the root of your project
 venv = ".venv"
 
 [tool.poetry.scripts]
-generate-docs = "docs.generate:run"
-airbyte-lib-validate-source = "airbyte.validate:run"
+pyairbyte = "airbyte.cli:cli"
+pyab = "airbyte.cli:cli"
+airbyte-mcp = "airbyte.mcp.server:main"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }
@@ -322,7 +189,8 @@ coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && mypy . && pytest --collect-only -qq" }
 
-docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, shell = "generate-docs && open docs/generated/index.html" }
+docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
+docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
 
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
@@ -333,3 +201,19 @@ extra_poetry_groups = ["dev"]
 poe_tasks = ["test"]
 required_environment_variables = ["GCP_GSM_CREDENTIALS"]
 side_car_docker_engine = true
+
+[tool.deptry.per_rule_ignores]
+# This is a mapping of rules and package names to be ignored for that rule.
+DEP001 = [
+  "IPython"  # Optional dependency, used for detecting Notebook environments
+]
+DEP004 = [
+  "pdoc"  # Only used for generating documentation. Not a runtime dependency.
+]
+DEP002 = [
+  # Only used for SQLAlchemy engine. Not imported directly:
+  "duckdb",
+  "psycopg",
+  "psycopg2-binary",
+  "sqlalchemy-bigquery",
+]

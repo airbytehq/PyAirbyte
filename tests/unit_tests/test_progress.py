@@ -12,7 +12,7 @@ from airbyte.progress import (
     _get_elapsed_time_str,
     _to_time_str,
 )
-from airbyte_cdk import AirbyteMessage, AirbyteRecordMessage, Type
+from airbyte_protocol.models import AirbyteMessage, AirbyteRecordMessage, Type
 from dateutil.tz import tzlocal
 from freezegun import freeze_time
 from rich.errors import LiveError
@@ -129,9 +129,9 @@ def _assert_lines(expected_lines, actual_lines: list[str] | str):
     if isinstance(actual_lines, list):
         actual_lines = "\n".join(actual_lines)
     for line in expected_lines:
-        assert (
-            line in actual_lines
-        ), f"Missing line:\n{line}\n\nIn lines:\n\n{actual_lines}"
+        assert line in actual_lines, (
+            f"Missing line:\n{line}\n\nIn lines:\n\n{actual_lines}"
+        )
 
 
 def test_default_progress_style(monkeypatch):

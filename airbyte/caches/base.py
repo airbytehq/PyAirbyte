@@ -4,38 +4,41 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, final
+from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
+from sqlalchemy import text
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
-from airbyte._future_cdk.catalog_providers import CatalogProvider
-from airbyte._future_cdk.sql_processor import (
-    SqlConfig,
-    SqlProcessorBase,
-)
-from airbyte._future_cdk.state_writers import StdOutStateWriter
+from airbyte import constants
+from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
-from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
+from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
+from airbyte.shared.catalog_providers import CatalogProvider
+from airbyte.shared.sql_processor import SqlConfig
+from airbyte.shared.state_writers import StdOutStateWriter
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from airbyte._future_cdk.sql_processor import SqlProcessorBase
-    from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
-    from airbyte.datasets._base import DatasetBase
+    from airbyte.progress import ProgressTracker
+    from airbyte.shared.sql_processor import SqlProcessorBase
+    from airbyte.shared.state_providers import StateProviderBase
+    from airbyte.shared.state_writers import StateWriterBase
+    from airbyte.sources.base import Source
+    from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig):
+class CacheBase(SqlConfig, AirbyteWriterInterface):
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings
@@ -46,21 +49,30 @@ class CacheBase(SqlConfig):
     to the SQL backend specified in the `SqlConfig` class.
     """
 
-    cache_dir: Path = Field(default=Path(".cache"))
+    cache_dir: Path = Field(default=Path(constants.DEFAULT_CACHE_ROOT))
     """The directory to store the cache in."""
 
-    cleanup: bool = True
+    cleanup: bool = TEMP_FILE_CLEANUP
     """Whether to clean up the cache after use."""
 
-    _deployed_api_root: Optional[str] = PrivateAttr(default=None)
-    _deployed_workspace_id: Optional[str] = PrivateAttr(default=None)
-    _deployed_destination_id: Optional[str] = PrivateAttr(default=None)
+    _name: str = PrivateAttr()
 
-    _sql_processor_class: type[SqlProcessorBase] = PrivateAttr()
+    _sql_processor_class: ClassVar[type[SqlProcessorBase]]
     _read_processor: SqlProcessorBase = PrivateAttr()
 
     _catalog_backend: CatalogBackendBase = PrivateAttr()
     _state_backend: StateBackendBase = PrivateAttr()
+
+    paired_destination_name: ClassVar[str | None] = None
+    paired_destination_config_class: ClassVar[type | None] = None
+
+    @property
+    def paired_destination_config(self) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
+        """Return a dictionary of destination configuration values."""
+        raise NotImplementedError(
+            f"The type '{type(self).__name__}' does not define an equivalent destination "
+            "configuration."
+        )
 
     def __init__(self, **data: Any) -> None:  # noqa: ANN401
         """Initialize the cache and backends."""
@@ -78,11 +90,11 @@ class CacheBase(SqlConfig):
 
         # Initialize the catalog and state backends
         self._catalog_backend = SqlCatalogBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
         self._state_backend = SqlStateBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
 
@@ -96,12 +108,36 @@ class CacheBase(SqlConfig):
         )
 
     @property
-    def name(self) -> str:
-        """Return the name of the cache.
+    def config_hash(self) -> str | None:
+        """Return a hash of the cache configuration.
 
-        By default, this is the class name.
+        This is the same as the SQLConfig hash from the superclass.
         """
-        return type(self).__name__
+        return super(SqlConfig, self).config_hash
+
+    def execute_sql(self, sql: str | list[str]) -> None:
+        """Execute one or more SQL statements against the cache's SQL backend.
+
+        If multiple SQL statements are given, they are executed in order,
+        within the same transaction.
+
+        This method is useful for creating tables, indexes, and other
+        schema objects in the cache. It does not return any results and it
+        automatically closes the connection after executing all statements.
+
+        This method is not intended for querying data. For that, use the `get_records`
+        method - or for a low-level interface, use the `get_sql_engine` method.
+
+        If any of the statements fail, the transaction is canceled and an exception
+        is raised. Most databases will rollback the transaction in this case.
+        """
+        if isinstance(sql, str):
+            # Coerce to a list if a single string is given
+            sql = [sql]
+
+        with self.processor.get_sql_connection() as connection:
+            for sql_statement in sql:
+                connection.execute(text(sql_statement))
 
     @final
     @property
@@ -202,6 +238,19 @@ class CacheBase(SqlConfig):
 
         return result
 
+    @final
+    def __len__(self) -> int:
+        """Gets the number of streams."""
+        return len(self._catalog_backend.stream_names)
+
+    @final
+    def __bool__(self) -> bool:
+        """Always True.
+
+        This is needed so that caches with zero streams are not falsey (None-like).
+        """
+        return True
+
     def get_state_provider(
         self,
         source_name: str,
@@ -245,7 +294,43 @@ class CacheBase(SqlConfig):
             incoming_stream_names=stream_names,
         )
 
-    def __getitem__(self, stream: str) -> DatasetBase:
+    def create_source_tables(
+        self,
+        source: Source,
+        streams: Literal["*"] | list[str] | None = None,
+    ) -> None:
+        """Create tables in the cache for the provided source if they do not exist already.
+
+        Tables are created based upon the Source's catalog.
+
+        Args:
+            source: The source to create tables for.
+            streams: Stream names to create tables for. If None, use the Source's selected_streams
+                or "*" if neither is set. If "*", all available streams will be used.
+        """
+        if streams is None:
+            streams = source.get_selected_streams() or "*"
+
+        catalog_provider = CatalogProvider(source.get_configured_catalog(streams=streams))
+
+        # Register the incoming source catalog
+        self.register_source(
+            source_name=source.name,
+            incoming_source_catalog=catalog_provider.configured_catalog,
+            stream_names=set(catalog_provider.stream_names),
+        )
+
+        # Ensure schema exists
+        self.processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
+
+        # Create tables for each stream if they don't exist
+        for stream_name in catalog_provider.stream_names:
+            self.processor._ensure_final_table_exists(  # noqa: SLF001
+                stream_name=stream_name,
+                create_if_missing=True,
+            )
+
+    def __getitem__(self, stream: str) -> CachedDataset:
         """Return a dataset by stream name."""
         return self.streams[stream]
 
@@ -258,3 +343,25 @@ class CacheBase(SqlConfig):
     ) -> Iterator[tuple[str, Any]]:
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
+
+    def _write_airbyte_message_stream(
+        self,
+        stdin: IO[str] | AirbyteMessageIterator,
+        *,
+        catalog_provider: CatalogProvider,
+        write_strategy: WriteStrategy,
+        state_writer: StateWriterBase | None = None,
+        progress_tracker: ProgressTracker,
+    ) -> None:
+        """Read from the connector and write to the cache."""
+        cache_processor = self.get_record_processor(
+            source_name=self.name,
+            catalog_provider=catalog_provider,
+            state_writer=state_writer,
+        )
+        cache_processor.process_airbyte_messages(
+            messages=stdin,
+            write_strategy=write_strategy,
+            progress_tracker=progress_tracker,
+        )
+        progress_tracker.log_cache_processing_complete()

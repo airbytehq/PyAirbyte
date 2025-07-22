@@ -77,6 +77,6 @@ def disable_secret_source(source: SecretManager | SecretSourceEnum) -> None:
         return
 
     # Else, remove by name
-    for s in _SECRETS_SOURCES:
+    for s in list(_SECRETS_SOURCES).copy():
         if s.name == str(source):
             _SECRETS_SOURCES.remove(s)

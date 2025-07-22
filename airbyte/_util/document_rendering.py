@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel
@@ -28,7 +28,7 @@ def _to_title_case(name: str, /) -> str:
 class CustomRenderingInstructions(BaseModel):
     """Instructions for rendering a stream's records as documents."""
 
-    title_property: Optional[str] = None
+    title_property: str | None = None
     content_properties: list[str]
     frontmatter_properties: list[str]
     metadata_properties: list[str]
@@ -37,9 +37,9 @@ class CustomRenderingInstructions(BaseModel):
 class DocumentRenderer(BaseModel):
     """Instructions for rendering a stream's records as documents."""
 
-    title_property: Optional[str] = None
-    content_properties: Optional[list[str]] = None
-    metadata_properties: Optional[list[str]] = None
+    title_property: str | None = None
+    content_properties: list[str] | None = None
+    metadata_properties: list[str] | None = None
     render_metadata: bool = False
 
     # TODO: Add primary key and cursor key support:

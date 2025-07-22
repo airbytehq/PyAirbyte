@@ -7,16 +7,14 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING
 
-from airbyte_protocol.models.airbyte_protocol import AirbyteStreamState
-
 
 if TYPE_CHECKING:
     from airbyte_protocol.models import (
         AirbyteStreamState,
     )
 
-    from airbyte._future_cdk.state_providers import StateProviderBase
-    from airbyte._future_cdk.state_writers import StateWriterBase
+    from airbyte.shared.state_providers import StateProviderBase
+    from airbyte.shared.state_writers import StateWriterBase
 
 
 class StateBackendBase(abc.ABC):

@@ -13,11 +13,15 @@ import os
 import sys
 from pathlib import Path
 
-import airbyte as ab
 import pytest
+from sqlalchemy import text
+from viztracer import VizTracer
+
+import airbyte as ab
 from airbyte import get_source
 from airbyte._util.venv_util import get_bin_dir
-from viztracer import VizTracer
+from airbyte.results import ReadResult
+
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -65,13 +69,11 @@ def source_faker_seed_a() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_A,
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users"],
     )
     return source
@@ -82,13 +84,11 @@ def source_faker_seed_b() -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = get_source(
         "source-faker",
-        local_executable="source-faker",
         config={
             "count": FAKER_SCALE_B,
             "seed": SEED_B,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        install_if_missing=False,  # Should already be on PATH
         streams=["users"],
     )
     return source
@@ -141,7 +141,7 @@ def test_faker_read(
         read_result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
-    configured_count = source_faker_seed_a._config["count"]
+    configured_count = source_faker_seed_a.get_config()["count"]
 
     # Check row counts match:
     assert len(list(read_result.cache.streams["users"])) == FAKER_SCALE_A
@@ -174,12 +174,14 @@ def test_faker_read(
 @pytest.mark.slow
 def test_append_strategy(
     source_faker_seed_a: ab.Source,
-    new_generic_cache: ab.caches.CacheBase,
+    new_duckdb_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
+    result: ReadResult
     for _ in range(2):
+        assert isinstance(new_duckdb_cache, ab.caches.CacheBase)
         result = source_faker_seed_a.read(
-            new_generic_cache, write_strategy="append", force_full_refresh=True
+            new_duckdb_cache, write_strategy="append", force_full_refresh=True
         )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A * 2
 
@@ -191,11 +193,25 @@ def test_replace_strategy(
     new_generic_cache: ab.caches.CacheBase,
 ) -> None:
     """Test that the append strategy works as expected."""
+    result: ReadResult
     for _ in range(2):
         result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
+def test_cache_create_source_tables(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the cache creation and source tables work as expected."""
+    new_generic_cache.create_source_tables(source_faker_seed_a)
+    assert set(new_generic_cache.streams.keys()) == set(
+        source_faker_seed_a.get_selected_streams()
+    )
 
 
 @pytest.mark.requires_creds
@@ -215,9 +231,9 @@ def test_merge_strategy(
 
     # First run, seed A (counts should match the scale or the product count)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
-    assert (
-        len(list(result.cache.streams["users"])) == FAKER_SCALE_A
-    ), f"Incorrect number of records in the cache. {new_generic_cache}"
+    assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A, (
+        f"Incorrect number of records in the cache. {new_generic_cache}"
+    )
 
     # Second run, also seed A (should have same exact data, no change in counts)
     result = source_faker_seed_a.read(new_generic_cache, write_strategy="merge")
@@ -250,10 +266,13 @@ def test_auto_add_columns(
 
     # Ensure that the raw ID column is present. Then delete it and confirm it's gone.
     assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
-    new_generic_cache.get_sql_engine().execute(
-        f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
-        "DROP COLUMN _airbyte_raw_id",
-    )
+    with new_generic_cache.processor.get_sql_connection() as conn:
+        conn.execute(
+            text(
+                f"ALTER TABLE {new_generic_cache.schema_name}.{table_name} "
+                "DROP COLUMN _airbyte_raw_id"
+            ),
+        )
     new_generic_cache.processor._invalidate_table_cache(table_name)
 
     assert "_airbyte_raw_id" not in result["users"].to_sql_table().columns

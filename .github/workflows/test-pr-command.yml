@@ -15,25 +15,23 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  checks: write
+  actions: write
+  statuses: write
+
 jobs:
   start-workflow:
-    name: Append 'Starting' Comment
+    name: Start Workflow
     runs-on: ubuntu-latest
     steps:
-    - name: Get PR JSON
-      id: pr-info
-      env:
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
-        echo "$PR_JSON" > pr-info.json
-        echo "sha=$(cat pr-info.json | jq -r .head.sha)" >> $GITHUB_OUTPUT
-        echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
-    - name: Upload PR details as artifact
-      uses: actions/upload-artifact@v2
-      with:
-        name: pr-info
-        path: pr-info.json
+
+    - name: Create URL to the run output
+      id: vars
+      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
     - name: Append comment with job run link
       id: first-comment-action
       uses: peter-evans/create-or-update-comment@v4
@@ -44,7 +42,21 @@ jobs:
 
           > PR test job started... [Check job output.][1]
 
-          [1]: ${{ steps.pr-info.outputs.run-url }}
+          [1]: ${{ steps.vars.outputs.run-url }}
+
+    - name: Get PR Info
+      id: pr-info
+      uses: cloudposse-github-actions/get-pr@v2.0.0
+      with:
+        id: ${{ inputs.pr }}
+
+    outputs:
+      source-repo: ${{ fromJSON(steps.pr-info.outputs.json).head.repo.full_name }}
+      source-branch: ${{ fromJSON(steps.pr-info.outputs.json).head.ref }}
+      commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
+      pr-number: ${{ steps.pr-info.outputs.number }}
+      pr-title: ${{ steps.pr-info.outputs.title }}
+      job-run-url: ${{ steps.vars.outputs.run-url }}
 
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.
@@ -54,7 +66,6 @@ jobs:
     strategy:
       matrix:
         python-version: [
-          '3.9',
           '3.10',
           '3.11',
         ]
@@ -70,30 +81,42 @@ jobs:
       PYTHONIOENCODING: utf-8
     steps:
 
-    # Custom steps to fetch the PR and checkout the code:
-
-    - name: Download PR info
-      # This puts the `pr-info.json` file in the current directory.
-      # We need this to get the PR's SHA at the time of the workflow run.
-      uses: actions/download-artifact@v2
+    - name: Authenticate as GitHub App
+      uses: actions/create-github-app-token@v2
+      id: get-app-token
       with:
-        name: pr-info
+        owner: "airbytehq"
+        repositories: "PyAirbyte"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     - name: Checkout PR
       uses: actions/checkout@v4
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Checkout PR (${{ github.event.inputs.pr }})
-      uses: dawidd6/action-checkout-pr@v1
+        ref: ${{ needs.start-workflow.outputs.commit-sha }}
+
+    # Post "In Progress" status to the PR.
+    # This is required because otherwise slash commands won't automatically
+    # update the PR checks status.
+    - name: Create "Pending" Check Status
+      if: always() && !cancelled()
+      uses: LouisBrunner/checks-action@v2.0.0
       with:
-        pr: ${{ github.event.inputs.pr }}
+        name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
+        repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
+        sha: ${{ needs.start-workflow.outputs.commit-sha }}
+        status: in_progress
+        action_url: ${{ needs.start-workflow.outputs.job-run-url }}
+        details_url: ${{ needs.start-workflow.outputs.job-run-url }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
     # Same as the `python_pytest.yml` file:
 
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "1.7.1"
+        poetry-version: "2.0.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -106,32 +129,38 @@ jobs:
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      # We exclude super-slow and flaky tests in order to expedite PR reviews
+      # and to reduce chance of unrelated noise in the review process.
       run: >
         poetry run pytest
         --verbose
         -m "not super_slow and not flaky"
 
-    - name: Run Pytest (Flaky Only)
+    - name: Publish Test Results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always() && !cancelled()
       continue-on-error: true
-      timeout-minutes: 60
-      env:
-        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
-      run: >
-        poetry run pytest
-        --verbose
-        -m "flaky and not super_slow"
+      with:
+        check_name: "PyTest Results (On-Demand)"
+        large_files: true
+        files: |
+          build/test-results/**/*.xml
 
-    - name: Post CI Success to GitHub
-      run: |
-        curl --request POST \
-        --url https://api.github.com/repos/${{ github.repository }}/statuses/$(cat pr-info.json | jq -r .head.sha) \
-        --header 'authorization: Bearer ${{ secrets.GITHUB_TOKEN }}' \
-        --header 'content-type: application/json' \
-        --data '{
-          "state": "success",
-          "context": "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})",
-          "target_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-          }' \
+    # Post completion status to the PR.
+    # This is required because otherwise slash commands won't automatically
+    # update the PR checks status.
+    - name: Create Final Check Status
+      if: always()
+      uses: LouisBrunner/checks-action@v2.0.0
+      with:
+        name: "Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})"
+        repo: "airbytehq/PyAirbyte"  # Post to the main repo, not the fork
+        sha: ${{ needs.start-workflow.outputs.commit-sha }}
+        status: completed
+        conclusion: ${{ job.status }}
+        action_url: ${{ needs.start-workflow.outputs.job-run-url }}
+        details_url: ${{ needs.start-workflow.outputs.job-run-url }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
   log-success-comment:
     name: Append 'Success' Comment
