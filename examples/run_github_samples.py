@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import airbyte as ab
 
+
 # Create a token here: https://github.com/settings/tokens
 GITHUB_TOKEN = ab.get_secret("GITHUB_PERSONAL_ACCESS_TOKEN")
 

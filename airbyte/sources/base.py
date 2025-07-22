@@ -3,27 +3,19 @@
 
 from __future__ import annotations
 
-import json
+import sys
 import threading
 import warnings
 from itertools import islice
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-import yaml
-from rich import print
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.markup import escape
-from rich.syntax import Syntax
-from rich.table import Table
-from typing_extensions import Literal
-import sys
-import warnings
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.markup import escape
+from rich.table import Table
+from typing_extensions import override
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -51,13 +43,15 @@ from airbyte.strategies import WriteStrategy
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
-    from airbyte_cdk import ConnectorSpecification
-    from airbyte_protocol.models import AirbyteStream
+    from airbyte_protocol.models import (
+        AirbyteStream,
+        ConnectorSpecification,
+    )
 
     from airbyte._executors.base import Executor
     from airbyte.caches import CacheBase
-    from airbyte.datasets._inmemory import InMemoryDataset
     from airbyte.callbacks import ConfigChangeCallback
+    from airbyte.datasets._inmemory import InMemoryDataset
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
@@ -69,7 +63,7 @@ from airbyte.constants import (
 )
 
 
-class Source(ConnectorBase):
+class Source(ConnectorBase):  # noqa: PLR0904
     """A class representing a source that can be called."""
 
     connector_type = "source"
@@ -214,9 +208,9 @@ class Source(ConnectorBase):
         - Stream names are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._primary_key_overrides.update(
-            {k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()}
-        )
+        self._primary_key_overrides.update({
+            k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()
+        })
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
@@ -335,6 +329,7 @@ class Source(ConnectorBase):
             if SyncMode.incremental in stream.supported_sync_modes
         ]
 
+    @override
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
 
@@ -507,6 +502,9 @@ class Source(ConnectorBase):
 
         Args:
             stream: The name of the stream to read.
+            limit: The maximum number of records to read. If None, all records will be read.
+            stop_event: If set, the event can be triggered by the caller to stop reading records
+                and terminate the process.
             normalize_field_names: When `True`, field names will be normalized to lower case, with
                 special characters removed. This matches the behavior of PyAirbyte caches and most
                 Airbyte destinations.
@@ -522,22 +520,8 @@ class Source(ConnectorBase):
         * execute the connector with read --config <config_file> --catalog <catalog_file>
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
-
-        If `stop_event` is set, the method will stop reading records when the event is set.
         """
         stop_event = stop_event or threading.Event()
-        discovered_catalog: AirbyteCatalog = self.discovered_catalog
-        configured_catalog = ConfiguredAirbyteCatalog(
-            streams=[
-                ConfiguredAirbyteStream(
-                    stream=s,
-                    sync_mode=SyncMode.full_refresh,
-                    destination_sync_mode=DestinationSyncMode.overwrite,
-                )
-                for s in discovered_catalog.streams
-                if s.name == stream
-            ],
-        )
         configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
             raise exc.PyAirbyteInputError(
@@ -690,12 +674,13 @@ class Source(ConnectorBase):
             dataset = samples[stream]
 
             table = Table(
-                # title=Markdown(f"`{stream}`"),  # type: ignore [arg-type]
                 show_header=True,
                 show_lines=True,
             )
             if dataset is None:
-                console.print(Markdown("**⚠️ `Error fetching sample records.` ⚠️**"))
+                console.print(
+                    Markdown("**⚠️ `Error fetching sample records.` ⚠️**"),
+                )
                 continue
 
             if len(dataset.column_names) > col_limit:
@@ -705,21 +690,23 @@ class Source(ConnectorBase):
                     table.add_column(overflow="fold")
                 for col in dataset.column_names:
                     table.add_row(
-                        Markdown(f"**`{col}`**"), *[escape(str(record[col])) for record in dataset]
+                        Markdown(f"**`{col}`**"),
+                        *[escape(str(record[col])) for record in dataset],
                     )
             else:
                 for col in dataset.column_names:
-                    table.add_column(Markdown(f"**`{col}`**"), overflow="fold")
+                    table.add_column(
+                        Markdown(f"**`{col}`**"),
+                        overflow="fold",
+                    )
 
                 for record in dataset:
-                    table.add_row(
-                        *[
-                            escape(str(val))
-                            for key, val in record.items()
-                            # Exclude internal Airbyte columns.
-                            if key not in internal_cols
-                        ]
-                    )
+                    table.add_row(*[
+                        escape(str(val))
+                        for key, val in record.items()
+                        # Exclude internal Airbyte columns.
+                        if key not in internal_cols
+                    ])
 
             console.print(table)
 
@@ -759,13 +746,11 @@ class Source(ConnectorBase):
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        with as_temp_files(
-            [
-                self._hydrated_config,
-                catalog.model_dump_json(),
-                state.to_state_input_file_text() if state else "[]",
-            ]
-        ) as [
+        with as_temp_files([
+            self._hydrated_config,
+            catalog.model_dump_json(),
+            state.to_state_input_file_text() if state else "[]",
+        ]) as [
             config_file,
             catalog_file,
             state_file,
@@ -784,7 +769,7 @@ class Source(ConnectorBase):
             )
             yield from progress_tracker.tally_records_read(message_generator)
             if stop_event and stop_event.is_set():
-                progress_tracker._log_sync_cancel()
+                progress_tracker._log_sync_cancel()  # noqa: SLF001 (non-public API)
                 return
 
         progress_tracker.log_read_complete()

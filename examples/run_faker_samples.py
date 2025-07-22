@@ -7,6 +7,7 @@ Usage (from PyAirbyte root directory):
 
 import airbyte as ab
 
+
 source = ab.get_source(
     "source-faker",
     config={"count": 200_000},
