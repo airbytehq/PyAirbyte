@@ -117,6 +117,11 @@ class BigQueryTypeConverter(SQLTypeConverter):
             return self.get_string_type()
         if isinstance(sql_type, sqlalchemy.types.BIGINT):
             return sqlalchemy_types.Integer()  # All integers are 64-bit in BigQuery
+        
+        # Comprehensive handling for numeric types
+        if isinstance(sql_type, (sqlalchemy.types.DECIMAL, sqlalchemy.types.NUMERIC)):
+            # Force to BigQuery's FLOAT64 to avoid precision errors
+            return "FLOAT64"
 
         return sql_type
 
