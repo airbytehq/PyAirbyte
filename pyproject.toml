@@ -115,6 +115,9 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
 
+[tool.ty.environment]
+python-version = "3.10"
+
 [tool.ty.src]
 exclude = [
     "tests/integration_tests/fixtures/source-broken",
