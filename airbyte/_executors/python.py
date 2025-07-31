@@ -47,8 +47,8 @@ class VenvExecutor(Executor):
             use_python: (Optional.) Python interpreter specification:
                 - True: Use current Python interpreter
                 - False: Use Docker instead (handled by factory)
-                - Path: Use interpreter at this path
-                - str: Use uv-managed Python version
+                - Path: Use interpreter at this path or interpreter name/command
+                - str: Use uv-managed Python version (semver patterns like "3.12", "3.11.5")
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
 
@@ -114,44 +114,32 @@ class VenvExecutor(Executor):
 
         After installation, the installed version will be stored in self.reported_version.
         """
+        if not (
+            self.use_python is None
+            or self.use_python is True
+            or self.use_python is False
+            or isinstance(self.use_python, (str, Path))
+        ):
+            raise exc.PyAirbyteInputError(
+                message="Invalid use_python parameter type",
+                input_value=str(self.use_python),
+            )
+
+        # Create virtual environment
         if self.use_python is True or self.use_python is None:
-            self._run_subprocess_and_raise_on_failure(
-                [sys.executable, "-m", "venv", str(self._get_venv_path())]
-            )
-
+            # Use current Python interpreter
             if AIRBYTE_USE_UV:
-                install_cmd = [
-                    "uv",
-                    "pip",
-                    "install",
-                    "--python",
-                    str(self._get_venv_path()),
-                    *shlex.split(self.pip_url),
-                ]
-                tool_name = "uv pip"
+                venv_cmd = ["uv", "venv", str(self._get_venv_path())]
             else:
-                pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
-                install_cmd = [pip_path, "install", *shlex.split(self.pip_url)]
-                tool_name = "pip"
-
-            print(
-                f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-                f"Running '{tool_name} install {self.pip_url}'...\n",
-                file=sys.stderr,
-            )
-        elif isinstance(self.use_python, (str, Path)):
-            if isinstance(self.use_python, str):
-                venv_cmd = ["uv", "venv", str(self._get_venv_path()), "--python", self.use_python]
-            else:
-                venv_cmd = [
-                    "uv",
-                    "venv",
-                    str(self._get_venv_path()),
-                    "--python",
-                    str(self.use_python),
-                ]
+                venv_cmd = [sys.executable, "-m", "venv", str(self._get_venv_path())]
 
             self._run_subprocess_and_raise_on_failure(venv_cmd)
+
+        elif isinstance(self.use_python, (str, Path)):
+            venv_cmd = ["uv", "venv", str(self._get_venv_path()), "--python", str(self.use_python)]
+            self._run_subprocess_and_raise_on_failure(venv_cmd)
+
+        if AIRBYTE_USE_UV:
             install_cmd = [
                 "uv",
                 "pip",
@@ -160,16 +148,17 @@ class VenvExecutor(Executor):
                 str(self._get_venv_path()),
                 *shlex.split(self.pip_url),
             ]
-            print(
-                f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-                f"Running 'uv pip install {self.pip_url}'...\n",
-                file=sys.stderr,
-            )
+            tool_name = "uv pip"
         else:
-            raise exc.PyAirbyteInputError(
-                message="Invalid use_python parameter type",
-                input_value=str(self.use_python),
-            )
+            pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
+            install_cmd = [pip_path, "install", *shlex.split(self.pip_url)]
+            tool_name = "pip"
+
+        print(
+            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
+            f"Running '{tool_name} install {self.pip_url}'...\n",
+            file=sys.stderr,
+        )
 
         try:
             self._run_subprocess_and_raise_on_failure(install_cmd)

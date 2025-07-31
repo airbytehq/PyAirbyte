@@ -61,6 +61,7 @@ pyab validate --connector=source-hardcoded-records --config='{count: 400_000}'
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -175,7 +176,19 @@ def _get_connector_name(connector: str) -> str:
 
 
 def _parse_use_python(use_python_str: str | None) -> bool | Path | str | None:
-    """Parse the use_python CLI parameter."""
+    r"""Parse the use_python CLI parameter.
+
+    Args:
+        use_python_str: The raw string value from CLI input.
+
+    Returns:
+        - None: No parameter provided
+        - True: Use current Python interpreter ("true")
+        - False: Use Docker instead ("false")
+        - Path: Use interpreter at this path (paths containing / or \ or starting with .)
+        - str: Use uv-managed Python version (semver patterns like "3.12", "3.11.5")
+               or existing interpreter name (non-semver strings like "python3.10")
+    """
     if use_python_str is None:
         return None
     if use_python_str.lower() == "true":
@@ -184,7 +197,12 @@ def _parse_use_python(use_python_str: str | None) -> bool | Path | str | None:
         return False
     if "/" in use_python_str or "\\" in use_python_str or use_python_str.startswith("."):
         return Path(use_python_str)
-    return use_python_str
+
+    semver_pattern = r"^\d+\.\d+(?:\.\d+)?$"
+    if re.match(semver_pattern, use_python_str):
+        return use_python_str  # Return as string for uv-managed version
+
+    return Path(use_python_str)
 
 
 def _resolve_source_job(
