@@ -154,7 +154,7 @@ class VenvExecutor(Executor):
             else f"airbyte-{self.name}"
         )
         requires_python = _get_pypi_python_requirements_cached(package_name)
-        self._check_python_version_compatibility(package_name, requires_python)
+         _ = self._check_python_version_compatibility(package_name, requires_python)
 
         self._run_subprocess_and_raise_on_failure(
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
