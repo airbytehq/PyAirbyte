@@ -13,6 +13,7 @@ import sys
 from collections.abc import Generator
 from pathlib import Path
 
+import airbyte as ab
 import pytest
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches.duckdb import DuckDBCache
