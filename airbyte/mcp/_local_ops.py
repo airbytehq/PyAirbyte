@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from fastmcp import FastMCP
 from pydantic import Field
+from pydantic.main import BaseModel
 
 from airbyte import get_source
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
 from airbyte.secrets.config import _get_secret_sources
@@ -276,15 +278,48 @@ def sync_source_to_cache(
     return summary
 
 
+class CachedDatasetInfo(BaseModel):
+    """Class to hold information about a cached dataset."""
+
+    stream_name: str
+    """The name of the stream in the cache."""
+    # TODO: add later:
+    # table_name: str
+    # schema_name: str | None = None
+    # source_name: str | None = None
+
+
+def list_cached_datasets() -> list[CachedDatasetInfo]:
+    """List all streams available in the default DuckDB cache."""
+    cache: DuckDBCache = get_default_cache()
+    return [
+        CachedDatasetInfo(stream_name=stream_name)
+        for stream_name in cache.streams
+    ]
+
+
+def describe_default_cache() -> dict[str, Any]:
+    """Describe the currently configured default cache."""
+    cache = get_default_cache()
+    return {
+        "cache_type": type(cache).__name__,
+        "cache_dir": str(cache.cache_dir),
+        "cache_db_path": str(cache.db_path),
+        "cached_streams": list(cache.streams.keys()),
+    }
+
+
 def register_local_ops_tools(app: FastMCP) -> None:
     """Register tools with the FastMCP app."""
     app.tool(list_connector_config_secrets)
     for tool in (
-        validate_connector_config,
-        list_source_streams,
+        describe_default_cache,
         get_source_stream_json_schema,
+        list_cached_datasets,
+        list_source_streams,
         read_source_stream_records,
         sync_source_to_cache,
+        validate_connector_config,
     ):
         # Register each tool with the FastMCP app.
         app.tool(
