@@ -48,21 +48,23 @@ def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
 
     url = f"https://pypi.org/pypi/{package_name}/json"
     version = get_version()
-    response = requests.get(
-        url=url,
-        headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
-        timeout=10,
-    )
 
-    if not response.ok:
-        return None
-
-    data: dict | None = None
     with suppress(Exception):
+        response = requests.get(
+            url=url,
+            headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
+            timeout=10,
+        )
+
+        if not response.ok:
+            return None
+
         data = response.json()
-    if not data:
-        return None
-    return data.get("info", {}).get("requires_python")
+        if not data:
+            return None
+        return data.get("info", {}).get("requires_python")
+
+    return None
 
 
 class VenvExecutor(Executor):
@@ -154,7 +156,7 @@ class VenvExecutor(Executor):
             else f"airbyte-{self.name}"
         )
         requires_python = _get_pypi_python_requirements_cached(package_name)
-         _ = self._check_python_version_compatibility(package_name, requires_python)
+        _ = self._check_python_version_compatibility(package_name, requires_python)
 
         self._run_subprocess_and_raise_on_failure(
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
