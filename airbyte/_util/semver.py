@@ -1,6 +1,8 @@
+# Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """Semantic version utilities for PyAirbyte."""
 
 import sys
+
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
@@ -22,9 +24,7 @@ def check_python_version_compatibility(
     if not requires_python:
         return None
 
-    current_version = (
-        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-    )
+    current_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
     spec_set = SpecifierSet(requires_python)
     current_ver = Version(current_version)

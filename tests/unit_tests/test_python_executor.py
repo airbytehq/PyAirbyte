@@ -1,7 +1,7 @@
 from unittest.mock import Mock, patch
 import requests
 
-from airbyte._executors.python import VenvExecutor, _get_pypi_python_requirements_cached
+from airbyte._executors.python import _get_pypi_python_requirements_cached
 from airbyte._util.semver import check_python_version_compatibility
 
 
@@ -155,9 +155,7 @@ class TestVenvExecutorVersionCompatibility:
         mock_version_info.micro = 0
 
         with patch("sys.version_info", mock_version_info):
-            result = check_python_version_compatibility(
-                "test-package", "<3.12,>=3.10"
-            )
+            result = check_python_version_compatibility("test-package", "<3.12,>=3.10")
 
         assert result is False
         mock_warn.assert_called_once()
@@ -175,8 +173,6 @@ class TestVenvExecutorVersionCompatibility:
         mock_version_info.micro = 5
 
         with patch("sys.version_info", mock_version_info):
-            result = check_python_version_compatibility(
-                "test-package", "<3.12,>=3.10"
-            )
+            result = check_python_version_compatibility("test-package", "<3.12,>=3.10")
 
         assert result is True

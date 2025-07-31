@@ -243,7 +243,6 @@ class VenvExecutor(Executor):
 
             return None
 
-
     def ensure_installation(
         self,
         *,
