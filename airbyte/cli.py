@@ -182,7 +182,7 @@ def _parse_use_python(use_python_str: str | None) -> bool | Path | str | None:
         return True
     if use_python_str.lower() == "false":
         return False
-    if "/" in use_python_str or "\" in use_python_str or use_python_str.startswith("."):
+    if "/" in use_python_str or "\\" in use_python_str or use_python_str.startswith("."):
         return Path(use_python_str)
     return use_python_str
 
