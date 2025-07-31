@@ -422,14 +422,19 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
 
     def _log_sync_cancel(self) -> None:
-        print(f"Canceled `{self.job_description}` sync at `{pendulum.now().format('HH:mm:ss')}`.")
+        print(
+            f"Canceled `{self.job_description}` sync at `{ab_datetime_now().strftime('%H:%M:%S')}`."
+        )
         self._send_telemetry(
             state=EventState.CANCELED,
             event_type=EventType.SYNC,
         )
 
     def _log_stream_read_start(self, stream_name: str) -> None:
-        print(f"Read started on stream `{stream_name}` at `{pendulum.now().format('HH:mm:ss')}`...")
+        print(
+            f"Read started on stream `{stream_name}` at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+        )
         self.stream_read_start_times[stream_name] = time.time()
 
     def log_stream_start(self, stream_name: str) -> None:
@@ -559,7 +564,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         print(
             f"Completed `{self.job_description}` sync at "
-            f"`{pendulum.now().format('HH:mm:ss')}`{streams_str}."
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`{streams_str}."
         )
         self._log_read_metrics()
         self._send_telemetry(

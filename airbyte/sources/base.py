@@ -208,9 +208,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - Stream names are not validated by PyAirbyte. If the stream name
           does not exist in the catalog, the override may be ignored.
         """
-        self._primary_key_overrides.update({
-            k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()
-        })
+        self._primary_key_overrides.update(
+            {k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()}
+        )
 
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
@@ -701,12 +701,14 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     )
 
                 for record in dataset:
-                    table.add_row(*[
-                        escape(str(val))
-                        for key, val in record.items()
-                        # Exclude internal Airbyte columns.
-                        if key not in internal_cols
-                    ])
+                    table.add_row(
+                        *[
+                            escape(str(val))
+                            for key, val in record.items()
+                            # Exclude internal Airbyte columns.
+                            if key not in internal_cols
+                        ]
+                    )
 
             console.print(table)
 
@@ -746,11 +748,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
         """
-        with as_temp_files([
-            self._hydrated_config,
-            catalog.model_dump_json(),
-            state.to_state_input_file_text() if state else "[]",
-        ]) as [
+        with as_temp_files(
+            [
+                self._hydrated_config,
+                catalog.model_dump_json(),
+                state.to_state_input_file_text() if state else "[]",
+            ]
+        ) as [
             config_file,
             catalog_file,
             state_file,
@@ -769,7 +773,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             )
             for message in progress_tracker.tally_records_read(message_generator):
                 if stop_event and stop_event.is_set():
-                    progress_tracker._log_sync_cancel()
+                    progress_tracker._log_sync_cancel()  # noqa: SLF001
                     return
 
                 yield message
