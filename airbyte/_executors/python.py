@@ -46,25 +46,23 @@ def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
     if AIRBYTE_OFFLINE_MODE:
         return None
 
-    try:
-        url = f"https://pypi.org/pypi/{package_name}/json"
-        version = get_version()
-        response = requests.get(
-            url=url,
-            headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
-            timeout=10,
-        )
-        response.raise_for_status()
+    url = f"https://pypi.org/pypi/{package_name}/json"
+    version = get_version()
+    response = requests.get(
+        url=url,
+        headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
+        timeout=10,
+    )
 
+    if not response.ok:
+        return None
+
+    try:
         data = response.json()
         return data.get("info", {}).get("requires_python")
-
     except Exception:
         # Intentionally broad exception handling to ensure silent failure in all scenarios:
-        # - Network connectivity issues (requests.RequestException)
-        # - HTTP errors (requests.HTTPError)
         # - JSON parsing errors (json.JSONDecodeError)
-        # - Timeout errors (requests.Timeout)
         # - Any other unexpected errors
         # This ensures connector installation never fails due to version checking issues.
         return None
@@ -158,7 +156,7 @@ class VenvExecutor(Executor):
             if self.metadata and self.metadata.pypi_package_name
             else f"airbyte-{self.name}"
         )
-        requires_python = self._get_pypi_python_requirements(package_name)
+        requires_python = _get_pypi_python_requirements_cached(package_name)
         self._check_python_version_compatibility(package_name, requires_python)
 
         self._run_subprocess_and_raise_on_failure(
@@ -248,10 +246,6 @@ class VenvExecutor(Executor):
 
             return None
 
-    def _get_pypi_python_requirements(self, package_name: str) -> str | None:
-        """Get the requires_python field from PyPI for a package."""
-        return _get_pypi_python_requirements_cached(package_name)
-
     def _check_python_version_compatibility(
         self,
         package_name: str,
@@ -282,13 +276,7 @@ class VenvExecutor(Executor):
                     f"Installation will proceed but may fail.",
                     with_stack=False,
                 )
-
         except Exception:
-            # Intentionally broad exception handling to ensure silent failure in all scenarios:
-            # - Invalid version specifier format (packaging.specifiers.InvalidSpecifier)
-            # - Invalid version format (packaging.version.InvalidVersion)
-            # - Any other parsing or comparison errors
-            # This ensures connector installation never fails due to version compatibility checking.
             pass
 
     def ensure_installation(
