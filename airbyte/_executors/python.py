@@ -12,17 +12,15 @@ from typing import TYPE_CHECKING, Literal
 
 import requests
 from overrides import overrides
-from packaging.specifiers import SpecifierSet
-from packaging.version import Version
 from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
+from airbyte._util.semver import check_python_version_compatibility
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
-from airbyte.logs import warn_once
 from airbyte.version import get_version
 
 
@@ -49,7 +47,7 @@ def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
     url = f"https://pypi.org/pypi/{package_name}/json"
     version = get_version()
 
-    with suppress(Exception):
+    try:
         response = requests.get(
             url=url,
             headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
@@ -63,8 +61,8 @@ def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
         if not data:
             return None
         return data.get("info", {}).get("requires_python")
-
-    return None
+    except Exception:
+        return None
 
 
 class VenvExecutor(Executor):
@@ -156,7 +154,7 @@ class VenvExecutor(Executor):
             else f"airbyte-{self.name}"
         )
         requires_python = _get_pypi_python_requirements_cached(package_name)
-        _ = self._check_python_version_compatibility(package_name, requires_python)
+        _ = check_python_version_compatibility(package_name, requires_python)
 
         self._run_subprocess_and_raise_on_failure(
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
@@ -245,39 +243,6 @@ class VenvExecutor(Executor):
 
             return None
 
-    def _check_python_version_compatibility(
-        self,
-        package_name: str,
-        requires_python: str | None,
-    ) -> bool | None:
-        """Check if current Python version is compatible with package requirements.
-
-        Returns True if confirmed, False if incompatible, or None if no determination can be made.
-
-        Args:
-            package_name: Name of the package being checked
-            requires_python: The requires_python constraint from PyPI (e.g., "<3.12,>=3.10")
-        """
-        if not requires_python:
-            return None
-
-        current_version = (
-            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-        )
-
-        spec_set = SpecifierSet(requires_python)
-        current_ver = Version(current_version)
-
-        if current_ver not in spec_set:
-            warn_once(
-                f"Python version compatibility warning for '{package_name}': "
-                f"Current Python {current_version} may not be compatible with "
-                f"package requirement '{requires_python}'. "
-                f"Installation will proceed but may fail.",
-                with_stack=False,
-            )
-            return False
-        return True
 
     def ensure_installation(
         self,

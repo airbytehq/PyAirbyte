@@ -2,6 +2,7 @@ from unittest.mock import Mock, patch
 import requests
 
 from airbyte._executors.python import VenvExecutor, _get_pypi_python_requirements_cached
+from airbyte._util.semver import check_python_version_compatibility
 
 
 class TestGetPypiPythonRequirementsCached:
@@ -142,22 +143,19 @@ class TestVenvExecutorVersionCompatibility:
 
     def test_check_python_version_compatibility_no_requirements(self):
         """Test that None requirements return None."""
-        executor = VenvExecutor(name="test-source")
-        result = executor._check_python_version_compatibility("test-package", None)
+        result = check_python_version_compatibility("test-package", None)
         assert result is None
 
-    @patch("airbyte._executors.python.warn_once")
+    @patch("airbyte._util.semver.warn_once")
     def test_check_python_version_compatibility_incompatible(self, mock_warn):
         """Test warning for incompatible Python version."""
-        executor = VenvExecutor(name="test-source")
-
         mock_version_info = Mock()
         mock_version_info.major = 3
         mock_version_info.minor = 13
         mock_version_info.micro = 0
 
         with patch("sys.version_info", mock_version_info):
-            result = executor._check_python_version_compatibility(
+            result = check_python_version_compatibility(
                 "test-package", "<3.12,>=3.10"
             )
 
@@ -171,15 +169,13 @@ class TestVenvExecutorVersionCompatibility:
 
     def test_check_python_version_compatibility_compatible(self):
         """Test compatible Python version returns True."""
-        executor = VenvExecutor(name="test-source")
-
         mock_version_info = Mock()
         mock_version_info.major = 3
         mock_version_info.minor = 11
         mock_version_info.micro = 5
 
         with patch("sys.version_info", mock_version_info):
-            result = executor._check_python_version_compatibility(
+            result = check_python_version_compatibility(
                 "test-package", "<3.12,>=3.10"
             )
 
