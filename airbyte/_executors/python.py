@@ -30,6 +30,46 @@ if TYPE_CHECKING:
     from airbyte.sources.registry import ConnectorMetadata
 
 
+@lru_cache(maxsize=128)
+def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
+    """Get the requires_python field from PyPI for a package.
+
+    Args:
+        package_name: The PyPI package name to check
+
+    Returns:
+        The requires_python string from PyPI, or None if unavailable
+
+    Example:
+        For airbyte-source-hubspot, returns "<3.12,>=3.10"
+    """
+    if AIRBYTE_OFFLINE_MODE:
+        return None
+
+    try:
+        url = f"https://pypi.org/pypi/{package_name}/json"
+        version = get_version()
+        response = requests.get(
+            url=url,
+            headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
+            timeout=10,
+        )
+        response.raise_for_status()
+
+        data = response.json()
+        return data.get("info", {}).get("requires_python")
+
+    except Exception:
+        # Intentionally broad exception handling to ensure silent failure in all scenarios:
+        # - Network connectivity issues (requests.RequestException)
+        # - HTTP errors (requests.HTTPError)
+        # - JSON parsing errors (json.JSONDecodeError)
+        # - Timeout errors (requests.Timeout)
+        # - Any other unexpected errors
+        # This ensures connector installation never fails due to version checking issues.
+        return None
+
+
 class VenvExecutor(Executor):
     def __init__(
         self,
@@ -208,36 +248,9 @@ class VenvExecutor(Executor):
 
             return None
 
-    @lru_cache(maxsize=128)
     def _get_pypi_python_requirements(self, package_name: str) -> str | None:
-        """Get the requires_python field from PyPI for a package.
-
-        Args:
-            package_name: The PyPI package name to check
-
-        Returns:
-            The requires_python string from PyPI, or None if unavailable
-
-        Example:
-            For airbyte-source-hubspot, returns "<3.12,>=3.10"
-        """
-        if AIRBYTE_OFFLINE_MODE:
-            return None
-
-        try:
-            url = f"https://pypi.org/pypi/{package_name}/json"
-            response = requests.get(
-                url=url,
-                headers={"User-Agent": f"PyAirbyte/{get_version()}"},
-                timeout=10,
-            )
-            response.raise_for_status()
-
-            data = response.json()
-            return data.get("info", {}).get("requires_python")
-
-        except Exception:
-            return None
+        """Get the requires_python field from PyPI for a package."""
+        return _get_pypi_python_requirements_cached(package_name)
 
     def _check_python_version_compatibility(
         self,
@@ -271,6 +284,11 @@ class VenvExecutor(Executor):
                 )
 
         except Exception:
+            # Intentionally broad exception handling to ensure silent failure in all scenarios:
+            # - Invalid version specifier format (packaging.specifiers.InvalidSpecifier)
+            # - Invalid version format (packaging.version.InvalidVersion)
+            # - Any other parsing or comparison errors
+            # This ensures connector installation never fails due to version compatibility checking.
             pass
 
     def ensure_installation(
