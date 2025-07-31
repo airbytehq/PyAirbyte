@@ -1,6 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import os
 import shlex
 import subprocess
 import sys
@@ -67,6 +68,10 @@ class VenvExecutor(Executor):
         self.install_root = install_root or Path.cwd()
         self.use_python = use_python
 
+    def _should_use_uv(self) -> bool:
+        """Check if uv should be used based on AIRBYTE_NO_UV environment variable."""
+        return os.environ.get("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
+
     def _get_venv_name(self) -> str:
         return f".venv-{self.name}"
 
@@ -117,17 +122,25 @@ class VenvExecutor(Executor):
             self._run_subprocess_and_raise_on_failure(
                 [sys.executable, "-m", "venv", str(self._get_venv_path())]
             )
-            install_cmd = [
-                "uv",
-                "pip",
-                "install",
-                "--python",
-                str(self._get_venv_path()),
-                *shlex.split(self.pip_url),
-            ]
+
+            if self._should_use_uv():
+                install_cmd = [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    str(self._get_venv_path()),
+                    *shlex.split(self.pip_url),
+                ]
+                tool_name = "uv pip"
+            else:
+                pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
+                install_cmd = [pip_path, "install", *shlex.split(self.pip_url)]
+                tool_name = "pip"
+
             print(
                 f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-                f"Running 'uv pip install {self.pip_url}'...\n",
+                f"Running '{tool_name} install {self.pip_url}'...\n",
                 file=sys.stderr,
             )
         elif isinstance(self.use_python, (str, Path)):
