@@ -57,15 +57,12 @@ def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
     if not response.ok:
         return None
 
-    try:
+    data: dict | None = None
+    with suppress(Exception):
         data = response.json()
-        return data.get("info", {}).get("requires_python")
-    except Exception:
-        # Intentionally broad exception handling to ensure silent failure in all scenarios:
-        # - JSON parsing errors (json.JSONDecodeError)
-        # - Any other unexpected errors
-        # This ensures connector installation never fails due to version checking issues.
+    if not data:
         return None
+    return data.get("info", {}).get("requires_python")
 
 
 class VenvExecutor(Executor):
