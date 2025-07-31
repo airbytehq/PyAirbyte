@@ -58,6 +58,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    use_python: bool | Path | str | None = None,
 ) -> Source:
     """Get a connector by name and version.
 
@@ -103,6 +104,11 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             parameter is ignored when `local_executable` or `source_manifest` are set.
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
+        use_python: (Optional.) Python interpreter specification:
+            - True: Use current Python interpreter
+            - False: Use Docker instead
+            - Path: Use interpreter at this path
+            - str: Use uv-managed Python version
     """
     return Source(
         name=name,
@@ -119,6 +125,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
             source_manifest=source_manifest,
             install_if_missing=install_if_missing,
             install_root=install_root,
+            use_python=use_python,
         ),
     )
 

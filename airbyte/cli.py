@@ -174,12 +174,26 @@ def _get_connector_name(connector: str) -> str:
     return connector
 
 
+def _parse_use_python(use_python_str: str | None) -> bool | Path | str | None:
+    """Parse the use_python CLI parameter."""
+    if use_python_str is None:
+        return None
+    if use_python_str.lower() == "true":
+        return True
+    if use_python_str.lower() == "false":
+        return False
+    if "/" in use_python_str or use_python_str.startswith("."):
+        return Path(use_python_str)
+    return use_python_str
+
+
 def _resolve_source_job(
     *,
     source: str | None = None,
     config: str | None = None,
     streams: str | None = None,
     pip_url: str | None = None,
+    use_python: str | None = None,
 ) -> Source:
     """Resolve the source job into a configured Source object.
 
@@ -191,11 +205,14 @@ def _resolve_source_job(
         streams: A comma-separated list of stream names to select for reading. If set to "*",
             all streams will be selected. If not provided, all streams will be selected.
         pip_url: Optional. A location from which to install the connector.
+        use_python: Optional. Python interpreter specification.
     """
     config_dict = _resolve_config(config) if config else None
     streams_list: str | list[str] = streams or "*"
     if isinstance(streams, str) and streams != "*":
         streams_list = [stream.strip() for stream in streams.split(",")]
+
+    use_python_parsed = _parse_use_python(use_python)
 
     source_obj: Source
     if source and _is_docker_image(source):
@@ -205,6 +222,7 @@ def _resolve_source_job(
             config=config_dict,
             streams=streams_list,
             pip_url=pip_url,
+            use_python=use_python_parsed,
         )
         return source_obj
 
@@ -224,6 +242,7 @@ def _resolve_source_job(
             config=config_dict,
             streams=streams_list,
             pip_url=pip_url,
+            use_python=use_python_parsed,
         )
         return source_obj
 
@@ -240,6 +259,7 @@ def _resolve_source_job(
         config=config_dict,
         streams=streams_list,
         pip_url=pip_url,
+        use_python=use_python_parsed,
     )
 
 
@@ -248,6 +268,7 @@ def _resolve_destination_job(
     destination: str,
     config: str | None = None,
     pip_url: str | None = None,
+    use_python: str | None = None,
 ) -> Destination:
     """Resolve the destination job into a configured Destination object.
 
@@ -258,8 +279,10 @@ def _resolve_destination_job(
             and tag.
         config: The path to a configuration file for the named source or destination.
         pip_url: Optional. A location from which to install the connector.
+        use_python: Optional. Python interpreter specification.
     """
     config_dict = _resolve_config(config) if config else None
+    use_python_parsed = _parse_use_python(use_python)
 
     if destination and (destination.startswith(".") or "/" in destination):
         # Treat the destination as a path.
@@ -276,6 +299,7 @@ def _resolve_destination_job(
             local_executable=destination_executable,
             config=config_dict,
             pip_url=pip_url,
+            use_python=use_python_parsed,
         )
 
     # else: # Treat the destination as a name.
@@ -284,6 +308,7 @@ def _resolve_destination_job(
         name=destination,
         config=config_dict,
         pip_url=pip_url,
+        use_python=use_python_parsed,
     )
 
 
@@ -314,10 +339,20 @@ def _resolve_destination_job(
     required=False,
     help=CONFIG_HELP,
 )
+@click.option(
+    "--use-python",
+    type=str,
+    help=(
+        "Python interpreter specification. Use 'true' for current Python, "
+        "'false' for Docker, a path for specific interpreter, or a version "
+        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
+    ),
+)
 def validate(
     connector: str | None = None,
     config: str | None = None,
     pip_url: str | None = None,
+    use_python: str | None = None,
 ) -> None:
     """CLI command to run a `benchmark` operation."""
     if not connector:
@@ -332,12 +367,14 @@ def validate(
             config=None,
             streams=None,
             pip_url=pip_url,
+            use_python=use_python,
         )
     else:  # destination
         connector_obj = _resolve_destination_job(
             destination=connector,
             config=None,
             pip_url=pip_url,
+            use_python=use_python,
         )
 
     print("Getting `spec` output from connector...", file=sys.stderr)
@@ -393,12 +430,22 @@ def validate(
     type=str,
     help=CONFIG_HELP,
 )
+@click.option(
+    "--use-python",
+    type=str,
+    help=(
+        "Python interpreter specification. Use 'true' for current Python, "
+        "'false' for Docker, a path for specific interpreter, or a version "
+        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
+    ),
+)
 def benchmark(
     source: str | None = None,
     streams: str = "*",
     num_records: int | str = "5e5",  # 500,000 records
     destination: str | None = None,
     config: str | None = None,
+    use_python: str | None = None,
 ) -> None:
     """CLI command to run a `benchmark` operation.
 
@@ -421,6 +468,7 @@ def benchmark(
             source=source,
             config=config,
             streams=streams,
+            use_python=use_python,
         )
         if source
         else get_benchmark_source(
@@ -431,6 +479,7 @@ def benchmark(
         _resolve_destination_job(
             destination=destination,
             config=config,
+            use_python=use_python,
         )
         if destination
         else get_noop_destination()
@@ -493,6 +542,15 @@ def benchmark(
     type=str,
     help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
 )
+@click.option(
+    "--use-python",
+    type=str,
+    help=(
+        "Python interpreter specification. Use 'true' for current Python, "
+        "'false' for Docker, a path for specific interpreter, or a version "
+        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
+    ),
+)
 def sync(
     *,
     source: str,
@@ -502,6 +560,7 @@ def sync(
     destination_config: str | None = None,
     destination_pip_url: str | None = None,
     streams: str | None = None,
+    use_python: str | None = None,
 ) -> None:
     """CLI command to run a `sync` operation.
 
@@ -516,11 +575,13 @@ def sync(
         config=source_config,
         streams=streams,
         pip_url=source_pip_url,
+        use_python=use_python,
     )
     destination_obj = _resolve_destination_job(
         destination=destination,
         config=destination_config,
         pip_url=destination_pip_url,
+        use_python=use_python,
     )
 
     click.echo("Running sync...")

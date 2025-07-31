@@ -8,7 +8,7 @@ import airbyte as ab
 # preparation (from PyAirbyte main folder):
 #   python -m venv .venv-source-test
 #   source .venv-source-test/bin/activate
-#   pip install -e ./tests/integration_tests/fixtures/source-test
+#   uv pip install -e ./tests/integration_tests/fixtures/source-test
 # In separate terminal:
 #   poetry run python examples/run_test_source.py
 

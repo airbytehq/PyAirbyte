@@ -29,6 +29,8 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
     docker_image: str | bool | None = None,
     use_host_network: bool = False,
     install_if_missing: bool = True,
+    install_root: Path | None = None,
+    use_python: bool | Path | str | None = None,
 ) -> Destination:
     """Get a connector by name and version.
 
@@ -58,6 +60,13 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             `docker_image` is not set.
         install_if_missing: Whether to install the connector if it is not available locally. This
             parameter is ignored when local_executable is set.
+        install_root: (Optional.) The root directory where the virtual environment will be
+            created. If not provided, the current working directory will be used.
+        use_python: (Optional.) Python interpreter specification:
+            - True: Use current Python interpreter
+            - False: Use Docker instead
+            - Path: Use interpreter at this path
+            - str: Use uv-managed Python version
     """
     return Destination(
         name=name,
@@ -71,6 +80,8 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             docker_image=docker_image,
             use_host_network=use_host_network,
             install_if_missing=install_if_missing,
+            install_root=install_root,
+            use_python=use_python,
         ),
     )
 

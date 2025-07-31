@@ -11,7 +11,6 @@ import subprocess
 import sys
 import time
 import warnings
-from pathlib import Path
 
 import airbyte
 import docker
@@ -20,7 +19,6 @@ import pytest
 from _pytest.nodes import Item
 from airbyte._util import text_util
 from airbyte._util.meta import is_windows
-from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
@@ -289,10 +287,17 @@ def source_test_installation():
     if os.path.exists(venv_dir):
         shutil.rmtree(venv_dir)
 
-    subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-    pip_path = str(get_bin_dir(Path(venv_dir)) / "pip")
+    subprocess.run(["uv", "venv", venv_dir], check=True)
     subprocess.run(
-        [pip_path, "install", "-e", "./tests/integration_tests/fixtures/source-test"],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            venv_dir,
+            "-e",
+            "./tests/integration_tests/fixtures/source-test",
+        ],
         check=True,
     )
 

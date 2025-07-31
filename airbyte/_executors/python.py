@@ -32,6 +32,7 @@ class VenvExecutor(Executor):
         target_version: str | None = None,
         pip_url: str | None = None,
         install_root: Path | None = None,
+        use_python: bool | Path | str | None = None,
     ) -> None:
         """Initialize a connector executor that runs a connector in a virtual environment.
 
@@ -42,6 +43,11 @@ class VenvExecutor(Executor):
             pip_url: (Optional.) The pip URL of the connector to install.
             install_root: (Optional.) The root directory where the virtual environment will be
                 created. If not provided, the current working directory will be used.
+            use_python: (Optional.) Python interpreter specification:
+                - True: Use current Python interpreter
+                - False: Use Docker instead (handled by factory)
+                - Path: Use interpreter at this path
+                - str: Use uv-managed Python version
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
 
@@ -59,6 +65,7 @@ class VenvExecutor(Executor):
             else f"airbyte-{self.name}"
         )
         self.install_root = install_root or Path.cwd()
+        self.use_python = use_python
 
     def _get_venv_name(self) -> str:
         return f".venv-{self.name}"
@@ -106,20 +113,57 @@ class VenvExecutor(Executor):
 
         After installation, the installed version will be stored in self.reported_version.
         """
-        self._run_subprocess_and_raise_on_failure(
-            [sys.executable, "-m", "venv", str(self._get_venv_path())]
-        )
-
-        pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
-        print(
-            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-            f"Running 'pip install {self.pip_url}'...\n",
-            file=sys.stderr,
-        )
-        try:
+        if self.use_python is True or self.use_python is None:
             self._run_subprocess_and_raise_on_failure(
-                args=[pip_path, "install", *shlex.split(self.pip_url)]
+                [sys.executable, "-m", "venv", str(self._get_venv_path())]
             )
+            install_cmd = [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(self._get_venv_path()),
+                *shlex.split(self.pip_url),
+            ]
+            print(
+                f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
+                f"Running 'uv pip install {self.pip_url}'...\n",
+                file=sys.stderr,
+            )
+        elif isinstance(self.use_python, (str, Path)):
+            if isinstance(self.use_python, str):
+                venv_cmd = ["uv", "venv", str(self._get_venv_path()), "--python", self.use_python]
+            else:
+                venv_cmd = [
+                    "uv",
+                    "venv",
+                    str(self._get_venv_path()),
+                    "--python",
+                    str(self.use_python),
+                ]
+
+            self._run_subprocess_and_raise_on_failure(venv_cmd)
+            install_cmd = [
+                "uv",
+                "pip",
+                "install",
+                "--python",
+                str(self._get_venv_path()),
+                *shlex.split(self.pip_url),
+            ]
+            print(
+                f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
+                f"Running 'uv pip install {self.pip_url}'...\n",
+                file=sys.stderr,
+            )
+        else:
+            raise exc.PyAirbyteInputError(
+                message="Invalid use_python parameter type",
+                input_value=str(self.use_python),
+            )
+
+        try:
+            self._run_subprocess_and_raise_on_failure(install_cmd)
         except exc.AirbyteSubprocessFailedError as ex:
             # If the installation failed, remove the virtual environment
             # Otherwise, the connector will be considered as installed and the user may not be able
