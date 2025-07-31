@@ -13,11 +13,13 @@ import sys
 from collections.abc import Generator
 from pathlib import Path
 
-import airbyte as ab
 import pytest
+
+import airbyte as ab
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -79,3 +81,15 @@ def duckdb_cache() -> Generator[DuckDBCache, None, None]:
     yield cache
     # TODO: Delete cache DB file after test is complete.
     return
+
+
+def test_duckdb_cache_close(duckdb_cache: DuckDBCache) -> None:
+    """Test that the DuckDB cache can be closed without errors."""
+    # Verify that we can call close() without errors
+    duckdb_cache.close()
+
+    # Verify that we can also call the processor close method directly
+    duckdb_cache.processor.close()
+
+    # Should be able to call close multiple times without errors
+    duckdb_cache.close()

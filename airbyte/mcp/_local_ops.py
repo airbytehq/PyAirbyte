@@ -272,6 +272,8 @@ def sync_source_to_cache(
         cache=cache,
         streams=streams,
     )
+    cache.close()
+    del cache  # Ensure the cache is closed properly
 
     summary: str = f"Sync completed for '{source_connector_name}'!\n\n"
     summary += "Data written to default DuckDB cache\n"
@@ -292,10 +294,10 @@ class CachedDatasetInfo(BaseModel):
 def list_cached_datasets() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
     cache: DuckDBCache = get_default_cache()
-    return [
-        CachedDatasetInfo(stream_name=stream_name)
-        for stream_name in cache.streams
-    ]
+    result = [CachedDatasetInfo(stream_name=stream_name) for stream_name in cache.streams]
+    cache.close()
+    del cache  # Ensure the cache is closed properly
+    return result
 
 
 def describe_default_cache() -> dict[str, Any]:
@@ -304,9 +306,95 @@ def describe_default_cache() -> dict[str, Any]:
     return {
         "cache_type": type(cache).__name__,
         "cache_dir": str(cache.cache_dir),
-        "cache_db_path": str(cache.db_path),
+        "cache_db_path": str(Path(cache.db_path).absolute()),
         "cached_streams": list(cache.streams.keys()),
     }
+
+
+def _is_safe_sql(sql_query: str) -> bool:
+    """Check if a SQL query is safe to execute.
+
+    For security reasons, we only allow read-only operations like SELECT, DESCRIBE, and SHOW.
+    Multi-statement queries (containing semicolons) are also disallowed for security.
+
+    Note: SQLAlchemy will also validate downstream, but this is a first-pass check.
+
+    Args:
+        sql_query: The SQL query to check
+
+    Returns:
+        True if the query is safe to execute, False otherwise
+    """
+    # Remove leading/trailing whitespace and convert to uppercase for checking
+    normalized_query = sql_query.strip().upper()
+
+    # Disallow multi-statement queries (containing semicolons)
+    # Note: We check the original query to catch semicolons anywhere, including in comments
+    if ";" in sql_query:
+        return False
+
+    # List of allowed SQL statement prefixes (read-only operations)
+    allowed_prefixes = (
+        "SELECT",
+        "DESCRIBE",
+        "DESC",  # Short form of DESCRIBE
+        "SHOW",
+        "EXPLAIN",  # Also safe - shows query execution plan
+    )
+
+    # Check if the query starts with any allowed prefix
+    return any(normalized_query.startswith(prefix) for prefix in allowed_prefixes)
+
+
+def run_sql_query(
+    sql_query: Annotated[
+        str,
+        Field(description="The SQL query to execute."),
+    ],
+    max_records: Annotated[
+        int,
+        Field(description="Maximum number of records to return."),
+    ] = 1000,
+) -> list[dict[str, Any]]:
+    """Run a SQL query against the default cache.
+
+    The dialect of SQL should match the dialect of the default cache.
+    Use `describe_default_cache` to see the cache type.
+
+    For DuckDB-type caches:
+    - Use `SHOW TABLES` to list all tables.
+    - Use `DESCRIBE <table_name>` to get the schema of a specific table
+
+    For security reasons, only read-only operations are allowed: SELECT, DESCRIBE, SHOW, EXPLAIN.
+    """
+    # Check if the query is safe to execute
+    if not _is_safe_sql(sql_query):
+        return [
+            {
+                "ERROR": "Unsafe SQL query detected. Only read-only operations are allowed: "
+                "SELECT, DESCRIBE, SHOW, EXPLAIN",
+                "SQL_QUERY": sql_query,
+            }
+        ]
+
+    cache: DuckDBCache = get_default_cache()
+    try:
+        return cache.run_sql_query(
+            sql_query,
+            max_records=max_records,
+        )
+    except Exception as ex:
+        tb_str = traceback.format_exc()
+        return [
+            {
+                "ERROR": f"Error running SQL query: {ex!r}, {ex!s}",
+                "TRACEBACK": tb_str,
+                "SQL_QUERY": sql_query,
+            }
+        ]
+    finally:
+        cache.close()
+        del cache  # Ensure the cache is closed properly
 
 
 def register_local_ops_tools(app: FastMCP) -> None:
@@ -318,6 +406,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         list_cached_datasets,
         list_source_streams,
         read_source_stream_records,
+        run_sql_query,
         sync_source_to_cache,
         validate_connector_config,
     ):

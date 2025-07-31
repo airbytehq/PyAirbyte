@@ -775,6 +775,19 @@ class SqlProcessorBase(abc.ABC):
         """Clean resources."""
         self.file_writer.cleanup_all()
 
+    def close(self) -> None:
+        """Close the connection and dispose of the engine.
+
+        This method performs a final checkpoint to ensure all data is flushed to disk,
+        then disposes of the SQLAlchemy engine to close all connections.
+        """
+        # Perform a final checkpoint to flush any remaining WAL data
+        self._do_checkpoint()
+
+        # Get the engine and dispose of it to close all connections
+        engine = self.get_sql_engine()
+        engine.dispose()
+
     # Finalizing context manager
 
     @final
