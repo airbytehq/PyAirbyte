@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import threading
+import time
 import warnings
 from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
@@ -774,6 +775,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             for message in progress_tracker.tally_records_read(message_generator):
                 if stop_event and stop_event.is_set():
                     progress_tracker._log_sync_cancel()  # noqa: SLF001
+                    time.sleep(0.1)
                     return
 
                 yield message
