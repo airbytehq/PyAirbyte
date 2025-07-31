@@ -283,16 +283,21 @@ class CachedDatasetInfo(BaseModel):
 
     stream_name: str
     """The name of the stream in the cache."""
-    # TODO: add later:
-    # table_name: str
-    # schema_name: str | None = None
-    # source_name: str | None = None
+    table_name: str
+    schema_name: str | None = None
 
 
-def list_cached_datasets() -> list[CachedDatasetInfo]:
+def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
     cache: DuckDBCache = get_default_cache()
-    result = [CachedDatasetInfo(stream_name=stream_name) for stream_name in cache.streams]
+    result = [
+        CachedDatasetInfo(
+            stream_name=stream_name,
+            table_name=(cache.table_prefix or "") + stream_name,
+            schema_name=cache.schema_name,
+        )
+        for stream_name in cache.streams
+    ]
     del cache  # Ensure the cache is closed properly
     return result
 
@@ -399,7 +404,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
     for tool in (
         describe_default_cache,
         get_source_stream_json_schema,
-        list_cached_datasets,
+        list_cached_streams,
         list_source_streams,
         read_source_stream_records,
         run_sql_query,
