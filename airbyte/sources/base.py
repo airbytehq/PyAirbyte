@@ -767,10 +767,12 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 ],
                 progress_tracker=progress_tracker,
             )
-            yield from progress_tracker.tally_records_read(message_generator)
-            if stop_event and stop_event.is_set():
-                progress_tracker._log_sync_cancel()  # noqa: SLF001 (non-public API)
-                return
+            for message in progress_tracker.tally_records_read(message_generator):
+                if stop_event and stop_event.is_set():
+                    progress_tracker._log_sync_cancel()
+                    return
+
+                yield message
 
         progress_tracker.log_read_complete()
 
