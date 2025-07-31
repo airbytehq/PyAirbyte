@@ -259,27 +259,23 @@ class VenvExecutor(Executor):
         if not requires_python:
             return None
 
-        try:
-            current_version = (
-                f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        current_version = (
+            f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        )
+
+        spec_set = SpecifierSet(requires_python)
+        current_ver = Version(current_version)
+
+        if current_ver not in spec_set:
+            warn_once(
+                f"Python version compatibility warning for '{package_name}': "
+                f"Current Python {current_version} may not be compatible with "
+                f"package requirement '{requires_python}'. "
+                f"Installation will proceed but may fail.",
+                with_stack=False,
             )
-
-            spec_set = SpecifierSet(requires_python)
-            current_ver = Version(current_version)
-
-            if current_ver not in spec_set:
-                warn_once(
-                    f"Python version compatibility warning for '{package_name}': "
-                    f"Current Python {current_version} may not be compatible with "
-                    f"package requirement '{requires_python}'. "
-                    f"Installation will proceed but may fail.",
-                    with_stack=False,
-                )
-                return False
-        except Exception:
-            return None
-        else:
-            return True
+            return False
+        return True
 
     def ensure_installation(
         self,
