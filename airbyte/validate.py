@@ -127,12 +127,22 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     # create a venv and install the connector
     venv_name = f".venv-{connector_name}"
     venv_path = Path(venv_name)
+
+    should_use_uv = os.environ.get("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
+
     if not venv_path.exists():
-        _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
+        if should_use_uv:
+            _run_subprocess_and_raise_on_failure(["uv", "venv", venv_name])
+        else:
+            _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
 
-    pip_path = str(get_bin_dir(Path(venv_path)) / "pip")
-
-    _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
+    if should_use_uv:
+        _run_subprocess_and_raise_on_failure(
+            ["uv", "pip", "install", "--python", venv_name, connector_dir]
+        )
+    else:
+        pip_path = str(get_bin_dir(Path(venv_path)) / "pip")
+        _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
 
     # write basic registry to temp json file
     registry = {
