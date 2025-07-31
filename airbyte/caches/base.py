@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """SQL Cache implementation."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -38,7 +39,7 @@ if TYPE_CHECKING:
     from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904 (too many methods)
+class CacheBase(SqlConfig, AirbyteWriterInterface):
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings

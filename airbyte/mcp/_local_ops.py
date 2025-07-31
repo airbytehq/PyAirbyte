@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastmcp import FastMCP
-from pydantic import Field, BaseModel
+from pydantic import BaseModel, Field
 
 from airbyte import get_source
 from airbyte.caches.duckdb import DuckDBCache
