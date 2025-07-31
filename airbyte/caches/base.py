@@ -20,6 +20,7 @@ from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBacken
 from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
+from airbyte.lakes import LakeStorage
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_writers import StdOutStateWriter
@@ -365,3 +366,72 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             progress_tracker=progress_tracker,
         )
         progress_tracker.log_cache_processing_complete()
+
+    def fast_unload(
+        self,
+        lake_store: LakeStorage,
+        *,
+        streams: list[str] | Literal["*"] | None = None,
+    ) -> None:
+        """Unload the cache to a lake store.
+
+        We dump data directly to parquet files in the lake store.
+
+        Args:
+            streams: The streams to unload. If None, unload all streams.
+            lake_store: The lake store to unload to. If None, use the default lake store.
+        """
+        stream_names: list[str]
+        if streams == "*" or streams is None:
+            stream_names = self._catalog_backend.stream_names
+        elif isinstance(streams, list):
+            stream_names = streams
+
+        for stream_name in stream_names:
+            self._unload_stream_to_lake_store(
+                stream_name,
+                lake_store,
+            )
+
+    def _unload_stream_to_lake_store(
+        self,
+        stream_name: str,
+        lake_store: LakeStorage,
+    ) -> None:
+        """Unload a single stream to the lake store.
+
+        This generic implementation delegates to the `lake_store` and passes
+        an Arrow dataset to the lake store object.
+
+        Subclasses can override this method to provide a faster
+        unload implementation.
+        """
+        arrow_dataset = self.get_arrow_dataset(stream_name)
+        lake_store.write_dataset(
+            dataset=arrow_dataset,
+            table_name=stream_name,
+            schema=self.schema_name,
+            cache_dir=self.cache_dir,
+            cleanup=self.cleanup,
+        )
+
+    def _load_stream_from_lake_store(
+        self,
+        stream_name: str,
+        lake_store: LakeStorage,
+    ) -> None:
+        """Load a single stream from the lake store.
+
+        This generic implementation reads an Arrow dataset from the lake store
+        and writes it to the cache.
+
+        Subclasses can override this method to provide a faster
+        load implementation.
+        """
+        arrow_dataset = lake_store.read_dataset(
+            table_name=stream_name,
+            schema=self.schema_name,
+            cache_dir=self.cache_dir,
+            cleanup=self.cleanup,
+        )
+        self.processor.write_arrow_dataset(arrow_dataset, stream_name)
