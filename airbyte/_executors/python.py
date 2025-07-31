@@ -5,6 +5,7 @@ import shlex
 import subprocess
 import sys
 from contextlib import suppress
+from functools import lru_cache
 from pathlib import Path
 from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
@@ -207,6 +208,7 @@ class VenvExecutor(Executor):
 
             return None
 
+    @lru_cache(maxsize=128)
     def _get_pypi_python_requirements(self, package_name: str) -> str | None:
         """Get the requires_python field from PyPI for a package.
 
