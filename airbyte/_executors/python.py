@@ -247,15 +247,17 @@ class VenvExecutor(Executor):
         self,
         package_name: str,
         requires_python: str | None,
-    ) -> None:
+    ) -> bool | None:
         """Check if current Python version is compatible with package requirements.
+
+        Returns True if confirmed, False if incompatible, or None if no determination can be made.
 
         Args:
             package_name: Name of the package being checked
             requires_python: The requires_python constraint from PyPI (e.g., "<3.12,>=3.10")
         """
         if not requires_python:
-            return
+            return None
 
         try:
             current_version = (
@@ -273,8 +275,11 @@ class VenvExecutor(Executor):
                     f"Installation will proceed but may fail.",
                     with_stack=False,
                 )
+                return False
         except Exception:
-            pass
+            return None
+        else:
+            return True
 
     def ensure_installation(
         self,
