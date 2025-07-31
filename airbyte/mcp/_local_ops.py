@@ -271,7 +271,6 @@ def sync_source_to_cache(
         cache=cache,
         streams=streams,
     )
-    cache.close()
     del cache  # Ensure the cache is closed properly
 
     summary: str = f"Sync completed for '{source_connector_name}'!\n\n"
@@ -294,7 +293,6 @@ def list_cached_datasets() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
     cache: DuckDBCache = get_default_cache()
     result = [CachedDatasetInfo(stream_name=stream_name) for stream_name in cache.streams]
-    cache.close()
     del cache  # Ensure the cache is closed properly
     return result
 
@@ -392,7 +390,6 @@ def run_sql_query(
             }
         ]
     finally:
-        cache.close()
         del cache  # Ensure the cache is closed properly
 
 

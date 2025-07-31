@@ -145,14 +145,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904 (too many m
         """Return the SQL processor instance."""
         return self._read_processor
 
-    def close(self) -> None:
-        """Close the cache connection.
-
-        This method closes the underlying SQL connection and disposes of the engine.
-        It's a convenience method that delegates to the processor's close method.
-        """
-        return self.processor.close()
-
     def run_sql_query(
         self,
         sql_query: str,
