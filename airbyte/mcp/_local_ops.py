@@ -11,7 +11,6 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
-from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
 from airbyte.secrets.config import _get_secret_sources
@@ -20,6 +19,7 @@ from airbyte.sources.registry import get_connector_metadata
 
 
 if TYPE_CHECKING:
+    from airbyte.caches.duckdb import DuckDBCache
     from airbyte.sources.base import Source
 
 
