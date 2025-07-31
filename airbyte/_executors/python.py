@@ -9,7 +9,10 @@ from pathlib import Path
 from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
+import requests
 from overrides import overrides
+from packaging.specifiers import SpecifierSet
+from packaging.version import Version
 from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
@@ -17,6 +20,9 @@ from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
+from airbyte.constants import AIRBYTE_OFFLINE_MODE
+from airbyte.logs import warn_once
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
@@ -106,6 +112,14 @@ class VenvExecutor(Executor):
 
         After installation, the installed version will be stored in self.reported_version.
         """
+        package_name = (
+            self.metadata.pypi_package_name
+            if self.metadata and self.metadata.pypi_package_name
+            else f"airbyte-{self.name}"
+        )
+        requires_python = self._get_pypi_python_requirements(package_name)
+        self._check_python_version_compatibility(package_name, requires_python)
+
         self._run_subprocess_and_raise_on_failure(
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
         )
@@ -192,6 +206,70 @@ class VenvExecutor(Executor):
                 raise
 
             return None
+
+    def _get_pypi_python_requirements(self, package_name: str) -> str | None:
+        """Get the requires_python field from PyPI for a package.
+
+        Args:
+            package_name: The PyPI package name to check
+
+        Returns:
+            The requires_python string from PyPI, or None if unavailable
+
+        Example:
+            For airbyte-source-hubspot, returns "<3.12,>=3.10"
+        """
+        if AIRBYTE_OFFLINE_MODE:
+            return None
+
+        try:
+            url = f"https://pypi.org/pypi/{package_name}/json"
+            response = requests.get(
+                url=url,
+                headers={"User-Agent": f"PyAirbyte/{get_version()}"},
+                timeout=10,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            return data.get("info", {}).get("requires_python")
+
+        except Exception:
+            return None
+
+    def _check_python_version_compatibility(
+        self,
+        package_name: str,
+        requires_python: str | None,
+    ) -> None:
+        """Check if current Python version is compatible with package requirements.
+
+        Args:
+            package_name: Name of the package being checked
+            requires_python: The requires_python constraint from PyPI (e.g., "<3.12,>=3.10")
+        """
+        if not requires_python:
+            return
+
+        try:
+            current_version = (
+                f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+            )
+
+            spec_set = SpecifierSet(requires_python)
+            current_ver = Version(current_version)
+
+            if current_ver not in spec_set:
+                warn_once(
+                    f"Python version compatibility warning for '{package_name}': "
+                    f"Current Python {current_version} may not be compatible with "
+                    f"package requirement '{requires_python}'. "
+                    f"Installation will proceed but may fail.",
+                    with_stack=False,
+                )
+
+        except Exception:
+            pass
 
     def ensure_installation(
         self,
