@@ -125,6 +125,17 @@ If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
 
+AIRBYTE_USE_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
+"""Whether to use uv for Python package management.
+
+This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
+is set to "1", "true", or "yes", uv will be disabled and pip will be used instead.
+
+If the variable is not set or set to any other value, uv will be used by default.
+This provides a safe fallback mechanism for environments where uv is not available
+or causes issues.
+"""
+
 SECRETS_HYDRATION_PREFIX = "secret_reference::"
 """Use this prefix to indicate a secret reference in configuration.
 

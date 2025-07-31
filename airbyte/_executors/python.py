@@ -1,7 +1,6 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
-import os
 import shlex
 import subprocess
 import sys
@@ -18,6 +17,7 @@ from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
+from airbyte.constants import AIRBYTE_USE_UV
 
 
 if TYPE_CHECKING:
@@ -67,10 +67,6 @@ class VenvExecutor(Executor):
         )
         self.install_root = install_root or Path.cwd()
         self.use_python = use_python
-
-    def _should_use_uv(self) -> bool:
-        """Check if uv should be used based on AIRBYTE_NO_UV environment variable."""
-        return os.environ.get("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
 
     def _get_venv_name(self) -> str:
         return f".venv-{self.name}"
@@ -123,7 +119,7 @@ class VenvExecutor(Executor):
                 [sys.executable, "-m", "venv", str(self._get_venv_path())]
             )
 
-            if self._should_use_uv():
+            if AIRBYTE_USE_UV:
                 install_cmd = [
                     "uv",
                     "pip",

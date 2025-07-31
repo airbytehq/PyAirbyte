@@ -24,6 +24,7 @@ from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+from airbyte.constants import AIRBYTE_USE_UV
 from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
@@ -289,7 +290,7 @@ def source_test_installation():
     if os.path.exists(venv_dir):
         shutil.rmtree(venv_dir)
 
-    if os.environ.get("AIRBYTE_NO_UV", "").lower() not in ("1", "true", "yes"):
+    if AIRBYTE_USE_UV:
         subprocess.run(["uv", "venv", venv_dir], check=True)
         subprocess.run(
             [

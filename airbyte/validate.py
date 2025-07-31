@@ -20,6 +20,7 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 import airbyte as ab
 from airbyte import exceptions as exc
 from airbyte._util.venv_util import get_bin_dir
+from airbyte.constants import AIRBYTE_USE_UV
 
 
 def _parse_args() -> argparse.Namespace:
@@ -128,15 +129,13 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     venv_name = f".venv-{connector_name}"
     venv_path = Path(venv_name)
 
-    should_use_uv = os.environ.get("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
-
     if not venv_path.exists():
-        if should_use_uv:
+        if AIRBYTE_USE_UV:
             _run_subprocess_and_raise_on_failure(["uv", "venv", venv_name])
         else:
             _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
 
-    if should_use_uv:
+    if AIRBYTE_USE_UV:
         _run_subprocess_and_raise_on_failure(
             ["uv", "pip", "install", "--python", venv_name, connector_dir]
         )

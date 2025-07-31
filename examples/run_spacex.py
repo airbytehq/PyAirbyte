@@ -9,7 +9,7 @@ import airbyte as ab
 # preparation (from PyAirbyte main folder):
 #   python -m venv .venv-source-spacex-api
 #   source .venv-source-spacex-api/bin/activate
-#   uv pip install -e ../airbyte-integrations/connectors/source-spacex-api
+#   pip install -e ../airbyte-integrations/connectors/source-spacex-api
 # In separate terminal:
 #   poetry run python examples/run_spacex.py
 
