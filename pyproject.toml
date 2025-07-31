@@ -217,4 +217,6 @@ DEP002 = [
   "psycopg",
   "psycopg2-binary",
   "sqlalchemy-bigquery",
+  # Used as subprocess tool, not imported directly:
+  "uv",
 ]
