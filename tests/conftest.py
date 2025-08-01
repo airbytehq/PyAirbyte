@@ -24,7 +24,7 @@ from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
-from airbyte.constants import AIRBYTE_USE_UV
+from airbyte.constants import NO_UV
 from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
