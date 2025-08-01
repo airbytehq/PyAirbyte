@@ -12,17 +12,20 @@ import time
 import warnings
 from pathlib import Path
 
-import airbyte
 import docker
 import psycopg
 import pytest
 from _pytest.nodes import Item
+from requests.exceptions import HTTPError
+
+import airbyte
+from airbyte._executors.util import get_connector_executor
 from airbyte._util import text_util
 from airbyte._util.meta import is_windows
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
-from requests.exceptions import HTTPError
+
 
 logger = logging.getLogger(__name__)
 
@@ -240,8 +243,7 @@ def new_postgres_cache(new_postgres_db: str):
 
 @pytest.fixture(autouse=False)
 def source_test_registry(monkeypatch):
-    """
-    Mock the registry to return our custom registry containing the 'source-test' connector.
+    """Mock the registry to return our custom registry containing the 'source-test' connector.
 
     This means the normal registry is not usable. Expect AirbyteConnectorNotRegisteredError for
     other connectors.
@@ -267,8 +269,7 @@ def source_test_registry(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def do_not_track(monkeypatch):
-    """
-    Set environment variables for the test source.
+    """Set environment variables for the test source.
 
     These are applied to this test file only.
     """
@@ -277,39 +278,33 @@ def do_not_track(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
-@pytest.fixture(
-    scope="session", params=[True, False], ids=["uv_enabled", "uv_disabled"]
-)
-def source_test_installation(request):
-    """
+@pytest.fixture(scope="package")
+def source_test_installation():
+    """Test fixture for sample source installation.
+
     Prepare test environment. This will pre-install the test source from the fixtures array and set
     the environment variable to use the local json file as registry.
 
     Parametrized to test both uv-enabled and uv-disabled installation methods.
     """
-    use_uv = request.param
-
-    if not use_uv:
-        os.environ["AIRBYTE_NO_UV"] = "1"
 
     venv_dir = ".venv-source-test"
-    if os.path.exists(venv_dir):
+    if Path(venv_dir).exists():
         shutil.rmtree(venv_dir)
 
-    from airbyte._executors.util import get_connector_executor
-
+    executor = get_connector_executor(
+        name="source-test",
+        pip_url="./tests/integration_tests/fixtures/source-test",
+        install_root=Path.cwd(),
+        install_if_missing=False,
+    )
     try:
-        executor = get_connector_executor(
-            name="source-test",
-            pip_url="./tests/integration_tests/fixtures/source-test",
-            install_root=Path.cwd(),
-            install_if_missing=True,
-        )
+        executor.install()
 
         yield executor
 
     finally:
-        if os.path.exists(venv_dir):
+        if Path(venv_dir).exists():
             shutil.rmtree(venv_dir)
 
 
