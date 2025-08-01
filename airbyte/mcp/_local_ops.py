@@ -266,50 +266,48 @@ def get_stream_previews(
     Returns a dictionary mapping stream names to lists of sample records, or an error
     message string if an error occurred for that stream.
     """
+    source: Source = get_source(
+        source_name,
+        docker_image=is_docker_installed() or False,
+    )
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=source.config_spec,
+    )
+    source.set_config(config_dict)
+
+    streams_param: list[str] | Literal["*"] | None
+    if streams == "*":
+        streams_param = "*"
+    elif isinstance(streams, str) and streams != "*":
+        streams_param = [streams]
+    elif isinstance(streams, list):
+        streams_param = streams
+    else:
+        streams_param = None
+
     try:
-        source: Source = get_source(
-            source_name,
-            docker_image=is_docker_installed() or False,
-        )
-        config_dict = resolve_config(
-            config=config,
-            config_secret_name=config_secret_name,
-            config_spec_jsonschema=source.config_spec,
-        )
-        source.set_config(config_dict)
-
-        streams_param: list[str] | Literal["*"] | None
-        if streams == "*":
-            streams_param = "*"
-        elif isinstance(streams, str) and streams != "*":
-            streams_param = [streams]
-        elif isinstance(streams, list):
-            streams_param = streams
-        else:
-            streams_param = None
-
         samples_result = source.get_samples(
             streams=streams_param,
             limit=limit,
             on_error="ignore",
         )
-
-        result: dict[str, list[dict[str, Any]] | str] = {}
-        for stream_name, dataset in samples_result.items():
-            if dataset is None:
-                result[stream_name] = (
-                    f"Could not retrieve stream samples for stream '{stream_name}'"
-                )
-            else:
-                result[stream_name] = list(dataset)
     except Exception as ex:
         tb_str = traceback.format_exc()
         return {
             "ERROR": f"Error getting stream previews from source '{source_name}': "
             f"{ex!r}, {ex!s}\n{tb_str}"
         }
-    else:
-        return result
+
+    result: dict[str, list[dict[str, Any]] | str] = {}
+    for stream_name, dataset in samples_result.items():
+        if dataset is None:
+            result[stream_name] = f"Could not retrieve stream samples for stream '{stream_name}'"
+        else:
+            result[stream_name] = list(dataset)
+
+    return result
 
 
 # @app.tool()  # << deferred
