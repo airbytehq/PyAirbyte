@@ -11,7 +11,12 @@ from sqlalchemy import and_, func, select, text
 
 from airbyte_protocol.models import ConfiguredAirbyteStream
 
-from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
+    DEFAULT_ARROW_MAX_CHUNK_SIZE,
+)
 from airbyte.datasets._base import DatasetBase
 
 
@@ -134,6 +139,11 @@ class SQLDataset(DatasetBase):
             stream_name=self._stream_name,
             query_statement=filtered_select,
         )
+
+    @property
+    def column_names(self) -> list[str]:
+        """Return the list of top-level column names, including internal Airbyte columns."""
+        return [*super().column_names, AB_RAW_ID_COLUMN, AB_EXTRACTED_AT_COLUMN, AB_META_COLUMN]
 
 
 class CachedDataset(SQLDataset):
