@@ -299,8 +299,17 @@ def _resolve_destination_job(
         pip_url: Optional. A location from which to install the connector.
         use_python: Optional. Python interpreter specification.
     """
-    config_dict = _resolve_config(config) if config else None
+    config_dict = _resolve_config(config) if config else {}
     use_python_parsed = _parse_use_python(use_python)
+
+    if _is_docker_image(destination):
+        return get_destination(
+            name=_get_connector_name(destination),
+            docker_image=destination,
+            config=config_dict,
+            pip_url=pip_url,
+            use_python=use_python_parsed,
+        )
 
     if destination and (destination.startswith(".") or "/" in destination):
         # Treat the destination as a path.
