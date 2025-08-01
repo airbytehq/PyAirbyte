@@ -99,11 +99,7 @@ def get_noop_destination(
         "destination-dev-null",
         config={
             "test_destination": {
-                "test_destination_type": "LOGGING",
-                "logging_config": {
-                    "logging_type": "FirstN",
-                    "max_entry_count": 100,
-                },
+                "test_destination_type": "SILENT",
             }
         },
         docker_image=True,
