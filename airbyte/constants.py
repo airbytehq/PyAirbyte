@@ -124,3 +124,20 @@ the pipeline run.
 If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
+
+SECRETS_HYDRATION_PREFIX = "secret_reference::"
+"""Use this prefix to indicate a secret reference in configuration.
+
+For example, this snippet will populate the `personal_access_token` field with the value of the
+secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment variable.
+
+```json
+{
+  "credentials": {
+    "personal_access_token": "secret_reference::GITHUB_PERSONAL_ACCESS_TOKEN"
+  }
+}
+```
+
+For more information, see the `airbyte.secrets` module documentation.
+"""

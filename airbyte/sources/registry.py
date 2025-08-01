@@ -8,11 +8,11 @@ import logging
 import os
 import warnings
 from copy import copy
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 import requests
+from pydantic import BaseModel
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
@@ -36,89 +36,6 @@ _MANIFEST_ONLY_LANGUAGE = "manifest-only"
 _PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
 _MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
 
-_LOWCODE_CONNECTORS_NEEDING_PYTHON: list[str] = [
-    "source-alpha-vantage",
-    "source-amplitude",
-    "source-apify-dataset",
-    "source-asana",
-    "source-avni",
-    "source-aws-cloudtrail",
-    "source-bamboo-hr",
-    "source-braintree",
-    "source-braze",
-    "source-chargebee",
-    "source-commercetools",
-    "source-eventbrite",
-    "source-facebook-pages",
-    "source-fastbill",
-    "source-freshdesk",
-    "source-gitlab",
-    "source-gnews",
-    "source-gong",
-    "source-greenhouse",
-    "source-instagram",
-    "source-instatus",
-    "source-intercom",
-    "source-iterable",
-    "source-jina-ai-reader",
-    "source-jira",
-    "source-klaviyo",
-    "source-looker",
-    "source-mailchimp",
-    "source-mixpanel",
-    "source-monday",
-    "source-my-hours",
-    "source-notion",
-    "source-okta",
-    "source-orb",
-    "source-outreach",
-    "source-paypal-transaction",
-    "source-pinterest",
-    "source-pipedrive",
-    "source-pocket",
-    "source-posthog",
-    "source-prestashop",
-    "source-public-apis",
-    "source-qualaroo",
-    "source-railz",
-    "source-recharge",
-    "source-recurly",
-    "source-retently",
-    "source-rss",
-    "source-salesloft",
-    "source-service-now",
-    "source-slack",
-    "source-surveymonkey",
-    "source-the-guardian-api",
-    "source-tiktok-marketing",
-    "source-trello",
-    "source-typeform",
-    "source-us-census",
-    "source-xero",
-    "source-younium",
-    "source-zendesk-chat",
-    "source-zendesk-sunshine",
-    "source-zendesk-support",
-    "source-zendesk-talk",
-    "source-zenloop",
-    "source-zoom",
-]
-_LOWCODE_CONNECTORS_FAILING_VALIDATION: list[str] = []
-# Connectors that return 404 or some other misc exception.
-_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
-    "source-adjust",
-    "source-amazon-ads",
-    "source-marketo",
-]
-# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
-_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = []
-_LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
-    *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
-    *_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
-    *_LOWCODE_CONNECTORS_NEEDING_PYTHON,
-    *_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS,
-]
-
 
 class InstallType(str, Enum):
     """The type of installation for a connector."""
@@ -137,8 +54,7 @@ class Language(str, Enum):
     MANIFEST_ONLY = _MANIFEST_ONLY_LANGUAGE
 
 
-@dataclass
-class ConnectorMetadata:
+class ConnectorMetadata(BaseModel):
     """Metadata for a connector."""
 
     name: str
@@ -155,6 +71,9 @@ class ConnectorMetadata:
 
     install_types: set[InstallType]
     """The supported install types for the connector."""
+
+    suggested_streams: list[str] | None = None
+    """A list of suggested streams for the connector, if available."""
 
     @property
     def default_install_type(self) -> InstallType:
@@ -220,6 +139,7 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
         pypi_package_name=pypi_package_name if pypi_enabled else None,
         language=language,
         install_types=install_types,
+        suggested_streams=entry.get("suggestedStreams", {}).get("streams", None),
     )
 
 
@@ -346,7 +266,6 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
             conn.name
             for conn in _get_registry_cache().values()
             if InstallType.YAML in conn.install_types
-            and conn.name not in _LOWCODE_CONNECTORS_EXCLUDED
         )
 
     # pragma: no cover  # Should never be reached.
