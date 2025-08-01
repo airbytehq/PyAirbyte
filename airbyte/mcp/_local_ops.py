@@ -136,7 +136,7 @@ def list_source_streams(
     """
     source: Source = get_source(
         source_connector_name,
-        docker_image=is_docker_installed(),
+        docker_image=is_docker_installed() or False,
     )
     config_dict = resolve_config(
         config=config,
@@ -167,7 +167,7 @@ def get_source_stream_json_schema(
     ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
-    source: Source = get_source(source_connector_name, docker_image=is_docker_installed())
+    source: Source = get_source(source_connector_name, docker_image=is_docker_installed() or False)
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,
@@ -203,7 +203,7 @@ def read_source_stream_records(
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
-        source = get_source(source_connector_name, docker_image=is_docker_installed())
+        source = get_source(source_connector_name, docker_image=is_docker_installed() or False)
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
@@ -248,7 +248,7 @@ def sync_source_to_cache(
     ] = "suggested",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
-    source = get_source(source_connector_name, docker_image=is_docker_installed())
+    source = get_source(source_connector_name, docker_image=is_docker_installed() or False)
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,

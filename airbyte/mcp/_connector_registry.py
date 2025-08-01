@@ -103,7 +103,7 @@ def get_connector_info(
 
     connector = get_source(
         connector_name,
-        docker_image=is_docker_installed(),
+        docker_image=is_docker_installed() or False,
         install_if_missing=False,  # Defer to avoid failing entirely if it can't be installed.
     )
 
