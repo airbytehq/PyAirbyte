@@ -236,7 +236,7 @@ def read_source_stream_records(
 
 # @app.tool()  # << deferred
 def get_stream_previews(
-    source_connector_name: Annotated[
+    source_name: Annotated[
         str,
         Field(description="The name of the source connector."),
     ],
@@ -268,7 +268,7 @@ def get_stream_previews(
     """
     try:
         source: Source = get_source(
-            source_connector_name,
+            source_name,
             docker_image=is_docker_installed() or False,
         )
         config_dict = resolve_config(
@@ -305,7 +305,7 @@ def get_stream_previews(
     except Exception as ex:
         tb_str = traceback.format_exc()
         return {
-            "ERROR": f"Error getting stream previews from source '{source_connector_name}': "
+            "ERROR": f"Error getting stream previews from source '{source_name}': "
             f"{ex!r}, {ex!s}\n{tb_str}"
         }
     else:
