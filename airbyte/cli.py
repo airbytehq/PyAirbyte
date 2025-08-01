@@ -309,6 +309,7 @@ def _resolve_destination_job(
     """
     config_dict = _resolve_config(config) if config else {}
     use_python_parsed = _parse_use_python(use_python)
+
     destination_name = _get_connector_name(destination)
 
     if destination_name == "destination-dev-null" and not config:
