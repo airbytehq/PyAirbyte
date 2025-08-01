@@ -5,7 +5,7 @@ import sys
 import traceback
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -235,6 +235,82 @@ def read_source_stream_records(
 
 
 # @app.tool()  # << deferred
+def get_stream_previews(
+    source_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the source connector."),
+    ] = None,
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ] = None,
+    streams: Annotated[
+        list[str] | str | None,
+        Field(
+            description="The streams to get previews for. Use '*' for all streams, "
+            "or None for selected streams."
+        ),
+    ] = None,
+    limit: Annotated[
+        int,
+        Field(description="The maximum number of sample records to return per stream."),
+    ] = 10,
+) -> dict[str, list[dict[str, Any]] | str]:
+    """Get sample records (previews) from streams in a source connector.
+
+    This operation requires a valid configuration, including any required secrets.
+    Returns a dictionary mapping stream names to lists of sample records, or an error
+    message string if an error occurred for that stream.
+    """
+    source: Source = get_source(
+        source_name,
+        docker_image=is_docker_installed() or False,
+    )
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=source.config_spec,
+    )
+    source.set_config(config_dict)
+
+    streams_param: list[str] | Literal["*"] | None
+    if streams == "*":
+        streams_param = "*"
+    elif isinstance(streams, str) and streams != "*":
+        streams_param = [streams]
+    elif isinstance(streams, list):
+        streams_param = streams
+    else:
+        streams_param = None
+
+    try:
+        samples_result = source.get_samples(
+            streams=streams_param,
+            limit=limit,
+            on_error="ignore",
+        )
+    except Exception as ex:
+        tb_str = traceback.format_exc()
+        return {
+            "ERROR": f"Error getting stream previews from source '{source_name}': "
+            f"{ex!r}, {ex!s}\n{tb_str}"
+        }
+
+    result: dict[str, list[dict[str, Any]] | str] = {}
+    for stream_name, dataset in samples_result.items():
+        if dataset is None:
+            result[stream_name] = f"Could not retrieve stream samples for stream '{stream_name}'"
+        else:
+            result[stream_name] = list(dataset)
+
+    return result
+
+
+# @app.tool()  # << deferred
 def sync_source_to_cache(
     source_connector_name: Annotated[
         str,
@@ -418,6 +494,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
     for tool in (
         describe_default_cache,
         get_source_stream_json_schema,
+        get_stream_previews,
         list_cached_streams,
         list_source_streams,
         read_source_stream_records,
