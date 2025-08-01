@@ -11,6 +11,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
+from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
 from airbyte.secrets.config import _get_secret_sources
@@ -63,7 +64,7 @@ def validate_connector_config(
     Returns a tuple of (is_valid: bool, message: str).
     """
     try:
-        source = get_source(connector_name)
+        source = get_source(connector_name, docker_image=is_docker_installed())
     except Exception as ex:
         return False, f"Failed to get connector '{connector_name}': {ex}"
 
@@ -132,6 +133,7 @@ def list_source_streams(
     """
     source: Source = get_source(
         source_connector_name,
+        docker_image=is_docker_installed(),
     )
     config_dict = resolve_config(
         config=config,
@@ -162,7 +164,7 @@ def get_source_stream_json_schema(
     ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
-    source: Source = get_source(source_connector_name)
+    source: Source = get_source(source_connector_name, docker_image=is_docker_installed())
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,
@@ -198,7 +200,7 @@ def read_source_stream_records(
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
-        source = get_source(source_connector_name)
+        source = get_source(source_connector_name, docker_image=is_docker_installed())
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
@@ -243,7 +245,7 @@ def sync_source_to_cache(
     ] = "suggested",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
-    source = get_source(source_connector_name)
+    source = get_source(source_connector_name, docker_image=is_docker_installed())
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,

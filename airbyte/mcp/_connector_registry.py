@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from airbyte._util.meta import is_docker_installed
 from airbyte.sources import get_available_connectors
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 from airbyte.sources.util import get_source
@@ -102,6 +103,7 @@ def get_connector_info(
 
     connector = get_source(
         connector_name,
+        docker_image=is_docker_installed(),
         install_if_missing=False,  # Defer to avoid failing entirely if it can't be installed.
     )
 
