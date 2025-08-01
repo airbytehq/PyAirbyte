@@ -278,8 +278,10 @@ def do_not_track(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
-@pytest.fixture(scope="package")
-def source_test_installation():
+@pytest.fixture(
+    scope="session", params=[True, False], ids=["uv_enabled", "uv_disabled"]
+)
+def source_test_installation(request):
     """Test fixture for sample source installation.
 
     Prepare test environment. This will pre-install the test source from the fixtures array and set
@@ -287,25 +289,30 @@ def source_test_installation():
 
     Parametrized to test both uv-enabled and uv-disabled installation methods.
     """
+    use_uv = request.param
+
+    if not use_uv:
+        os.environ["AIRBYTE_NO_UV"] = "1"
 
     venv_dir = ".venv-source-test"
     if Path(venv_dir).exists():
         shutil.rmtree(venv_dir)
 
-    executor = get_connector_executor(
-        name="source-test",
-        pip_url="./tests/integration_tests/fixtures/source-test",
-        install_root=Path.cwd(),
-        install_if_missing=False,
-    )
     try:
-        executor.install()
+        executor = get_connector_executor(
+            name="source-test",
+            pip_url="./tests/integration_tests/fixtures/source-test",
+            install_root=Path.cwd(),
+            install_if_missing=True,
+        )
 
         yield executor
 
     finally:
         if Path(venv_dir).exists():
             shutil.rmtree(venv_dir)
+        if not use_uv and "AIRBYTE_NO_UV" in os.environ:
+            del os.environ["AIRBYTE_NO_UV"]
 
 
 @pytest.fixture(scope="function")
