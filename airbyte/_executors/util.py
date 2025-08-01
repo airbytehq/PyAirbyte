@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -147,7 +148,7 @@ def _get_local_executor(
 
     # `local_executable` is now a Path object
 
-    print(f"Using local `{name}` executable: {local_executable!s}")
+    print(f"Using local `{name}` executable: {local_executable!s}", file=sys.stderr)
     return PathExecutor(
         name=name,
         path=local_executable,

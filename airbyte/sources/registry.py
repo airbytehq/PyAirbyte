@@ -36,21 +36,6 @@ _MANIFEST_ONLY_LANGUAGE = "manifest-only"
 _PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
 _MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
 
-_LOWCODE_CONNECTORS_FAILING_VALIDATION: list[str] = []
-# Connectors that return 404 or some other misc exception.
-_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS: list[str] = [
-    "source-adjust",
-    "source-amazon-ads",
-    "source-marketo",
-]
-# (CDK) FileNotFoundError: Unable to find spec.yaml or spec.json in the package.
-_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS: list[str] = []
-_LOWCODE_CONNECTORS_EXCLUDED: list[str] = [
-    *_LOWCODE_CONNECTORS_FAILING_VALIDATION,
-    *_LOWCODE_CONNECTORS_UNEXPECTED_ERRORS,
-    *_LOWCODE_CDK_FILE_NOT_FOUND_ERRORS,
-]
-
 
 class InstallType(str, Enum):
     """The type of installation for a connector."""
@@ -281,7 +266,6 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
             conn.name
             for conn in _get_registry_cache().values()
             if InstallType.YAML in conn.install_types
-            and conn.name not in _LOWCODE_CONNECTORS_EXCLUDED
         )
 
     # pragma: no cover  # Should never be reached.
