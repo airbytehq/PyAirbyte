@@ -258,7 +258,7 @@ def get_stream_previews(
     limit: Annotated[
         int,
         Field(description="The maximum number of sample records to return per stream."),
-    ] = 5,
+    ] = 10,
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
 
