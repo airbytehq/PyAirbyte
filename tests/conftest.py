@@ -280,46 +280,38 @@ def do_not_track(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
-@pytest.fixture(scope="package")
-def source_test_installation():
+@pytest.fixture(scope="session", params=[True, False], ids=["uv_enabled", "uv_disabled"])
+def source_test_installation(request):
     """
     Prepare test environment. This will pre-install the test source from the fixtures array and set
     the environment variable to use the local json file as registry.
+    
+    Parametrized to test both uv-enabled and uv-disabled installation methods.
     """
+    use_uv = request.param
+    
+    if not use_uv:
+        os.environ["AIRBYTE_NO_UV"] = "1"
+    
     venv_dir = ".venv-source-test"
     if os.path.exists(venv_dir):
         shutil.rmtree(venv_dir)
 
-    if AIRBYTE_USE_UV:
-        subprocess.run(["uv", "venv", venv_dir], check=True)
-        subprocess.run(
-            [
-                "uv",
-                "pip",
-                "install",
-                "--python",
-                venv_dir,
-                "-e",
-                "./tests/integration_tests/fixtures/source-test",
-            ],
-            check=True,
+    from airbyte._executors.util import get_connector_executor
+    
+    try:
+        executor = get_connector_executor(
+            name="source-test",
+            pip_url="./tests/integration_tests/fixtures/source-test",
+            install_root=Path.cwd(),
+            install_if_missing=True,
         )
-    else:
-        subprocess.run(["python", "-m", "venv", venv_dir], check=True)
-        pip_path = str(get_bin_dir(Path(venv_dir)) / "pip")
-        subprocess.run(
-            [
-                pip_path,
-                "install",
-                "-e",
-                "./tests/integration_tests/fixtures/source-test",
-            ],
-            check=True,
-        )
-
-    yield
-
-    shutil.rmtree(venv_dir)
+        
+        yield executor
+        
+    finally:
+        if os.path.exists(venv_dir):
+            shutil.rmtree(venv_dir)
 
 
 @pytest.fixture(scope="function")
