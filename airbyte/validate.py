@@ -20,6 +20,7 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 import airbyte as ab
 from airbyte import exceptions as exc
 from airbyte._util.venv_util import get_bin_dir
+from airbyte.constants import NO_UV
 
 
 def _parse_args() -> argparse.Namespace:
@@ -127,12 +128,20 @@ def validate(connector_dir: str, sample_config: str, *, validate_install_only: b
     # create a venv and install the connector
     venv_name = f".venv-{connector_name}"
     venv_path = Path(venv_name)
+
     if not venv_path.exists():
-        _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
+        if not NO_UV:
+            _run_subprocess_and_raise_on_failure(["uv", "venv", venv_name])
+        else:
+            _run_subprocess_and_raise_on_failure([sys.executable, "-m", "venv", venv_name])
 
-    pip_path = str(get_bin_dir(Path(venv_path)) / "pip")
-
-    _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
+    if not NO_UV:
+        _run_subprocess_and_raise_on_failure(
+            ["uv", "pip", "install", "--python", venv_name, connector_dir]
+        )
+    else:
+        pip_path = str(get_bin_dir(Path(venv_path)) / "pip")
+        _run_subprocess_and_raise_on_failure([pip_path, "install", connector_dir])
 
     # write basic registry to temp json file
     registry = {

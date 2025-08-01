@@ -166,6 +166,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    use_python: bool | Path | str | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
@@ -175,10 +176,17 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         [
             bool(local_executable),
             bool(docker_image),
-            bool(pip_url),
+            bool(pip_url) or bool(use_python),
             bool(source_manifest),
         ]
     )
+
+    if use_python is False:
+        docker_image = True
+
+    if use_python is None and pip_url is not None:
+        # If pip_url is set, we assume the user wants to use Python.
+        use_python = True
 
     if version and pip_url:
         raise exc.PyAirbyteInputError(
@@ -341,6 +349,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             target_version=version,
             pip_url=pip_url,
             install_root=install_root,
+            use_python=use_python,
         )
         if install_if_missing:
             executor.ensure_installation()
