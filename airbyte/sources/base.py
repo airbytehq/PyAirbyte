@@ -4,11 +4,19 @@
 from __future__ import annotations
 
 import sys
+import threading
+import time
 import warnings
+from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.markup import escape
+from rich.table import Table
+from typing_extensions import override
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -36,18 +44,27 @@ from airbyte.strategies import WriteStrategy
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
-    from airbyte_cdk import ConnectorSpecification
-    from airbyte_protocol.models import AirbyteStream
+    from airbyte_protocol.models import (
+        AirbyteStream,
+        ConnectorSpecification,
+    )
 
     from airbyte._executors.base import Executor
     from airbyte.caches import CacheBase
     from airbyte.callbacks import ConfigChangeCallback
+    from airbyte.datasets._inmemory import InMemoryDataset
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
 
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
+)
 
-class Source(ConnectorBase):
+
+class Source(ConnectorBase):  # noqa: PLR0904
     """A class representing a source that can be called."""
 
     connector_type = "source"
@@ -313,6 +330,7 @@ class Source(ConnectorBase):
             if SyncMode.incremental in stream.supported_sync_modes
         ]
 
+    @override
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
 
@@ -476,6 +494,8 @@ class Source(ConnectorBase):
         self,
         stream: str,
         *,
+        limit: int | None = None,
+        stop_event: threading.Event | None = None,
         normalize_field_names: bool = False,
         prune_undeclared_fields: bool = True,
     ) -> LazyDataset:
@@ -483,6 +503,9 @@ class Source(ConnectorBase):
 
         Args:
             stream: The name of the stream to read.
+            limit: The maximum number of records to read. If None, all records will be read.
+            stop_event: If set, the event can be triggered by the caller to stop reading records
+                and terminate the process.
             normalize_field_names: When `True`, field names will be normalized to lower case, with
                 special characters removed. This matches the behavior of PyAirbyte caches and most
                 Airbyte destinations.
@@ -499,6 +522,7 @@ class Source(ConnectorBase):
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
         """
+        stop_event = stop_event or threading.Event()
         configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
             raise exc.PyAirbyteInputError(
@@ -538,13 +562,19 @@ class Source(ConnectorBase):
             for record in self._read_with_catalog(
                 catalog=configured_catalog,
                 progress_tracker=progress_tracker,
+                stop_event=stop_event,
             )
             if record.record
         )
-        progress_tracker.log_success()
+        if limit is not None:
+            # Stop the iterator after the limit is reached
+            iterator = islice(iterator, limit)
+
         return LazyDataset(
             iterator,
             stream_metadata=configured_stream,
+            stop_event=stop_event,
+            progress_tracker=progress_tracker,
         )
 
     def get_documents(
@@ -571,6 +601,120 @@ class Source(ConnectorBase):
             render_metadata=render_metadata,
         )
 
+    def get_samples(
+        self,
+        streams: list[str] | Literal["*"] | None = None,
+        *,
+        limit: int = 5,
+        on_error: Literal["raise", "ignore", "log"] = "raise",
+    ) -> dict[str, InMemoryDataset | None]:
+        """Get a sample of records from the given streams."""
+        if streams == "*":
+            streams = self.get_available_streams()
+        elif streams is None:
+            streams = self.get_selected_streams()
+
+        results: dict[str, InMemoryDataset | None] = {}
+        for stream in streams:
+            stop_event = threading.Event()
+            try:
+                results[stream] = self.get_records(
+                    stream,
+                    limit=limit,
+                    stop_event=stop_event,
+                ).fetch_all()
+                stop_event.set()
+            except Exception as ex:
+                results[stream] = None
+                if on_error == "ignore":
+                    continue
+
+                if on_error == "raise":
+                    raise ex from None
+
+                if on_error == "log":
+                    print(f"Error fetching sample for stream '{stream}': {ex}")
+
+        return results
+
+    def print_samples(
+        self,
+        streams: list[str] | Literal["*"] | None = None,
+        *,
+        limit: int = 5,
+        on_error: Literal["raise", "ignore", "log"] = "log",
+    ) -> None:
+        """Print a sample of records from the given streams."""
+        internal_cols: list[str] = [
+            AB_EXTRACTED_AT_COLUMN,
+            AB_META_COLUMN,
+            AB_RAW_ID_COLUMN,
+        ]
+        col_limit = 10
+        if streams == "*":
+            streams = self.get_available_streams()
+        elif streams is None:
+            streams = self.get_selected_streams()
+
+        console = Console()
+
+        console.print(
+            Markdown(
+                f"# Sample Records from `{self.name}` ({len(streams)} selected streams)",
+                justify="left",
+            )
+        )
+
+        for stream in streams:
+            console.print(Markdown(f"## `{stream}` Stream Sample", justify="left"))
+            samples = self.get_samples(
+                streams=[stream],
+                limit=limit,
+                on_error=on_error,
+            )
+            dataset = samples[stream]
+
+            table = Table(
+                show_header=True,
+                show_lines=True,
+            )
+            if dataset is None:
+                console.print(
+                    Markdown("**⚠️ `Error fetching sample records.` ⚠️**"),
+                )
+                continue
+
+            if len(dataset.column_names) > col_limit:
+                # We'll pivot the columns so each column is its own row
+                table.add_column("Column Name")
+                for _ in range(len(dataset)):
+                    table.add_column(overflow="fold")
+                for col in dataset.column_names:
+                    table.add_row(
+                        Markdown(f"**`{col}`**"),
+                        *[escape(str(record[col])) for record in dataset],
+                    )
+            else:
+                for col in dataset.column_names:
+                    table.add_column(
+                        Markdown(f"**`{col}`**"),
+                        overflow="fold",
+                    )
+
+                for record in dataset:
+                    table.add_row(
+                        *[
+                            escape(str(val))
+                            for key, val in record.items()
+                            # Exclude internal Airbyte columns.
+                            if key not in internal_cols
+                        ]
+                    )
+
+            console.print(table)
+
+        console.print(Markdown("--------------"))
+
     def _get_airbyte_message_iterator(
         self,
         *,
@@ -592,7 +736,9 @@ class Source(ConnectorBase):
         self,
         catalog: ConfiguredAirbyteCatalog,
         progress_tracker: ProgressTracker,
+        *,
         state: StateProviderBase | None = None,
+        stop_event: threading.Event | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Call read on the connector.
 
@@ -626,7 +772,14 @@ class Source(ConnectorBase):
                 ],
                 progress_tracker=progress_tracker,
             )
-            yield from progress_tracker.tally_records_read(message_generator)
+            for message in progress_tracker.tally_records_read(message_generator):
+                if stop_event and stop_event.is_set():
+                    progress_tracker._log_sync_cancel()  # noqa: SLF001
+                    time.sleep(0.1)
+                    return
+
+                yield message
+
         progress_tracker.log_read_complete()
 
     def _peek_airbyte_message(
