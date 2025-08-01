@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
 from pathlib import Path
-from typing import NoReturn
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
@@ -51,17 +51,88 @@ class DockerExecutor(Executor):
                 connector_name=self.name,
             ) from e
 
-    def install(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be installed because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
+    def install(self) -> None:
+        """Install the Docker image by pulling it."""
+        docker_image = self.executable[-1]
 
-    def uninstall(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be uninstalled because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
+        logger.info(f"Pulling Docker image: {docker_image}")
+
+        try:
+            result = subprocess.run(
+                ["docker", "pull", docker_image],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                raise exc.AirbyteConnectorInstallationError(
+                    message=f"Failed to pull Docker image '{docker_image}'.",
+                    connector_name=self.name,
+                    context={
+                        "docker_image": docker_image,
+                        "exit_code": result.returncode,
+                        "stderr": result.stderr,
+                    },
+                )
+
+            logger.info(f"Successfully pulled Docker image: {docker_image}")
+
+        except FileNotFoundError as e:
+            raise exc.AirbyteConnectorInstallationError(
+                message=(
+                    "Docker command not found. Please ensure Docker is installed "
+                    "and available in PATH."
+                ),
+                connector_name=self.name,
+            ) from e
+
+    def uninstall(self) -> None:
+        """Uninstall the Docker image by removing it."""
+        docker_image = self.executable[-1]
+
+        logger.info(f"Removing Docker image: {docker_image}")
+
+        try:
+            check_result = subprocess.run(
+                ["docker", "image", "inspect", docker_image],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            if check_result.returncode != 0:
+                logger.info(f"Docker image '{docker_image}' not found locally, nothing to remove.")
+                return
+
+            result = subprocess.run(
+                ["docker", "rmi", docker_image],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            if result.returncode != 0:
+                raise exc.AirbyteConnectorInstallationError(
+                    message=f"Failed to remove Docker image '{docker_image}'.",
+                    connector_name=self.name,
+                    context={
+                        "docker_image": docker_image,
+                        "exit_code": result.returncode,
+                        "stderr": result.stderr,
+                    },
+                )
+
+            logger.info(f"Successfully removed Docker image: {docker_image}")
+
+        except FileNotFoundError as e:
+            raise exc.AirbyteConnectorInstallationError(
+                message=(
+                    "Docker command not found. Please ensure Docker is installed "
+                    "and available in PATH."
+                ),
+                connector_name=self.name,
+            ) from e
 
     @property
     def _cli(self) -> list[str]:
