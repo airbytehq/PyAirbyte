@@ -17,7 +17,7 @@ from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.constants import AIRBYTE_USE_UV
+from airbyte.constants import NO_UV
 
 
 if TYPE_CHECKING:
@@ -125,41 +125,47 @@ class VenvExecutor(Executor):
                 input_value=str(self.use_python),
             )
 
-        # Create virtual environment
-        if self.use_python is True or self.use_python is None:
-            # Use current Python interpreter
-            if AIRBYTE_USE_UV:
-                venv_cmd = ["uv", "venv", str(self._get_venv_path())]
-            else:
-                venv_cmd = [sys.executable, "-m", "venv", str(self._get_venv_path())]
+        python_override: str | None = None
+        if not NO_UV and isinstance(self.use_python, Path):
+            python_override = str(self.use_python.absolute())
 
-            self._run_subprocess_and_raise_on_failure(venv_cmd)
+        elif not NO_UV and isinstance(self.use_python, str):
+            python_override = self.use_python
 
-        elif isinstance(self.use_python, (str, Path)):
-            venv_cmd = ["uv", "venv", str(self._get_venv_path()), "--python", str(self.use_python)]
-            self._run_subprocess_and_raise_on_failure(venv_cmd)
+        uv_cmd_prefix = ["uv"] if not NO_UV else []
+        python_clause: list[str] = ["--python", python_override] if python_override else []
 
-        if AIRBYTE_USE_UV:
-            install_cmd = [
+        venv_cmd: list[str] = [
+            *(uv_cmd_prefix or [sys.executable, "-m"]),
+            "venv",
+            str(self._get_venv_path()),
+            *python_clause,
+        ]
+        print(
+            f"Creating '{self.name}' virtual environment with command '{' '.join(venv_cmd)}'",
+            file=sys.stderr,
+        )
+        self._run_subprocess_and_raise_on_failure(venv_cmd)
+
+        install_cmd = (
+            [
                 "uv",
                 "pip",
                 "install",
-                "--python",
-                str(self._get_venv_path()),
-                *shlex.split(self.pip_url),
+                "--python", # uv requires --python after the subcommand
+                str(self.interpreter_path),
+            ] if not NO_UV else [
+                "pip",
+                "--python", # pip requires --python before the subcommand
+                str(self.interpreter_path),
+                "install",
             ]
-            tool_name = "uv pip"
-        else:
-            pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
-            install_cmd = [pip_path, "install", *shlex.split(self.pip_url)]
-            tool_name = "pip"
-
+        ) + shlex.split(self.pip_url)
         print(
-            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-            f"Running '{tool_name} install {self.pip_url}'...\n",
+            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}' with " +
+            f"command '{' '.join(install_cmd)}'...\n",
             file=sys.stderr,
         )
-
         try:
             self._run_subprocess_and_raise_on_failure(install_cmd)
         except exc.AirbyteSubprocessFailedError as ex:
@@ -175,8 +181,8 @@ class VenvExecutor(Executor):
         self.reported_version = self.get_installed_version(raise_on_error=False, recheck=True)
         log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
-            f"Connector '{self.name}' installed successfully!\n"
-            f"For more information, see the {self.name} documentation:\n"
+            f"Connector '{self.name}' installed successfully!\n" +
+            f"For more information, see the {self.name} documentation:\n" +
             f"{self.docs_url}#reference\n",
             file=sys.stderr,
         )

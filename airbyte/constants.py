@@ -125,7 +125,7 @@ If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
 
-AIRBYTE_USE_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
+NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
 """Whether to use uv for Python package management.
 
 This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
