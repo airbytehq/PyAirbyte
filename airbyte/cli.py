@@ -259,7 +259,15 @@ def _resolve_destination_job(
         config: The path to a configuration file for the named source or destination.
         pip_url: Optional. A location from which to install the connector.
     """
-    config_dict = _resolve_config(config) if config else None
+    config_dict = _resolve_config(config) if config else {}
+
+    if _is_docker_image(destination):
+        return get_destination(
+            name=_get_connector_name(destination),
+            docker_image=destination,
+            config=config_dict,
+            pip_url=pip_url,
+        )
 
     if destination and (destination.startswith(".") or "/" in destination):
         # Treat the destination as a path.
