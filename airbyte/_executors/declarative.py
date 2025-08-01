@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import hashlib
-import sys
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from airbyte._message_iterators import AirbyteMessageIterator
+    from airbyte.sources.registry import ConnectorMetadata
 
 
 def _suppress_cdk_pydantic_deprecation_warnings() -> None:
@@ -48,7 +48,7 @@ class DeclarativeExecutor(Executor):
         manifest: dict | Path,
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
-        metadata: Any = None,
+        metadata: ConnectorMetadata | None = None,
     ) -> None:
         """Initialize a declarative executor.
 
@@ -130,13 +130,13 @@ class DeclarativeExecutor(Executor):
 
     def _check_version_compatibility(self) -> None:
         """Check Python version compatibility for declarative connectors."""
-        if not self.metadata or not hasattr(self.metadata, 'pypi_package_name'):
+        if not self.metadata or not hasattr(self.metadata, "pypi_package_name"):
             return
-        
+
         package_name = self.metadata.pypi_package_name
         if not package_name:
             package_name = f"airbyte-{self.name}"
-        
+
         requires_python = _get_pypi_python_requirements_cached(package_name)
         check_python_version_compatibility(package_name, requires_python)
 

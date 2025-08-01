@@ -351,7 +351,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     # else: we are installing a connector in a Python virtual environment:
 
     try:
-        executor = VenvExecutor(
+        venv_executor = VenvExecutor(
             name=name,
             metadata=metadata,
             target_version=version,
@@ -360,11 +360,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             use_python=use_python,
         )
         if install_if_missing:
-            executor.ensure_installation()
+            venv_executor.ensure_installation()
 
     except Exception as e:
         log_install_state(name, state=EventState.FAILED, exception=e)
         raise
     else:
         # No exceptions were raised, so return the executor.
-        return executor
+        return venv_executor
