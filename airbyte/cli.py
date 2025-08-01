@@ -243,6 +243,14 @@ def _resolve_source_job(
     )
 
 
+def _get_noop_destination_config() -> dict[str, Any]:
+    return {
+        "test_destination": {
+            "test_destination_type": "SILENT",
+        }
+    }
+
+
 def _resolve_destination_job(
     *,
     destination: str,
@@ -260,10 +268,14 @@ def _resolve_destination_job(
         pip_url: Optional. A location from which to install the connector.
     """
     config_dict = _resolve_config(config) if config else {}
+    destination_name = _get_connector_name(destination)
+
+    if destination_name == "destination-dev-null" and not config:
+        config_dict = _get_noop_destination_config()
 
     if _is_docker_image(destination):
         return get_destination(
-            name=_get_connector_name(destination),
+            name=destination_name,
             docker_image=destination,
             config=config_dict,
             pip_url=pip_url,
