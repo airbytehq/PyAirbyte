@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -15,6 +16,8 @@ from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
 
 from airbyte._executors.base import Executor
+from airbyte._executors.python import _get_pypi_python_requirements_cached
+from airbyte._util.semver import check_python_version_compatibility
 
 
 if TYPE_CHECKING:
@@ -45,6 +48,7 @@ class DeclarativeExecutor(Executor):
         manifest: dict | Path,
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
+        metadata: Any = None,
     ) -> None:
         """Initialize a declarative executor.
 
@@ -57,6 +61,7 @@ class DeclarativeExecutor(Executor):
         _suppress_cdk_pydantic_deprecation_warnings()
 
         self.name = name
+        self.metadata = metadata
         self._manifest_dict: dict
         if isinstance(manifest, Path):
             self._manifest_dict = cast("dict", yaml.safe_load(manifest.read_text()))
@@ -115,13 +120,25 @@ class DeclarativeExecutor(Executor):
         yield from source_entrypoint.run(parsed_args)
 
     def ensure_installation(self, *, auto_fix: bool = True) -> None:
-        """No-op. The declarative source is included with PyAirbyte."""
+        """Check version compatibility for declarative sources."""
         _ = auto_fix
-        pass
+        self._check_version_compatibility()
 
     def install(self) -> None:
-        """No-op. The declarative source is included with PyAirbyte."""
-        pass
+        """Check version compatibility for declarative sources."""
+        self._check_version_compatibility()
+
+    def _check_version_compatibility(self) -> None:
+        """Check Python version compatibility for declarative connectors."""
+        if not self.metadata or not hasattr(self.metadata, 'pypi_package_name'):
+            return
+        
+        package_name = self.metadata.pypi_package_name
+        if not package_name:
+            package_name = f"airbyte-{self.name}"
+        
+        requires_python = _get_pypi_python_requirements_cached(package_name)
+        check_python_version_compatibility(package_name, requires_python)
 
     def uninstall(self) -> None:
         """No-op. The declarative source is included with PyAirbyte."""

@@ -171,11 +171,8 @@ class VenvExecutor(Executor):
             if self.metadata and self.metadata.pypi_package_name
             else f"airbyte-{self.name}"
         )
-        print(f"DEBUG: Checking version compatibility for package: {package_name}", file=sys.stderr)
         requires_python = _get_pypi_python_requirements_cached(package_name)
-        print(f"DEBUG: PyPI requires_python: {requires_python}", file=sys.stderr)
-        compatibility_result = check_python_version_compatibility(package_name, requires_python)
-        print(f"DEBUG: Compatibility check result: {compatibility_result}", file=sys.stderr)
+        check_python_version_compatibility(package_name, requires_python)
 
         self._run_subprocess_and_raise_on_failure(
             [sys.executable, "-m", "venv", str(self._get_venv_path())]

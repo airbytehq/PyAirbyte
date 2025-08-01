@@ -318,11 +318,15 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 if not components_py_path.exists():
                     components_py_path = None
 
-            return DeclarativeExecutor(
+            executor = DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
                 components_py=components_py_path,
+                metadata=metadata,
             )
+            if install_if_missing:
+                executor.ensure_installation()
+            return executor
 
         if isinstance(source_manifest, str | bool):
             # Source manifest is either a URL or a boolean (True)
@@ -333,12 +337,16 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 )
             )
 
-            return DeclarativeExecutor(
+            executor = DeclarativeExecutor(
                 name=name,
                 manifest=manifest_dict,
                 components_py=components_py,
                 components_py_checksum=components_py_checksum,
+                metadata=metadata,
             )
+            if install_if_missing:
+                executor.ensure_installation()
+            return executor
 
     # else: we are installing a connector in a Python virtual environment:
 
