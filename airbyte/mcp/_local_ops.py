@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any
 
 from fastmcp import FastMCP
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from airbyte import get_source
+from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
 from airbyte.secrets.config import _get_secret_sources
@@ -19,6 +20,7 @@ from airbyte.sources.registry import get_connector_metadata
 
 
 if TYPE_CHECKING:
+    from airbyte.caches.duckdb import DuckDBCache
     from airbyte.sources.base import Source
 
 
@@ -62,7 +64,10 @@ def validate_connector_config(
     Returns a tuple of (is_valid: bool, message: str).
     """
     try:
-        source = get_source(connector_name)
+        source = get_source(
+            connector_name,
+            docker_image=is_docker_installed() or False,
+        )
     except Exception as ex:
         return False, f"Failed to get connector '{connector_name}': {ex}"
 
@@ -131,6 +136,7 @@ def list_source_streams(
     """
     source: Source = get_source(
         source_connector_name,
+        docker_image=is_docker_installed() or False,
     )
     config_dict = resolve_config(
         config=config,
@@ -161,7 +167,10 @@ def get_source_stream_json_schema(
     ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
-    source: Source = get_source(source_connector_name)
+    source: Source = get_source(
+        source_connector_name,
+        docker_image=is_docker_installed() or False,
+    )
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,
@@ -197,7 +206,10 @@ def read_source_stream_records(
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
-        source = get_source(source_connector_name)
+        source = get_source(
+            source_connector_name,
+            docker_image=is_docker_installed() or False,
+        )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
@@ -242,7 +254,10 @@ def sync_source_to_cache(
     ] = "suggested",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
-    source = get_source(source_connector_name)
+    source = get_source(
+        source_connector_name,
+        docker_image=is_docker_installed() or False,
+    )
     config_dict = resolve_config(
         config=config,
         config_secret_name=config_secret_name,
@@ -270,21 +285,145 @@ def sync_source_to_cache(
         cache=cache,
         streams=streams,
     )
+    del cache  # Ensure the cache is closed properly
 
     summary: str = f"Sync completed for '{source_connector_name}'!\n\n"
     summary += "Data written to default DuckDB cache\n"
     return summary
 
 
+class CachedDatasetInfo(BaseModel):
+    """Class to hold information about a cached dataset."""
+
+    stream_name: str
+    """The name of the stream in the cache."""
+    table_name: str
+    schema_name: str | None = None
+
+
+def list_cached_streams() -> list[CachedDatasetInfo]:
+    """List all streams available in the default DuckDB cache."""
+    cache: DuckDBCache = get_default_cache()
+    result = [
+        CachedDatasetInfo(
+            stream_name=stream_name,
+            table_name=(cache.table_prefix or "") + stream_name,
+            schema_name=cache.schema_name,
+        )
+        for stream_name in cache.streams
+    ]
+    del cache  # Ensure the cache is closed properly
+    return result
+
+
+def describe_default_cache() -> dict[str, Any]:
+    """Describe the currently configured default cache."""
+    cache = get_default_cache()
+    return {
+        "cache_type": type(cache).__name__,
+        "cache_dir": str(cache.cache_dir),
+        "cache_db_path": str(Path(cache.db_path).absolute()),
+        "cached_streams": list(cache.streams.keys()),
+    }
+
+
+def _is_safe_sql(sql_query: str) -> bool:
+    """Check if a SQL query is safe to execute.
+
+    For security reasons, we only allow read-only operations like SELECT, DESCRIBE, and SHOW.
+    Multi-statement queries (containing semicolons) are also disallowed for security.
+
+    Note: SQLAlchemy will also validate downstream, but this is a first-pass check.
+
+    Args:
+        sql_query: The SQL query to check
+
+    Returns:
+        True if the query is safe to execute, False otherwise
+    """
+    # Remove leading/trailing whitespace and convert to uppercase for checking
+    normalized_query = sql_query.strip().upper()
+
+    # Disallow multi-statement queries (containing semicolons)
+    # Note: We check the original query to catch semicolons anywhere, including in comments
+    if ";" in sql_query:
+        return False
+
+    # List of allowed SQL statement prefixes (read-only operations)
+    allowed_prefixes = (
+        "SELECT",
+        "DESCRIBE",
+        "DESC",  # Short form of DESCRIBE
+        "SHOW",
+        "EXPLAIN",  # Also safe - shows query execution plan
+    )
+
+    # Check if the query starts with any allowed prefix
+    return any(normalized_query.startswith(prefix) for prefix in allowed_prefixes)
+
+
+def run_sql_query(
+    sql_query: Annotated[
+        str,
+        Field(description="The SQL query to execute."),
+    ],
+    max_records: Annotated[
+        int,
+        Field(description="Maximum number of records to return."),
+    ] = 1000,
+) -> list[dict[str, Any]]:
+    """Run a SQL query against the default cache.
+
+    The dialect of SQL should match the dialect of the default cache.
+    Use `describe_default_cache` to see the cache type.
+
+    For DuckDB-type caches:
+    - Use `SHOW TABLES` to list all tables.
+    - Use `DESCRIBE <table_name>` to get the schema of a specific table
+
+    For security reasons, only read-only operations are allowed: SELECT, DESCRIBE, SHOW, EXPLAIN.
+    """
+    # Check if the query is safe to execute
+    if not _is_safe_sql(sql_query):
+        return [
+            {
+                "ERROR": "Unsafe SQL query detected. Only read-only operations are allowed: "
+                "SELECT, DESCRIBE, SHOW, EXPLAIN",
+                "SQL_QUERY": sql_query,
+            }
+        ]
+
+    cache: DuckDBCache = get_default_cache()
+    try:
+        return cache.run_sql_query(
+            sql_query,
+            max_records=max_records,
+        )
+    except Exception as ex:
+        tb_str = traceback.format_exc()
+        return [
+            {
+                "ERROR": f"Error running SQL query: {ex!r}, {ex!s}",
+                "TRACEBACK": tb_str,
+                "SQL_QUERY": sql_query,
+            }
+        ]
+    finally:
+        del cache  # Ensure the cache is closed properly
+
+
 def register_local_ops_tools(app: FastMCP) -> None:
     """Register tools with the FastMCP app."""
     app.tool(list_connector_config_secrets)
     for tool in (
-        validate_connector_config,
-        list_source_streams,
+        describe_default_cache,
         get_source_stream_json_schema,
+        list_cached_streams,
+        list_source_streams,
         read_source_stream_records,
+        run_sql_query,
         sync_source_to_cache,
+        validate_connector_config,
     ):
         # Register each tool with the FastMCP app.
         app.tool(
