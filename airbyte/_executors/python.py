@@ -20,7 +20,7 @@ from airbyte._util.meta import is_windows
 from airbyte._util.semver import check_python_version_compatibility
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.constants import AIRBYTE_OFFLINE_MODE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, NO_UV
 from airbyte.version import get_version
 
 
@@ -74,6 +74,7 @@ class VenvExecutor(Executor):
         target_version: str | None = None,
         pip_url: str | None = None,
         install_root: Path | None = None,
+        use_python: bool | Path | str | None = None,
     ) -> None:
         """Initialize a connector executor that runs a connector in a virtual environment.
 
@@ -84,6 +85,11 @@ class VenvExecutor(Executor):
             pip_url: (Optional.) The pip URL of the connector to install.
             install_root: (Optional.) The root directory where the virtual environment will be
                 created. If not provided, the current working directory will be used.
+            use_python: (Optional.) Python interpreter specification:
+                - True: Use current Python interpreter
+                - False: Use Docker instead (handled by factory)
+                - Path: Use interpreter at this path or interpreter name/command
+                - str: Use uv-managed Python version (semver patterns like "3.12", "3.11.5")
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
 
@@ -101,6 +107,7 @@ class VenvExecutor(Executor):
             else f"airbyte-{self.name}"
         )
         self.install_root = install_root or Path.cwd()
+        self.use_python = use_python
 
     def _get_venv_name(self) -> str:
         return f".venv-{self.name}"
@@ -148,6 +155,17 @@ class VenvExecutor(Executor):
 
         After installation, the installed version will be stored in self.reported_version.
         """
+        if not (
+            self.use_python is None
+            or self.use_python is True
+            or self.use_python is False
+            or isinstance(self.use_python, (str, Path))
+        ):
+            raise exc.PyAirbyteInputError(
+                message="Invalid use_python parameter type",
+                input_value=str(self.use_python),
+            )
+
         package_name = (
             self.metadata.pypi_package_name
             if self.metadata and self.metadata.pypi_package_name
@@ -160,16 +178,51 @@ class VenvExecutor(Executor):
             [sys.executable, "-m", "venv", str(self._get_venv_path())]
         )
 
-        pip_path = str(get_bin_dir(self._get_venv_path()) / "pip")
+        python_override: str | None = None
+        if not NO_UV and isinstance(self.use_python, Path):
+            python_override = str(self.use_python.absolute())
+
+        elif not NO_UV and isinstance(self.use_python, str):
+            python_override = self.use_python
+
+        uv_cmd_prefix = ["uv"] if not NO_UV else []
+        python_clause: list[str] = ["--python", python_override] if python_override else []
+
+        venv_cmd: list[str] = [
+            *(uv_cmd_prefix or [sys.executable, "-m"]),
+            "venv",
+            str(self._get_venv_path()),
+            *python_clause,
+        ]
         print(
-            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}'.\n"
-            f"Running 'pip install {self.pip_url}'...\n",
+            f"Creating '{self.name}' virtual environment with command '{' '.join(venv_cmd)}'",
+            file=sys.stderr,
+        )
+        self._run_subprocess_and_raise_on_failure(venv_cmd)
+
+        install_cmd = (
+            [
+                "uv",
+                "pip",
+                "install",
+                "--python",  # uv requires --python after the subcommand
+                str(self.interpreter_path),
+            ]
+            if not NO_UV
+            else [
+                "pip",
+                "--python",  # pip requires --python before the subcommand
+                str(self.interpreter_path),
+                "install",
+            ]
+        ) + shlex.split(self.pip_url)
+        print(
+            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}' with "
+            f"command '{' '.join(install_cmd)}'...\n",
             file=sys.stderr,
         )
         try:
-            self._run_subprocess_and_raise_on_failure(
-                args=[pip_path, "install", *shlex.split(self.pip_url)]
-            )
+            self._run_subprocess_and_raise_on_failure(install_cmd)
         except exc.AirbyteSubprocessFailedError as ex:
             # If the installation failed, remove the virtual environment
             # Otherwise, the connector will be considered as installed and the user may not be able

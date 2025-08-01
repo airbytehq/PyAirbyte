@@ -18,6 +18,47 @@ Watch this [Getting Started Loom video](https://www.loom.com/share/3de81ca3ce914
 * [GitHub](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Github_Incremental_Demo.ipynb)
 * [Postgres (cache)](https://github.com/airbytehq/quickstarts/blob/main/pyairbyte_notebooks/PyAirbyte_Postgres_Custom_Cache_Demo.ipynb)
 
+## Connector Installation
+
+### Declarative Source Installation
+
+For Declarative Sources defined in YAML, the installation process will is to simply download the yaml file from the `connectors.airbyte.com` public URLs, and to run them directly as YAML.
+
+Declarative sources have the fastest download times, due to the simplicity and each of install.
+
+In some cases, you may get better stability by using `docker_image=True` in `get_source()`/`get_destination()`, due to the fact that all dependencies are locked within the docker image.
+
+### Python Installation
+
+Generally, when Python-based installation is possible, it will be performed automatically given a Python-based connector name.
+
+In some cases, you may get better stability by using `docker_image=True` in `get_source()`/`get_destination()`, due to the fact that all dependencies are locked within the docker image.
+
+#### Installing Connectors with `uv`
+
+By default, beginning with version `0.29.0`, PyAirbyte defaults to [`uv`](https://docs.astral.sh/uv) instead of `pip` for Python connector installation. Compared with `pip`, `uv` is much faster. It also provides the unique ability of specifying different versions of Python than PyAirbyte is using, and even Python versions which are not already pre-installed on the local workstation.
+
+If you prefer to fall back to the prior `pip`-based installation methods, set the env var `AIRBYTE_NO_UV=true`.
+
+#### Installing Connectors With a Custom Python Version
+
+In both `get_source()` and `get_destination()`, you can provide a `use_python` input arg that is equal to the desired version of Python that you with to use for the given connector. This can be helpful if an older connector doesn't support the version of Python that you are using for PyAirbyte itself.
+
+For example, assuming PyAirbyte is running on Python 3.12, you can install a connector using Python 3.10.13 with the following code snippet:
+
+```py
+import airbyte as ab
+
+source = ab.get_source(
+    "source-faker",
+    use_python="3.10.17",
+)
+```
+
+### Installing Connectors with Docker
+
+For any connector (`get_source()`/`get_destination()`), you can specify the `docker_image` argument to `True` to prefer Docker over other default installation methods or `docker_image=MY_IMAGE` to leverage a specific docker image tag for the execution.
+
 ## Contributing
 
 To learn how you can contribute to PyAirbyte, please see our [PyAirbyte Contributors Guide](./docs/CONTRIBUTING.md).
