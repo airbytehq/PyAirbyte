@@ -1,5 +1,8 @@
 name: Run Linters
 
+permissions:
+  contents: read
+
 on:
     push:
       branches:
@@ -56,8 +59,8 @@ jobs:
     - name: Check code format
       run: poetry run ruff format --check .
 
-  mypy-check:
-    name: MyPy Check
+  ty-check:
+    name: Ty Check
     runs-on: ubuntu-latest
     steps:
     # Common steps:
@@ -76,5 +79,5 @@ jobs:
       run: poetry install
 
     # Job-specifc step(s):
-    - name: Check MyPy typing
-      run: poetry run mypy .
+    - name: Check Ty typing
+      run: poetry run ty check .
