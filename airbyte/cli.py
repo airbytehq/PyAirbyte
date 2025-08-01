@@ -683,16 +683,22 @@ def sync(
         "'false' (use Docker), path to interpreter, or version string (e.g., '3.11')."
     ),
 )
-def install(
+@click.option(
+    "--validate/--no-validate",
+    default=True,
+    help="Run spec command after installation to validate the connector can run properly.",
+)
+def install(  # noqa: PLR0913  # Too many arguments
     connector: str,
+    *,
     version: str | None = None,
     pip_url: str | None = None,
     docker_image: str | None = None,
     local_executable: str | None = None,
-    *,
     use_host_network: bool = False,
     source_manifest: str | None = None,
     use_python: str | None = None,
+    validate: bool = True,
 ) -> None:
     """CLI command to install a connector."""
     docker_image_param: bool | str | None = None
@@ -725,6 +731,25 @@ def install(
         print(f"Installing connector '{connector}'...", file=sys.stderr)
         executor.install()
         print(f"Connector '{connector}' installed successfully!", file=sys.stderr)
+
+        if validate:
+            print(f"Validating connector '{connector}' by running spec...", file=sys.stderr)
+            try:
+                spec_output = list(executor.execute(["spec"]))
+                if spec_output:
+                    print(f"Connector '{connector}' validation successful!", file=sys.stderr)
+                else:
+                    print(
+                        f"Warning: Connector '{connector}' installed but validation failed: "
+                        "spec command returned no output",
+                        file=sys.stderr,
+                    )
+            except Exception as validation_error:
+                print(
+                    f"Warning: Connector '{connector}' installed but validation failed: "
+                    f"{validation_error}",
+                    file=sys.stderr,
+                )
 
     except Exception as e:
         raise PyAirbyteInputError(
