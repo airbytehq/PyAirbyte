@@ -64,7 +64,10 @@ def validate_connector_config(
     Returns a tuple of (is_valid: bool, message: str).
     """
     try:
-        source = get_source(connector_name, docker_image=is_docker_installed())
+        source = get_source(
+            connector_name,
+            docker_image=is_docker_installed() or False,
+        )
     except Exception as ex:
         return False, f"Failed to get connector '{connector_name}': {ex}"
 
