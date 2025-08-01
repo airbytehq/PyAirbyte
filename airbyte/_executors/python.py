@@ -152,17 +152,19 @@ class VenvExecutor(Executor):
                 "uv",
                 "pip",
                 "install",
-                "--python", # uv requires --python after the subcommand
+                "--python",  # uv requires --python after the subcommand
                 str(self.interpreter_path),
-            ] if not NO_UV else [
+            ]
+            if not NO_UV
+            else [
                 "pip",
-                "--python", # pip requires --python before the subcommand
+                "--python",  # pip requires --python before the subcommand
                 str(self.interpreter_path),
                 "install",
             ]
         ) + shlex.split(self.pip_url)
         print(
-            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}' with " +
+            f"Installing '{self.name}' into virtual environment '{self._get_venv_path()!s}' with "
             f"command '{' '.join(install_cmd)}'...\n",
             file=sys.stderr,
         )
@@ -181,8 +183,8 @@ class VenvExecutor(Executor):
         self.reported_version = self.get_installed_version(raise_on_error=False, recheck=True)
         log_install_state(self.name, state=EventState.SUCCEEDED)
         print(
-            f"Connector '{self.name}' installed successfully!\n" +
-            f"For more information, see the {self.name} documentation:\n" +
+            f"Connector '{self.name}' installed successfully!\n"
+            f"For more information, see the {self.name} documentation:\n"
             f"{self.docs_url}#reference\n",
             file=sys.stderr,
         )

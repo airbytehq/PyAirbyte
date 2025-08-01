@@ -7,7 +7,6 @@ import logging
 import os
 import shutil
 import socket
-import subprocess
 import sys
 import time
 import warnings
@@ -20,11 +19,9 @@ import pytest
 from _pytest.nodes import Item
 from airbyte._util import text_util
 from airbyte._util.meta import is_windows
-from airbyte._util.venv_util import get_bin_dir
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
-from airbyte.constants import NO_UV
 from requests.exceptions import HTTPError
 
 logger = logging.getLogger(__name__)
@@ -280,25 +277,27 @@ def do_not_track(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
-@pytest.fixture(scope="session", params=[True, False], ids=["uv_enabled", "uv_disabled"])
+@pytest.fixture(
+    scope="session", params=[True, False], ids=["uv_enabled", "uv_disabled"]
+)
 def source_test_installation(request):
     """
     Prepare test environment. This will pre-install the test source from the fixtures array and set
     the environment variable to use the local json file as registry.
-    
+
     Parametrized to test both uv-enabled and uv-disabled installation methods.
     """
     use_uv = request.param
-    
+
     if not use_uv:
         os.environ["AIRBYTE_NO_UV"] = "1"
-    
+
     venv_dir = ".venv-source-test"
     if os.path.exists(venv_dir):
         shutil.rmtree(venv_dir)
 
     from airbyte._executors.util import get_connector_executor
-    
+
     try:
         executor = get_connector_executor(
             name="source-test",
@@ -306,9 +305,9 @@ def source_test_installation(request):
             install_root=Path.cwd(),
             install_if_missing=True,
         )
-        
+
         yield executor
-        
+
     finally:
         if os.path.exists(venv_dir):
             shutil.rmtree(venv_dir)
