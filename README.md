@@ -57,7 +57,7 @@ source = ab.get_source(
 
 ### Installing Connectors with Docker
 
-For any connector (`get_source()`/`get_destination()`), you can specify the `docker_image` argument in order to `True` to prefer Docker over other default installation methods, or `docker_image=MY_IMAGE` to leverage a specific docker image tag for the execution.
+For any connector (`get_source()`/`get_destination()`), you can specify the `docker_image` argument to `True` to prefer Docker over other default installation methods or `docker_image=MY_IMAGE` to leverage a specific docker image tag for the execution.
 
 ## Contributing
 
