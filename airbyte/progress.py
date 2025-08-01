@@ -421,6 +421,22 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             event_type=EventType.SYNC,
         )
 
+    def _log_sync_cancel(self) -> None:
+        print(
+            f"Canceled `{self.job_description}` sync at `{ab_datetime_now().strftime('%H:%M:%S')}`."
+        )
+        self._send_telemetry(
+            state=EventState.CANCELED,
+            event_type=EventType.SYNC,
+        )
+
+    def _log_stream_read_start(self, stream_name: str) -> None:
+        print(
+            f"Read started on stream `{stream_name}` at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+        )
+        self.stream_read_start_times[stream_name] = time.time()
+
     def log_stream_start(self, stream_name: str) -> None:
         """Log that a stream has started reading."""
         if stream_name not in self.stream_read_start_times:
@@ -538,9 +554,17 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        self._print_info_message(
+        streams = list(self.stream_read_start_times.keys())
+        if not streams:
+            streams_str = ""
+        elif len(streams) == 1:
+            streams_str = f" (`{streams[0]}` stream)"
+        else:
+            streams_str = f" ({len(streams)} streams)"
+
+        print(
             f"Completed `{self.job_description}` sync at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`{streams_str}."
         )
         self._log_read_metrics()
         self._send_telemetry(

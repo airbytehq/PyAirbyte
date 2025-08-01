@@ -33,7 +33,7 @@ packaging = ">=23.0"
 pandas = { version = ">=1.5.3,<3.0" }
 psycopg = {extras = ["binary", "pool"], version = "^3.1.19"}
 psycopg2-binary =  "^2.9.9"
-pyarrow = ">=16.1,<18.0"
+pyarrow = ">=16.1,<22.0"
 pydantic = ">=2.0,<=3.0"
 pydantic-core = "*"
 python-dotenv = "^1.0.1"
