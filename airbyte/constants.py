@@ -109,3 +109,35 @@ environment variable if you prefer to use a different registry source for metada
 This setting helps you make informed choices about data privacy and operation in restricted and
 air-gapped environments.
 """
+
+AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _str_to_bool(
+    os.getenv(
+        key="AIRBYTE_PRINT_FULL_ERROR_LOGS",
+        default=os.getenv("CI", "false"),
+    )
+)
+"""Whether to print full error logs when an error occurs.
+This setting helps in debugging by providing detailed logs when errors occur. This is especially
+helpful in ephemeral environments like CI/CD pipelines where log files may not be persisted after
+the pipeline run.
+
+If not set, the default value is `False` for non-CI environments.
+If running in a CI environment ("CI" env var is set), then the default value is `True`.
+"""
+
+SECRETS_HYDRATION_PREFIX = "secret_reference::"
+"""Use this prefix to indicate a secret reference in configuration.
+
+For example, this snippet will populate the `personal_access_token` field with the value of the
+secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment variable.
+
+```json
+{
+  "credentials": {
+    "personal_access_token": "secret_reference::GITHUB_PERSONAL_ACCESS_TOKEN"
+  }
+}
+```
+
+For more information, see the `airbyte.secrets` module documentation.
+"""

@@ -28,6 +28,7 @@ from contextlib import suppress
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
+from rich.console import Console
 from rich.errors import LiveError
 from rich.live import Live as RichLive
 from rich.markdown import Markdown as RichMarkdown
@@ -211,6 +212,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         # Progress bar properties
         self._last_update_time: float | None = None
+        self._stderr_console: Console | None = None
         self._rich_view: RichLive | None = None
 
         self.reset_progress_style(style)
@@ -419,6 +421,22 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             event_type=EventType.SYNC,
         )
 
+    def _log_sync_cancel(self) -> None:
+        print(
+            f"Canceled `{self.job_description}` sync at `{ab_datetime_now().strftime('%H:%M:%S')}`."
+        )
+        self._send_telemetry(
+            state=EventState.CANCELED,
+            event_type=EventType.SYNC,
+        )
+
+    def _log_stream_read_start(self, stream_name: str) -> None:
+        print(
+            f"Read started on stream `{stream_name}` at "
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
+        )
+        self.stream_read_start_times[stream_name] = time.time()
+
     def log_stream_start(self, stream_name: str) -> None:
         """Log that a stream has started reading."""
         if stream_name not in self.stream_read_start_times:
@@ -536,9 +554,17 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         self._update_display(force_refresh=True)
         self._stop_rich_view()
-        self._print_info_message(
+        streams = list(self.stream_read_start_times.keys())
+        if not streams:
+            streams_str = ""
+        elif len(streams) == 1:
+            streams_str = f" (`{streams[0]}` stream)"
+        else:
+            streams_str = f" ({len(streams)} streams)"
+
+        print(
             f"Completed `{self.job_description}` sync at "
-            f"`{ab_datetime_now().strftime('%H:%M:%S')}`."
+            f"`{ab_datetime_now().strftime('%H:%M:%S')}`{streams_str}."
         )
         self._log_read_metrics()
         self._send_telemetry(
@@ -622,9 +648,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """
         if self.style == ProgressStyle.RICH and not self._rich_view:
             try:
+                if self._stderr_console is None:
+                    self._stderr_console = Console(stderr=True)
+
                 self._rich_view = RichLive(
                     auto_refresh=True,
                     refresh_per_second=DEFAULT_REFRESHES_PER_SECOND,
+                    console=self._stderr_console,
                 )
                 self._rich_view.start()
             except Exception:

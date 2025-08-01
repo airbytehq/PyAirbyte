@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import abc
 import json
+import sys
 from pathlib import Path
+from time import sleep
 from typing import TYPE_CHECKING, Any, Literal
 
 import jsonschema
@@ -32,6 +34,7 @@ from airbyte._util.telemetry import (
 )
 from airbyte._util.temp_files import as_temp_files
 from airbyte.logs import new_passthrough_file_logger
+from airbyte.secrets.hydration import hydrate_secrets
 
 
 if TYPE_CHECKING:
@@ -104,7 +107,7 @@ class ConnectorBase(abc.ABC):
         message: str,
     ) -> None:
         """Print a message to the console and the logger."""
-        rich.print(f"ERROR: {message}")
+        rich.print(f"ERROR: {message}", file=sys.stderr)
         if self._file_logger:
             self._file_logger.error(message)
 
@@ -122,22 +125,31 @@ class ConnectorBase(abc.ABC):
         is called.
         """
         if validate:
-            self.validate_config(config)
+            self.validate_config(hydrate_secrets(config))
 
         self._config_dict = config
 
     def get_config(self) -> dict[str, Any]:
-        """Get the config for the connector."""
-        return self._config
+        """Get the config for the connector.
 
-    @property
-    def _config(self) -> dict[str, Any]:
+        If secrets are passed by reference (`secret_reference::*`), this will return the raw config
+        dictionary without secrets hydrated.
+        """
         if self._config_dict is None:
             raise exc.AirbyteConnectorConfigurationMissingError(
                 connector_name=self.name,
-                guidance="Provide via get_destination() or set_config()",
+                guidance="Provide via `set_config()`",
             )
+
         return self._config_dict
+
+    @property
+    def _hydrated_config(self) -> dict[str, Any]:
+        """Internal property used to get a hydrated config dictionary.
+
+        This will have secrets hydrated, so it can be passed to the connector.
+        """
+        return hydrate_secrets(self.get_config())
 
     @property
     def config_hash(self) -> str | None:
@@ -149,7 +161,7 @@ class ConnectorBase(abc.ABC):
             return None
 
         try:
-            return one_way_hash(self._config_dict)
+            return one_way_hash(hydrate_secrets(self._config_dict))
         except Exception:
             # This can fail if there are unhashable values in the config,
             # or unexpected data types. In this case, return None.
@@ -161,7 +173,8 @@ class ConnectorBase(abc.ABC):
         If config is not provided, the already-set config will be validated.
         """
         spec = self._get_spec(force_refresh=False)
-        config = self._config if config is None else config
+        config = hydrate_secrets(config) if config else self._hydrated_config
+
         try:
             jsonschema.validate(config, spec.connectionSpecification)
             log_config_validation_result(
@@ -236,6 +249,7 @@ class ConnectorBase(abc.ABC):
         format: Literal["yaml", "json"] = "yaml",  # noqa: A002
         *,
         output_file: Path | str | None = None,
+        stderr: bool = False,
     ) -> None:
         """Print the configuration spec for this connector.
 
@@ -243,7 +257,18 @@ class ConnectorBase(abc.ABC):
             format: The format to print the spec in. Must be "yaml" or "json".
             output_file: Optional. If set, the spec will be written to the given file path.
                 Otherwise, it will be printed to the console.
+            stderr: If True, print to stderr instead of stdout. This is useful when we
+                want to print the spec to the console but not interfere with other output.
         """
+        if output_file and stderr:
+            raise exc.PyAirbyteInputError(
+                message="You can set output_file or stderr but not both.",
+                context={
+                    "output_file": output_file,
+                    "stderr": stderr,
+                },
+            )
+
         if format not in {"yaml", "json"}:
             raise exc.PyAirbyteInputError(
                 message="Invalid format. Expected 'yaml' or 'json'",
@@ -262,7 +287,7 @@ class ConnectorBase(abc.ABC):
             return
 
         syntax_highlighted = Syntax(content, format)
-        rich.print(syntax_highlighted)
+        rich.print(syntax_highlighted, file=sys.stderr if stderr else None)
 
     @property
     def _yaml_spec(self) -> str:
@@ -308,12 +333,15 @@ class ConnectorBase(abc.ABC):
         * Listen to the messages and return the first AirbyteCatalog that comes along.
         * Make sure the subprocess is killed when the function returns.
         """
-        with as_temp_files([self._config]) as [config_file]:
+        with as_temp_files([self._hydrated_config]) as [config_file]:
             try:
                 for msg in self._execute(["check", "--config", config_file]):
                     if msg.type == Type.CONNECTION_STATUS and msg.connectionStatus:
                         if msg.connectionStatus.status != Status.FAILED:
-                            rich.print(f"Connection check succeeded for `{self.name}`.")
+                            rich.print(
+                                f"Connection check succeeded for `{self.name}`.",
+                                file=sys.stderr,
+                            )
                             log_connector_check_result(
                                 name=self.name,
                                 state=EventState.SUCCEEDED,
@@ -324,6 +352,8 @@ class ConnectorBase(abc.ABC):
                             name=self.name,
                             state=EventState.FAILED,
                         )
+                        # Give logs a chance to be flushed.
+                        sleep(1)
                         raise exc.AirbyteConnectorCheckFailedError(
                             connector_name=self.name,
                             help_url=self.docs_url,
@@ -345,7 +375,10 @@ class ConnectorBase(abc.ABC):
     def install(self) -> None:
         """Install the connector if it is not yet installed."""
         self.executor.install()
-        rich.print("For configuration instructions, see: \n" f"{self.docs_url}#reference\n")
+        rich.print(
+            f"For configuration instructions, see: \n{self.docs_url}#reference\n",
+            file=sys.stderr,
+        )
 
     def uninstall(self) -> None:
         """Uninstall the connector if it is installed.
@@ -432,7 +465,8 @@ class ConnectorBase(abc.ABC):
         )
 
         try:
-            for line in self.executor.execute(args, stdin=stdin):
+            suppress_stderr = progress_tracker is not None
+            for line in self.executor.execute(args, stdin=stdin, suppress_stderr=suppress_stderr):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:

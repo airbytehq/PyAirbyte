@@ -3,14 +3,20 @@
 
 from __future__ import annotations
 
-import json
+import sys
+import threading
+import time
 import warnings
-from pathlib import Path
+from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
-from rich.syntax import Syntax
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.markup import escape
+from rich.table import Table
+from typing_extensions import override
 
 from airbyte_protocol.models import (
     AirbyteCatalog,
@@ -38,18 +44,27 @@ from airbyte.strategies import WriteStrategy
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
-    from airbyte_cdk import ConnectorSpecification
-    from airbyte_protocol.models import AirbyteStream
+    from airbyte_protocol.models import (
+        AirbyteStream,
+        ConnectorSpecification,
+    )
 
     from airbyte._executors.base import Executor
     from airbyte.caches import CacheBase
     from airbyte.callbacks import ConfigChangeCallback
+    from airbyte.datasets._inmemory import InMemoryDataset
     from airbyte.documents import Document
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
 
+from airbyte.constants import (
+    AB_EXTRACTED_AT_COLUMN,
+    AB_META_COLUMN,
+    AB_RAW_ID_COLUMN,
+)
 
-class Source(ConnectorBase):
+
+class Source(ConnectorBase):  # noqa: PLR0904
     """A class representing a source that can be called."""
 
     connector_type = "source"
@@ -63,6 +78,8 @@ class Source(ConnectorBase):
         config_change_callback: ConfigChangeCallback | None = None,
         streams: str | list[str] | None = None,
         validate: bool = False,
+        cursor_key_overrides: dict[str, str] | None = None,
+        primary_key_overrides: dict[str, str | list[str]] | None = None,
     ) -> None:
         """Initialize the source.
 
@@ -82,10 +99,21 @@ class Source(ConnectorBase):
         self._last_log_messages: list[str] = []
         self._discovered_catalog: AirbyteCatalog | None = None
         self._selected_stream_names: list[str] = []
+
+        self._cursor_key_overrides: dict[str, str] = {}
+        """A mapping of lower-cased stream names to cursor key overrides."""
+
+        self._primary_key_overrides: dict[str, list[str]] = {}
+        """A mapping of lower-cased stream names to primary key overrides."""
+
         if config is not None:
             self.set_config(config, validate=validate)
         if streams is not None:
             self.select_streams(streams)
+        if cursor_key_overrides is not None:
+            self.set_cursor_keys(**cursor_key_overrides)
+        if primary_key_overrides is not None:
+            self.set_primary_keys(**primary_key_overrides)
 
     def set_streams(self, streams: list[str]) -> None:
         """Deprecated. See select_streams()."""
@@ -97,16 +125,106 @@ class Source(ConnectorBase):
         )
         self.select_streams(streams)
 
+    def set_cursor_key(
+        self,
+        stream_name: str,
+        cursor_key: str,
+    ) -> None:
+        """Set the cursor for a single stream.
+
+        Note:
+        - This does not unset previously set cursors.
+        - The cursor key must be a single field name.
+        - Not all streams support custom cursors. If a stream does not support custom cursors,
+          the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._cursor_key_overrides[stream_name.lower()] = cursor_key
+
+    def set_cursor_keys(
+        self,
+        **kwargs: str,
+    ) -> None:
+        """Override the cursor key for one or more streams.
+
+        Usage:
+            source.set_cursor_keys(
+                stream1="cursor1",
+                stream2="cursor2",
+            )
+
+        Note:
+        - This does not unset previously set cursors.
+        - The cursor key must be a single field name.
+        - Not all streams support custom cursors. If a stream does not support custom cursors,
+          the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._cursor_key_overrides.update({k.lower(): v for k, v in kwargs.items()})
+
+    def set_primary_key(
+        self,
+        stream_name: str,
+        primary_key: str | list[str],
+    ) -> None:
+        """Set the primary key for a single stream.
+
+        Note:
+        - This does not unset previously set primary keys.
+        - The primary key must be a single field name or a list of field names.
+        - Not all streams support overriding primary keys. If a stream does not support overriding
+          primary keys, the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._primary_key_overrides[stream_name.lower()] = (
+            primary_key if isinstance(primary_key, list) else [primary_key]
+        )
+
+    def set_primary_keys(
+        self,
+        **kwargs: str | list[str],
+    ) -> None:
+        """Override the primary keys for one or more streams.
+
+        This does not unset previously set primary keys.
+
+        Usage:
+            source.set_primary_keys(
+                stream1="pk1",
+                stream2=["pk1", "pk2"],
+            )
+
+        Note:
+        - This does not unset previously set primary keys.
+        - The primary key must be a single field name or a list of field names.
+        - Not all streams support overriding primary keys. If a stream does not support overriding
+          primary keys, the override may be ignored.
+        - Stream names are case insensitive, while field names are case sensitive.
+        - Stream names are not validated by PyAirbyte. If the stream name
+          does not exist in the catalog, the override may be ignored.
+        """
+        self._primary_key_overrides.update(
+            {k.lower(): v if isinstance(v, list) else [v] for k, v in kwargs.items()}
+        )
+
     def _log_warning_preselected_stream(self, streams: str | list[str]) -> None:
         """Logs a warning message indicating stream selection which are not selected yet."""
         if streams == "*":
             print(
-                "Warning: Config is not set yet. All streams will be selected after config is set."
+                "Warning: Config is not set yet. All streams will be selected after config is set.",
+                file=sys.stderr,
             )
         else:
             print(
                 "Warning: Config is not set yet. "
-                f"Streams to be selected after config is set: {streams}"
+                f"Streams to be selected after config is set: {streams}",
+                file=sys.stderr,
             )
 
     def select_all_streams(self) -> None:
@@ -182,19 +300,6 @@ class Source(ConnectorBase):
             self.select_streams(self._to_be_selected_streams)
             self._to_be_selected_streams = []
 
-    def get_config(self) -> dict[str, Any]:
-        """Get the config for the connector."""
-        return self._config
-
-    @property
-    def _config(self) -> dict[str, Any]:
-        if self._config_dict is None:
-            raise exc.AirbyteConnectorConfigurationMissingError(
-                connector_name=self.name,
-                guidance="Provide via get_source() or set_config()",
-            )
-        return self._config_dict
-
     def _discover(self) -> AirbyteCatalog:
         """Call discover on the connector.
 
@@ -204,7 +309,7 @@ class Source(ConnectorBase):
         - Listen to the messages and return the first AirbyteCatalog that comes along.
         - Make sure the subprocess is killed when the function returns.
         """
-        with as_temp_files([self._config]) as [config_file]:
+        with as_temp_files([self._hydrated_config]) as [config_file]:
             for msg in self._execute(["discover", "--config", config_file]):
                 if msg.type == Type.CATALOG and msg.catalog:
                     return msg.catalog
@@ -225,6 +330,7 @@ class Source(ConnectorBase):
             if SyncMode.incremental in stream.supported_sync_modes
         ]
 
+    @override
     def _get_spec(self, *, force_refresh: bool = False) -> ConnectorSpecification:
         """Call spec on the connector.
 
@@ -258,39 +364,6 @@ class Source(ConnectorBase):
             dict: The JSON Schema configuration spec as a dictionary.
         """
         return self._get_spec(force_refresh=True).connectionSpecification
-
-    def print_config_spec(
-        self,
-        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
-        *,
-        output_file: Path | str | None = None,
-    ) -> None:
-        """Print the configuration spec for this connector.
-
-        Args:
-            format: The format to print the spec in. Must be "yaml" or "json".
-            output_file: Optional. If set, the spec will be written to the given file path.
-                Otherwise, it will be printed to the console.
-        """
-        if format not in {"yaml", "json"}:
-            raise exc.PyAirbyteInputError(
-                message="Invalid format. Expected 'yaml' or 'json'",
-                input_value=format,
-            )
-        if isinstance(output_file, str):
-            output_file = Path(output_file)
-
-        if format == "yaml":
-            content = yaml.dump(self.config_spec, indent=2)
-        elif format == "json":
-            content = json.dumps(self.config_spec, indent=2)
-
-        if output_file:
-            output_file.write_text(content)
-            return
-
-        syntax_highlighted = Syntax(content, format)
-        print(syntax_highlighted)
 
     @property
     def _yaml_spec(self) -> str:
@@ -373,8 +446,21 @@ class Source(ConnectorBase):
                 ConfiguredAirbyteStream(
                     stream=stream,
                     destination_sync_mode=DestinationSyncMode.overwrite,
-                    primary_key=stream.source_defined_primary_key,
                     sync_mode=SyncMode.incremental,
+                    primary_key=(
+                        [self._primary_key_overrides[stream.name.lower()]]
+                        if stream.name.lower() in self._primary_key_overrides
+                        else stream.source_defined_primary_key
+                    ),
+                    cursor_field=(
+                        [self._cursor_key_overrides[stream.name.lower()]]
+                        if stream.name.lower() in self._cursor_key_overrides
+                        else stream.default_cursor_field
+                    ),
+                    # These are unused in the current implementation:
+                    generation_id=None,
+                    minimum_generation_id=None,
+                    sync_id=None,
                 )
                 for stream in self.discovered_catalog.streams
                 if stream.name in selected_streams
@@ -408,6 +494,8 @@ class Source(ConnectorBase):
         self,
         stream: str,
         *,
+        limit: int | None = None,
+        stop_event: threading.Event | None = None,
         normalize_field_names: bool = False,
         prune_undeclared_fields: bool = True,
     ) -> LazyDataset:
@@ -415,6 +503,9 @@ class Source(ConnectorBase):
 
         Args:
             stream: The name of the stream to read.
+            limit: The maximum number of records to read. If None, all records will be read.
+            stop_event: If set, the event can be triggered by the caller to stop reading records
+                and terminate the process.
             normalize_field_names: When `True`, field names will be normalized to lower case, with
                 special characters removed. This matches the behavior of PyAirbyte caches and most
                 Airbyte destinations.
@@ -431,18 +522,8 @@ class Source(ConnectorBase):
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
         """
-        discovered_catalog: AirbyteCatalog = self.discovered_catalog
-        configured_catalog = ConfiguredAirbyteCatalog(
-            streams=[
-                ConfiguredAirbyteStream(
-                    stream=s,
-                    sync_mode=SyncMode.full_refresh,
-                    destination_sync_mode=DestinationSyncMode.overwrite,
-                )
-                for s in discovered_catalog.streams
-                if s.name == stream
-            ],
-        )
+        stop_event = stop_event or threading.Event()
+        configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
             raise exc.PyAirbyteInputError(
                 message="Requested stream does not exist.",
@@ -481,13 +562,19 @@ class Source(ConnectorBase):
             for record in self._read_with_catalog(
                 catalog=configured_catalog,
                 progress_tracker=progress_tracker,
+                stop_event=stop_event,
             )
             if record.record
         )
-        progress_tracker.log_success()
+        if limit is not None:
+            # Stop the iterator after the limit is reached
+            iterator = islice(iterator, limit)
+
         return LazyDataset(
             iterator,
             stream_metadata=configured_stream,
+            stop_event=stop_event,
+            progress_tracker=progress_tracker,
         )
 
     def get_documents(
@@ -514,6 +601,120 @@ class Source(ConnectorBase):
             render_metadata=render_metadata,
         )
 
+    def get_samples(
+        self,
+        streams: list[str] | Literal["*"] | None = None,
+        *,
+        limit: int = 5,
+        on_error: Literal["raise", "ignore", "log"] = "raise",
+    ) -> dict[str, InMemoryDataset | None]:
+        """Get a sample of records from the given streams."""
+        if streams == "*":
+            streams = self.get_available_streams()
+        elif streams is None:
+            streams = self.get_selected_streams()
+
+        results: dict[str, InMemoryDataset | None] = {}
+        for stream in streams:
+            stop_event = threading.Event()
+            try:
+                results[stream] = self.get_records(
+                    stream,
+                    limit=limit,
+                    stop_event=stop_event,
+                ).fetch_all()
+                stop_event.set()
+            except Exception as ex:
+                results[stream] = None
+                if on_error == "ignore":
+                    continue
+
+                if on_error == "raise":
+                    raise ex from None
+
+                if on_error == "log":
+                    print(f"Error fetching sample for stream '{stream}': {ex}")
+
+        return results
+
+    def print_samples(
+        self,
+        streams: list[str] | Literal["*"] | None = None,
+        *,
+        limit: int = 5,
+        on_error: Literal["raise", "ignore", "log"] = "log",
+    ) -> None:
+        """Print a sample of records from the given streams."""
+        internal_cols: list[str] = [
+            AB_EXTRACTED_AT_COLUMN,
+            AB_META_COLUMN,
+            AB_RAW_ID_COLUMN,
+        ]
+        col_limit = 10
+        if streams == "*":
+            streams = self.get_available_streams()
+        elif streams is None:
+            streams = self.get_selected_streams()
+
+        console = Console()
+
+        console.print(
+            Markdown(
+                f"# Sample Records from `{self.name}` ({len(streams)} selected streams)",
+                justify="left",
+            )
+        )
+
+        for stream in streams:
+            console.print(Markdown(f"## `{stream}` Stream Sample", justify="left"))
+            samples = self.get_samples(
+                streams=[stream],
+                limit=limit,
+                on_error=on_error,
+            )
+            dataset = samples[stream]
+
+            table = Table(
+                show_header=True,
+                show_lines=True,
+            )
+            if dataset is None:
+                console.print(
+                    Markdown("**⚠️ `Error fetching sample records.` ⚠️**"),
+                )
+                continue
+
+            if len(dataset.column_names) > col_limit:
+                # We'll pivot the columns so each column is its own row
+                table.add_column("Column Name")
+                for _ in range(len(dataset)):
+                    table.add_column(overflow="fold")
+                for col in dataset.column_names:
+                    table.add_row(
+                        Markdown(f"**`{col}`**"),
+                        *[escape(str(record[col])) for record in dataset],
+                    )
+            else:
+                for col in dataset.column_names:
+                    table.add_column(
+                        Markdown(f"**`{col}`**"),
+                        overflow="fold",
+                    )
+
+                for record in dataset:
+                    table.add_row(
+                        *[
+                            escape(str(val))
+                            for key, val in record.items()
+                            # Exclude internal Airbyte columns.
+                            if key not in internal_cols
+                        ]
+                    )
+
+            console.print(table)
+
+        console.print(Markdown("--------------"))
+
     def _get_airbyte_message_iterator(
         self,
         *,
@@ -535,7 +736,9 @@ class Source(ConnectorBase):
         self,
         catalog: ConfiguredAirbyteCatalog,
         progress_tracker: ProgressTracker,
+        *,
         state: StateProviderBase | None = None,
+        stop_event: threading.Event | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Call read on the connector.
 
@@ -548,7 +751,7 @@ class Source(ConnectorBase):
         """
         with as_temp_files(
             [
-                self._config,
+                self._hydrated_config,
                 catalog.model_dump_json(),
                 state.to_state_input_file_text() if state else "[]",
             ]
@@ -569,7 +772,14 @@ class Source(ConnectorBase):
                 ],
                 progress_tracker=progress_tracker,
             )
-            yield from progress_tracker.tally_records_read(message_generator)
+            for message in progress_tracker.tally_records_read(message_generator):
+                if stop_event and stop_event.is_set():
+                    progress_tracker._log_sync_cancel()  # noqa: SLF001
+                    time.sleep(0.1)
+                    return
+
+                yield message
+
         progress_tracker.log_read_complete()
 
     def _peek_airbyte_message(
@@ -600,7 +810,7 @@ class Source(ConnectorBase):
             f"{incremental_streams}\n"
             "To perform a full refresh, set 'force_full_refresh=True' in 'airbyte.read()' method."
         )
-        print(log_message)
+        print(log_message, file=sys.stderr)
 
     def read(
         self,
@@ -618,8 +828,8 @@ class Source(ConnectorBase):
             streams: Optional if already set. A list of stream names to select for reading. If set
                 to "*", all streams will be selected.
             write_strategy: The strategy to use when writing to the cache. If a string, it must be
-                one of "append", "upsert", "replace", or "auto". If a WriteStrategy, it must be one
-                of WriteStrategy.APPEND, WriteStrategy.UPSERT, WriteStrategy.REPLACE, or
+                one of "append", "merge", "replace", or "auto". If a WriteStrategy, it must be one
+                of WriteStrategy.APPEND, WriteStrategy.MERGE, WriteStrategy.REPLACE, or
                 WriteStrategy.AUTO.
             force_full_refresh: If True, the source will operate in full refresh mode. Otherwise,
                 streams will be read in incremental mode if supported by the connector. This option
