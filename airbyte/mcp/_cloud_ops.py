@@ -7,7 +7,7 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from airbyte import cloud, get_source, secrets
+from airbyte import cloud, get_destination, get_source, secrets
 from airbyte._util.api_imports import JobStatusEnum
 from airbyte._util.api_util import CLOUD_API_ROOT
 from airbyte.mcp._util import resolve_config
@@ -88,11 +88,15 @@ def deploy_destination_to_cloud(
         str,
         Field(description="The name to use when deploying the destination."),
     ],
-    destination_config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration dictionary for the destination."),
-    ] = None,
+    destination_connector_name: Annotated[
+        str,
+        Field(description="The name of the destination connector (e.g., 'destination-postgres')."),
+    ],
     *,
+    config: Annotated[
+        dict | Path | None,
+        Field(description="The configuration for the destination connector."),
+    ] = None,
     config_secret_name: Annotated[
         str | None,
         Field(description="The name of the secret containing the configuration."),
@@ -106,16 +110,19 @@ def deploy_destination_to_cloud(
         Field(description="Whether to require a unique name."),
     ] = True,
 ) -> str:
-    """Deploy a destination to Airbyte Cloud.
+    """Deploy a destination connector to Airbyte Cloud.
 
     By default, the `AIRBYTE_CLIENT_ID` and `AIRBYTE_CLIENT_SECRET` environment variables will be
     used to authenticate with the Airbyte Cloud API.
     """
     try:
+        destination = get_destination(destination_connector_name)
         config_dict = resolve_config(
-            config=destination_config,
+            config=config,
             config_secret_name=config_secret_name,
+            config_spec_jsonschema=destination.config_spec,
         )
+        destination.set_config(config_dict)
 
         workspace = cloud.CloudWorkspace(
             workspace_id,
@@ -126,7 +133,7 @@ def deploy_destination_to_cloud(
 
         deployed_destination = workspace.deploy_destination(
             name=destination_name,
-            destination=config_dict,
+            destination=destination,
             unique=unique,
         )
 
