@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
 from airbyte.sources import get_available_connectors
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
@@ -118,8 +119,9 @@ def get_connector_info(
         connector.install()
         config_spec_jsonschema = connector.config_spec
 
-    manifest_url = (
-        f"https://connectors.airbyte.com/metadata/airbyte/{connector_name}/latest/metadata.yaml"
+    manifest_url = DEFAULT_MANIFEST_URL.format(
+        source_name=connector_name,
+        version="latest",
     )
 
     return ConnectorInfo(
