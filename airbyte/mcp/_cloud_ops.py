@@ -89,10 +89,14 @@ def deploy_destination_to_cloud(
         Field(description="The name to use when deploying the destination."),
     ],
     destination_config: Annotated[
-        dict,
+        dict | Path | None,
         Field(description="The configuration dictionary for the destination."),
-    ],
+    ] = None,
     *,
+    config_secret_name: Annotated[
+        str | None,
+        Field(description="The name of the secret containing the configuration."),
+    ] = None,
     api_root: Annotated[
         str | None,
         Field(description="Optional Cloud API root URL override."),
@@ -108,6 +112,11 @@ def deploy_destination_to_cloud(
     used to authenticate with the Airbyte Cloud API.
     """
     try:
+        config_dict = resolve_config(
+            config=destination_config,
+            config_secret_name=config_secret_name,
+        )
+
         workspace = cloud.CloudWorkspace(
             workspace_id,
             client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
@@ -117,7 +126,7 @@ def deploy_destination_to_cloud(
 
         deployed_destination = workspace.deploy_destination(
             name=destination_name,
-            destination=destination_config,
+            destination=config_dict,
             unique=unique,
         )
 
