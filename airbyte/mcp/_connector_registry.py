@@ -89,6 +89,7 @@ class ConnectorInfo(BaseModel):
     connector_metadata: ConnectorMetadata | None = None
     documentation_url: str | None = None
     config_spec_jsonschema: dict | None = None
+    manifest_url: str | None = None
 
 
 def get_connector_info(
@@ -117,11 +118,16 @@ def get_connector_info(
         connector.install()
         config_spec_jsonschema = connector.config_spec
 
+    manifest_url = (
+        f"https://connectors.airbyte.com/metadata/airbyte/{connector_name}/latest/metadata.yaml"
+    )
+
     return ConnectorInfo(
         connector_name=connector.name,
         connector_metadata=connector_metadata,
         documentation_url=connector.docs_url,
         config_spec_jsonschema=config_spec_jsonschema,
+        manifest_url=manifest_url,
     )
 
 
