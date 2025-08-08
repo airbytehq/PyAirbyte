@@ -81,7 +81,7 @@ def setup_source() -> ab.Source:
     return ab.get_source(
         "source-faker",
         config={
-            "count": 10000000,  # 10 million rows for large-scale performance testing
+            "count": 50000000,  # 50 million rows for large-scale performance testing
             "seed": 42,
             "parallelism": 4,  # Parallel processing for better performance
             "always_updated": False,
@@ -158,7 +158,7 @@ def transfer_data_with_timing(
     Simplified to Snowflake→S3→Snowflake for proof of concept as suggested.
     """
     streams = ["purchases"]
-    expected_record_count = 10_000_000  # 10 million records configured
+    expected_record_count = 50_000_000  # 50 million records configured
 
     workflow_start_time = datetime.now()
     print(f"🚀 [{workflow_start_time.strftime('%H:%M:%S')}] Starting fast lake copy workflow (Snowflake→S3→Snowflake)...")
@@ -167,7 +167,7 @@ def transfer_data_with_timing(
     step1_start_time = datetime.now()
     print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)...")
     step1_start = time.time()
-    read_result = source.read(cache=snowflake_cache_source, force_full_refresh=True)
+    read_result = source.read(cache=snowflake_cache_source, force_full_refresh=True, write_strategy="replace")
     step1_time = time.time() - step1_start
     step1_end_time = datetime.now()
     
