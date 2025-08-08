@@ -57,10 +57,19 @@ def get_credentials() -> dict[str, Any]:
     snowflake_secret = secret_mgr.get_secret("AIRBYTE_LIB_SNOWFLAKE_CREDS")
     assert snowflake_secret is not None, "Snowflake secret not found."
 
+    try:
+        s3_secret = secret_mgr.get_secret("SECRET_SOURCE-S3_AVRO__CREDS")
+        s3_config = s3_secret.parse_json()
+        aws_access_key_id = s3_config.get("aws_access_key_id")
+        aws_secret_access_key = s3_config.get("aws_secret_access_key")
+    except Exception:
+        aws_access_key_id = ab.get_secret("AWS_ACCESS_KEY_ID")
+        aws_secret_access_key = ab.get_secret("AWS_SECRET_ACCESS_KEY")
+
     return {
         "snowflake": snowflake_secret.parse_json(),
-        "aws_access_key_id": ab.get_secret("AWS_ACCESS_KEY_ID"),
-        "aws_secret_access_key": ab.get_secret("AWS_SECRET_ACCESS_KEY"),
+        "aws_access_key_id": aws_access_key_id,
+        "aws_secret_access_key": aws_secret_access_key,
     }
 
 
@@ -126,7 +135,7 @@ def setup_lake_storage(credentials: dict[str, Any]) -> S3LakeStorage:
     print("🏞️  Setting up S3 lake storage...")
 
     s3_lake = S3LakeStorage(
-        bucket_name="airbyte-lake-demo",
+        bucket_name="airbyte-acceptance-test-source-s3",
         region="us-west-2",
         access_key_id=credentials["aws_access_key_id"],
         secret_access_key=credentials["aws_secret_access_key"],
@@ -141,6 +150,7 @@ def transfer_data_with_timing(
     snowflake_cache_source: SnowflakeCache,
     snowflake_cache_dest: SnowflakeCache,
     s3_lake: S3LakeStorage,
+    credentials: dict[str, Any],
 ) -> None:
     """Execute the complete data transfer workflow with performance timing.
 
@@ -163,16 +173,23 @@ def transfer_data_with_timing(
         snowflake_cache_source.unload_stream_to_lake(
             stream_name=stream_name,
             lake_store=s3_lake,
+            aws_access_key_id=credentials["aws_access_key_id"],
+            aws_secret_access_key=credentials["aws_secret_access_key"],
         )
     step2_time = time.time() - step2_start
     print(f"✅ Step 2 completed in {step2_time:.2f} seconds")
 
     print("📥 Step 3: Loading from S3 to Snowflake (destination)...")
     step3_start = time.time()
+    
+    snowflake_cache_dest.create_source_tables(source=source, streams=streams)
+    
     for stream_name in streams:
         snowflake_cache_dest.load_stream_from_lake(
             stream_name=stream_name,
             lake_store=s3_lake,
+            aws_access_key_id=credentials["aws_access_key_id"],
+            aws_secret_access_key=credentials["aws_secret_access_key"],
         )
     step3_time = time.time() - step3_start
     print(f"✅ Step 3 completed in {step3_time:.2f} seconds")
@@ -226,6 +243,7 @@ def main() -> None:
             snowflake_cache_source=snowflake_cache_source,
             snowflake_cache_dest=snowflake_cache_dest,
             s3_lake=s3_lake,
+            credentials=credentials,
         )
 
         warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
