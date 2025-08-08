@@ -19,6 +19,8 @@ Required secrets (retrieved from Google Secret Manager):
   - GCP_GSM_CREDENTIALS: Google Cloud credentials for Secret Manager access
 """
 
+import os
+import resource
 import time
 from datetime import datetime
 from typing import Any, Literal
@@ -29,7 +31,7 @@ from airbyte.lakes import S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
-LARGER_WAREHOUSE_NAME = "COMPUTE_WH_2XLARGE"  # 2x warehouse size
+LARGER_WAREHOUSE_NAME = "COMPUTE_WH_2XLARGE"  # 2XLARGE warehouse size (also COMPUTE_WH_LARGE available as 8x option)
 LARGER_WAREHOUSE_SIZE: Literal[
     "xsmall", "small", "medium", "large", "xlarge", "xxlarge"
 ] = "xxlarge"
@@ -43,7 +45,7 @@ WAREHOUSE_SIZE_MULTIPLIERS = {
     "medium": 4,
     "large": 8,
     "xlarge": 16,
-    "xxlarge": 32,  # COMPUTE_WH_2XLARGE provides 32x compute units vs xsmall
+    "xxlarge": 32,  # COMPUTE_WH_2XLARGE provides 32x compute units vs xsmall (2XLARGE = XXLarge size)
 }
 
 
@@ -212,6 +214,10 @@ def transfer_data_with_timing(
     
     print(f"✅ [{step2_end_time.strftime('%H:%M:%S')}] Step 2 completed in {step2_time:.2f} seconds (elapsed: {(step2_end_time - step2_start_time).total_seconds():.2f}s)")
     print(f"   📊 Step 2 Performance: {actual_records:,} records at {step2_records_per_sec:,.1f} records/s, {step2_mb_per_sec:.2f} MB/s")
+    
+    consistency_delay = 5  # seconds
+    print(f"⏱️  [{datetime.now().strftime('%H:%M:%S')}] Waiting {consistency_delay}s for S3 eventual consistency...")
+    time.sleep(consistency_delay)
 
     step3_start_time = datetime.now()
     print(f"📥 [{step3_start_time.strftime('%H:%M:%S')}] Step 3: Loading from S3 to Snowflake (destination)...")
@@ -285,6 +291,16 @@ def main() -> None:
     """Main execution function."""
     print("🎯 PyAirbyte Fast Lake Copy Demo")
     print("=" * 50)
+    
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    print(f"📁 Current file descriptor limits: soft={soft}, hard={hard}")
+    try:
+        new_soft = min(hard, 65536)
+        resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        print(f"📁 Updated file descriptor limits: soft={soft}, hard={hard}")
+    except (ValueError, OSError) as e:
+        print(f"⚠️  Could not increase file descriptor limit: {e}")
 
     try:
         credentials = get_credentials()
