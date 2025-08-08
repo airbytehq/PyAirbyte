@@ -60,28 +60,6 @@ class LakeStorage(abc.ABC):
         """Get the URI root for a stream in the lake storage."""
         return self.path_to_uri(self.get_stream_root_path(stream_name))
 
-    @abstractmethod
-    def write_dataset(
-        self,
-        dataset: ds.Dataset,
-        table_name: str,
-        schema: str,
-        cache_dir: Path,
-        cleanup: bool,  # noqa: FBT001
-    ) -> None:
-        """Write an Arrow dataset to the lake storage."""
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    @abstractmethod
-    def read_dataset(
-        self,
-        table_name: str,
-        schema: str,
-        cache_dir: Path,
-        cleanup: bool,  # noqa: FBT001
-    ) -> ds.Dataset:
-        """Read an Arrow dataset from the lake storage."""
-        raise NotImplementedError("Subclasses must implement this method.")
 
     def _validate_short_name(self, short_name: str) -> str:
         """Validate that short_name is lowercase snake_case with no special characters."""
@@ -124,53 +102,6 @@ class S3LakeStorage(LakeStorage):
         """Get the root URI for the S3 lake storage."""
         return f"{self.uri_protocol}{self.bucket_name}/"
 
-    def write_dataset(
-        self,
-        dataset: ds.Dataset,
-        table_name: str,
-        schema: str,  # noqa: ARG002
-        cache_dir: Path,  # noqa: ARG002
-        cleanup: bool,  # noqa: ARG002, FBT001
-    ) -> None:
-        """Write an Arrow dataset to S3 as Parquet files."""
-        s3_filesystem = fs.S3FileSystem(
-            access_key=self.access_key_id,
-            secret_key=self.secret_access_key,
-            region=self.region,
-        )
-
-        output_path = f"{self.bucket_name}/airbyte_data/{table_name}"
-
-        ds.write_dataset(
-            dataset,
-            output_path,
-            filesystem=s3_filesystem,
-            format="parquet",
-            partitioning=None,
-            existing_data_behavior="overwrite_or_ignore",
-        )
-
-    def read_dataset(
-        self,
-        table_name: str,
-        schema: str,  # noqa: ARG002
-        cache_dir: Path,  # noqa: ARG002
-        cleanup: bool,  # noqa: ARG002, FBT001
-    ) -> ds.Dataset:
-        """Read an Arrow dataset from S3 Parquet files."""
-        s3_filesystem = fs.S3FileSystem(
-            access_key=self.access_key_id,
-            secret_key=self.secret_access_key,
-            region=self.region,
-        )
-
-        input_path = f"{self.bucket_name}/airbyte_data/{table_name}"
-
-        return ds.dataset(
-            input_path,
-            filesystem=s3_filesystem,
-            format="parquet",
-        )
 
 
 class GCSLakeStorage(LakeStorage):
@@ -194,45 +125,6 @@ class GCSLakeStorage(LakeStorage):
         """Get the root URI for the GCS lake storage."""
         return f"{self.uri_protocol}{self.bucket_name}/"
 
-    def write_dataset(
-        self,
-        dataset: ds.Dataset,
-        table_name: str,
-        schema: str,  # noqa: ARG002
-        cache_dir: Path,  # noqa: ARG002
-        cleanup: bool,  # noqa: ARG002, FBT001
-    ) -> None:
-        """Write an Arrow dataset to GCS as Parquet files."""
-        gcs_filesystem = fs.GcsFileSystem()
-
-        output_path = f"{self.bucket_name}/airbyte_data/{table_name}"
-
-        ds.write_dataset(
-            dataset,
-            output_path,
-            filesystem=gcs_filesystem,
-            format="parquet",
-            partitioning=None,
-            existing_data_behavior="overwrite_or_ignore",
-        )
-
-    def read_dataset(
-        self,
-        table_name: str,
-        schema: str,  # noqa: ARG002
-        cache_dir: Path,  # noqa: ARG002
-        cleanup: bool,  # noqa: ARG002, FBT001
-    ) -> ds.Dataset:
-        """Read an Arrow dataset from GCS Parquet files."""
-        gcs_filesystem = fs.GcsFileSystem()
-
-        input_path = f"{self.bucket_name}/airbyte_data/{table_name}"
-
-        return ds.dataset(
-            input_path,
-            filesystem=gcs_filesystem,
-            format="parquet",
-        )
 
 
 __all__ = [
