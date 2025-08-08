@@ -7,6 +7,8 @@ import abc
 import re
 from abc import abstractmethod
 
+from pydantic import BaseModel
+
 
 class LakeStorage(abc.ABC):
     """PyAirbyte LakeStorage class."""
@@ -60,9 +62,15 @@ class LakeStorage(abc.ABC):
             )
         return short_name
 
+    def get_artifact_prefix(self) -> str:
+        """Get the artifact prefix for this lake storage."""
+        return f"AIRBYTE_LAKE_{self.short_name.upper()}_"
+
 
 class FastUnloadResult(BaseModel):
-    """Results from a Fast Unload operation"""
+    """Results from a Fast Unload operation."""
+
+    model_config = {"arbitrary_types_allowed": True}
 
     lake_store: LakeStorage
     lake_path_prefix: str
@@ -125,4 +133,5 @@ __all__ = [
     "LakeStorage",
     "S3LakeStorage",
     "GCSLakeStorage",
+    "FastUnloadResult",
 ]

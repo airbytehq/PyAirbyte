@@ -27,7 +27,7 @@ from typing import Any, Literal
 
 import airbyte as ab
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.lakes import S3LakeStorage
+from airbyte.lakes import S3LakeStorage, FastUnloadResult
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
@@ -278,6 +278,7 @@ def transfer_data_with_timing(
         snowflake_cache_dest.fast_load_stream(
             stream_name=stream_name,
             lake_store=s3_lake,
+            lake_path_prefix=stream_name,
         )
     step3_time = time.time() - step3_start
     step3_end_time = datetime.now()
@@ -404,7 +405,6 @@ def main() -> None:
             snowflake_cache_source=snowflake_cache_source,
             snowflake_cache_dest=snowflake_cache_dest,
             s3_lake=s3_lake,
-            credentials=credentials,
         )
 
         warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"

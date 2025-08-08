@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, NoReturn
 
 from airbyte_api.models import DestinationBigquery
+from typing_extensions import override
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
 from airbyte.caches.base import (
@@ -29,13 +30,11 @@ from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.destinations._translate_cache_to_dest import (
     bigquery_cache_to_destination_configuration,
 )
+from airbyte.lakes import FastUnloadResult
 
 
 if TYPE_CHECKING:
     from airbyte.lakes import LakeStorage
-
-
-if TYPE_CHECKING:
     from airbyte.shared.sql_processor import SqlProcessorBase
 
 
@@ -123,7 +122,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         stream_name: str,
         lake_store: LakeStorage,
         *,
-        zero_copy: bool = False,  # noqa: ARG002
+        zero_copy: bool = False,
     ) -> None:
         """Load a single stream from the lake store using BigQuery LOAD DATA.
 

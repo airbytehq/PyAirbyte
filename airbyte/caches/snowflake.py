@@ -62,6 +62,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from airbyte_api.models import DestinationSnowflake
+from typing_extensions import override
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
 from airbyte.caches.base import CacheBase
@@ -69,7 +70,6 @@ from airbyte.destinations._translate_cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
 from airbyte.lakes import FastUnloadResult
-from airbyte.secrets.util import get_secret
 from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
 
@@ -98,28 +98,28 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
     def _get_lake_file_format_name(self, lake_store: LakeStorage) -> str:
         """Get the file_format name."""
-        artifact_prefix = self._get_lake_artifact_prefix()
+        artifact_prefix = self._get_lake_artifact_prefix(lake_store)
         return f"{artifact_prefix}PARQUET_FORMAT"
 
     def _get_lake_stage_name(self, lake_store: LakeStorage) -> str:
         """Get the stage name."""
-        artifact_prefix = self._get_lake_artifact_prefix()
+        artifact_prefix = self._get_lake_artifact_prefix(lake_store)
         return f"{artifact_prefix}STAGE"
 
     def _setup_lake_artifacts(
         self,
         lake_store: LakeStorage,
     ) -> None:
-        if not isinstance(lake_store, S3LakeStorage):
-            raise NotImplementedError
-
-        s3_lake_store: S3LakeStorage = lake_store
+        if not hasattr(lake_store, "aws_access_key_id"):
+            raise NotImplementedError(
+                "Snowflake lake operations currently only support S3 lake storage"
+            )
 
         qualified_prefix = (
-            f"{self.database_name}.{self.schema_name}" if self.database_name else self.schema_name
+            f"{self.database}.{self.schema_name}" if self.database else self.schema_name
         )
-        file_format_name = self._get_lake_file_format_name(s3_lake_store)
-        stage_name = self._get_lake_stage_name(s3_lake_store)
+        file_format_name = self._get_lake_file_format_name(lake_store)
+        stage_name = self._get_lake_stage_name(lake_store)
 
         create_format_sql = f"""
             CREATE FILE FORMAT IF NOT EXISTS {qualified_prefix}.{file_format_name}
@@ -128,13 +128,12 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         """
         self.execute_sql(create_format_sql)
 
-        stage_name = f"{artifact_prefix}STAGE"
         create_stage_sql = f"""
             CREATE STAGE IF NOT EXISTS {qualified_prefix}.{stage_name}
-            URL = '{s3_lake_store.root_storage_uri}'
+            URL = '{lake_store.root_storage_uri}'
             CREDENTIALS = (
-                AWS_KEY_ID = '{s3_lake_store.aws_access_key_id}'
-                AWS_SECRET_KEY = '{s3_lake_store.aws_secret_access_key}'
+                AWS_KEY_ID = '{lake_store.aws_access_key_id}'
+                AWS_SECRET_KEY = '{lake_store.aws_secret_access_key}'
             )
             FILE_FORMAT = {qualified_prefix}.{file_format_name}
         """
@@ -165,7 +164,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             raise ValueError("If db_name is provided, schema_name must also be provided.")
 
         qualified_prefix = (
-            f"{self.database_name}.{self.schema_name}" if self.database_name else self.schema_name
+            f"{self.database}.{self.schema_name}" if self.database else self.schema_name
         )
         file_format_name = self._get_lake_file_format_name(lake_store)
         stage_name = self._get_lake_stage_name(lake_store)
@@ -180,7 +179,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         self._setup_lake_artifacts(lake_store)
 
         unload_statement = f"""
-            COPY INTO {qualified_prefix}.@{stage_name}/{lake_path_prefix}/
+            COPY INTO @{qualified_prefix}.{stage_name}/{lake_path_prefix}/
             FROM {qualified_table_name}
             FILE_FORMAT = {qualified_prefix}.{file_format_name}
             OVERWRITE = TRUE
@@ -216,7 +215,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             raise ValueError("If db_name is provided, schema_name must also be provided.")
 
         qualified_prefix = (
-            f"{self.database_name}.{self.schema_name}" if self.database_name else self.schema_name
+            f"{self.database}.{self.schema_name}" if self.database else self.schema_name
         )
         file_format_name = self._get_lake_file_format_name(lake_store)
         stage_name = self._get_lake_stage_name(lake_store)
@@ -228,18 +227,17 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         else:
             qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
 
-        self._setup_lake_artifacts(lake_store)
-
-        sql_table = self.streams[stream_name].to_sql_table()
-        table_name = sql_table.name
-
-        artifact_prefix = lake_store.get_artifact_prefix()
+        qualified_prefix = (
+            f"{self.database}.{self.schema_name}" if self.database else self.schema_name
+        )
         file_format_name = self._get_lake_file_format_name(lake_store)
         stage_name = self._get_lake_stage_name(lake_store)
 
+        self._setup_lake_artifacts(lake_store)
+
         load_statement = f"""
             COPY INTO {qualified_table_name}
-            FROM {qualified_prefix}.@{stage_name}/{lake_path_prefix}/
+            FROM @{qualified_prefix}.{stage_name}/{lake_path_prefix}/
             FILE_FORMAT = {qualified_prefix}.{file_format_name}
             MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
             PURGE = FALSE

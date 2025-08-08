@@ -23,7 +23,7 @@ from airbyte.datasets._sql import CachedDataset
 
 
 if TYPE_CHECKING:
-    from airbyte.lakes import LakeStorage
+    from airbyte.lakes import FastUnloadResult, LakeStorage
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_writers import StdOutStateWriter
@@ -404,14 +404,10 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         elif isinstance(streams, list):
             stream_names = streams
 
-        results: list[FastUnloadResult] = []
-        for stream_name in stream_names:
-            results.append(
-                self.fast_unload_stream(
-                    stream_name,
-                    lake_store,
-                )
-            )
+        return [
+            self.fast_unload_stream(stream_name, lake_store)
+            for stream_name in stream_names
+        ]
 
     @final
     def fast_unload_stream(
@@ -503,10 +499,10 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         self,
         table_name: str,
         lake_store: LakeStorage,
+        lake_path_prefix: str,
         *,
         db_name: str | None = None,
         schema_name: str | None = None,
-        path_prefix: str | None = None,
     ) -> None:
         """Fast-unload a specific table to the designated lake storage.
 
@@ -516,31 +512,32 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
     @final
     def fast_load_stream_from_unload_result(
+        self,
         stream_name: str,
         unload_result: FastUnloadResult,
         *,
         zero_copy: bool = False,
-    ):
+    ) -> None:
         """Load the result of a fast unload operation."""
         self.fast_load_stream(
-            stream_name=unload_result.stream_name,
-            lake_store=lake_store,
-            lake_path_prefix=lake_path_prefix,
+            stream_name=stream_name,
+            lake_store=unload_result.lake_store,
+            lake_path_prefix=unload_result.lake_path_prefix,
             zero_copy=zero_copy,
         )
 
     @final
     def fast_load_table_from_unload_result(
+        self,
         table_name: str,
         unload_result: FastUnloadResult,
         *,
         zero_copy: bool = False,
-    ):
+    ) -> None:
         """Load the result of a fast unload operation."""
         self.fast_load_table(
-            stream_name=unload_result.stream_name,
             table_name=table_name,
-            lake_store=lake_store,
-            lake_path_prefix=lake_path_prefix,
+            lake_store=unload_result.lake_store,
+            lake_path_prefix=unload_result.lake_path_prefix,
             zero_copy=zero_copy,
         )
