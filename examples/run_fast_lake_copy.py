@@ -31,11 +31,11 @@ from airbyte.lakes import S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
-LARGER_WAREHOUSE_NAME = "COMPUTE_WH_LARGE"  # LARGE warehouse size (8x multiplier vs xsmall)
+LARGER_WAREHOUSE_NAME = "COMPUTE_WH_2XLARGE"  # 2XLARGE warehouse size (32x multiplier vs xsmall)
 LARGER_WAREHOUSE_SIZE: Literal[
     "xsmall", "small", "medium", "large", "xlarge", "xxlarge"
-] = "large"
-USE_LARGER_WAREHOUSE = True  # Use LARGE warehouse for faster processing (8x vs xsmall)
+] = "xxlarge"
+USE_LARGER_WAREHOUSE = True  # Use 2XLARGE warehouse for faster processing (32x vs xsmall)
 
 RELOAD_INITIAL_SOURCE_DATA = False  # Skip initial data load (assume already loaded)
 
@@ -266,12 +266,22 @@ def transfer_data_with_timing(
     print(f"  Overall throughput:             {total_records_per_sec:,.1f} records/s, {total_mb_per_sec:.2f} MB/s")
     print(f"  Estimated record size:          {estimated_bytes_per_record} bytes")
 
+    step2_cpu_minutes = (step2_time / 60) * size_multiplier
+    step3_cpu_minutes = (step3_time / 60) * size_multiplier
+    total_cpu_minutes = (total_time / 60) * size_multiplier
+
     print("\n🏭 Warehouse Scaling Analysis:")
     print(f"  Warehouse size used:            {warehouse_size}")
     print(f"  Size multiplier:                {size_multiplier}x")
     print(f"  Performance per compute unit:   {total_time / size_multiplier:.2f}s")
     print(f"  Throughput per compute unit:    {total_records_per_sec / size_multiplier:,.1f} records/s/unit")
     print(f"  Bandwidth per compute unit:     {total_mb_per_sec / size_multiplier:.2f} MB/s/unit")
+    
+    print("\n💰 Snowflake CPU Minutes Analysis:")
+    print(f"  Step 2 CPU minutes:             {step2_cpu_minutes:.3f} minutes")
+    print(f"  Step 3 CPU minutes:             {step3_cpu_minutes:.3f} minutes")
+    print(f"  Total CPU minutes:              {total_cpu_minutes:.3f} minutes")
+    print(f"  Cost efficiency (rec/CPU-min):  {actual_records / total_cpu_minutes:,.0f} records/CPU-minute")
 
     validation_start_time = datetime.now()
     print(f"\n🔍 [{validation_start_time.strftime('%H:%M:%S')}] Validating data transfer...")
