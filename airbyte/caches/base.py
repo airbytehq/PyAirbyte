@@ -431,10 +431,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         Subclasses can override this method to provide a faster
         load implementation.
         """
-        arrow_dataset = lake_store.read_dataset(
+        _ = lake_store.read_dataset(
             table_name=stream_name,
             schema=self.schema_name,
             cache_dir=self.cache_dir,
             cleanup=self.cleanup,
         )
-        self.processor.write_arrow_dataset(arrow_dataset, stream_name)
+        # self.processor.write_arrow_dataset(arrow_dataset, stream_name)
+        raise NotImplementedError("Loading from lake store to cache is not yet implemented")

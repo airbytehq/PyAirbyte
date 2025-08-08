@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 class LakeStorage(abc.ABC):
     """PyAirbyte LakeStorage class."""
 
+    def __init__(self) -> None:
+        """Initialize LakeStorage base class."""
+        self.short_name: str
+
     @property
     @abstractmethod
     def uri_protocol(self) -> str:

@@ -91,7 +91,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
                 format='PARQUET',
                 overwrite=true
             ) AS
-            SELECT * FROM {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            SELECT * FROM {self._read_processor.sql_config.schema_name}.{table_name}
         """
 
         self.execute_sql(export_statement)
@@ -117,7 +117,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         source_uri = f"{lake_store.get_stream_root_uri(stream_name)}*.parquet"
 
         load_statement = f"""
-            LOAD DATA INTO {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            LOAD DATA INTO {self._read_processor.sql_config.schema_name}.{table_name}
             FROM FILES (
                 format = 'PARQUET',
                 uris = ['{source_uri}']

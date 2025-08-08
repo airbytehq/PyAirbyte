@@ -133,7 +133,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
         unload_statement = f"""
             COPY INTO @{stage_name}/{stream_name}/
-            FROM {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            FROM {self._read_processor.sql_config.schema_name}.{table_name}
             FILE_FORMAT = {file_format_name}
             OVERWRITE = TRUE
         """
@@ -169,7 +169,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         stage_name = f"{artifact_prefix}STAGE"
 
         load_statement = f"""
-            COPY INTO {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            COPY INTO {self._read_processor.sql_config.schema_name}.{table_name}
             FROM @{stage_name}/{stream_name}/
             FILE_FORMAT = {file_format_name}
             MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
