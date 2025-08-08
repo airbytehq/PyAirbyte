@@ -31,11 +31,11 @@ from airbyte.lakes import S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
-LARGER_WAREHOUSE_NAME = "COMPUTE_WH_2XLARGE"  # 2XLARGE warehouse size (also COMPUTE_WH_LARGE available as 8x option)
+LARGER_WAREHOUSE_NAME = "COMPUTE_WH_LARGE"  # LARGE warehouse size (8x multiplier vs xsmall)
 LARGER_WAREHOUSE_SIZE: Literal[
     "xsmall", "small", "medium", "large", "xlarge", "xxlarge"
-] = "xxlarge"
-USE_LARGER_WAREHOUSE = True  # Use 2XLARGE warehouse for faster processing
+] = "large"
+USE_LARGER_WAREHOUSE = True  # Use LARGE warehouse for faster processing (8x vs xsmall)
 
 RELOAD_INITIAL_SOURCE_DATA = False  # Skip initial data load (assume already loaded)
 
