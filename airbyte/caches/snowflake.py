@@ -113,39 +113,13 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
         
-        if aws_access_key_id is None:
-            aws_access_key_id = get_secret("AWS_ACCESS_KEY_ID")
-        if aws_secret_access_key is None:
-            aws_secret_access_key = get_secret("AWS_SECRET_ACCESS_KEY")
-
-        artifact_prefix = lake_store.get_artifact_prefix()
-        file_format_name = f"{artifact_prefix}PARQUET_FORMAT"
-        create_format_sql = f"""
-            CREATE FILE FORMAT IF NOT EXISTS {file_format_name}
-            TYPE = PARQUET
-            COMPRESSION = SNAPPY
-        """
-        self.execute_sql(create_format_sql)
-
-        stage_name = f"{artifact_prefix}STAGE"
-        create_stage_sql = f"""
-            CREATE OR REPLACE STAGE {stage_name}
-            URL = '{lake_store.root_storage_uri}'
-            CREDENTIALS = (
-                AWS_KEY_ID = '{aws_access_key_id}'
-                AWS_SECRET_KEY = '{aws_secret_access_key}'
-            )
-            FILE_FORMAT = {file_format_name}
-        """
-        self.execute_sql(create_stage_sql)
-
-        unload_statement = f"""
-            COPY INTO @{stage_name}/{stream_name}/
-            FROM {self._read_processor.sql_config.schema_name}.{table_name}
-            FILE_FORMAT = {file_format_name}
-            OVERWRITE = TRUE
-        """
-        self.execute_sql(unload_statement)
+        self.unload_table_to_lake(
+            table_name=table_name,
+            lake_store=lake_store,
+            s3_path_prefix=stream_name,
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+        )
 
     def unload_table_to_lake(
         self,
@@ -154,6 +128,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         *,
         db_name: str | None = None,
         schema_name: str | None = None,
+        s3_path_prefix: str | None = None,
         aws_access_key_id: str | None = None,
         aws_secret_access_key: str | None = None,
     ) -> None:
@@ -169,6 +144,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             lake_store: The lake store to unload to.
             db_name: Database name. If provided, schema_name must also be provided.
             schema_name: Schema name. If not provided, uses the cache's default schema.
+            s3_path_prefix: S3 path prefix for the unloaded files. If not provided, uses table_name.
             aws_access_key_id: AWS access key ID. If not provided, will try to get from secrets.
             aws_secret_access_key: AWS secret access key. If not provided, will try to get from secrets.
 
@@ -211,8 +187,10 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         """
         self.execute_sql(create_stage_sql)
 
+        s3_path = s3_path_prefix if s3_path_prefix is not None else table_name
+
         unload_statement = f"""
-            COPY INTO @{stage_name}/{table_name}/
+            COPY INTO @{stage_name}/{s3_path}/
             FROM {qualified_table_name}
             FILE_FORMAT = {file_format_name}
             OVERWRITE = TRUE
