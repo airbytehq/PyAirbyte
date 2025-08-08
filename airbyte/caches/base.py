@@ -21,6 +21,10 @@ from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBacken
 from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
+
+
+if TYPE_CHECKING:
+    from airbyte.lakes import LakeStorage
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_writers import StdOutStateWriter
@@ -414,3 +418,50 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             progress_tracker=progress_tracker,
         )
         progress_tracker.log_cache_processing_complete()
+
+    def fast_unload(
+        self,
+        lake_store: LakeStorage,
+        *,
+        streams: list[str] | Literal["*"] | None = None,
+    ) -> None:
+        """Unload the cache to a lake store.
+
+        We dump data directly to parquet files in the lake store.
+
+        Args:
+            streams: The streams to unload. If None, unload all streams.
+            lake_store: The lake store to unload to. If None, use the default lake store.
+        """
+        stream_names: list[str]
+        if streams == "*" or streams is None:
+            stream_names = self._catalog_backend.stream_names
+        elif isinstance(streams, list):
+            stream_names = streams
+
+        for stream_name in stream_names:
+            self.unload_stream_to_lake(
+                stream_name,
+                lake_store,
+            )
+
+    def unload_stream_to_lake(
+        self,
+        stream_name: str,
+        lake_store: LakeStorage,
+        **kwargs,
+    ) -> None:
+        """Unload a single stream to the lake store.
+
+        This generic implementation delegates to unload_table_to_lake()
+        which subclasses should override for database-specific fast operations.
+        """
+        if not hasattr(self, "unload_table_to_lake"):
+            raise NotImplementedError("Subclasses must implement unload_table_to_lake() method")
+
+        sql_table = self.streams[stream_name].to_sql_table()
+        table_name = sql_table.name
+
+        self.unload_table_to_lake(
+            table_name=table_name, lake_store=lake_store, s3_path_prefix=stream_name, **kwargs
+        )
