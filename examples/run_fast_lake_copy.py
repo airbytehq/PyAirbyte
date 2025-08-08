@@ -166,7 +166,7 @@ def transfer_data_with_timing(
     step1_start_time = datetime.now()
     print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)...")
     step1_start = time.time()
-    source.read(cache=snowflake_cache_source)
+    source.read(cache=snowflake_cache_source, force_full_refresh=True)
     step1_time = time.time() - step1_start
     step1_end_time = datetime.now()
     print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds (elapsed: {(step1_end_time - step1_start_time).total_seconds():.2f}s)")
