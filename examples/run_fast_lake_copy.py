@@ -29,11 +29,13 @@ from airbyte.lakes import S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
-LARGER_WAREHOUSE_NAME = "COMPUTE_WH_LARGE"
+LARGER_WAREHOUSE_NAME = "COMPUTE_WH_2XLARGE"  # 2x warehouse size
 LARGER_WAREHOUSE_SIZE: Literal[
     "xsmall", "small", "medium", "large", "xlarge", "xxlarge"
-] = "large"
-USE_LARGER_WAREHOUSE = False
+] = "xxlarge"
+USE_LARGER_WAREHOUSE = True  # Use 2XLARGE warehouse for faster processing
+
+RELOAD_INITIAL_SOURCE_DATA = False  # Skip initial data load (assume already loaded)
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
@@ -41,7 +43,7 @@ WAREHOUSE_SIZE_MULTIPLIERS = {
     "medium": 4,
     "large": 8,
     "xlarge": 16,
-    "xxlarge": 32,
+    "xxlarge": 32,  # COMPUTE_WH_2XLARGE provides 32x compute units vs xsmall
 }
 
 
@@ -164,20 +166,33 @@ def transfer_data_with_timing(
     print(f"🚀 [{workflow_start_time.strftime('%H:%M:%S')}] Starting fast lake copy workflow (Snowflake→S3→Snowflake)...")
     total_start = time.time()
 
-    step1_start_time = datetime.now()
-    print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)...")
-    step1_start = time.time()
-    read_result = source.read(cache=snowflake_cache_source, force_full_refresh=True, write_strategy="replace")
-    step1_time = time.time() - step1_start
-    step1_end_time = datetime.now()
-    
-    actual_records = len(snowflake_cache_source["purchases"])
-    step1_records_per_sec = actual_records / step1_time if step1_time > 0 else 0
-    estimated_bytes_per_record = 240
-    step1_mb_per_sec = (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step1_time if step1_time > 0 else 0
-    
-    print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds (elapsed: {(step1_end_time - step1_start_time).total_seconds():.2f}s)")
-    print(f"   📊 Step 1 Performance: {actual_records:,} records at {step1_records_per_sec:,.1f} records/s, {step1_mb_per_sec:.2f} MB/s")
+    if RELOAD_INITIAL_SOURCE_DATA:
+        step1_start_time = datetime.now()
+        print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)...")
+        step1_start = time.time()
+        read_result = source.read(cache=snowflake_cache_source, force_full_refresh=True, write_strategy="replace")
+        step1_time = time.time() - step1_start
+        step1_end_time = datetime.now()
+        
+        actual_records = len(snowflake_cache_source["purchases"])
+        step1_records_per_sec = actual_records / step1_time if step1_time > 0 else 0
+        estimated_bytes_per_record = 240
+        step1_mb_per_sec = (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step1_time if step1_time > 0 else 0
+        
+        print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds (elapsed: {(step1_end_time - step1_start_time).total_seconds():.2f}s)")
+        print(f"   📊 Step 1 Performance: {actual_records:,} records at {step1_records_per_sec:,.1f} records/s, {step1_mb_per_sec:.2f} MB/s")
+    else:
+        step1_start_time = datetime.now()
+        print(f"⏭️  [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Skipping initial source data load (RELOAD_INITIAL_SOURCE_DATA=False)")
+        step1_time = 0
+        step1_end_time = step1_start_time
+        
+        actual_records = len(snowflake_cache_source["purchases"])
+        step1_records_per_sec = 0
+        estimated_bytes_per_record = 240
+        step1_mb_per_sec = 0
+        
+        print(f"   📊 Using existing data: {actual_records:,} records | Size: {(actual_records * estimated_bytes_per_record) / (1024 * 1024):.2f} MB")
 
     step2_start_time = datetime.now()
     print(f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3...")
@@ -234,7 +249,10 @@ def transfer_data_with_timing(
     print(f"  Workflow started:               {workflow_start_time.strftime('%H:%M:%S')}")
     print(f"  Workflow completed:             {workflow_end_time.strftime('%H:%M:%S')}")
     print(f"  Total elapsed time:             {total_elapsed:.2f}s")
-    print(f"  Step 1 (Source → Snowflake):     {step1_time:.2f}s ({step1_records_per_sec:,.1f} rec/s, {step1_mb_per_sec:.2f} MB/s)")
+    if RELOAD_INITIAL_SOURCE_DATA:
+        print(f"  Step 1 (Source → Snowflake):     {step1_time:.2f}s ({step1_records_per_sec:,.1f} rec/s, {step1_mb_per_sec:.2f} MB/s)")
+    else:
+        print(f"  Step 1 (Source → Snowflake):     SKIPPED (using existing data)")
     print(f"  Step 2 (Snowflake → S3):        {step2_time:.2f}s ({step2_records_per_sec:,.1f} rec/s, {step2_mb_per_sec:.2f} MB/s)")
     print(f"  Step 3 (S3 → Snowflake):        {step3_time:.2f}s ({step3_records_per_sec:,.1f} rec/s, {step3_mb_per_sec:.2f} MB/s)")
     print(f"  Total measured time:            {total_time:.2f}s")
@@ -297,6 +315,8 @@ def main() -> None:
         print(
             f"   • Warehouse scaling: {warehouse_size} ({size_multiplier}x compute units)"
         )
+        if not RELOAD_INITIAL_SOURCE_DATA:
+            print("   • Skip initial load optimization (RELOAD_INITIAL_SOURCE_DATA=False)")
 
     except Exception as e:
         print(f"\n❌ Error during execution: {e}")
