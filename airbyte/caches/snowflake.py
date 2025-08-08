@@ -147,6 +147,78 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         """
         self.execute_sql(unload_statement)
 
+    def unload_table_to_lake(
+        self,
+        table_name: str,
+        lake_store: LakeStorage,
+        *,
+        db_name: str | None = None,
+        schema_name: str | None = None,
+        aws_access_key_id: str | None = None,
+        aws_secret_access_key: str | None = None,
+    ) -> None:
+        """Unload an arbitrary table to the lake store using Snowflake COPY INTO.
+
+        This implementation uses Snowflake's COPY INTO command to unload data
+        directly to S3 in Parquet format with managed artifacts for optimal performance.
+        Unlike unload_stream_to_lake(), this method works with any table and doesn't
+        require a stream mapping.
+
+        Args:
+            table_name: The name of the table to unload.
+            lake_store: The lake store to unload to.
+            db_name: Database name. If provided, schema_name must also be provided.
+            schema_name: Schema name. If not provided, uses the cache's default schema.
+            aws_access_key_id: AWS access key ID. If not provided, will try to get from secrets.
+            aws_secret_access_key: AWS secret access key. If not provided, will try to get from secrets.
+
+        Raises:
+            ValueError: If db_name is provided but schema_name is not.
+        """
+        if db_name is not None and schema_name is None:
+            raise ValueError("If db_name is provided, schema_name must also be provided.")
+
+        if aws_access_key_id is None:
+            aws_access_key_id = get_secret("AWS_ACCESS_KEY_ID")
+        if aws_secret_access_key is None:
+            aws_secret_access_key = get_secret("AWS_SECRET_ACCESS_KEY")
+
+        if db_name is not None and schema_name is not None:
+            qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
+        elif schema_name is not None:
+            qualified_table_name = f"{schema_name}.{table_name}"
+        else:
+            qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
+
+        artifact_prefix = lake_store.get_artifact_prefix()
+        file_format_name = f"{artifact_prefix}PARQUET_FORMAT"
+        create_format_sql = f"""
+            CREATE FILE FORMAT IF NOT EXISTS {file_format_name}
+            TYPE = PARQUET
+            COMPRESSION = SNAPPY
+        """
+        self.execute_sql(create_format_sql)
+
+        stage_name = f"{artifact_prefix}STAGE"
+        create_stage_sql = f"""
+            CREATE OR REPLACE STAGE {stage_name}
+            URL = '{lake_store.root_storage_uri}'
+            CREDENTIALS = (
+                AWS_KEY_ID = '{aws_access_key_id}'
+                AWS_SECRET_KEY = '{aws_secret_access_key}'
+            )
+            FILE_FORMAT = {file_format_name}
+        """
+        self.execute_sql(create_stage_sql)
+
+        unload_statement = f"""
+            COPY INTO @{stage_name}/{table_name}/
+            FROM {qualified_table_name}
+            FILE_FORMAT = {file_format_name}
+            OVERWRITE = TRUE
+        """
+        self.execute_sql(unload_statement)
+
     def load_stream_from_lake(
         self,
         stream_name: str,
