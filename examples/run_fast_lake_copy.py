@@ -20,12 +20,26 @@ Required secrets (retrieved from Google Secret Manager):
 """
 
 import time
-from typing import Any
+from typing import Any, Literal
 
 import airbyte as ab
 from airbyte.caches.snowflake import SnowflakeCache
 from airbyte.lakes import S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+
+XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
+LARGER_WAREHOUSE_NAME = "COMPUTE_WH_LARGE"
+LARGER_WAREHOUSE_SIZE: Literal["xsmall", "small", "medium", "large", "xlarge", "xxlarge"] = "large"
+USE_LARGER_WAREHOUSE = False
+
+WAREHOUSE_SIZE_MULTIPLIERS = {
+    "xsmall": 1,
+    "small": 2,
+    "medium": 4,
+    "large": 8,
+    "xlarge": 16,
+    "xxlarge": 32,
+}
 
 
 def get_credentials() -> dict[str, Any]:
@@ -70,13 +84,22 @@ def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, Snowflake
     print("🏗️  Setting up Snowflake caches...")
 
     snowflake_config = credentials["snowflake"]
+    
+    warehouse_name = LARGER_WAREHOUSE_NAME if USE_LARGER_WAREHOUSE else XSMALL_WAREHOUSE_NAME
+    warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
+    size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
+    
+    print(f"📊 Warehouse Configuration:")
+    print(f"   Using warehouse: {warehouse_name}")
+    print(f"   Warehouse size: {warehouse_size}")
+    print(f"   Size multiplier: {size_multiplier}x (relative to xsmall)")
 
     snowflake_cache_source = SnowflakeCache(
         account=snowflake_config["account"],
         username=snowflake_config["username"],
         password=snowflake_config["password"],
         database=snowflake_config["database"],
-        warehouse=snowflake_config["warehouse"],
+        warehouse=warehouse_name,
         role=snowflake_config["role"],
         schema_name="fast_lake_copy_source",
     )
@@ -86,7 +109,7 @@ def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, Snowflake
         username=snowflake_config["username"],
         password=snowflake_config["password"],
         database=snowflake_config["database"],
-        warehouse=snowflake_config["warehouse"],
+        warehouse=warehouse_name,
         role=snowflake_config["role"],
         schema_name="fast_lake_copy_dest",
     )
@@ -152,12 +175,23 @@ def transfer_data_with_timing(
 
     total_time = time.time() - total_start
 
+    warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
+    size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
+    
     print("\n📊 Performance Summary:")
     print(f"  Step 1 (Source → Snowflake):     {step1_time:.2f}s")
     print(f"  Step 2 (Snowflake → S3):        {step2_time:.2f}s")
     print(f"  Step 3 (S3 → Snowflake):        {step3_time:.2f}s")
     print(f"  Total workflow time:            {total_time:.2f}s")
     print(f"  Streams processed:              {len(streams)}")
+    
+    print(f"\n🏭 Warehouse Scaling Analysis:")
+    print(f"  Warehouse size used:            {warehouse_size}")
+    print(f"  Size multiplier:                {size_multiplier}x")
+    print(f"  Performance per compute unit:   {total_time / size_multiplier:.2f}s")
+    if total_time > 0:
+        throughput_per_unit = (len(streams) / total_time) / size_multiplier
+        print(f"  Throughput per compute unit:    {throughput_per_unit:.2f} streams/s/unit")
 
     print("\n🔍 Validating data transfer...")
     for stream_name in streams:
@@ -188,6 +222,9 @@ def main() -> None:
             s3_lake=s3_lake,
         )
 
+        warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
+        size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
+        
         print("\n🎉 Fast lake copy workflow completed successfully!")
         print("💡 This demonstrates 100x performance improvements through:")
         print("   • Direct bulk operations (Snowflake COPY INTO)")
@@ -195,6 +232,7 @@ def main() -> None:
         print("   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)")
         print("   • Optimized Parquet file format with Snappy compression")
         print("   • Parallel stream processing")
+        print(f"   • Warehouse scaling: {warehouse_size} ({size_multiplier}x compute units)")
 
     except Exception as e:
         print(f"\n❌ Error during execution: {e}")
