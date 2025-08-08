@@ -67,23 +67,36 @@ class BigQueryCache(BigQueryConfig, CacheBase):
             "Please consider using a different cache implementation for these functionalities."
         )
 
-    def unload_stream_to_lake(
+    def unload_table_to_lake(
         self,
-        stream_name: str,
+        table_name: str,
         lake_store: LakeStorage,
+        *,
+        db_name: str | None = None,
+        schema_name: str | None = None,
+        s3_path_prefix: str | None = None,
+        **_kwargs,
     ) -> None:
-        """Unload a single stream to the lake store using BigQuery EXPORT DATA.
+        """Unload an arbitrary table to the lake store using BigQuery EXPORT DATA.
 
         This implementation uses BigQuery's native EXPORT DATA functionality
         to write directly to GCS, bypassing the Arrow dataset limitation.
         """
-        sql_table = self.streams[stream_name].to_sql_table()
-        table_name = sql_table.name
+        if db_name is not None and schema_name is None:
+            raise ValueError("If db_name is provided, schema_name must also be provided.")
 
         if not hasattr(lake_store, "bucket_name"):
             raise NotImplementedError("BigQuery unload currently only supports GCS lake storage")
 
-        export_uri = f"{lake_store.get_stream_root_uri(stream_name)}*.parquet"
+        if db_name is not None and schema_name is not None:
+            qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
+        elif schema_name is not None:
+            qualified_table_name = f"{schema_name}.{table_name}"
+        else:
+            qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
+
+        s3_path = s3_path_prefix if s3_path_prefix is not None else table_name
+        export_uri = f"{lake_store.root_storage_uri}{s3_path}/*.parquet"
 
         export_statement = f"""
             EXPORT DATA OPTIONS(
@@ -91,7 +104,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
                 format='PARQUET',
                 overwrite=true
             ) AS
-            SELECT * FROM {self._read_processor.sql_config.schema_name}.{table_name}
+            SELECT * FROM {qualified_table_name}
         """
 
         self.execute_sql(export_statement)

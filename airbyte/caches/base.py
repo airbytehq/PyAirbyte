@@ -391,51 +391,28 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             stream_names = streams
 
         for stream_name in stream_names:
-            self._unload_stream_to_lake_store(
+            self.unload_stream_to_lake(
                 stream_name,
                 lake_store,
             )
 
-    def _unload_stream_to_lake_store(
+    def unload_stream_to_lake(
         self,
         stream_name: str,
         lake_store: LakeStorage,
+        **kwargs,
     ) -> None:
         """Unload a single stream to the lake store.
 
-        This generic implementation delegates to the `lake_store` and passes
-        an Arrow dataset to the lake store object.
-
-        Subclasses can override this method to provide a faster
-        unload implementation.
+        This generic implementation delegates to unload_table_to_lake()
+        which subclasses should override for database-specific fast operations.
         """
-        arrow_dataset = self.get_arrow_dataset(stream_name)
-        lake_store.write_dataset(
-            dataset=arrow_dataset,
-            table_name=stream_name,
-            schema=self.schema_name,
-            cache_dir=self.cache_dir,
-            cleanup=self.cleanup,
+        if not hasattr(self, "unload_table_to_lake"):
+            raise NotImplementedError("Subclasses must implement unload_table_to_lake() method")
+
+        sql_table = self.streams[stream_name].to_sql_table()
+        table_name = sql_table.name
+
+        self.unload_table_to_lake(
+            table_name=table_name, lake_store=lake_store, s3_path_prefix=stream_name, **kwargs
         )
-
-    def _load_stream_from_lake_store(
-        self,
-        stream_name: str,
-        lake_store: LakeStorage,
-    ) -> None:
-        """Load a single stream from the lake store.
-
-        This generic implementation reads an Arrow dataset from the lake store
-        and writes it to the cache.
-
-        Subclasses can override this method to provide a faster
-        load implementation.
-        """
-        _ = lake_store.read_dataset(
-            table_name=stream_name,
-            schema=self.schema_name,
-            cache_dir=self.cache_dir,
-            cleanup=self.cleanup,
-        )
-        # self.processor.write_arrow_dataset(arrow_dataset, stream_name)
-        raise NotImplementedError("Loading from lake store to cache is not yet implemented")

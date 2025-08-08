@@ -6,14 +6,6 @@ from __future__ import annotations
 import abc
 import re
 from abc import abstractmethod
-from typing import TYPE_CHECKING
-
-import pyarrow.dataset as ds
-from pyarrow import fs
-
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 class LakeStorage(abc.ABC):
@@ -60,7 +52,6 @@ class LakeStorage(abc.ABC):
         """Get the URI root for a stream in the lake storage."""
         return self.path_to_uri(self.get_stream_root_path(stream_name))
 
-
     def _validate_short_name(self, short_name: str) -> str:
         """Validate that short_name is lowercase snake_case with no special characters."""
         if not re.match(r"^[a-z][a-z0-9_]*$", short_name):
@@ -103,7 +94,6 @@ class S3LakeStorage(LakeStorage):
         return f"{self.uri_protocol}{self.bucket_name}/"
 
 
-
 class GCSLakeStorage(LakeStorage):
     """Google Cloud Storage Lake Storage implementation."""
 
@@ -124,7 +114,6 @@ class GCSLakeStorage(LakeStorage):
     def root_storage_uri(self) -> str:
         """Get the root URI for the GCS lake storage."""
         return f"{self.uri_protocol}{self.bucket_name}/"
-
 
 
 __all__ = [

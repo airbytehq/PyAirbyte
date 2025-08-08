@@ -91,36 +91,6 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         """Return a dictionary of destination configuration values."""
         return snowflake_cache_to_destination_configuration(cache=self)
 
-    def unload_stream_to_lake(
-        self,
-        stream_name: str,
-        lake_store: LakeStorage,
-        *,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
-    ) -> None:
-        """Unload a single stream to the lake store using Snowflake COPY INTO.
-
-        This implementation uses Snowflake's COPY INTO command to unload data
-        directly to S3 in Parquet format with managed artifacts for optimal performance.
-
-        Args:
-            stream_name: The name of the stream to unload.
-            lake_store: The lake store to unload to.
-            aws_access_key_id: AWS access key ID. If not provided, gets from secrets.
-            aws_secret_access_key: AWS secret access key. If not provided, gets from secrets.
-        """
-        sql_table = self.streams[stream_name].to_sql_table()
-        table_name = sql_table.name
-
-        self.unload_table_to_lake(
-            table_name=table_name,
-            lake_store=lake_store,
-            s3_path_prefix=stream_name,
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-        )
-
     def unload_table_to_lake(
         self,
         table_name: str,
