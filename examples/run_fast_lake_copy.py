@@ -20,6 +20,7 @@ Required secrets (retrieved from Google Secret Manager):
 """
 
 import time
+from datetime import datetime
 from typing import Any, Literal
 
 import airbyte as ab
@@ -46,7 +47,7 @@ WAREHOUSE_SIZE_MULTIPLIERS = {
 
 def get_credentials() -> dict[str, Any]:
     """Retrieve required credentials from Google Secret Manager."""
-    print("🔐 Retrieving credentials from Google Secret Manager...")
+    print(f"🔐 [{datetime.now().strftime('%H:%M:%S')}] Retrieving credentials from Google Secret Manager...")
 
     AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
     secret_mgr = GoogleGSMSecretManager(
@@ -75,7 +76,7 @@ def get_credentials() -> dict[str, Any]:
 
 def setup_source() -> ab.Source:
     """Set up the source connector with sample data."""
-    print("📊 Setting up source connector...")
+    print(f"📊 [{datetime.now().strftime('%H:%M:%S')}] Setting up source connector...")
 
     return ab.get_source(
         "source-faker",
@@ -92,7 +93,7 @@ def setup_source() -> ab.Source:
 
 def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, SnowflakeCache]:
     """Set up source and destination Snowflake caches."""
-    print("🏗️  Setting up Snowflake caches...")
+    print(f"🏗️  [{datetime.now().strftime('%H:%M:%S')}] Setting up Snowflake caches...")
 
     snowflake_config = credentials["snowflake"]
 
@@ -132,7 +133,7 @@ def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, Snowflake
 
 def setup_lake_storage(credentials: dict[str, Any]) -> S3LakeStorage:
     """Set up S3 lake storage."""
-    print("🏞️  Setting up S3 lake storage...")
+    print(f"🏞️  [{datetime.now().strftime('%H:%M:%S')}] Setting up S3 lake storage...")
 
     s3_lake = S3LakeStorage(
         bucket_name="airbyte-acceptance-test-source-s3",
@@ -158,16 +159,20 @@ def transfer_data_with_timing(
     """
     streams = ["products", "users", "purchases"]
 
-    print("🚀 Starting fast lake copy workflow (Snowflake→S3→Snowflake)...")
+    workflow_start_time = datetime.now()
+    print(f"🚀 [{workflow_start_time.strftime('%H:%M:%S')}] Starting fast lake copy workflow (Snowflake→S3→Snowflake)...")
     total_start = time.time()
 
-    print("📥 Step 1: Loading data from source to Snowflake (source)...")
+    step1_start_time = datetime.now()
+    print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)...")
     step1_start = time.time()
     source.read(cache=snowflake_cache_source)
     step1_time = time.time() - step1_start
-    print(f"✅ Step 1 completed in {step1_time:.2f} seconds")
+    step1_end_time = datetime.now()
+    print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds (elapsed: {(step1_end_time - step1_start_time).total_seconds():.2f}s)")
 
-    print("📤 Step 2: Unloading from Snowflake to S3...")
+    step2_start_time = datetime.now()
+    print(f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3...")
     step2_start = time.time()
     for stream_name in streams:
         snowflake_cache_source.unload_stream_to_lake(
@@ -177,9 +182,11 @@ def transfer_data_with_timing(
             aws_secret_access_key=credentials["aws_secret_access_key"],
         )
     step2_time = time.time() - step2_start
-    print(f"✅ Step 2 completed in {step2_time:.2f} seconds")
+    step2_end_time = datetime.now()
+    print(f"✅ [{step2_end_time.strftime('%H:%M:%S')}] Step 2 completed in {step2_time:.2f} seconds (elapsed: {(step2_end_time - step2_start_time).total_seconds():.2f}s)")
 
-    print("📥 Step 3: Loading from S3 to Snowflake (destination)...")
+    step3_start_time = datetime.now()
+    print(f"📥 [{step3_start_time.strftime('%H:%M:%S')}] Step 3: Loading from S3 to Snowflake (destination)...")
     step3_start = time.time()
     
     snowflake_cache_dest.create_source_tables(source=source, streams=streams)
@@ -192,18 +199,24 @@ def transfer_data_with_timing(
             aws_secret_access_key=credentials["aws_secret_access_key"],
         )
     step3_time = time.time() - step3_start
-    print(f"✅ Step 3 completed in {step3_time:.2f} seconds")
+    step3_end_time = datetime.now()
+    print(f"✅ [{step3_end_time.strftime('%H:%M:%S')}] Step 3 completed in {step3_time:.2f} seconds (elapsed: {(step3_end_time - step3_start_time).total_seconds():.2f}s)")
 
     total_time = time.time() - total_start
+    workflow_end_time = datetime.now()
+    total_elapsed = (workflow_end_time - workflow_start_time).total_seconds()
 
     warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
     size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
 
-    print("\n📊 Performance Summary:")
+    print(f"\n📊 [{workflow_end_time.strftime('%H:%M:%S')}] Performance Summary:")
+    print(f"  Workflow started:               {workflow_start_time.strftime('%H:%M:%S')}")
+    print(f"  Workflow completed:             {workflow_end_time.strftime('%H:%M:%S')}")
+    print(f"  Total elapsed time:             {total_elapsed:.2f}s")
     print(f"  Step 1 (Source → Snowflake):     {step1_time:.2f}s")
     print(f"  Step 2 (Snowflake → S3):        {step2_time:.2f}s")
     print(f"  Step 3 (S3 → Snowflake):        {step3_time:.2f}s")
-    print(f"  Total workflow time:            {total_time:.2f}s")
+    print(f"  Total measured time:            {total_time:.2f}s")
     print(f"  Streams processed:              {len(streams)}")
 
     print("\n🏭 Warehouse Scaling Analysis:")
@@ -216,7 +229,8 @@ def transfer_data_with_timing(
             f"  Throughput per compute unit:    {throughput_per_unit:.2f} streams/s/unit"
         )
 
-    print("\n🔍 Validating data transfer...")
+    validation_start_time = datetime.now()
+    print(f"\n🔍 [{validation_start_time.strftime('%H:%M:%S')}] Validating data transfer...")
     for stream_name in streams:
         source_count = len(snowflake_cache_source[stream_name])
         dest_count = len(snowflake_cache_dest[stream_name])
@@ -225,6 +239,8 @@ def transfer_data_with_timing(
             print(f"  ✅ {stream_name} transfer validated")
         else:
             print(f"  ❌ {stream_name} transfer validation failed")
+    validation_end_time = datetime.now()
+    print(f"🔍 [{validation_end_time.strftime('%H:%M:%S')}] Validation completed in {(validation_end_time - validation_start_time).total_seconds():.2f}s")
 
 
 def main() -> None:
