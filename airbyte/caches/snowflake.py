@@ -68,8 +68,10 @@ from airbyte.caches.base import CacheBase
 from airbyte.destinations._translate_cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
+from airbyte.lakes import FastUnloadResult
 from airbyte.secrets.util import get_secret
 from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
+
 
 if TYPE_CHECKING:
     from airbyte.lakes import LakeStorage
@@ -145,9 +147,10 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         lake_store: LakeStorage,
         lake_path_prefix: str,
         *,
+        stream_name: str | None = None,
         db_name: str | None = None,
         schema_name: str | None = None,
-    ) -> None:
+    ) -> FastUnloadResult:
         """Unload an arbitrary table to the lake store using Snowflake COPY INTO.
 
         This implementation uses Snowflake's COPY INTO command to unload data
@@ -183,6 +186,12 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             OVERWRITE = TRUE
         """
         self.execute_sql(unload_statement)
+        return FastUnloadResult(
+            stream_name=stream_name,
+            table_name=table_name,
+            lake_store=lake_store,
+            lake_path_prefix=lake_path_prefix,
+        )
 
     @override
     def fast_load_table(

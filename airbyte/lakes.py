@@ -61,6 +61,15 @@ class LakeStorage(abc.ABC):
         return short_name
 
 
+class FastUnloadResult(BaseModel):
+    """Results from a Fast Unload operation"""
+
+    lake_store: LakeStorage
+    lake_path_prefix: str
+    table_name: str
+    stream_name: str | None = None
+
+
 class S3LakeStorage(LakeStorage):
     """S3 Lake Storage implementation."""
 

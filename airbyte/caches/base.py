@@ -389,7 +389,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         lake_store: LakeStorage,
         *,
         streams: list[str] | Literal["*"] | None = None,
-    ) -> None:
+    ) -> list[FastUnloadResult]:
         """Unload the cache to a lake store.
 
         We dump data directly to parquet files in the lake store.
@@ -404,10 +404,13 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         elif isinstance(streams, list):
             stream_names = streams
 
+        results: list[FastUnloadResult] = []
         for stream_name in stream_names:
-            self.fast_unload_stream(
-                stream_name,
-                lake_store,
+            results.append(
+                self.fast_unload_stream(
+                    stream_name,
+                    lake_store,
+                )
             )
 
     @final
@@ -416,7 +419,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         stream_name: str,
         lake_store: LakeStorage,
         **kwargs,
-    ) -> None:
+    ) -> FastUnloadResult:
         """Unload a single stream to the lake store.
 
         This generic implementation delegates to `fast_unload_table()`
@@ -428,7 +431,8 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
 
-        self.fast_unload_table(
+        return self.fast_unload_table(
+            stream_name=stream_name,
             table_name=table_name,
             lake_store=lake_store,
             lake_path_prefix=stream_name,
@@ -440,10 +444,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         table_name: str,
         lake_store: LakeStorage,
         *,
+        stream_name: str | None = None,
         db_name: str | None = None,
         schema_name: str | None = None,
         path_prefix: str | None = None,
-    ) -> None:
+    ) -> FastUnloadResult:
         """Fast-unload a specific table to the designated lake storage.
 
         Subclasses should override this method to implement fast unloads.

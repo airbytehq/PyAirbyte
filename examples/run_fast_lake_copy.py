@@ -235,10 +235,13 @@ def transfer_data_with_timing(
         f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3..."
     )
     step2_start = time.time()
+    unload_results: list[FastUnloadResult] = []
     for stream_name in streams:
-        snowflake_cache_source.fast_unload_stream(
-            stream_name=stream_name,
-            lake_store=s3_lake,
+        unload_results.append(
+            snowflake_cache_source.fast_unload_stream(
+                stream_name=stream_name,
+                lake_store=s3_lake,
+            )
         )
     step2_time = time.time() - step2_start
     step2_end_time = datetime.now()

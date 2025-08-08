@@ -73,11 +73,12 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         table_name: str,
         lake_store: LakeStorage,
         *,
+        stream_name: str | None = None,
         db_name: str | None = None,
         schema_name: str | None = None,
-        s3_path_prefix: str | None = None,
+        lake_path_prefix: str,
         **_kwargs,
-    ) -> None:
+    ) -> FastUnloadResult:
         """Unload an arbitrary table to the lake store using BigQuery EXPORT DATA.
 
         This implementation uses BigQuery's native EXPORT DATA functionality
@@ -96,7 +97,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         else:
             qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
 
-        s3_path = s3_path_prefix if s3_path_prefix is not None else table_name
+        s3_path = lake_path_prefix if lake_path_prefix is not None else table_name
         export_uri = f"{lake_store.root_storage_uri}{s3_path}/*.parquet"
 
         export_statement = f"""
@@ -109,6 +110,12 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         """
 
         self.execute_sql(export_statement)
+        return FastUnloadResult(
+            lake_store=lake_store,
+            lake_path_prefix=lake_path_prefix,
+            table_name=table_name,
+            stream_name=stream_name,
+        )
 
     @override
     def fast_load_stream(
