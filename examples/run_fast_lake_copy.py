@@ -157,8 +157,8 @@ def setup_lake_storage(credentials: dict[str, Any]) -> S3LakeStorage:
     s3_lake = S3LakeStorage(
         bucket_name="ab-destiantion-iceberg-us-west-2",
         region="us-west-2",
-        access_key_id=credentials["aws_access_key_id"],
-        secret_access_key=credentials["aws_secret_access_key"],
+        aws_access_key_id=credentials["aws_access_key_id"],
+        aws_secret_access_key=credentials["aws_secret_access_key"],
         short_name="s3_main",  # Custom short name for AIRBYTE_LAKE_S3_MAIN_ artifacts
     )
 
@@ -170,7 +170,6 @@ def transfer_data_with_timing(
     snowflake_cache_source: SnowflakeCache,
     snowflake_cache_dest: SnowflakeCache,
     s3_lake: S3LakeStorage,
-    credentials: dict[str, Any],
 ) -> None:
     """Execute the complete data transfer workflow with performance timing.
 
@@ -237,11 +236,9 @@ def transfer_data_with_timing(
     )
     step2_start = time.time()
     for stream_name in streams:
-        snowflake_cache_source.unload_stream_to_lake(
+        snowflake_cache_source.fast_unload_stream(
             stream_name=stream_name,
             lake_store=s3_lake,
-            aws_access_key_id=credentials["aws_access_key_id"],
-            aws_secret_access_key=credentials["aws_secret_access_key"],
         )
     step2_time = time.time() - step2_start
     step2_end_time = datetime.now()
@@ -275,11 +272,9 @@ def transfer_data_with_timing(
     snowflake_cache_dest.create_source_tables(source=source, streams=streams)
 
     for stream_name in streams:
-        snowflake_cache_dest.load_stream_from_lake(
+        snowflake_cache_dest.fast_load_stream(
             stream_name=stream_name,
             lake_store=s3_lake,
-            aws_access_key_id=credentials["aws_access_key_id"],
-            aws_secret_access_key=credentials["aws_secret_access_key"],
         )
     step3_time = time.time() - step3_start
     step3_end_time = datetime.now()

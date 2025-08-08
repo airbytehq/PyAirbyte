@@ -60,10 +60,6 @@ class LakeStorage(abc.ABC):
             )
         return short_name
 
-    def get_artifact_prefix(self) -> str:
-        """Get the artifact prefix for this lake storage."""
-        return f"AIRBYTE_LAKE_{self.short_name.upper()}_"
-
 
 class S3LakeStorage(LakeStorage):
     """S3 Lake Storage implementation."""
@@ -72,15 +68,15 @@ class S3LakeStorage(LakeStorage):
         self,
         bucket_name: str,
         region: str,
-        access_key_id: str,
-        secret_access_key: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
         short_name: str = "s3",
     ) -> None:
         """Initialize S3LakeStorage with required parameters."""
         self.bucket_name = bucket_name
         self.region = region
-        self.access_key_id = access_key_id
-        self.secret_access_key = secret_access_key
+        self.aws_access_key_id = aws_access_key_id
+        self.aws_secret_access_key = aws_secret_access_key
         self.short_name = self._validate_short_name(short_name)
 
     @property

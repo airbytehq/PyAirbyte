@@ -78,6 +78,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             "configuration."
         )
 
+    @final
     def __init__(self, **data: Any) -> None:  # noqa: ANN401
         """Initialize the cache and backends."""
         super().__init__(**data)
@@ -111,6 +112,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_file_cleanup=self.cleanup,
         )
 
+    @final
     @property
     def config_hash(self) -> str | None:
         """Return a hash of the cache configuration.
@@ -119,6 +121,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         """
         return super(SqlConfig, self).config_hash
 
+    @final
     def execute_sql(self, sql: str | list[str]) -> None:
         """Execute one or more SQL statements against the cache's SQL backend.
 
@@ -149,6 +152,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         """Return the SQL processor instance."""
         return self._read_processor
 
+    @final
     def get_record_processor(
         self,
         source_name: str,
@@ -182,6 +186,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
     # Read methods:
 
+    @final
     def get_records(
         self,
         stream_name: str,
@@ -255,6 +260,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         """
         return True
 
+    @final
     def get_state_provider(
         self,
         source_name: str,
@@ -270,6 +276,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             destination_name=destination_name,
         )
 
+    @final
     def get_state_writer(
         self,
         source_name: str,
@@ -285,6 +292,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             destination_name=destination_name,
         )
 
+    @final
     def register_source(
         self,
         source_name: str,
@@ -298,6 +306,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             incoming_stream_names=stream_names,
         )
 
+    @final
     def create_source_tables(
         self,
         source: Source,
@@ -334,20 +343,24 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
                 create_if_missing=True,
             )
 
+    @final
     def __getitem__(self, stream: str) -> CachedDataset:
         """Return a dataset by stream name."""
         return self.streams[stream]
 
+    @final
     def __contains__(self, stream: str) -> bool:
         """Return whether a stream is in the cache."""
         return stream in (self._catalog_backend.stream_names)
 
+    @final
     def __iter__(  # type: ignore [override]  # Overriding Pydantic model method
         self,
     ) -> Iterator[tuple[str, Any]]:
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
 
+    @final
     def _write_airbyte_message_stream(
         self,
         stdin: IO[str] | AirbyteMessageIterator,
@@ -370,7 +383,8 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         )
         progress_tracker.log_cache_processing_complete()
 
-    def fast_unload(
+    @final
+    def fast_unload_streams(
         self,
         lake_store: LakeStorage,
         *,
@@ -391,12 +405,13 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             stream_names = streams
 
         for stream_name in stream_names:
-            self.unload_stream_to_lake(
+            self.fast_unload_stream(
                 stream_name,
                 lake_store,
             )
 
-    def unload_stream_to_lake(
+    @final
+    def fast_unload_stream(
         self,
         stream_name: str,
         lake_store: LakeStorage,
@@ -404,15 +419,92 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     ) -> None:
         """Unload a single stream to the lake store.
 
-        This generic implementation delegates to unload_table_to_lake()
+        This generic implementation delegates to `fast_unload_table()`
         which subclasses should override for database-specific fast operations.
         """
-        if not hasattr(self, "unload_table_to_lake"):
-            raise NotImplementedError("Subclasses must implement unload_table_to_lake() method")
+        if not hasattr(self, "fast_unload_table"):
+            raise NotImplementedError("Subclasses must implement `fast_unload_table()` method")
 
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
 
-        self.unload_table_to_lake(
-            table_name=table_name, lake_store=lake_store, s3_path_prefix=stream_name, **kwargs
+        self.fast_unload_table(
+            table_name=table_name,
+            lake_store=lake_store,
+            lake_path_prefix=stream_name,
+            **kwargs,
         )
+
+    def fast_unload_table(
+        self,
+        table_name: str,
+        lake_store: LakeStorage,
+        *,
+        db_name: str | None = None,
+        schema_name: str | None = None,
+        path_prefix: str | None = None,
+    ) -> None:
+        """Fast-unload a specific table to the designated lake storage.
+
+        Subclasses should override this method to implement fast unloads.
+        """
+        raise NotImplementedError
+
+    @final
+    def fast_load_streams(
+        self,
+        lake_store: LakeStorage,
+        *,
+        streams: list[str],
+    ) -> None:
+        """Unload the cache to a lake store.
+
+        We dump data directly to parquet files in the lake store.
+
+        Args:
+            streams: The streams to unload. If None, unload all streams.
+            lake_store: The lake store to unload to. If None, use the default lake store.
+        """
+        for stream_name in streams:
+            self.fast_load_stream(
+                stream_name,
+                lake_store,
+            )
+
+    @final
+    def fast_load_stream(
+        self,
+        stream_name: str,
+        lake_store: LakeStorage,
+        lake_path_prefix: str,
+        *,
+        zero_copy: bool = False,
+    ) -> None:
+        """Load a single stream from the lake store using fast native LOAD operations."""
+        sql_table = self.streams[stream_name].to_sql_table()
+        table_name = sql_table.name
+
+        if zero_copy:
+            raise NotImplementedError("Zero-copy loading is not yet supported in Snowflake.")
+
+        self.fast_load_table(
+            table_name=table_name,
+            lake_store=lake_store,
+            lake_path_prefix=lake_path_prefix,
+            zero_copy=zero_copy,
+        )
+
+    def fast_load_table(
+        self,
+        table_name: str,
+        lake_store: LakeStorage,
+        *,
+        db_name: str | None = None,
+        schema_name: str | None = None,
+        path_prefix: str | None = None,
+    ) -> None:
+        """Fast-unload a specific table to the designated lake storage.
+
+        Subclasses should override this method to implement fast unloads.
+        """
+        raise NotImplementedError

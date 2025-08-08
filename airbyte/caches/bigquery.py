@@ -67,7 +67,8 @@ class BigQueryCache(BigQueryConfig, CacheBase):
             "Please consider using a different cache implementation for these functionalities."
         )
 
-    def unload_table_to_lake(
+    @override
+    def fast_unload_table(
         self,
         table_name: str,
         lake_store: LakeStorage,
@@ -109,7 +110,8 @@ class BigQueryCache(BigQueryConfig, CacheBase):
 
         self.execute_sql(export_statement)
 
-    def load_stream_from_lake(
+    @override
+    def fast_load_stream(
         self,
         stream_name: str,
         lake_store: LakeStorage,

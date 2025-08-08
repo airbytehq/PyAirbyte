@@ -68,12 +68,11 @@ from airbyte.caches.base import CacheBase
 from airbyte.destinations._translate_cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
-
+from airbyte.secrets.util import get_secret
+from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
 if TYPE_CHECKING:
     from airbyte.lakes import LakeStorage
-from airbyte.secrets.util import get_secret
-from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
 
 class SnowflakeCache(SnowflakeConfig, CacheBase):
@@ -91,32 +90,70 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         """Return a dictionary of destination configuration values."""
         return snowflake_cache_to_destination_configuration(cache=self)
 
-    def unload_table_to_lake(
+    def _get_lake_artifact_prefix(self, lake_store: LakeStorage) -> str:
+        """Get the artifact prefix for this lake storage."""
+        return f"AIRBYTE_LAKE_{lake_store.short_name.upper()}_"
+
+    def _get_lake_file_format_name(self, lake_store: LakeStorage) -> str:
+        """Get the file_format name."""
+        artifact_prefix = self._get_lake_artifact_prefix()
+        return f"{artifact_prefix}PARQUET_FORMAT"
+
+    def _get_lake_stage_name(self, lake_store: LakeStorage) -> str:
+        """Get the stage name."""
+        artifact_prefix = self._get_lake_artifact_prefix()
+        return f"{artifact_prefix}STAGE"
+
+    def _setup_lake_artifacts(
+        self,
+        lake_store: LakeStorage,
+    ) -> None:
+        if not isinstance(lake_store, S3LakeStorage):
+            raise NotImplementedError
+
+        s3_lake_store: S3LakeStorage = lake_store
+
+        qualified_prefix = (
+            f"{self.database_name}.{self.schema_name}" if self.database_name else self.schema_name
+        )
+        file_format_name = self._get_lake_file_format_name(s3_lake_store)
+        stage_name = self._get_lake_stage_name(s3_lake_store)
+
+        create_format_sql = f"""
+            CREATE FILE FORMAT IF NOT EXISTS {qualified_prefix}.{file_format_name}
+            TYPE = PARQUET
+            COMPRESSION = SNAPPY
+        """
+        self.execute_sql(create_format_sql)
+
+        stage_name = f"{artifact_prefix}STAGE"
+        create_stage_sql = f"""
+            CREATE STAGE IF NOT EXISTS {qualified_prefix}.{stage_name}
+            URL = '{s3_lake_store.root_storage_uri}'
+            CREDENTIALS = (
+                AWS_KEY_ID = '{s3_lake_store.aws_access_key_id}'
+                AWS_SECRET_KEY = '{s3_lake_store.aws_secret_access_key}'
+            )
+            FILE_FORMAT = {qualified_prefix}.{file_format_name}
+        """
+        self.execute_sql(create_stage_sql)
+
+    @override
+    def fast_unload_table(
         self,
         table_name: str,
         lake_store: LakeStorage,
+        lake_path_prefix: str,
         *,
         db_name: str | None = None,
         schema_name: str | None = None,
-        s3_path_prefix: str | None = None,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
     ) -> None:
         """Unload an arbitrary table to the lake store using Snowflake COPY INTO.
 
         This implementation uses Snowflake's COPY INTO command to unload data
         directly to S3 in Parquet format with managed artifacts for optimal performance.
-        Unlike unload_stream_to_lake(), this method works with any table and doesn't
+        Unlike fast_unload_stream(), this method works with any table and doesn't
         require a stream mapping.
-
-        Args:
-            table_name: The name of the table to unload.
-            lake_store: The lake store to unload to.
-            db_name: Database name. If provided, schema_name must also be provided.
-            schema_name: Schema name. If not provided, uses the cache's default schema.
-            s3_path_prefix: S3 path prefix for the unloaded files. If not provided, uses table_name.
-            aws_access_key_id: AWS access key ID. If not provided, gets from secrets.
-            aws_secret_access_key: AWS secret access key. If not provided, gets from secrets.
 
         Raises:
             ValueError: If db_name is provided but schema_name is not.
@@ -124,10 +161,11 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         if db_name is not None and schema_name is None:
             raise ValueError("If db_name is provided, schema_name must also be provided.")
 
-        if aws_access_key_id is None:
-            aws_access_key_id = get_secret("AWS_ACCESS_KEY_ID")
-        if aws_secret_access_key is None:
-            aws_secret_access_key = get_secret("AWS_SECRET_ACCESS_KEY")
+        qualified_prefix = (
+            f"{self.database_name}.{self.schema_name}" if self.database_name else self.schema_name
+        )
+        file_format_name = self._get_lake_file_format_name(lake_store)
+        stage_name = self._get_lake_stage_name(lake_store)
 
         if db_name is not None and schema_name is not None:
             qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
@@ -136,96 +174,64 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         else:
             qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
 
-        artifact_prefix = lake_store.get_artifact_prefix()
-        file_format_name = f"{artifact_prefix}PARQUET_FORMAT"
-        create_format_sql = f"""
-            CREATE FILE FORMAT IF NOT EXISTS {file_format_name}
-            TYPE = PARQUET
-            COMPRESSION = SNAPPY
-        """
-        self.execute_sql(create_format_sql)
-
-        stage_name = f"{artifact_prefix}STAGE"
-        create_stage_sql = f"""
-            CREATE OR REPLACE STAGE {stage_name}
-            URL = '{lake_store.root_storage_uri}'
-            CREDENTIALS = (
-                AWS_KEY_ID = '{aws_access_key_id}'
-                AWS_SECRET_KEY = '{aws_secret_access_key}'
-            )
-            FILE_FORMAT = {file_format_name}
-        """
-        self.execute_sql(create_stage_sql)
-
-        s3_path = s3_path_prefix if s3_path_prefix is not None else table_name
+        self._setup_lake_artifacts(lake_store)
 
         unload_statement = f"""
-            COPY INTO @{stage_name}/{s3_path}/
+            COPY INTO {qualified_prefix}.@{stage_name}/{lake_path_prefix}/
             FROM {qualified_table_name}
-            FILE_FORMAT = {file_format_name}
+            FILE_FORMAT = {qualified_prefix}.{file_format_name}
             OVERWRITE = TRUE
         """
         self.execute_sql(unload_statement)
 
-    def load_stream_from_lake(
+    @override
+    def fast_load_table(
         self,
-        stream_name: str,
+        table_name: str,
         lake_store: LakeStorage,
+        lake_path_prefix: str,
         *,
+        db_name: str | None = None,
+        schema_name: str | None = None,
         zero_copy: bool = False,
-        aws_access_key_id: str | None = None,
-        aws_secret_access_key: str | None = None,
     ) -> None:
         """Load a single stream from the lake store using Snowflake COPY INTO.
 
         This implementation uses Snowflake's COPY INTO command to load data
         directly from S3 in Parquet format with managed artifacts for optimal performance.
-
-        Args:
-            stream_name: The name of the stream to load.
-            lake_store: The lake store to load from.
-            zero_copy: Whether to use zero-copy loading. If True, the data will be
-                loaded without copying it to the cache. This is useful for large datasets
-                that don't need to be stored in the cache.
-            aws_access_key_id: AWS access key ID. If not provided, gets from secrets.
-            aws_secret_access_key: AWS secret access key. If not provided, gets from secrets.
         """
-        sql_table = self.streams[stream_name].to_sql_table()
-        table_name = sql_table.name
-
         if zero_copy:
             raise NotImplementedError("Zero-copy loading is not yet supported in Snowflake.")
 
-        if aws_access_key_id is None:
-            aws_access_key_id = get_secret("AWS_ACCESS_KEY_ID")
-        if aws_secret_access_key is None:
-            aws_secret_access_key = get_secret("AWS_SECRET_ACCESS_KEY")
+        if db_name is not None and schema_name is None:
+            raise ValueError("If db_name is provided, schema_name must also be provided.")
+
+        qualified_prefix = (
+            f"{self.database_name}.{self.schema_name}" if self.database_name else self.schema_name
+        )
+        file_format_name = self._get_lake_file_format_name(lake_store)
+        stage_name = self._get_lake_stage_name(lake_store)
+
+        if db_name is not None and schema_name is not None:
+            qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
+        elif schema_name is not None:
+            qualified_table_name = f"{schema_name}.{table_name}"
+        else:
+            qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
+
+        self._setup_lake_artifacts(lake_store)
+
+        sql_table = self.streams[stream_name].to_sql_table()
+        table_name = sql_table.name
 
         artifact_prefix = lake_store.get_artifact_prefix()
-        file_format_name = f"{artifact_prefix}PARQUET_FORMAT"
-        create_format_sql = f"""
-            CREATE FILE FORMAT IF NOT EXISTS {file_format_name}
-            TYPE = PARQUET
-            COMPRESSION = SNAPPY
-        """
-        self.execute_sql(create_format_sql)
-
-        stage_name = f"{artifact_prefix}STAGE"
-        create_stage_sql = f"""
-            CREATE OR REPLACE STAGE {stage_name}
-            URL = '{lake_store.root_storage_uri}'
-            CREDENTIALS = (
-                AWS_KEY_ID = '{aws_access_key_id}'
-                AWS_SECRET_KEY = '{aws_secret_access_key}'
-            )
-            FILE_FORMAT = {file_format_name}
-        """
-        self.execute_sql(create_stage_sql)
+        file_format_name = self._get_lake_file_format_name(lake_store)
+        stage_name = self._get_lake_stage_name(lake_store)
 
         load_statement = f"""
-            COPY INTO {self._read_processor.sql_config.schema_name}.{table_name}
-            FROM @{stage_name}/{stream_name}/
-            FILE_FORMAT = {file_format_name}
+            COPY INTO {qualified_table_name}
+            FROM {qualified_prefix}.@{stage_name}/{lake_path_prefix}/
+            FILE_FORMAT = {qualified_prefix}.{file_format_name}
             MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
             PURGE = FALSE
         """
