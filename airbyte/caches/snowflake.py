@@ -107,12 +107,12 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         Args:
             stream_name: The name of the stream to unload.
             lake_store: The lake store to unload to.
-            aws_access_key_id: AWS access key ID. If not provided, will try to get from secrets.
-            aws_secret_access_key: AWS secret access key. If not provided, will try to get from secrets.
+            aws_access_key_id: AWS access key ID. If not provided, gets from secrets.
+            aws_secret_access_key: AWS secret access key. If not provided, gets from secrets.
         """
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
-        
+
         self.unload_table_to_lake(
             table_name=table_name,
             lake_store=lake_store,
@@ -145,8 +145,8 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             db_name: Database name. If provided, schema_name must also be provided.
             schema_name: Schema name. If not provided, uses the cache's default schema.
             s3_path_prefix: S3 path prefix for the unloaded files. If not provided, uses table_name.
-            aws_access_key_id: AWS access key ID. If not provided, will try to get from secrets.
-            aws_secret_access_key: AWS secret access key. If not provided, will try to get from secrets.
+            aws_access_key_id: AWS access key ID. If not provided, gets from secrets.
+            aws_secret_access_key: AWS secret access key. If not provided, gets from secrets.
 
         Raises:
             ValueError: If db_name is provided but schema_name is not.
@@ -217,8 +217,8 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             zero_copy: Whether to use zero-copy loading. If True, the data will be
                 loaded without copying it to the cache. This is useful for large datasets
                 that don't need to be stored in the cache.
-            aws_access_key_id: AWS access key ID. If not provided, will try to get from secrets.
-            aws_secret_access_key: AWS secret access key. If not provided, will try to get from secrets.
+            aws_access_key_id: AWS access key ID. If not provided, gets from secrets.
+            aws_secret_access_key: AWS secret access key. If not provided, gets from secrets.
         """
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
