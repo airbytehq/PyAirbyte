@@ -158,6 +158,7 @@ def transfer_data_with_timing(
     Simplified to Snowflake→S3→Snowflake for proof of concept as suggested.
     """
     streams = ["purchases"]
+    expected_record_count = 10_000_000  # 10 million records configured
 
     workflow_start_time = datetime.now()
     print(f"🚀 [{workflow_start_time.strftime('%H:%M:%S')}] Starting fast lake copy workflow (Snowflake→S3→Snowflake)...")
@@ -166,10 +167,17 @@ def transfer_data_with_timing(
     step1_start_time = datetime.now()
     print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)...")
     step1_start = time.time()
-    source.read(cache=snowflake_cache_source, force_full_refresh=True)
+    read_result = source.read(cache=snowflake_cache_source, force_full_refresh=True)
     step1_time = time.time() - step1_start
     step1_end_time = datetime.now()
+    
+    actual_records = len(snowflake_cache_source["purchases"])
+    step1_records_per_sec = actual_records / step1_time if step1_time > 0 else 0
+    estimated_bytes_per_record = 240
+    step1_mb_per_sec = (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step1_time if step1_time > 0 else 0
+    
     print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds (elapsed: {(step1_end_time - step1_start_time).total_seconds():.2f}s)")
+    print(f"   📊 Step 1 Performance: {actual_records:,} records at {step1_records_per_sec:,.1f} records/s, {step1_mb_per_sec:.2f} MB/s")
 
     step2_start_time = datetime.now()
     print(f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3...")
@@ -183,7 +191,12 @@ def transfer_data_with_timing(
         )
     step2_time = time.time() - step2_start
     step2_end_time = datetime.now()
+    
+    step2_records_per_sec = actual_records / step2_time if step2_time > 0 else 0
+    step2_mb_per_sec = (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step2_time if step2_time > 0 else 0
+    
     print(f"✅ [{step2_end_time.strftime('%H:%M:%S')}] Step 2 completed in {step2_time:.2f} seconds (elapsed: {(step2_end_time - step2_start_time).total_seconds():.2f}s)")
+    print(f"   📊 Step 2 Performance: {actual_records:,} records at {step2_records_per_sec:,.1f} records/s, {step2_mb_per_sec:.2f} MB/s")
 
     step3_start_time = datetime.now()
     print(f"📥 [{step3_start_time.strftime('%H:%M:%S')}] Step 3: Loading from S3 to Snowflake (destination)...")
@@ -200,7 +213,12 @@ def transfer_data_with_timing(
         )
     step3_time = time.time() - step3_start
     step3_end_time = datetime.now()
+    
+    step3_records_per_sec = actual_records / step3_time if step3_time > 0 else 0
+    step3_mb_per_sec = (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step3_time if step3_time > 0 else 0
+    
     print(f"✅ [{step3_end_time.strftime('%H:%M:%S')}] Step 3 completed in {step3_time:.2f} seconds (elapsed: {(step3_end_time - step3_start_time).total_seconds():.2f}s)")
+    print(f"   📊 Step 3 Performance: {actual_records:,} records at {step3_records_per_sec:,.1f} records/s, {step3_mb_per_sec:.2f} MB/s")
 
     total_time = time.time() - total_start
     workflow_end_time = datetime.now()
@@ -209,25 +227,27 @@ def transfer_data_with_timing(
     warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
     size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
 
+    total_records_per_sec = actual_records / total_time if total_time > 0 else 0
+    total_mb_per_sec = (actual_records * estimated_bytes_per_record) / (1024 * 1024) / total_time if total_time > 0 else 0
+
     print(f"\n📊 [{workflow_end_time.strftime('%H:%M:%S')}] Performance Summary:")
     print(f"  Workflow started:               {workflow_start_time.strftime('%H:%M:%S')}")
     print(f"  Workflow completed:             {workflow_end_time.strftime('%H:%M:%S')}")
     print(f"  Total elapsed time:             {total_elapsed:.2f}s")
-    print(f"  Step 1 (Source → Snowflake):     {step1_time:.2f}s")
-    print(f"  Step 2 (Snowflake → S3):        {step2_time:.2f}s")
-    print(f"  Step 3 (S3 → Snowflake):        {step3_time:.2f}s")
+    print(f"  Step 1 (Source → Snowflake):     {step1_time:.2f}s ({step1_records_per_sec:,.1f} rec/s, {step1_mb_per_sec:.2f} MB/s)")
+    print(f"  Step 2 (Snowflake → S3):        {step2_time:.2f}s ({step2_records_per_sec:,.1f} rec/s, {step2_mb_per_sec:.2f} MB/s)")
+    print(f"  Step 3 (S3 → Snowflake):        {step3_time:.2f}s ({step3_records_per_sec:,.1f} rec/s, {step3_mb_per_sec:.2f} MB/s)")
     print(f"  Total measured time:            {total_time:.2f}s")
-    print(f"  Streams processed:              {len(streams)}")
+    print(f"  Records processed:              {actual_records:,} / {expected_record_count:,} ({100 * actual_records / expected_record_count:.1f}%)")
+    print(f"  Overall throughput:             {total_records_per_sec:,.1f} records/s, {total_mb_per_sec:.2f} MB/s")
+    print(f"  Estimated record size:          {estimated_bytes_per_record} bytes")
 
     print("\n🏭 Warehouse Scaling Analysis:")
     print(f"  Warehouse size used:            {warehouse_size}")
     print(f"  Size multiplier:                {size_multiplier}x")
     print(f"  Performance per compute unit:   {total_time / size_multiplier:.2f}s")
-    if total_time > 0:
-        throughput_per_unit = (len(streams) / total_time) / size_multiplier
-        print(
-            f"  Throughput per compute unit:    {throughput_per_unit:.2f} streams/s/unit"
-        )
+    print(f"  Throughput per compute unit:    {total_records_per_sec / size_multiplier:,.1f} records/s/unit")
+    print(f"  Bandwidth per compute unit:     {total_mb_per_sec / size_multiplier:.2f} MB/s/unit")
 
     validation_start_time = datetime.now()
     print(f"\n🔍 [{validation_start_time.strftime('%H:%M:%S')}] Validating data transfer...")
