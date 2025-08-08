@@ -513,3 +513,34 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         Subclasses should override this method to implement fast unloads.
         """
         raise NotImplementedError
+
+    @final
+    def fast_load_stream_from_unload_result(
+        stream_name: str,
+        unload_result: FastUnloadResult,
+        *,
+        zero_copy: bool = False,
+    ):
+        """Load the result of a fast unload operation."""
+        self.fast_load_stream(
+            stream_name=unload_result.stream_name,
+            lake_store=lake_store,
+            lake_path_prefix=lake_path_prefix,
+            zero_copy=zero_copy,
+        )
+
+    @final
+    def fast_load_table_from_unload_result(
+        table_name: str,
+        unload_result: FastUnloadResult,
+        *,
+        zero_copy: bool = False,
+    ):
+        """Load the result of a fast unload operation."""
+        self.fast_load_table(
+            stream_name=unload_result.stream_name,
+            table_name=table_name,
+            lake_store=lake_store,
+            lake_path_prefix=lake_path_prefix,
+            zero_copy=zero_copy,
+        )
