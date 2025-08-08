@@ -59,7 +59,7 @@ cache = SnowflakeCache(
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from airbyte_api.models import DestinationSnowflake
 
@@ -68,7 +68,10 @@ from airbyte.caches.base import CacheBase
 from airbyte.destinations._translate_cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
-from airbyte.lakes import LakeStorage
+
+
+if TYPE_CHECKING:
+    from airbyte.lakes import LakeStorage
 from airbyte.secrets.util import get_secret
 from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
@@ -93,32 +96,48 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         stream_name: str,
         lake_store: LakeStorage,
     ) -> None:
-        """Unload a single stream to the lake store.
+        """Unload a single stream to the lake store using Snowflake COPY INTO.
 
-        This generic implementation delegates to the `lake_store` and passes
-        an Arrow dataset to the lake store object.
+        This implementation uses Snowflake's COPY INTO command to unload data
+        directly to S3 in Parquet format with managed artifacts for optimal performance.
 
-        Subclasses can override this method to provide a faster
-        unload implementation.
+        Args:
+            stream_name: The name of the stream to unload.
+            lake_store: The lake store to unload to.
         """
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
         aws_access_key_id = get_secret("AWS_ACCESS_KEY_ID")
         aws_secret_access_key = get_secret("AWS_SECRET_ACCESS_KEY")
-        unload_statement = "\n".join([
-            f"COPY INTO '{lake_store.get_stream_root_uri(stream_name)}'",
-            f"FROM {table_name}",
-            "CREDENTIALS=(",
-            f"  AWS_KEY_ID='{aws_access_key_id}'",
-            f"  AWS_SECRET_KEY='{aws_secret_access_key}'",
-            ")",
-            "FILE_FORMAT = (TYPE = 'PARQUET')",
-            "OVERWRITE = TRUE",
-        ])
-        self.execute_sql(unload_statement)
 
-        # To get the manifest data:
-        # self.query_sql("RESULT_SCAN(LAST_QUERY_ID())")
+        artifact_prefix = lake_store.get_artifact_prefix()
+        file_format_name = f"{artifact_prefix}PARQUET_FORMAT"
+        create_format_sql = f"""
+            CREATE FILE FORMAT IF NOT EXISTS {file_format_name}
+            TYPE = PARQUET
+            COMPRESSION = SNAPPY
+        """
+        self.execute_sql(create_format_sql)
+
+        stage_name = f"{artifact_prefix}STAGE"
+        create_stage_sql = f"""
+            CREATE STAGE IF NOT EXISTS {stage_name}
+            URL = '{lake_store.root_storage_uri}'
+            CREDENTIALS = (
+                AWS_KEY_ID = '{aws_access_key_id}'
+                AWS_SECRET_KEY = '{aws_secret_access_key}'
+            )
+            FILE_FORMAT = {file_format_name}
+        """
+        self.execute_sql(create_stage_sql)
+
+        unload_statement = f"""
+            COPY INTO @{stage_name}/{stream_name}/
+            FROM {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            FILE_FORMAT = {file_format_name}
+            OVERWRITE = TRUE
+        """
+        self.execute_sql(unload_statement)
 
     def load_stream_from_lake(
         self,
@@ -127,31 +146,35 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         *,
         zero_copy: bool = False,
     ) -> None:
-        """Load a single stream from the lake store.
+        """Load a single stream from the lake store using Snowflake COPY INTO.
 
-        This generic implementation delegates to the `lake_store` and passes
-        an Arrow dataset to the lake store object.
+        This implementation uses Snowflake's COPY INTO command to load data
+        directly from S3 in Parquet format with managed artifacts for optimal performance.
 
-        Subclasses can override this method to provide a faster
-        unload implementation.
+        Args:
+            stream_name: The name of the stream to load.
+            lake_store: The lake store to load from.
+            zero_copy: Whether to use zero-copy loading. If True, the data will be
+                loaded without copying it to the cache. This is useful for large datasets
+                that don't need to be stored in the cache.
         """
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
-        aws_access_key_id = get_secret(AWS_ACCESS_KEY_ID)
-        aws_secret_access_key = get_secret("AWS_SECRET_ACCESS_KEY")
+
         if zero_copy:
-            # Zero-copy loading is not yet supported in Snowflake.
             raise NotImplementedError("Zero-copy loading is not yet supported in Snowflake.")
 
-        load_statement = "\n".join([
-            f"COPY INTO {table_name}",
-            f"FROM '{lake_store.get_stream_root_uri(stream_name)}'",
-            "CREDENTIALS=(",
-            f"  AWS_KEY_ID='{aws_access_key_id}'",
-            f"  AWS_SECRET_KEY='{aws_secret_access_key}'",
-            ")",
-            "FILE_FORMAT = (TYPE = 'PARQUET')",
-        ])
+        artifact_prefix = lake_store.get_artifact_prefix()
+        file_format_name = f"{artifact_prefix}PARQUET_FORMAT"
+        stage_name = f"{artifact_prefix}STAGE"
+
+        load_statement = f"""
+            COPY INTO {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            FROM @{stage_name}/{stream_name}/
+            FILE_FORMAT = {file_format_name}
+            MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
+            PURGE = FALSE
+        """
         self.execute_sql(load_statement)
 
 

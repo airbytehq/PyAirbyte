@@ -32,6 +32,10 @@ from airbyte.destinations._translate_cache_to_dest import (
 
 
 if TYPE_CHECKING:
+    from airbyte.lakes import LakeStorage
+
+
+if TYPE_CHECKING:
     from airbyte.shared.sql_processor import SqlProcessorBase
 
 
@@ -62,6 +66,65 @@ class BigQueryCache(BigQueryConfig, CacheBase):
             "BigQuery doesn't currently support to_arrow"
             "Please consider using a different cache implementation for these functionalities."
         )
+
+    def unload_stream_to_lake(
+        self,
+        stream_name: str,
+        lake_store: LakeStorage,
+    ) -> None:
+        """Unload a single stream to the lake store using BigQuery EXPORT DATA.
+
+        This implementation uses BigQuery's native EXPORT DATA functionality
+        to write directly to GCS, bypassing the Arrow dataset limitation.
+        """
+        sql_table = self.streams[stream_name].to_sql_table()
+        table_name = sql_table.name
+
+        if not hasattr(lake_store, "bucket_name"):
+            raise NotImplementedError("BigQuery unload currently only supports GCS lake storage")
+
+        export_uri = f"{lake_store.get_stream_root_uri(stream_name)}*.parquet"
+
+        export_statement = f"""
+            EXPORT DATA OPTIONS(
+                uri='{export_uri}',
+                format='PARQUET',
+                overwrite=true
+            ) AS
+            SELECT * FROM {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+        """
+
+        self.execute_sql(export_statement)
+
+    def load_stream_from_lake(
+        self,
+        stream_name: str,
+        lake_store: LakeStorage,
+        *,
+        zero_copy: bool = False,  # noqa: ARG002
+    ) -> None:
+        """Load a single stream from the lake store using BigQuery LOAD DATA.
+
+        This implementation uses BigQuery's native LOAD DATA functionality
+        to read directly from GCS, bypassing the Arrow dataset limitation.
+        """
+        sql_table = self.streams[stream_name].to_sql_table()
+        table_name = sql_table.name
+
+        if not hasattr(lake_store, "bucket_name"):
+            raise NotImplementedError("BigQuery load currently only supports GCS lake storage")
+
+        source_uri = f"{lake_store.get_stream_root_uri(stream_name)}*.parquet"
+
+        load_statement = f"""
+            LOAD DATA INTO {self._read_processor._fully_qualified(table_name)}  # noqa: SLF001
+            FROM FILES (
+                format = 'PARQUET',
+                uris = ['{source_uri}']
+            )
+        """
+
+        self.execute_sql(load_statement)
 
 
 # Expose the Cache class and also the Config class.
