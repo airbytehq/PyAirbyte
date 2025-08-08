@@ -144,9 +144,10 @@ def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, Snowflake
 def setup_lake_storage(credentials: dict[str, Any]) -> S3LakeStorage:
     """Set up S3 lake storage."""
     print(f"🏞️  [{datetime.now().strftime('%H:%M:%S')}] Setting up S3 lake storage...")
+    print(f"   Using co-located bucket: ab-perf-test-bucket-us-west-2 (us-west-2)")
 
     s3_lake = S3LakeStorage(
-        bucket_name="airbyte-acceptance-test-source-s3",
+        bucket_name="ab-perf-test-bucket-us-west-2",
         region="us-west-2",
         access_key_id=credentials["aws_access_key_id"],
         secret_access_key=credentials["aws_secret_access_key"],
