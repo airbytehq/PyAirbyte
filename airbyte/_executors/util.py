@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -14,9 +13,10 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
+from airbyte._executors.java import JavaExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
-from airbyte._util.meta import which
+from airbyte._util.meta import is_docker_installed, which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
@@ -148,7 +148,7 @@ def _get_local_executor(
 
     # `local_executable` is now a Path object
 
-    print(f"Using local `{name}` executable: {local_executable!s}", file=sys.stderr)
+    print(f"Using local `{name}` executable: {local_executable!s}")
     return PathExecutor(
         name=name,
         path=local_executable,
@@ -167,8 +167,17 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     install_if_missing: bool = True,
     install_root: Path | None = None,
     use_python: bool | Path | str | None = None,
+    use_java: Path | str | bool | None = None,
+    use_java_tar: Path | str | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
+
+    For Java connectors (InstallType.JAVA), the fallback logic is:
+    - If use_java is False: Use Docker (explicitly disabled Java)
+    - If use_java is None and use_java_tar is None and Docker is available: Use Docker
+    - If use_java is None and use_java_tar is None and Docker is not available: Use Java
+    - If use_java is truthy or use_java_tar is provided: Use Java executor
+    - use_java_tar being provided implies use_java=True unless use_java is explicitly False
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
     """
@@ -176,17 +185,11 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         [
             bool(local_executable),
             bool(docker_image),
-            bool(pip_url) or bool(use_python),
+            bool(pip_url),
             bool(source_manifest),
+            bool(use_java) or bool(use_java_tar),
         ]
     )
-
-    if use_python is False:
-        docker_image = True
-
-    if use_python is None and pip_url is not None:
-        # If pip_url is set, we assume the user wants to use Python.
-        use_python = True
 
     if version and pip_url:
         raise exc.PyAirbyteInputError(
@@ -204,13 +207,15 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
-                "'source_manifest', or 'pip_url'."
+                "'source_manifest', 'pip_url', 'use_java', or 'use_java_tar'."
             ),
             context={
                 "local_executable": local_executable,
                 "docker_image": docker_image,
                 "pip_url": pip_url,
                 "source_manifest": source_manifest,
+                "use_java": use_java,
+                "use_java_tar": use_java_tar,
             },
         )
     metadata: ConnectorMetadata | None = None
@@ -249,8 +254,26 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 case InstallType.YAML:
                     source_manifest = True
                 case InstallType.PYTHON:
-                    pip_url = metadata.pypi_package_name
-                    pip_url = f"{pip_url}=={version}" if version else pip_url
+                    if use_python is False:
+                        docker_image = True
+                    else:
+                        pip_url = metadata.pypi_package_name
+                        pip_url = f"{pip_url}=={version}" if version else pip_url
+                case InstallType.JAVA:
+                    effective_use_java = use_java
+                    if use_java_tar is not None and use_java is None:
+                        effective_use_java = True
+
+                    if effective_use_java is False:
+                        docker_image = True
+                    elif effective_use_java is None:
+                        if is_docker_installed():
+                            docker_image = True
+                        else:
+                            use_java = True
+                    else:
+                        # use_java is truthy or use_java_tar is provided, use Java
+                        pass  # Will be handled by the Java executor block later
                 case _:
                     docker_image = True
 
@@ -340,6 +363,15 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 components_py_checksum=components_py_checksum,
             )
 
+    if use_java or use_java_tar:
+        return JavaExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+            use_java=use_java,
+            use_java_tar=use_java_tar,
+        )
+
     # else: we are installing a connector in a Python virtual environment:
 
     try:
@@ -349,7 +381,6 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             target_version=version,
             pip_url=pip_url,
             install_root=install_root,
-            use_python=use_python,
         )
         if install_if_missing:
             executor.ensure_installation()
