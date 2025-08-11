@@ -2,7 +2,7 @@
 """Example script demonstrating Java connector support with source-snowflake.
 
 Usage:
-    python examples/run_source_snowflake_java.py
+    poetry run python examples/run_source_snowflake_java.py
 
 Requirements:
     - DEVIN_GCP_SERVICE_ACCOUNT_JSON environment variable set
@@ -32,7 +32,12 @@ def main() -> None:
         print(f"✅ Retrieved config for account: {config.get('account', 'N/A')}")
 
         # Create source with Java execution
-        source = ab.get_source("source-snowflake", config=config, use_java=True)
+        source = ab.get_source(
+            "source-snowflake",
+            config=config,
+            use_java=True,
+            use_java_tar="TODO",
+        )
         print("✅ Source created successfully!")
 
         source.check()
@@ -42,18 +47,8 @@ def main() -> None:
 
         if stream_names:
             selected_stream = stream_names[0]
-            source.select_streams([selected_stream])
-            print(f"🎯 Selected stream: {selected_stream}")
-
-            read_result = source.read()
-            records_count = 0
-            for record in read_result[selected_stream]:
-                print(f"Record {records_count + 1}: {record}")
-                records_count += 1
-                if records_count >= 10:
-                    break
-
-            print(f"✅ Read {records_count} records using Java connector!")
+            records = list(source.get_records(selected_stream, 10))
+            print(f"✅ Read {len(records)} records using Java connector!")
         else:
             print("❌ No streams found")
 
