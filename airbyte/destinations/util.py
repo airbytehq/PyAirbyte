@@ -31,6 +31,8 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
     use_host_network: bool = False,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    use_java: Path | str | bool | None = None,
+    use_java_tar: Path | str | None = None,
 ) -> Destination:
     """Get a connector by name and version.
 
@@ -69,6 +71,12 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             parameter is ignored when local_executable is set.
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
+        use_java: (Optional.) Java execution mode: `True` to enable Java execution with automatic
+            JRE management, `False` to explicitly disable Java execution, `Path` or `str` to specify
+            a custom JRE location, or `None` for auto-detection based on connector type.
+        use_java_tar: (Optional.) Path to Java connector tar file. If provided, implies
+            `use_java=True` unless `use_java` is explicitly set to `False`. Use `None` for
+            auto-detection of connector tar files.
     """
     return Destination(
         name=name,
@@ -84,6 +92,8 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             use_host_network=use_host_network,
             install_if_missing=install_if_missing,
             install_root=install_root,
+            use_java=use_java,
+            use_java_tar=use_java_tar,
         ),
     )
 
