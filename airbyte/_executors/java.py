@@ -18,6 +18,7 @@ import os
 import platform
 import shutil
 import subprocess
+import sys
 import tarfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -252,9 +253,8 @@ class JavaExecutor(Executor):
                 },
             )
 
-        print(f"📦 Extracting connector tar: {self.connector_tar_path}")
-
         self.connector_dir.mkdir(parents=True, exist_ok=True)
+        print(f"📦 Extracting connector tar: {self.connector_tar_path!s} to {self.connector_dir!s}")
 
         try:
             with tarfile.open(self.connector_tar_path, "r") as tar:
@@ -304,10 +304,10 @@ class JavaExecutor(Executor):
         try:
             self._extract_connector_tar()
 
-            self._get_java_executable()
+            _ = self._get_java_executable()
 
             log_install_state(self.name, state=EventState.SUCCEEDED)
-            print(f"✅ Java connector '{self.name}' installed successfully!")
+            print(f"✅ Java connector '{self.name}' installed successfully!", file=sys.stderr)
 
         except Exception as ex:
             log_install_state(self.name, state=EventState.FAILED, exception=ex)
