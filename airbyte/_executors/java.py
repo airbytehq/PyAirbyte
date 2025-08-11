@@ -215,7 +215,17 @@ class JavaExecutor(Executor):
             ) from ex
 
     def _extract_jre_with_strip_components(self, tar: tarfile.TarFile) -> None:
-        """Extract JRE tar with strip-components=1 equivalent."""
+        """Extract JRE tar file while stripping the top-level directory.
+
+        This method implements the equivalent of `tar --strip-components=1` behavior.
+        JRE tar files from Azul typically contain a root directory like
+        'zulu21.28.85-ca-jre21.0.0-linux_x64/' that wraps all the actual JRE files.
+        We want to extract the JRE contents directly to self.jre_dir without
+        creating this wrapper directory.
+
+        Args:
+            tar: The opened tarfile.TarFile object to extract from.
+        """
         members = tar.getmembers()
         if not members:
             return
