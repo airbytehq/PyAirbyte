@@ -348,7 +348,6 @@ def transfer_data_with_timing(
     print("\n🏭 Warehouse Scaling Analysis:")
     print(f"  Warehouse size used:            {warehouse_size}")
     print(f"  Size multiplier:                {size_multiplier}x")
-    print(f"  Performance per compute unit:   {total_time / size_multiplier:.2f}s")
     print(
         f"  Throughput per compute unit:    {total_records_per_sec / size_multiplier:,.1f} records/s/unit"
     )
