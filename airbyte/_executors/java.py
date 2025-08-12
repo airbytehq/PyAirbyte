@@ -227,20 +227,32 @@ class JavaExecutor(Executor):
         Args:
             tar: The opened tarfile.TarFile object to extract from.
         """
-        members = tar.getmembers()
-        if not members:
-            return
-
-        root_dir = members[0].name.split("/")[0]
-        for member in members:
+        root_dir = None
+        
+        for member in tar:
+            if root_dir is None:
+                root_dir = member.name.split("/")[0]
+            
             if member.name.startswith(root_dir + "/"):
-                member.name = member.name[len(root_dir) + 1 :]
-                if member.name:  # Skip empty names
-                    tar.extract(member, self.jre_dir)
+                stripped_name = member.name[len(root_dir) + 1:]
+                if not stripped_name:  # Skip empty names (root directory itself)
+                    continue
+                
+                target_path = self.jre_dir / stripped_name
+                
+                if member.isdir():
+                    target_path.mkdir(parents=True, exist_ok=True)
+                elif member.isfile():
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    with tar.extractfile(member) as source:
+                        if source:
+                            target_path.write_bytes(source.read())
+                    target_path.chmod(member.mode)
+                elif member.issym():
+                    target_path.parent.mkdir(parents=True, exist_ok=True)
+                    target_path.symlink_to(member.linkname)
             elif member.name == root_dir:
                 continue
-            else:
-                tar.extract(member, self.jre_dir)
 
     def _extract_connector_tar(self) -> None:
         """Extract the connector tar file to the connector directory."""
