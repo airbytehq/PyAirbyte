@@ -2,7 +2,7 @@
 """Example script demonstrating Java connector support with source-snowflake.
 
 Usage:
-    poetry run examples/run_source_snowflake_java.py
+    poetry run examples/run_java_connector_tests.py
 
 Requirements:
     - DEVIN_GCP_SERVICE_ACCOUNT_JSON environment variable set
