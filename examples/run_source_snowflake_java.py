@@ -32,12 +32,12 @@ def download_snowflake_tar() -> Path:
     if "virus scan warning" in response.text.lower():
         import re
 
-        confirm_match = re.search(r'confirm=([^&"]+)', response.text)
-        if confirm_match:
-            confirm_token = confirm_match.group(1)
-            response = session.get(
-                f"https://drive.google.com/uc?export=download&id={file_id}&confirm={confirm_token}"
-            )
+        uuid_match = re.search(r'name="uuid" value="([^"]+)"', response.text)
+        uuid_value = uuid_match.group(1) if uuid_match else ""
+        
+        response = session.get(
+            f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t&uuid={uuid_value}"
+        )
 
     temp_file = Path(tempfile.mktemp(suffix=".tar"))
     temp_file.write_bytes(response.content)
