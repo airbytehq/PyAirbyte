@@ -105,6 +105,5 @@ def main() -> None:
     print(f"✅ Read {len(records)} records using Java connector!")
 
 
-
 if __name__ == "__main__":
     main()
