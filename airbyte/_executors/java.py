@@ -244,8 +244,9 @@ class JavaExecutor(Executor):
                     target_path.mkdir(parents=True, exist_ok=True)
                 elif member.isfile():
                     target_path.parent.mkdir(parents=True, exist_ok=True)
-                    with tar.extractfile(member) as source:
-                        if source:
+                    source = tar.extractfile(member)
+                    if source:
+                        with source:
                             target_path.write_bytes(source.read())
                     target_path.chmod(member.mode)
                 elif member.issym():
