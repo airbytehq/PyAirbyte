@@ -43,7 +43,7 @@ USE_LARGER_WAREHOUSE = (
 )
 NUM_RECORDS: int = 100_000_000  # Total records to process (100 million for large-scale test)
 
-RELOAD_INITIAL_SOURCE_DATA = True  # Toggle to skip initial data load (assumes already loaded)
+RELOAD_INITIAL_SOURCE_DATA = False  # Toggle to skip initial data load (assumes already loaded)
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
