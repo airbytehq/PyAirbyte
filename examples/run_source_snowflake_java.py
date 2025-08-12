@@ -2,7 +2,7 @@
 """Example script demonstrating Java connector support with source-snowflake.
 
 Usage:
-    poetry run python examples/run_source_snowflake_java.py
+    poetry run examples/run_source_snowflake_java.py
 
 Requirements:
     - DEVIN_GCP_SERVICE_ACCOUNT_JSON environment variable set
@@ -19,6 +19,15 @@ from pathlib import Path
 import airbyte as ab
 import requests
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager, GSMSecretHandle
+
+
+def unset_java_home() -> None:
+    """Unset JAVA_HOME environment variable to avoid conflicts with auto-downloaded JRE."""
+    if "JAVA_HOME" in os.environ:
+        del os.environ["JAVA_HOME"]
+        print("✅ Unset JAVA_HOME to avoid conflicts with auto-downloaded JRE.")
+    else:
+        print("ℹ️ JAVA_HOME was not set, no need to unset it.")
 
 
 def download_snowflake_tar() -> Path:
@@ -56,6 +65,9 @@ def main() -> None:
     """Main function demonstrating Java connector usage."""
     print("🚀 PyAirbyte Java Connector Demo - source-snowflake")
     print("=" * 60)
+
+    print("🔧 Unsetting JAVA_HOME to avoid conflicts with auto-downloaded JRE...")
+    unset_java_home()
 
     print("📥 Downloading source-snowflake tar file...")
     tar_path = download_snowflake_tar()
