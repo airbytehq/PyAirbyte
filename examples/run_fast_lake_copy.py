@@ -27,8 +27,9 @@ from typing import Any, Literal
 
 import airbyte as ab
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.lakes import S3LakeStorage, FastUnloadResult
+from airbyte.lakes import FastUnloadResult, S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+
 
 XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
 LARGER_WAREHOUSE_NAME = (
@@ -40,8 +41,9 @@ LARGER_WAREHOUSE_SIZE: Literal[
 USE_LARGER_WAREHOUSE = (
     True  # Use 2XLARGE warehouse for faster processing (32x vs xsmall)
 )
+NUM_RECORDS: int = 100_000_000  # Total records to process (100 million for large-scale test)
 
-RELOAD_INITIAL_SOURCE_DATA = False  # Skip initial data load (assume already loaded)
+RELOAD_INITIAL_SOURCE_DATA = True  # Toggle to skip initial data load (assumes already loaded)
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
@@ -61,8 +63,9 @@ def get_credentials() -> dict[str, Any]:
 
     AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
-
-    gcp_creds = os.environ.get("DEVIN_GCP_SERVICE_ACCOUNT_JSON")
+    gcp_creds = os.environ.get(
+        "DEVIN_GCP_SERVICE_ACCOUNT_JSON", os.environ.get("GCP_GSM_CREDENTIALS")
+    )
     if not gcp_creds:
         raise ValueError(
             "DEVIN_GCP_SERVICE_ACCOUNT_JSON environment variable not found"
@@ -176,7 +179,7 @@ def transfer_data_with_timing(
     Simplified to Snowflake→S3→Snowflake for proof of concept as suggested.
     """
     streams = ["purchases"]
-    expected_record_count = 50_000_000  # 50 million records configured
+    expected_record_count = NUM_RECORDS
 
     workflow_start_time = datetime.now()
     print(
