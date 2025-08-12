@@ -53,13 +53,20 @@ def download_snowflake_tar() -> Path:
     return temp_file
 
 
-def get_connector_config(connector_name: str) -> dict[str, str]:
+def get_connector_config(
+    connector_name: str,
+    secret_name: str | None = None,
+) -> dict[str, str]:
     """Retrieve the connector configuration."""
     secret_mgr = GoogleGSMSecretManager(
         project="dataline-integration-testing",
         credentials_json=os.environ.get("DEVIN_GCP_SERVICE_ACCOUNT_JSON"),
     )
-    secret: GSMSecretHandle = secret_mgr.fetch_connector_secret(connector_name)
+    if secret_name is None:
+        secret: GSMSecretHandle = secret_mgr.fetch_connector_secret(connector_name)
+        return secret.parse_json()
+
+    secret: GSMSecretHandle = secret_mgr.get_secret_handle(secret_name)
     return secret.parse_json()
 
 
@@ -75,7 +82,11 @@ def main() -> None:
     tar_path = download_snowflake_tar()
     print(f"✅ Downloaded tar to: {tar_path}")
 
-    config = get_connector_config("source-snowflake")
+    config = get_connector_config(
+        "source-snowflake",
+        # Default OAuth creds don't work for some reason. So we use a custom secret:
+        secret_name="SECRET_SOURCE-SNOWFLAKE__CREDS",
+    )
     print(f"✅ Retrieved config for account: {config.get('account', 'N/A')}")
 
     # Create source with Java execution using downloaded tar
@@ -90,9 +101,6 @@ def main() -> None:
     _ = source.config_spec
     print("✅ Config spec retrieved successfully!")
 
-    return  # This is as far as we can go for now.
-
-    # TODO: Fix this part. Connector doesn't seem to get the config properly.
     source.check()
     print("✅ Connection check passed")
     stream_names = source.get_available_streams()
