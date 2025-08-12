@@ -102,7 +102,7 @@ def setup_source() -> ab.Source:
     return ab.get_source(
         "source-faker",
         config={
-            "count": 50000000,  # 50 million rows for large-scale performance testing
+            "count": NUM_RECORDS,
             "seed": 42,
             "parallelism": 4,  # Parallel processing for better performance
             "always_updated": False,
