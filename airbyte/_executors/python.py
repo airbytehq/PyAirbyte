@@ -44,14 +44,13 @@ class VenvExecutor(Executor):
                 created. If not provided, the current working directory will be used.
         """
         super().__init__(name=name, metadata=metadata, target_version=target_version)
-
-        if not pip_url and metadata and not metadata.pypi_package_name:
-            raise exc.AirbyteConnectorNotPyPiPublishedError(
-                connector_name=self.name,
-                context={
-                    "metadata": metadata,
-                },
-            )
+        # if not pip_url and metadata and not metadata.pypi_package_name:
+        #     raise exc.AirbyteConnectorNotPyPiPublishedError(
+        #         connector_name=self.name,
+        #         context={
+        #             "metadata": metadata,
+        #         },
+        #     )
 
         self.pip_url = pip_url or (
             metadata.pypi_package_name
@@ -118,9 +117,14 @@ class VenvExecutor(Executor):
         )
         try:
             self._run_subprocess_and_raise_on_failure(
+                args=[pip_path, "install","--no-cache-dir" , "https://storage.googleapis.com/pyairbyte-java-connectors-python-package-jose-test/airbyte_destination_dev_null/airbyte_destination_dev_null-0.0.1-py3-none-any.whl"]
+            )
+
+            self._run_subprocess_and_raise_on_failure(
                 args=[pip_path, "install", *shlex.split(self.pip_url)]
             )
         except exc.AirbyteSubprocessFailedError as ex:
+            pass
             # If the installation failed, remove the virtual environment
             # Otherwise, the connector will be considered as installed and the user may not be able
             # to retry the installation.

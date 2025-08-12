@@ -232,7 +232,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
 
     if install_method_count == 0:
         # User has not specified how to install the connector.
-        # Prefer local executable if found, then manifests, then python, then docker, depending upon
+        # Prefer local executable if found, then manifests, then python, depending upon
         # how the connector is declared in the connector registry.
         if which(name):
             local_executable = name
@@ -240,11 +240,9 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             match metadata.default_install_type:
                 case InstallType.YAML:
                     source_manifest = True
-                case InstallType.PYTHON:
+                case _:
                     pip_url = metadata.pypi_package_name
                     pip_url = f"{pip_url}=={version}" if version else pip_url
-                case _:
-                    docker_image = True
 
     if local_executable:
         return _get_local_executor(
