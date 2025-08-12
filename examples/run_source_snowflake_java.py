@@ -34,7 +34,7 @@ def download_snowflake_tar() -> Path:
 
         uuid_match = re.search(r'name="uuid" value="([^"]+)"', response.text)
         uuid_value = uuid_match.group(1) if uuid_match else ""
-        
+
         response = session.get(
             f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t&uuid={uuid_value}"
         )
