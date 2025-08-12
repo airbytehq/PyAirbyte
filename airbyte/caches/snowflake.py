@@ -62,6 +62,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from airbyte_api.models import DestinationSnowflake
+from sqlalchemy import text
 from typing_extensions import override
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
@@ -190,9 +191,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         """
 
         with self.processor.get_sql_connection() as connection:
-            from sqlalchemy import text
-
-            copy_result = connection.execute(text(unload_statement))
+            connection.execute(text(unload_statement))
 
             result_scan_query = "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
             result_scan_result = connection.execute(text(result_scan_query))
@@ -206,7 +205,11 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             file_manifest = []
 
             if metadata_row:
-                row_dict = dict(metadata_row._mapping) if hasattr(metadata_row, "_mapping") else dict(metadata_row)
+                row_dict = (
+                    dict(metadata_row._mapping)  # noqa: SLF001
+                    if hasattr(metadata_row, "_mapping")
+                    else dict(metadata_row)
+                )
                 file_manifest.append(row_dict)
 
                 actual_record_count = row_dict.get("rows_unloaded")
