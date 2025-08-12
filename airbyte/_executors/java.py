@@ -228,18 +228,18 @@ class JavaExecutor(Executor):
             tar: The opened tarfile.TarFile object to extract from.
         """
         root_dir = None
-        
+
         for member in tar:
             if root_dir is None:
                 root_dir = member.name.split("/")[0]
-            
+
             if member.name.startswith(root_dir + "/"):
-                stripped_name = member.name[len(root_dir) + 1:]
+                stripped_name = member.name[len(root_dir) + 1 :]
                 if not stripped_name:  # Skip empty names (root directory itself)
                     continue
-                
+
                 target_path = self.jre_dir / stripped_name
-                
+
                 if member.isdir():
                     target_path.mkdir(parents=True, exist_ok=True)
                 elif member.isfile():
