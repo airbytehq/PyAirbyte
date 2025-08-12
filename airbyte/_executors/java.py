@@ -390,7 +390,10 @@ class JavaExecutor(Executor):
 
         cmd = [str(connector_executable), *mapped_args]
 
-        print(f"🚀 Running Java connector: {' '.join(cmd)}")
+        print(
+            f"🚀 Running Java connector with 'JAVA_HOME={java_home!s}': '{' '.join(cmd)}'",
+            file=sys.stderr,
+        )
 
         process = subprocess.Popen(
             cmd,
