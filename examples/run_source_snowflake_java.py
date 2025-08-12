@@ -46,7 +46,9 @@ def download_snowflake_tar() -> Path:
             f"https://drive.usercontent.google.com/download?id={file_id}&export=download&confirm=t&uuid={uuid_value}"
         )
 
-    temp_file = Path(tempfile.mktemp(suffix=".tar"))
+    fd, temp_path = tempfile.mkstemp(suffix=".tar")
+    temp_file = Path(temp_path)
+    os.close(fd)
     temp_file.write_bytes(response.content)
     return temp_file
 
