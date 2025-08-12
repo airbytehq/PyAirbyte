@@ -15,9 +15,8 @@ import os
 import tempfile
 from pathlib import Path
 
-import requests
-
 import airbyte as ab
+import requests
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
@@ -71,6 +70,12 @@ def main() -> None:
         )
         print("✅ Source created successfully!")
 
+        _ = source.config_spec
+        print("✅ Config spec retrieved successfully!")
+
+        return  # This is as far as we can go for now.
+
+        # TODO: Fix this part. Connector doesn't seem to get the config properly.
         source.check()
         print("✅ Connection check passed")
         stream_names = source.get_available_streams()
