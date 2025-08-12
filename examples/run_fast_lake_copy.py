@@ -263,7 +263,7 @@ def transfer_data_with_timing(
         f"   📊 Step 2 Performance: {actual_records:,} records at {step2_records_per_sec:,.1f} records/s, {step2_mb_per_sec:.2f} MB/s"
     )
 
-    print(f"   📄 Unload Results Metadata:")
+    print("   📄 Unload Results Metadata:")
     total_files_created = 0
     total_actual_records = 0
     total_data_size_bytes = 0
@@ -296,7 +296,7 @@ def transfer_data_with_timing(
             if len(result.file_manifest) > 3:
                 print(f"         ... and {len(result.file_manifest) - 3} more files")
     
-    print(f"   📊 Total Summary:")
+    print("   📊 Total Summary:")
     print(f"     Total files created: {total_files_created}")
     print(f"     Total actual records: {total_actual_records:,}")
     if total_data_size_bytes > 0:
