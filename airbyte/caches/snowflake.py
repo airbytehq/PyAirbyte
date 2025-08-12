@@ -191,27 +191,27 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
         with self.processor.get_sql_connection() as connection:
             from sqlalchemy import text
-            
+
             copy_result = connection.execute(text(unload_statement))
-            
+
             result_scan_query = "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
             result_scan_result = connection.execute(text(result_scan_query))
-            
+
             metadata_row = result_scan_result.fetchone()
-            
+
             actual_record_count = None
             files_created = None
             total_data_size_bytes = None
             compressed_size_bytes = None
             file_manifest = []
-            
+
             if metadata_row:
-                row_dict = dict(metadata_row._mapping) if hasattr(metadata_row, '_mapping') else dict(metadata_row)
+                row_dict = dict(metadata_row._mapping) if hasattr(metadata_row, "_mapping") else dict(metadata_row)
                 file_manifest.append(row_dict)
-                
-                actual_record_count = row_dict.get('rows_unloaded')
-                total_data_size_bytes = row_dict.get('input_bytes')
-                compressed_size_bytes = row_dict.get('output_bytes')
+
+                actual_record_count = row_dict.get("rows_unloaded")
+                total_data_size_bytes = row_dict.get("input_bytes")
+                compressed_size_bytes = row_dict.get("output_bytes")
                 files_created = 1
 
         return FastUnloadResult(
