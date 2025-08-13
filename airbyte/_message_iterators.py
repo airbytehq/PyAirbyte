@@ -85,7 +85,7 @@ class AirbyteMessageIterator:
     @final
     def read(self) -> str:
         """Read the next message from the iterator."""
-        return next(self).model_dump_json(exclude_none=True)
+        return next(self).model_dump_json()
 
     @classmethod
     def from_read_result(cls, read_result: ReadResult) -> AirbyteMessageIterator:

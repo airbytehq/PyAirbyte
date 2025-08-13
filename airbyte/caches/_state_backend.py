@@ -143,14 +143,14 @@ class SqlStateWriter(StateWriterBase):
                 destination_name=self.destination_name,
                 source_name=self.source_name,
                 stream_name=stream_name,
-                state_json=state_message.model_dump_json(exclude_none=True),
+                state_json=state_message.model_dump_json(),
             )
             if self.destination_name
             else CacheStreamStateModel(
                 source_name=self.source_name,
                 stream_name=stream_name,
                 table_name=table_prefix + stream_name,
-                state_json=state_message.model_dump_json(exclude_none=True),
+                state_json=state_message.model_dump_json(),
             )
         )
 

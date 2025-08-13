@@ -76,7 +76,7 @@ class StdOutStateWriter(StateWriterBase):
         state_message: AirbyteStateMessage,
     ) -> None:
         """Save or 'write' a state artifact."""
-        print(state_message.model_dump_json(exclude_none=True))
+        print(state_message.model_dump_json())
 
 
 class NoOpStateWriter(StateWriterBase):
