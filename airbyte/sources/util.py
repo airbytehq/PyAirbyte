@@ -172,8 +172,6 @@ def get_benchmark_source(
         config={
             "count": num_records,
             "seed": 0,
-            "records_per_sync": num_records,
-            "records_per_slice": 1000,
         },
         streams="*",
         install_if_missing=install_if_missing,
