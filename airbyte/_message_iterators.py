@@ -43,7 +43,6 @@ def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
             stream_status=AirbyteStreamStatusTraceMessage(
                 stream_descriptor=StreamDescriptor(
                     name=stream_name,
-                    namespace="",  # Some destinations fail if null/missing
                 ),
                 status=AirbyteStreamStatus.COMPLETE,
                 reasons=None,
