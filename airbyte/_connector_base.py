@@ -469,16 +469,6 @@ class ConnectorBase(abc.ABC):
             for line in self.executor.execute(args, stdin=stdin, suppress_stderr=suppress_stderr):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
-
-                    if (
-                        message.type == Type.TRACE
-                        and message.trace
-                        and message.trace.stream_status
-                        and message.trace.stream_status.stream_descriptor
-                        and message.trace.stream_status.stream_descriptor.namespace is None
-                    ):
-                        message.trace.stream_status.stream_descriptor.namespace = ""
-
                     if progress_tracker and message.record:
                         stream_name = message.record.stream
                         progress_tracker.tally_bytes_read(
