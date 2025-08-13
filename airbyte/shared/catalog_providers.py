@@ -69,6 +69,10 @@ class CatalogProvider:
             
             if stream.stream.namespace is None:
                 stream.stream.namespace = ""
+            if stream.stream.source_defined_cursor is None:
+                stream.stream.source_defined_cursor = False
+            if stream.stream.is_resumable is None:
+                stream.stream.is_resumable = False
 
         return catalog
 
