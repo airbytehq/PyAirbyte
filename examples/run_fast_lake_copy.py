@@ -342,6 +342,23 @@ def transfer_data_with_timing(
                 print(f"         File {i+1}: {manifest_entry}")
             if len(result.file_manifest) > 3:
                 print(f"         ... and {len(result.file_manifest) - 3} more files")
+        
+        print(f"   🔍 Debug: Unload File Analysis for {stream_name}:")
+        if result.file_manifest:
+            total_unload_records = 0
+            print(f"     Files created in unload: {result.files_created}")
+            for i, file_info in enumerate(result.file_manifest):
+                rows_unloaded = file_info.get('rows_unloaded', 0)
+                total_unload_records += rows_unloaded
+                print(f"       Unload File {i+1}: {rows_unloaded:,} records")
+            
+            print(f"     Total records from unload files: {total_unload_records:,}")
+            print(f"     FastUnloadResult.actual_record_count: {result.actual_record_count:,}")
+            
+            if total_unload_records != result.actual_record_count:
+                print(f"     ⚠️  MISMATCH: Unload file breakdown ({total_unload_records:,}) != actual_record_count ({result.actual_record_count:,})")
+            else:
+                print(f"     ✅ Unload file breakdown matches actual_record_count")
     
     print("   📊 Total Summary:")
     print(f"     Total files created: {total_files_created}")
@@ -435,6 +452,31 @@ def transfer_data_with_timing(
                 print(f"         File {i+1}: {manifest_entry}")
             if len(result.file_manifest) > 3:
                 print(f"         ... and {len(result.file_manifest) - 3} more files")
+        
+        print(f"   🔍 Debug: Load File Analysis for {stream_name}:")
+        if result.file_manifest:
+            total_load_records = 0
+            print(f"     Files processed in load: {result.files_processed}")
+            print(f"     Record count per file breakdown:")
+            for i, file_info in enumerate(result.file_manifest[:10]):  # Show first 10 files
+                file_name = file_info.get('file', 'unknown')
+                rows_loaded = file_info.get('rows_loaded', 0)
+                total_load_records += rows_loaded
+                print(f"       Load File {i+1}: {file_name} -> {rows_loaded:,} records")
+            
+            if len(result.file_manifest) > 10:
+                remaining_files = result.file_manifest[10:]
+                remaining_records = sum(f.get('rows_loaded', 0) for f in remaining_files)
+                total_load_records += remaining_records
+                print(f"       ... and {len(remaining_files)} more files -> {remaining_records:,} records")
+            
+            print(f"     Total records from file breakdown: {total_load_records:,}")
+            print(f"     FastLoadResult.actual_record_count: {result.actual_record_count:,}")
+            
+            if total_load_records != result.actual_record_count:
+                print(f"     ⚠️  MISMATCH: File breakdown ({total_load_records:,}) != actual_record_count ({result.actual_record_count:,})")
+            else:
+                print(f"     ✅ File breakdown matches actual_record_count")
     
     print("   📊 Load Summary:")
     print(f"     Total files processed: {total_load_files_processed}")
@@ -443,6 +485,22 @@ def transfer_data_with_timing(
         print(f"     Total data size: {total_load_data_size_bytes:,} bytes ({total_load_data_size_bytes / (1024*1024):.2f} MB)")
     if total_load_compressed_size_bytes > 0:
         print(f"     Total compressed size: {total_load_compressed_size_bytes:,} bytes ({total_load_compressed_size_bytes / (1024*1024):.2f} MB)")
+
+    print(f"\n🔍 [DEBUG] Unload vs Load File Comparison:")
+    print(f"  Unload Summary:")
+    print(f"    Files created: {total_files_created}")
+    print(f"    Records unloaded: {total_actual_records:,}")
+    print(f"  Load Summary:")
+    print(f"    Files processed: {total_load_files_processed}")
+    print(f"    Records loaded: {total_load_actual_records:,}")
+    print(f"  ")
+    print(f"  File Count Match: {'✅' if total_files_created == total_load_files_processed else '❌'}")
+    print(f"  Record Count Match: {'✅' if total_actual_records == total_load_actual_records else '❌'}")
+    print(f"  ")
+    print(f"  Potential Issues:")
+    print(f"    - If file counts don't match: Load may be reading from wrong S3 path or missing files")
+    print(f"    - If record counts don't match: Files may contain different data or path filters not working")
+    print(f"    - Check S3 paths above to ensure unload and load are using same locations")
 
     total_time = time.time() - total_start
     workflow_end_time = datetime.now()
