@@ -57,7 +57,7 @@ WAREHOUSE_CONFIGS = [
 
 NUM_RECORDS: int = 100_000_000  # Restore to 100M for reload process
 
-RELOAD_INITIAL_SOURCE_DATA = False  # Keep existing 100M dataset - DO NOT RELOAD
+RELOAD_INITIAL_SOURCE_DATA = False  # WARNING: Setting to True is a DESTRUCTIVE operation that takes several hours and will PERMANENTLY DELETE the existing dataset. Only toggle if you are absolutely sure you want to lose all current data.
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
