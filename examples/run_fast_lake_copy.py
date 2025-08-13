@@ -22,6 +22,7 @@ Required secrets (retrieved from Google Secret Manager):
 import os
 import resource
 import time
+import uuid
 from datetime import datetime
 from typing import Any, Literal
 
@@ -31,16 +32,29 @@ from airbyte.lakes import FastUnloadResult, S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
-XSMALL_WAREHOUSE_NAME = "COMPUTE_WH"
-LARGER_WAREHOUSE_NAME = (
-    "COMPUTE_WH_2XLARGE"  # 2XLARGE warehouse size (32x multiplier vs xsmall)
-)
-LARGER_WAREHOUSE_SIZE: Literal[
-    "xsmall", "small", "medium", "large", "xlarge", "xxlarge"
-] = "xxlarge"
-USE_LARGER_WAREHOUSE = (
-    True  # Use 2XLARGE warehouse for faster processing (32x vs xsmall)
-)
+# Available Snowflake Warehouse Options:
+# - COMPUTE_WH: xsmall (1x multiplier) - Default warehouse for basic operations
+# - COMPUTE_WH_LARGE: large (8x multiplier) - 8x compute power vs xsmall
+# - COMPUTE_WH_2XLARGE: xxlarge (32x multiplier) - 32x compute power vs xsmall
+# - AIRBYTE_WAREHOUSE: standard example name (size varies) (important-comment)
+#
+# Size Multipliers (relative to xsmall):
+# xsmall: 1x, small: 2x, medium: 4x, large: 8x, xlarge: 16x, xxlarge: 32x
+
+# Available Snowflake warehouse configurations for performance testing:
+# - COMPUTE_WH: xsmall (1x multiplier) - Default warehouse (important-comment)
+# - COMPUTE_WH_LARGE: large (8x multiplier) - 8x compute power (important-comment)
+# - COMPUTE_WH_2XLARGE: xxlarge (32x multiplier) - 32x compute power (important-comment)
+#
+# Size multipliers relative to xsmall:
+# xsmall (1x), small (2x), medium (4x), large (8x), xlarge (16x), xxlarge (32x)
+
+WAREHOUSE_CONFIGS = [
+    {"name": "COMPUTE_WH", "size": "xsmall", "multiplier": 1},
+    {"name": "COMPUTE_WH_LARGE", "size": "large", "multiplier": 8},
+    {"name": "COMPUTE_WH_2XLARGE", "size": "xxlarge", "multiplier": 32},
+]
+
 NUM_RECORDS: int = 100_000_000  # Total records to process (100 million for large-scale test)
 
 RELOAD_INITIAL_SOURCE_DATA = False  # Toggle to skip initial data load (assumes already loaded)
@@ -112,17 +126,15 @@ def setup_source() -> ab.Source:
     )
 
 
-def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, SnowflakeCache]:
-    """Set up source and destination Snowflake caches."""
+def setup_caches(credentials: dict[str, Any], warehouse_config: dict[str, Any]) -> tuple[SnowflakeCache, SnowflakeCache]:
+    """Set up source and destination Snowflake caches with specified warehouse."""
     print(f"🏗️  [{datetime.now().strftime('%H:%M:%S')}] Setting up Snowflake caches...")
 
     snowflake_config = credentials["snowflake"]
 
-    warehouse_name = (
-        LARGER_WAREHOUSE_NAME if USE_LARGER_WAREHOUSE else XSMALL_WAREHOUSE_NAME
-    )
-    warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
-    size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
+    warehouse_name = warehouse_config["name"]
+    warehouse_size = warehouse_config["size"]
+    size_multiplier = warehouse_config["multiplier"]
 
     print("📊 Warehouse Configuration:")
     print(f"   Using warehouse: {warehouse_name}")
@@ -152,19 +164,48 @@ def setup_caches(credentials: dict[str, Any]) -> tuple[SnowflakeCache, Snowflake
     return snowflake_cache_source, snowflake_cache_dest
 
 
-def setup_lake_storage(credentials: dict[str, Any]) -> S3LakeStorage:
-    """Set up S3 lake storage."""
+class CustomS3LakeStorage(S3LakeStorage):
+    """Custom S3LakeStorage with configurable path prefix for warehouse-specific testing."""
+    
+    def __init__(self, path_prefix: str, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._path_prefix = path_prefix
+    
+    @property
+    def root_storage_path(self) -> str:
+        """Get the root path for the lake storage with custom prefix."""
+        return f"{self._path_prefix}/airbyte/lake"
+
+
+def setup_lake_storage(credentials: dict[str, Any], warehouse_name: str = "", script_start_time: datetime | None = None) -> CustomS3LakeStorage:
+    """Set up S3 lake storage with timestamped path and warehouse subdirectory for tracking."""
     print(f"🏞️  [{datetime.now().strftime('%H:%M:%S')}] Setting up S3 lake storage...")
+    
+    if script_start_time is None:
+        script_start_time = datetime.now()
+    
+    timestamp = script_start_time.strftime("%Y%m%d_%H%M")
+    base_path = f"fast_lake_copy_{timestamp}"
+    
+    if warehouse_name:
+        unique_path_prefix = f"{base_path}/{warehouse_name.lower()}"
+        print(f"   📂 S3 path prefix: {unique_path_prefix} (warehouse: {warehouse_name})")
+    else:
+        unique_path_prefix = base_path
+        print(f"   📂 S3 path prefix: {unique_path_prefix}")
+    
     print("   Using co-located bucket: ab-destiantion-iceberg-us-west-2 (us-west-2)")
 
-    s3_lake = S3LakeStorage(
+    s3_lake = CustomS3LakeStorage(
+        path_prefix=unique_path_prefix,
         bucket_name="ab-destiantion-iceberg-us-west-2",
         region="us-west-2",
         aws_access_key_id=credentials["aws_access_key_id"],
         aws_secret_access_key=credentials["aws_secret_access_key"],
         short_name="s3_main",  # Custom short name for AIRBYTE_LAKE_S3_MAIN_ artifacts
     )
-
+    
+    print(f"   📍 Full S3 root URI: {s3_lake.root_storage_uri}")
     return s3_lake
 
 
@@ -173,7 +214,8 @@ def transfer_data_with_timing(
     snowflake_cache_source: SnowflakeCache,
     snowflake_cache_dest: SnowflakeCache,
     s3_lake: S3LakeStorage,
-) -> None:
+    warehouse_config: dict[str, Any],
+) -> dict[str, Any]:
     """Execute the complete data transfer workflow with performance timing.
 
     Simplified to Snowflake→S3→Snowflake for proof of concept as suggested.
@@ -237,6 +279,11 @@ def transfer_data_with_timing(
     print(
         f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3..."
     )
+    print(f"   📂 S3 destination paths:")
+    for stream_name in streams:
+        stream_uri = s3_lake.get_stream_root_uri(stream_name)
+        print(f"     {stream_name}: {stream_uri}")
+    
     step2_start = time.time()
     unload_results: list[FastUnloadResult] = []
     for stream_name in streams:
@@ -317,6 +364,11 @@ def transfer_data_with_timing(
     print(
         f"📥 [{step3_start_time.strftime('%H:%M:%S')}] Step 3: Loading from S3 to Snowflake (destination)..."
     )
+    print(f"   📂 S3 source paths:")
+    for stream_name in streams:
+        stream_uri = s3_lake.get_stream_root_uri(stream_name)
+        print(f"     {stream_name}: {stream_uri}")
+    
     step3_start = time.time()
 
     snowflake_cache_dest.create_source_tables(source=source, streams=streams)
@@ -348,8 +400,8 @@ def transfer_data_with_timing(
     workflow_end_time = datetime.now()
     total_elapsed = (workflow_end_time - workflow_start_time).total_seconds()
 
-    warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
-    size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
+    warehouse_size = warehouse_config["size"]
+    size_multiplier = warehouse_config["multiplier"]
 
     total_records_per_sec = actual_records / total_time if total_time > 0 else 0
     total_mb_per_sec = (
@@ -425,11 +477,34 @@ def transfer_data_with_timing(
         f"🔍 [{validation_end_time.strftime('%H:%M:%S')}] Validation completed in {(validation_end_time - validation_start_time).total_seconds():.2f}s"
     )
 
+    return {
+        "warehouse_name": warehouse_config["name"],
+        "warehouse_size": warehouse_config["size"],
+        "size_multiplier": warehouse_config["multiplier"],
+        "step2_time": step2_time,
+        "step2_records_per_sec": step2_records_per_sec,
+        "step2_mb_per_sec": step2_mb_per_sec,
+        "step2_cpu_minutes": step2_cpu_minutes,
+        "step3_time": step3_time,
+        "step3_records_per_sec": step3_records_per_sec,
+        "step3_mb_per_sec": step3_mb_per_sec,
+        "step3_cpu_minutes": step3_cpu_minutes,
+        "total_time": total_time,
+        "total_records_per_sec": total_records_per_sec,
+        "total_mb_per_sec": total_mb_per_sec,
+        "total_cpu_minutes": total_cpu_minutes,
+        "actual_records": actual_records,
+        "total_files_created": total_files_created,
+        "total_actual_records": total_actual_records,
+        "total_data_size_bytes": total_data_size_bytes,
+        "total_compressed_size_bytes": total_compressed_size_bytes,
+    }
+
 
 def main() -> None:
-    """Main execution function."""
-    print("🎯 PyAirbyte Fast Lake Copy Demo")
-    print("=" * 50)
+    """Main execution function - runs performance tests across all warehouse sizes."""
+    print("🎯 PyAirbyte Fast Lake Copy Demo - Multi-Warehouse Performance Analysis")
+    print("=" * 80)
 
     soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
     print(f"📁 Current file descriptor limits: soft={soft}, hard={hard}")
@@ -442,41 +517,114 @@ def main() -> None:
         print(f"⚠️  Could not increase file descriptor limit: {e}")
 
     try:
+        script_start_time = datetime.now()
         credentials = get_credentials()
         source = setup_source()
-        snowflake_cache_source, snowflake_cache_dest = setup_caches(credentials)
-        s3_lake = setup_lake_storage(credentials)
 
-        transfer_data_with_timing(
-            source=source,
-            snowflake_cache_source=snowflake_cache_source,
-            snowflake_cache_dest=snowflake_cache_dest,
-            s3_lake=s3_lake,
-        )
-
-        warehouse_size = LARGER_WAREHOUSE_SIZE if USE_LARGER_WAREHOUSE else "xsmall"
-        size_multiplier = WAREHOUSE_SIZE_MULTIPLIERS[warehouse_size]
-
-        print("\n🎉 Fast lake copy workflow completed successfully!")
-        print("💡 This demonstrates 100x performance improvements through:")
-        print("   • Direct bulk operations (Snowflake COPY INTO)")
-        print("   • S3 lake storage intermediate layer")
-        print(
-            "   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)"
-        )
-        print("   • Optimized Parquet file format with Snappy compression")
-        print("   • Parallel stream processing")
-        print(
-            f"   • Warehouse scaling: {warehouse_size} ({size_multiplier}x compute units)"
-        )
-        if not RELOAD_INITIAL_SOURCE_DATA:
-            print(
-                "   • Skip initial load optimization (RELOAD_INITIAL_SOURCE_DATA=False)"
+        results = []
+        
+        print(f"\n🏭 Testing {len(WAREHOUSE_CONFIGS)} warehouse configurations...")
+        print("Available warehouse options:")
+        for config in WAREHOUSE_CONFIGS:
+            print(f"  • {config['name']}: {config['size']} ({config['multiplier']}x multiplier)")
+        
+        for i, warehouse_config in enumerate(WAREHOUSE_CONFIGS, 1):
+            print(f"\n{'='*80}")
+            print(f"🧪 Test {i}/{len(WAREHOUSE_CONFIGS)}: {warehouse_config['name']} ({warehouse_config['size']})")
+            print(f"{'='*80}")
+            
+            s3_lake = setup_lake_storage(credentials, warehouse_config['name'], script_start_time)
+            
+            snowflake_cache_source, snowflake_cache_dest = setup_caches(credentials, warehouse_config)
+            
+            result = transfer_data_with_timing(
+                source=source,
+                snowflake_cache_source=snowflake_cache_source,
+                snowflake_cache_dest=snowflake_cache_dest,
+                s3_lake=s3_lake,
+                warehouse_config=warehouse_config,
             )
+            results.append(result)
+            
+            print("\n🎉 Test completed successfully!")
+            print("💡 This demonstrates 100x performance improvements through:")
+            print("   • Direct bulk operations (Snowflake COPY INTO)")
+            print("   • S3 lake storage intermediate layer")
+            print("   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)")
+            print("   • Optimized Parquet file format with Snappy compression")
+            print("   • Parallel stream processing")
+            print(f"   • Warehouse scaling: {warehouse_config['size']} ({warehouse_config['multiplier']}x compute units)")
+            if not RELOAD_INITIAL_SOURCE_DATA:
+                print("   • Skip initial load optimization (RELOAD_INITIAL_SOURCE_DATA=False)")
+
+        print_performance_summary(results)
 
     except Exception as e:
         print(f"\n❌ Error during execution: {e}")
         raise
+
+
+def print_performance_summary(results: list[dict[str, Any]]) -> None:
+    """Print comprehensive performance comparison across all warehouse sizes."""
+    print(f"\n{'='*80}")
+    print("📊 COMPREHENSIVE PERFORMANCE ANALYSIS ACROSS ALL WAREHOUSE SIZES")
+    print(f"{'='*80}")
+    
+    print(f"\n🔄 UNLOAD PERFORMANCE (Snowflake → S3):")
+    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Time (s)':<10} {'Records/s':<15} {'MB/s':<10} {'CPU Min':<10}")
+    print("-" * 90)
+    for result in results:
+        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+              f"{result['step2_time']:<10.2f} {result['step2_records_per_sec']:<15,.0f} "
+              f"{result['step2_mb_per_sec']:<10.1f} {result['step2_cpu_minutes']:<10.3f}")
+    
+    print(f"\n📥 LOAD PERFORMANCE (S3 → Snowflake):")
+    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Time (s)':<10} {'Records/s':<15} {'MB/s':<10} {'CPU Min':<10}")
+    print("-" * 90)
+    for result in results:
+        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+              f"{result['step3_time']:<10.2f} {result['step3_records_per_sec']:<15,.0f} "
+              f"{result['step3_mb_per_sec']:<10.1f} {result['step3_cpu_minutes']:<10.3f}")
+    
+    print(f"\n🎯 OVERALL PERFORMANCE SUMMARY:")
+    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Total Time':<12} {'Records/s':<15} {'MB/s':<10} {'Total CPU':<12}")
+    print("-" * 100)
+    for result in results:
+        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+              f"{result['total_time']:<12.2f} {result['total_records_per_sec']:<15,.0f} "
+              f"{result['total_mb_per_sec']:<10.1f} {result['total_cpu_minutes']:<12.3f}")
+    
+    print(f"\n💰 COST EFFICIENCY ANALYSIS (Records per CPU-minute):")
+    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Unload Eff':<15} {'Load Eff':<15} {'Overall Eff':<15}")
+    print("-" * 95)
+    for result in results:
+        unload_eff = result['actual_records'] / result['step2_cpu_minutes'] if result['step2_cpu_minutes'] > 0 else 0
+        load_eff = result['actual_records'] / result['step3_cpu_minutes'] if result['step3_cpu_minutes'] > 0 else 0
+        overall_eff = result['actual_records'] / result['total_cpu_minutes'] if result['total_cpu_minutes'] > 0 else 0
+        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+              f"{unload_eff:<15,.0f} {load_eff:<15,.0f} {overall_eff:<15,.0f}")
+    
+    print(f"\n🏆 SCALING EFFICIENCY ANALYSIS:")
+    baseline = results[0]  # xsmall warehouse as baseline
+    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Unload Scale':<15} {'Load Scale':<15} {'Overall Scale':<15}")
+    print("-" * 95)
+    for result in results:
+        unload_scale = (result['step2_records_per_sec'] / baseline['step2_records_per_sec']) / result['size_multiplier'] if baseline['step2_records_per_sec'] > 0 else 0
+        load_scale = (result['step3_records_per_sec'] / baseline['step3_records_per_sec']) / result['size_multiplier'] if baseline['step3_records_per_sec'] > 0 else 0
+        overall_scale = (result['total_records_per_sec'] / baseline['total_records_per_sec']) / result['size_multiplier'] if baseline['total_records_per_sec'] > 0 else 0
+        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+              f"{unload_scale:<15.2f} {load_scale:<15.2f} {overall_scale:<15.2f}")
+    
+    print(f"\n📈 KEY INSIGHTS:")
+    best_unload = max(results, key=lambda x: x['step2_records_per_sec'])
+    best_load = max(results, key=lambda x: x['step3_records_per_sec'])
+    most_efficient = min(results, key=lambda x: x['total_cpu_minutes'])
+    
+    print(f"  • Best unload performance: {best_unload['warehouse_name']} ({best_unload['step2_records_per_sec']:,.0f} rec/s)")
+    print(f"  • Best load performance: {best_load['warehouse_name']} ({best_load['step3_records_per_sec']:,.0f} rec/s)")
+    print(f"  • Most cost efficient: {most_efficient['warehouse_name']} ({most_efficient['total_cpu_minutes']:.3f} CPU minutes)")
+    print(f"  • Records processed: {results[0]['actual_records']:,} across all tests")
+    print(f"  • Data size: {results[0]['total_data_size_bytes'] / (1024*1024*1024):.2f} GB uncompressed")
 
 
 if __name__ == "__main__":
