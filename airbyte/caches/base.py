@@ -23,7 +23,7 @@ from airbyte.datasets._sql import CachedDataset
 
 
 if TYPE_CHECKING:
-    from airbyte.lakes import FastUnloadResult, LakeStorage
+    from airbyte.lakes import FastLoadResult, FastUnloadResult, LakeStorage
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_writers import StdOutStateWriter
@@ -480,7 +480,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         lake_path_prefix: str,
         *,
         zero_copy: bool = False,
-    ) -> None:
+    ) -> FastLoadResult:
         """Load a single stream from the lake store using fast native LOAD operations."""
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
@@ -488,7 +488,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         if zero_copy:
             raise NotImplementedError("Zero-copy loading is not yet supported in Snowflake.")
 
-        self.fast_load_table(
+        return self.fast_load_table(
             table_name=table_name,
             lake_store=lake_store,
             lake_path_prefix=lake_path_prefix,
@@ -503,10 +503,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         *,
         db_name: str | None = None,
         schema_name: str | None = None,
-    ) -> None:
-        """Fast-unload a specific table to the designated lake storage.
+        zero_copy: bool = False,
+    ) -> FastLoadResult:
+        """Fast-load a specific table from the designated lake storage.
 
-        Subclasses should override this method to implement fast unloads.
+        Subclasses should override this method to implement fast loads.
         """
         raise NotImplementedError
 
@@ -517,9 +518,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         unload_result: FastUnloadResult,
         *,
         zero_copy: bool = False,
-    ) -> None:
+    ) -> FastLoadResult:
         """Load the result of a fast unload operation."""
-        self.fast_load_stream(
+        return self.fast_load_stream(
             stream_name=stream_name,
             lake_store=unload_result.lake_store,
             lake_path_prefix=unload_result.lake_path_prefix,
@@ -533,9 +534,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         unload_result: FastUnloadResult,
         *,
         zero_copy: bool = False,
-    ) -> None:
+    ) -> FastLoadResult:
         """Load the result of a fast unload operation."""
-        self.fast_load_table(
+        return self.fast_load_table(
             table_name=table_name,
             lake_store=unload_result.lake_store,
             lake_path_prefix=unload_result.lake_path_prefix,

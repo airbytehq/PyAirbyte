@@ -70,7 +70,7 @@ from airbyte.caches.base import CacheBase
 from airbyte.destinations._translate_cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
-from airbyte.lakes import FastUnloadResult
+from airbyte.lakes import FastLoadResult, FastUnloadResult
 from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
 
@@ -239,11 +239,15 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         db_name: str | None = None,
         schema_name: str | None = None,
         zero_copy: bool = False,
-    ) -> None:
+    ) -> FastLoadResult:
         """Load a single stream from the lake store using Snowflake COPY INTO.
 
         This implementation uses Snowflake's COPY INTO command to load data
         directly from S3 in Parquet format with managed artifacts for optimal performance.
+        
+        Uses connection context manager to capture rich load results including
+        actual record counts, file counts, and data size information from Snowflake's
+        COPY INTO command metadata.
         """
         if zero_copy:
             raise NotImplementedError("Zero-copy loading is not yet supported in Snowflake.")
@@ -264,12 +268,6 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         else:
             qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
 
-        qualified_prefix = (
-            f"{self.database}.{self.schema_name}" if self.database else self.schema_name
-        )
-        file_format_name = self._get_lake_file_format_name(lake_store)
-        stage_name = self._get_lake_stage_name(lake_store)
-
         self._setup_lake_artifacts(lake_store)
 
         load_statement = f"""
@@ -279,7 +277,45 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
             PURGE = FALSE
         """
-        self.execute_sql(load_statement)
+
+        with self.processor.get_sql_connection() as connection:
+            connection.execute(text(load_statement))
+
+            result_scan_query = "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+            result_scan_result = connection.execute(text(result_scan_query))
+
+            actual_record_count = None
+            files_processed = None
+            total_data_size_bytes = None
+            compressed_size_bytes = None
+            file_manifest = []
+
+            rows = result_scan_result.fetchall()
+            if rows:
+                for row in rows:
+                    row_dict = (
+                        dict(row._mapping)  # noqa: SLF001
+                        if hasattr(row, "_mapping")
+                        else dict(row)
+                    )
+                    file_manifest.append(row_dict)
+
+                first_row = file_manifest[0] if file_manifest else {}
+                actual_record_count = first_row.get("rows_loaded") or first_row.get("rows_parsed")
+                total_data_size_bytes = first_row.get("input_bytes")
+                compressed_size_bytes = first_row.get("output_bytes")
+                files_processed = len(file_manifest)
+
+        return FastLoadResult(
+            table_name=table_name,
+            lake_store=lake_store,
+            lake_path_prefix=lake_path_prefix,
+            actual_record_count=actual_record_count,
+            files_processed=files_processed,
+            total_data_size_bytes=total_data_size_bytes,
+            compressed_size_bytes=compressed_size_bytes,
+            file_manifest=file_manifest,
+        )
 
 
 # Expose the Cache class and also the Config class.

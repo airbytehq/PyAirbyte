@@ -84,6 +84,23 @@ class FastUnloadResult(BaseModel):
     query_id: str | None = None
 
 
+class FastLoadResult(BaseModel):
+    """Results from a Fast Load operation."""
+
+    model_config = {"arbitrary_types_allowed": True}
+
+    lake_store: LakeStorage
+    lake_path_prefix: str
+    table_name: str
+    stream_name: str | None = None
+    actual_record_count: int | None = None
+    files_processed: int | None = None
+    total_data_size_bytes: int | None = None
+    compressed_size_bytes: int | None = None
+    file_manifest: list[dict] | None = None
+    query_id: str | None = None
+
+
 class S3LakeStorage(LakeStorage):
     """S3 Lake Storage implementation."""
 
@@ -140,4 +157,5 @@ __all__ = [
     "S3LakeStorage",
     "GCSLakeStorage",
     "FastUnloadResult",
+    "FastLoadResult",
 ]

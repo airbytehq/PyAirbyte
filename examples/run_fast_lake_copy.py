@@ -28,7 +28,7 @@ from typing import Any, Literal
 
 import airbyte as ab
 from airbyte.caches.snowflake import SnowflakeCache
-from airbyte.lakes import FastUnloadResult, S3LakeStorage
+from airbyte.lakes import FastLoadResult, FastUnloadResult, S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
@@ -373,18 +373,25 @@ def transfer_data_with_timing(
 
     snowflake_cache_dest.create_source_tables(source=source, streams=streams)
 
+    load_results: list[FastLoadResult] = []
     for stream_name in streams:
-        snowflake_cache_dest.fast_load_stream(
+        load_result = snowflake_cache_dest.fast_load_stream(
             stream_name=stream_name,
             lake_store=s3_lake,
             lake_path_prefix=stream_name,
         )
+        load_results.append(load_result)
     step3_time = time.time() - step3_start
     step3_end_time = datetime.now()
 
-    step3_records_per_sec = actual_records / step3_time if step3_time > 0 else 0
+    total_load_records = sum(result.actual_record_count or 0 for result in load_results)
+    total_load_data_bytes = sum(result.total_data_size_bytes or 0 for result in load_results)
+    
+    step3_records_per_sec = total_load_records / step3_time if step3_time > 0 else 0
     step3_mb_per_sec = (
-        (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step3_time
+        (total_load_data_bytes / (1024 * 1024)) / step3_time
+        if step3_time > 0 and total_load_data_bytes > 0
+        else (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step3_time
         if step3_time > 0
         else 0
     )
@@ -393,8 +400,49 @@ def transfer_data_with_timing(
         f"✅ [{step3_end_time.strftime('%H:%M:%S')}] Step 3 completed in {step3_time:.2f} seconds (elapsed: {(step3_end_time - step3_start_time).total_seconds():.2f}s)"
     )
     print(
-        f"   📊 Step 3 Performance: {actual_records:,} records at {step3_records_per_sec:,.1f} records/s, {step3_mb_per_sec:.2f} MB/s"
+        f"   📊 Step 3 Performance: {total_load_records:,} records at {step3_records_per_sec:,.1f} records/s, {step3_mb_per_sec:.2f} MB/s"
     )
+    
+    print("   📄 Load Results Metadata:")
+    total_load_files_processed = 0
+    total_load_actual_records = 0
+    total_load_data_size_bytes = 0
+    total_load_compressed_size_bytes = 0
+    
+    for result in load_results:
+        stream_name = result.stream_name or result.table_name
+        print(f"     Stream: {stream_name}")
+        
+        if result.actual_record_count is not None:
+            print(f"       Actual records loaded: {result.actual_record_count:,}")
+            total_load_actual_records += result.actual_record_count
+        
+        if result.files_processed is not None:
+            print(f"       Files processed: {result.files_processed}")
+            total_load_files_processed += result.files_processed
+        
+        if result.total_data_size_bytes is not None:
+            print(f"       Data size: {result.total_data_size_bytes:,} bytes ({result.total_data_size_bytes / (1024*1024):.2f} MB)")
+            total_load_data_size_bytes += result.total_data_size_bytes
+        
+        if result.compressed_size_bytes is not None:
+            print(f"       Compressed size: {result.compressed_size_bytes:,} bytes ({result.compressed_size_bytes / (1024*1024):.2f} MB)")
+            total_load_compressed_size_bytes += result.compressed_size_bytes
+        
+        if result.file_manifest:
+            print(f"       File manifest entries: {len(result.file_manifest)}")
+            for i, manifest_entry in enumerate(result.file_manifest[:3]):  # Show first 3 entries
+                print(f"         File {i+1}: {manifest_entry}")
+            if len(result.file_manifest) > 3:
+                print(f"         ... and {len(result.file_manifest) - 3} more files")
+    
+    print("   📊 Load Summary:")
+    print(f"     Total files processed: {total_load_files_processed}")
+    print(f"     Total actual records loaded: {total_load_actual_records:,}")
+    if total_load_data_size_bytes > 0:
+        print(f"     Total data size: {total_load_data_size_bytes:,} bytes ({total_load_data_size_bytes / (1024*1024):.2f} MB)")
+    if total_load_compressed_size_bytes > 0:
+        print(f"     Total compressed size: {total_load_compressed_size_bytes:,} bytes ({total_load_compressed_size_bytes / (1024*1024):.2f} MB)")
 
     total_time = time.time() - total_start
     workflow_end_time = datetime.now()
@@ -463,14 +511,26 @@ def transfer_data_with_timing(
     print(
         f"\n🔍 [{validation_start_time.strftime('%H:%M:%S')}] Validating data transfer..."
     )
-    for stream_name in streams:
-        source_count = len(snowflake_cache_source[stream_name])
-        dest_count = len(snowflake_cache_dest[stream_name])
-        print(f"  {stream_name}: Source={source_count}, Destination={dest_count}")
-        if source_count == dest_count:
-            print(f"  ✅ {stream_name} transfer validated")
+    for i, stream_name in enumerate(streams):
+        unload_result = unload_results[i]
+        load_result = load_results[i]
+        
+        unload_count = unload_result.actual_record_count or 0
+        load_count = load_result.actual_record_count or 0
+        
+        print(f"  {stream_name}: Unloaded={unload_count:,}, Loaded={load_count:,}")
+        if unload_count == load_count:
+            print(f"  ✅ {stream_name} transfer validated (metadata-based)")
         else:
-            print(f"  ❌ {stream_name} transfer validation failed")
+            print(f"  ❌ {stream_name} transfer validation failed (metadata-based)")
+            
+            source_count = len(snowflake_cache_source[stream_name])
+            dest_count = len(snowflake_cache_dest[stream_name])
+            print(f"  Fallback validation: Source={source_count:,}, Destination={dest_count:,}")
+            if source_count == dest_count:
+                print(f"  ✅ {stream_name} fallback validation passed")
+            else:
+                print(f"  ❌ {stream_name} fallback validation failed")
     validation_end_time = datetime.now()
     print(
         f"🔍 [{validation_end_time.strftime('%H:%M:%S')}] Validation completed in {(validation_end_time - validation_start_time).total_seconds():.2f}s"
@@ -497,6 +557,8 @@ def transfer_data_with_timing(
         "total_actual_records": total_actual_records,
         "total_data_size_bytes": total_data_size_bytes,
         "total_compressed_size_bytes": total_compressed_size_bytes,
+        "total_load_records": total_load_records,
+        "total_load_data_bytes": total_load_data_bytes,
     }
 
 
