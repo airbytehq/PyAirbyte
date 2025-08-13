@@ -110,7 +110,7 @@ class AirbyteMessageIterator:
                                 ).timestamp()
                             ),
                             meta=None,
-                            namespace="",  # Use empty string instead of None to avoid validation errors
+                            namespace="",  # Use empty string instead of None
                         ),
                     )
 
