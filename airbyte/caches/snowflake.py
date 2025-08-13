@@ -177,9 +177,9 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         if db_name is not None and schema_name is not None:
             qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
         elif schema_name is not None:
-            qualified_table_name = f"{schema_name}.{table_name}"
+            qualified_table_name = f"{self.database}.{schema_name}.{table_name}"
         else:
-            qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
+            qualified_table_name = f"{self.database}.{self.schema_name}.{table_name}"
 
         self._setup_lake_artifacts(lake_store)
 
@@ -264,9 +264,9 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         if db_name is not None and schema_name is not None:
             qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
         elif schema_name is not None:
-            qualified_table_name = f"{schema_name}.{table_name}"
+            qualified_table_name = f"{self.database}.{schema_name}.{table_name}"
         else:
-            qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
+            qualified_table_name = f"{self.database}.{self.schema_name}.{table_name}"
 
         self._setup_lake_artifacts(lake_store)
 
