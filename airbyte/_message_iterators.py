@@ -43,6 +43,7 @@ def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
             stream_status=AirbyteStreamStatusTraceMessage(
                 stream_descriptor=StreamDescriptor(
                     name=stream_name,
+                    namespace="",  # Use empty string instead of None for compatibility
                 ),
                 status=AirbyteStreamStatus.COMPLETE,
                 reasons=None,
@@ -108,9 +109,8 @@ class AirbyteMessageIterator:
                                     "datetime.datetime", record.get(AB_EXTRACTED_AT_COLUMN)
                                 ).timestamp()
                             ),
-                            # `meta` and `namespace` are not handled:
                             meta=None,
-                            namespace=None,
+                            namespace="",  # Use empty string instead of None to avoid validation errors
                         ),
                     )
 
