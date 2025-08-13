@@ -284,33 +284,12 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             if resolved_version is None:
                 if metadata and metadata.latest_available_version:
                     resolved_version = metadata.latest_available_version
-                elif AIRBYTE_OFFLINE_MODE:
-                    resolved_version = "latest"
-                    if logger:
-                        logger.warning(
-                            f"Using 'latest' tag for connector '{name}' because no explicit "
-                            f"version was specified and Airbyte is running in offline mode. "
-                            f"This may result in using an outdated connector version. Consider "
-                            f"specifying an explicit version or disable offline mode to fetch "
-                            f"the latest version from the registry."
-                        )
-                elif metadata is None:
-                    resolved_version = "latest"
-                    if logger:
-                        logger.warning(
-                            f"Using 'latest' tag for connector '{name}' because no explicit "
-                            f"version was specified and the latest version could not be "
-                            f"determined from the registry (metadata missing). This may result "
-                            f"in using an outdated connector version. Consider specifying an "
-                            f"explicit version or check your internet connection."
-                        )
                 else:
                     resolved_version = "latest"
                     if logger:
                         logger.warning(
                             f"Using 'latest' tag for connector '{name}' because no explicit "
-                            f"version was specified and no latest version was found in the "
-                            f"registry."
+                            f"version was specified and we could not locate the latest version."
                         )
 
             docker_image = f"{docker_image}:{resolved_version}"
