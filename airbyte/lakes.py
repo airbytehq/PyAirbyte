@@ -76,6 +76,12 @@ class FastUnloadResult(BaseModel):
     lake_path_prefix: str
     table_name: str
     stream_name: str | None = None
+    actual_record_count: int | None = None
+    files_created: int | None = None
+    total_data_size_bytes: int | None = None
+    compressed_size_bytes: int | None = None
+    file_manifest: list[dict] | None = None
+    query_id: str | None = None
 
 
 class S3LakeStorage(LakeStorage):

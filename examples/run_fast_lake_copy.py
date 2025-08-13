@@ -43,7 +43,7 @@ USE_LARGER_WAREHOUSE = (
 )
 NUM_RECORDS: int = 100_000_000  # Total records to process (100 million for large-scale test)
 
-RELOAD_INITIAL_SOURCE_DATA = True  # Toggle to skip initial data load (assumes already loaded)
+RELOAD_INITIAL_SOURCE_DATA = False  # Toggle to skip initial data load (assumes already loaded)
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
@@ -262,6 +262,50 @@ def transfer_data_with_timing(
     print(
         f"   📊 Step 2 Performance: {actual_records:,} records at {step2_records_per_sec:,.1f} records/s, {step2_mb_per_sec:.2f} MB/s"
     )
+
+    print("   📄 Unload Results Metadata:")
+    total_files_created = 0
+    total_actual_records = 0
+    total_data_size_bytes = 0
+    total_compressed_size_bytes = 0
+    
+    for result in unload_results:
+        stream_name = result.stream_name or result.table_name
+        print(f"     Stream: {stream_name}")
+        
+        if result.actual_record_count is not None:
+            print(f"       Actual records: {result.actual_record_count:,}")
+            total_actual_records += result.actual_record_count
+        
+        if result.files_created is not None:
+            print(f"       Files created: {result.files_created}")
+            total_files_created += result.files_created
+        
+        if result.total_data_size_bytes is not None:
+            print(f"       Data size: {result.total_data_size_bytes:,} bytes ({result.total_data_size_bytes / (1024*1024):.2f} MB)")
+            total_data_size_bytes += result.total_data_size_bytes
+        
+        if result.compressed_size_bytes is not None:
+            print(f"       Compressed size: {result.compressed_size_bytes:,} bytes ({result.compressed_size_bytes / (1024*1024):.2f} MB)")
+            total_compressed_size_bytes += result.compressed_size_bytes
+        
+        if result.file_manifest:
+            print(f"       File manifest entries: {len(result.file_manifest)}")
+            for i, manifest_entry in enumerate(result.file_manifest[:3]):  # Show first 3 entries
+                print(f"         File {i+1}: {manifest_entry}")
+            if len(result.file_manifest) > 3:
+                print(f"         ... and {len(result.file_manifest) - 3} more files")
+    
+    print("   📊 Total Summary:")
+    print(f"     Total files created: {total_files_created}")
+    print(f"     Total actual records: {total_actual_records:,}")
+    if total_data_size_bytes > 0:
+        print(f"     Total data size: {total_data_size_bytes:,} bytes ({total_data_size_bytes / (1024*1024):.2f} MB)")
+    if total_compressed_size_bytes > 0:
+        print(f"     Total compressed size: {total_compressed_size_bytes:,} bytes ({total_compressed_size_bytes / (1024*1024):.2f} MB)")
+        if total_data_size_bytes > 0:
+            compression_ratio = (1 - total_compressed_size_bytes / total_data_size_bytes) * 100
+            print(f"     Compression ratio: {compression_ratio:.1f}%")
 
     consistency_delay = 5  # seconds
     print(

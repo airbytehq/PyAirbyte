@@ -62,6 +62,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar
 
 from airbyte_api.models import DestinationSnowflake
+from sqlalchemy import text
 from typing_extensions import override
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
@@ -157,6 +158,10 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         Unlike fast_unload_stream(), this method works with any table and doesn't
         require a stream mapping.
 
+        Uses connection context manager to capture rich unload results including
+        actual record counts, file counts, and data size information from Snowflake's
+        COPY INTO command metadata.
+
         Raises:
             ValueError: If db_name is provided but schema_name is not.
         """
@@ -184,12 +189,44 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             FILE_FORMAT = {qualified_prefix}.{file_format_name}
             OVERWRITE = TRUE
         """
-        self.execute_sql(unload_statement)
+
+        with self.processor.get_sql_connection() as connection:
+            connection.execute(text(unload_statement))
+
+            result_scan_query = "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
+            result_scan_result = connection.execute(text(result_scan_query))
+
+            metadata_row = result_scan_result.fetchone()
+
+            actual_record_count = None
+            files_created = None
+            total_data_size_bytes = None
+            compressed_size_bytes = None
+            file_manifest = []
+
+            if metadata_row:
+                row_dict = (
+                    dict(metadata_row._mapping)  # noqa: SLF001
+                    if hasattr(metadata_row, "_mapping")
+                    else dict(metadata_row)
+                )
+                file_manifest.append(row_dict)
+
+                actual_record_count = row_dict.get("rows_unloaded")
+                total_data_size_bytes = row_dict.get("input_bytes")
+                compressed_size_bytes = row_dict.get("output_bytes")
+                files_created = 1
+
         return FastUnloadResult(
             stream_name=stream_name,
             table_name=table_name,
             lake_store=lake_store,
             lake_path_prefix=lake_path_prefix,
+            actual_record_count=actual_record_count,
+            files_created=files_created,
+            total_data_size_bytes=total_data_size_bytes,
+            compressed_size_bytes=compressed_size_bytes,
+            file_manifest=file_manifest,
         )
 
     @override
