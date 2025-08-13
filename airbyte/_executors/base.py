@@ -41,7 +41,7 @@ def _pump_input(
     """Pump lines into a pipe."""
     with pipe:
         try:
-            pipe.writelines(message.model_dump_json() + "\n" for message in messages)
+            pipe.writelines(message.model_dump_json(exclude_none=True) + "\n" for message in messages)
             pipe.flush()  # Ensure data is sent immediately
         except (BrokenPipeError, OSError) as ex:
             if isinstance(ex, BrokenPipeError):
