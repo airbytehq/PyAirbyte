@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -26,6 +27,8 @@ from airbyte.version import get_version
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
 
+
+logger = logging.getLogger(__name__)
 
 VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
@@ -277,7 +280,27 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             )
 
         if ":" not in docker_image:
-            docker_image = f"{docker_image}:{version or 'latest'}"
+            resolved_version = version
+            if resolved_version is None:
+                if metadata and metadata.latest_available_version:
+                    resolved_version = metadata.latest_available_version
+                elif AIRBYTE_OFFLINE_MODE or metadata is None:
+                    resolved_version = "latest"
+                    logger.warning(
+                        f"Using 'latest' tag for connector '{name}' because no explicit version "
+                        f"was specified and the latest version could not be determined from the "
+                        f"registry. This may result in using an outdated connector version. "
+                        f"Consider specifying an explicit version or check your internet "
+                        f"connection."
+                    )
+                else:
+                    resolved_version = "latest"
+                    logger.warning(
+                        f"Using 'latest' tag for connector '{name}' because no explicit version "
+                        f"was specified and no latest version was found in the registry."
+                    )
+
+            docker_image = f"{docker_image}:{resolved_version}"
 
         host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
