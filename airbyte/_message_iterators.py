@@ -138,7 +138,10 @@ class AirbyteMessageIterator:
                     break
                 try:
                     # Let Pydantic handle the JSON decoding from the raw string
-                    yield AirbyteMessage.model_validate_json(next_line)
+                    message = AirbyteMessage.model_validate_json(next_line)
+                    if message.type == Type.RECORD and message.record and message.record.namespace is None:
+                        message.record.namespace = ""
+                    yield message
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
                     raise ValueError("Invalid JSON format")  # noqa: B904
@@ -153,7 +156,10 @@ class AirbyteMessageIterator:
             for line in buffer:
                 try:
                     # Let Pydantic handle the JSON decoding from the raw string
-                    yield AirbyteMessage.model_validate_json(line)
+                    message = AirbyteMessage.model_validate_json(line)
+                    if message.type == Type.RECORD and message.record and message.record.namespace is None:
+                        message.record.namespace = ""
+                    yield message
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
                     raise ValueError(f"Invalid JSON format in input string: {line}")  # noqa: B904
