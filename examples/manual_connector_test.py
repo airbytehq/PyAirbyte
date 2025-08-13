@@ -31,8 +31,8 @@ OUTPUT_FILE = "/tmp/manual_source_output.jsonl"
 
 def run_connector() -> None:
     """Run the source connector and capture its output."""
-    config_file = Path(tempfile.mktemp(suffix=".json"))
-    catalog_file = Path(tempfile.mktemp(suffix=".json"))
+    config_file = Path(tempfile.mkstemp(suffix=".json")[1])
+    catalog_file = Path(tempfile.mkstemp(suffix=".json")[1])
 
     config_file.write_text(json.dumps(CONFIG, indent=2))
     catalog_file.write_text(json.dumps(CATALOG, indent=2))
