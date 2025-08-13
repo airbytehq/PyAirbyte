@@ -117,7 +117,7 @@ class VenvExecutor(Executor):
         )
         try:
             self._run_subprocess_and_raise_on_failure(
-                args=[pip_path, "install","--no-cache-dir" , "https://storage.googleapis.com/pyairbyte-java-connectors-python-package-jose-test/airbyte_destination_dev_null/airbyte_destination_dev_null-0.0.1-py3-none-any.whl"]
+                args=[pip_path, "install","--no-cache-dir" , f"https://storage.googleapis.com/pyairbyte-java-connectors-python-package-jose-test/airbyte_{self.name.replace('-', '_')}/airbyte_{self.name.replace('-', '_')}-0.0.1-py3-none-any.whl"]
             )
 
             self._run_subprocess_and_raise_on_failure(
