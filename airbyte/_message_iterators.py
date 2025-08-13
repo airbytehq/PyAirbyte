@@ -139,8 +139,9 @@ class AirbyteMessageIterator:
                 try:
                     # Let Pydantic handle the JSON decoding from the raw string
                     message = AirbyteMessage.model_validate_json(next_line)
-                    if message.type == Type.RECORD and message.record and message.record.namespace is None:
-                        message.record.namespace = ""
+                    if message.type == Type.RECORD and message.record:
+                        if message.record.namespace is None:
+                            message.record.namespace = ""
                     yield message
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
@@ -157,8 +158,9 @@ class AirbyteMessageIterator:
                 try:
                     # Let Pydantic handle the JSON decoding from the raw string
                     message = AirbyteMessage.model_validate_json(line)
-                    if message.type == Type.RECORD and message.record and message.record.namespace is None:
-                        message.record.namespace = ""
+                    if message.type == Type.RECORD and message.record:
+                        if message.record.namespace is None:
+                            message.record.namespace = ""
                     yield message
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
