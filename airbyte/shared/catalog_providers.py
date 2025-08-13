@@ -55,7 +55,7 @@ class CatalogProvider:
 
         This requires ensuring that `generationId` and `minGenerationId` are both set. If
         not, both values will be set to `1`.
-        
+
         Also replaces null namespaces with empty strings for compatibility with strict
         destination validation.
         """
@@ -66,7 +66,7 @@ class CatalogProvider:
                 stream.minimum_generation_id = 1
             if stream.sync_id is None:
                 stream.sync_id = 1  # This should ideally increment monotonically with each sync.
-            
+
             if stream.stream.namespace is None:
                 stream.stream.namespace = ""
             if stream.stream.source_defined_cursor is None:
