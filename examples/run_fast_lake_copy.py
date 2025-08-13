@@ -593,27 +593,6 @@ def print_performance_summary(results: list[dict[str, Any]]) -> None:
               f"{result['total_time']:<12.2f} {result['total_records_per_sec']:<15,.0f} "
               f"{result['total_mb_per_sec']:<10.1f} {result['total_cpu_minutes']:<12.3f}")
     
-    print(f"\n💰 COST EFFICIENCY ANALYSIS (Records per CPU-minute):")
-    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Unload Eff':<15} {'Load Eff':<15} {'Overall Eff':<15}")
-    print("-" * 95)
-    for result in results:
-        unload_eff = result['actual_records'] / result['step2_cpu_minutes'] if result['step2_cpu_minutes'] > 0 else 0
-        load_eff = result['actual_records'] / result['step3_cpu_minutes'] if result['step3_cpu_minutes'] > 0 else 0
-        overall_eff = result['actual_records'] / result['total_cpu_minutes'] if result['total_cpu_minutes'] > 0 else 0
-        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
-              f"{unload_eff:<15,.0f} {load_eff:<15,.0f} {overall_eff:<15,.0f}")
-    
-    print(f"\n🏆 SCALING EFFICIENCY ANALYSIS:")
-    baseline = results[0]  # xsmall warehouse as baseline
-    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Unload Scale':<15} {'Load Scale':<15} {'Overall Scale':<15}")
-    print("-" * 95)
-    for result in results:
-        unload_scale = (result['step2_records_per_sec'] / baseline['step2_records_per_sec']) / result['size_multiplier'] if baseline['step2_records_per_sec'] > 0 else 0
-        load_scale = (result['step3_records_per_sec'] / baseline['step3_records_per_sec']) / result['size_multiplier'] if baseline['step3_records_per_sec'] > 0 else 0
-        overall_scale = (result['total_records_per_sec'] / baseline['total_records_per_sec']) / result['size_multiplier'] if baseline['total_records_per_sec'] > 0 else 0
-        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
-              f"{unload_scale:<15.2f} {load_scale:<15.2f} {overall_scale:<15.2f}")
-    
     print(f"\n📈 KEY INSIGHTS:")
     best_unload = max(results, key=lambda x: x['step2_records_per_sec'])
     best_load = max(results, key=lambda x: x['step3_records_per_sec'])
