@@ -289,7 +289,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                     if logger:
                         logger.warning(
                             f"Using 'latest' tag for connector '{name}' because no explicit "
-                            f"version was specified and we could not locate the latest version."
+                            f"version was specified and we could not locate the latest version number."
                         )
 
             docker_image = f"{docker_image}:{resolved_version}"
