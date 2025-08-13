@@ -55,9 +55,9 @@ WAREHOUSE_CONFIGS = [
     {"name": "COMPUTE_WH_2XLARGE", "size": "xxlarge", "multiplier": 32},
 ]
 
-NUM_RECORDS: int = 1_000_000  # Reduced for debugging load timeout issue (was 100M)
+NUM_RECORDS: int = 100_000_000  # Restore to 100M for reload process
 
-RELOAD_INITIAL_SOURCE_DATA = True  # Reload with smaller dataset for debugging load timeout
+RELOAD_INITIAL_SOURCE_DATA = False  # Keep existing 100M dataset - DO NOT RELOAD
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
@@ -640,43 +640,78 @@ def main() -> None:
         credentials = get_credentials()
         source = setup_source()
 
-        results = []
+        # results = []
+        # 
+        # print(f"\n🏭 Testing {len(WAREHOUSE_CONFIGS)} warehouse configurations...")
+        # print("Available warehouse options:")
+        # for config in WAREHOUSE_CONFIGS:
+        #     print(f"  • {config['name']}: {config['size']} ({config['multiplier']}x multiplier)")
+        # 
+        # for i, warehouse_config in enumerate(WAREHOUSE_CONFIGS, 1):
+        #     print(f"\n{'='*80}")
+        #     print(f"🧪 Test {i}/{len(WAREHOUSE_CONFIGS)}: {warehouse_config['name']} ({warehouse_config['size']})")
+        #     print(f"{'='*80}")
+        #     
+        #     s3_lake = setup_lake_storage(credentials, warehouse_config['name'], script_start_time)
+        #     
+        #     snowflake_cache_source, snowflake_cache_dest = setup_caches(credentials, warehouse_config)
+        #     
+        #     result = transfer_data_with_timing(
+        #         source=source,
+        #         snowflake_cache_source=snowflake_cache_source,
+        #         snowflake_cache_dest=snowflake_cache_dest,
+        #         s3_lake=s3_lake,
+        #         warehouse_config=warehouse_config,
+        #     )
+        #     results.append(result)
+        #     
+        #     print("\n🎉 Test completed successfully!")
+        #     print("💡 This demonstrates 100x performance improvements through:")
+        #     print("   • Direct bulk operations (Snowflake COPY INTO)")
+        #     print("   • S3 lake storage intermediate layer")
+        #     print("   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)")
+        #     print("   • Optimized Parquet file format with Snappy compression")
+        #     print("   • Parallel stream processing")
+        #     print(f"   • Warehouse scaling: {warehouse_config['size']} ({warehouse_config['multiplier']}x compute units)")
+        #     if not RELOAD_INITIAL_SOURCE_DATA:
+        #         print("   • Skip initial load optimization (RELOAD_INITIAL_SOURCE_DATA=False)")
+        #
+        # print_performance_summary(results)
         
-        print(f"\n🏭 Testing {len(WAREHOUSE_CONFIGS)} warehouse configurations...")
-        print("Available warehouse options:")
-        for config in WAREHOUSE_CONFIGS:
-            print(f"  • {config['name']}: {config['size']} ({config['multiplier']}x multiplier)")
+        print(f"\n🔄 RELOAD MODE: Only reloading raw 100M records to Snowflake...")
+        print(f"   • NUM_RECORDS: {NUM_RECORDS:,}")
+        print(f"   • RELOAD_INITIAL_SOURCE_DATA: {RELOAD_INITIAL_SOURCE_DATA}")
         
-        for i, warehouse_config in enumerate(WAREHOUSE_CONFIGS, 1):
-            print(f"\n{'='*80}")
-            print(f"🧪 Test {i}/{len(WAREHOUSE_CONFIGS)}: {warehouse_config['name']} ({warehouse_config['size']})")
-            print(f"{'='*80}")
+        if RELOAD_INITIAL_SOURCE_DATA:
+            print(f"\n⚠️  WARNING: This will take approximately 2.5 hours to reload {NUM_RECORDS:,} records")
+            print("   • Only Step 1 (Source → Snowflake) will run")
+            print("   • No warehouse testing or S3 operations")
             
-            s3_lake = setup_lake_storage(credentials, warehouse_config['name'], script_start_time)
+            warehouse_config = WAREHOUSE_CONFIGS[0]  # COMPUTE_WH (xsmall)
+            snowflake_cache_source, _ = setup_caches(credentials, warehouse_config)
             
-            snowflake_cache_source, snowflake_cache_dest = setup_caches(credentials, warehouse_config)
+            step1_start_time = datetime.now()
+            print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading {NUM_RECORDS:,} records from source to Snowflake...")
             
-            result = transfer_data_with_timing(
-                source=source,
-                snowflake_cache_source=snowflake_cache_source,
-                snowflake_cache_dest=snowflake_cache_dest,
-                s3_lake=s3_lake,
-                warehouse_config=warehouse_config,
+            source.read(
+                cache=snowflake_cache_source,
+                streams=["purchases"],  # Only purchases stream
+                force_full_refresh=True,
+                write_strategy="replace",
             )
-            results.append(result)
             
-            print("\n🎉 Test completed successfully!")
-            print("💡 This demonstrates 100x performance improvements through:")
-            print("   • Direct bulk operations (Snowflake COPY INTO)")
-            print("   • S3 lake storage intermediate layer")
-            print("   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)")
-            print("   • Optimized Parquet file format with Snappy compression")
-            print("   • Parallel stream processing")
-            print(f"   • Warehouse scaling: {warehouse_config['size']} ({warehouse_config['multiplier']}x compute units)")
-            if not RELOAD_INITIAL_SOURCE_DATA:
-                print("   • Skip initial load optimization (RELOAD_INITIAL_SOURCE_DATA=False)")
-
-        print_performance_summary(results)
+            step1_end_time = datetime.now()
+            step1_time = (step1_end_time - step1_start_time).total_seconds()
+            
+            print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds")
+            print(f"   • Records loaded: {NUM_RECORDS:,}")
+            print(f"   • Records per second: {NUM_RECORDS / step1_time:,.1f}")
+            print(f"   • Warehouse used: {warehouse_config['name']} ({warehouse_config['size']})")
+            
+            print(f"\n🎉 Raw data reload completed successfully!")
+        else:
+            print(f"\n⏭️  Skipping reload (RELOAD_INITIAL_SOURCE_DATA=False)")
+            print("   • Set RELOAD_INITIAL_SOURCE_DATA=True to reload 100M records")
 
     except Exception as e:
         print(f"\n❌ Error during execution: {e}")
