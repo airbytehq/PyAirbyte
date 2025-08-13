@@ -165,17 +165,15 @@ def get_benchmark_source(
                 input_value=str(num_records),
             ) from None
 
+    # Note: source-e2e-test does not generate final STATE or SUCCESS trace messages,
+    # which can cause failures when combined with certain Java destinations like destination-dev-null
     return get_source(
-        name="source-e2e-test",
-        docker_image=True,
-        # docker_image="airbyte/source-e2e-test:latest",
+        name="source-faker",
         config={
-            "type": "BENCHMARK",
-            "schema": "FIVE_STRING_COLUMNS",
-            "terminationCondition": {
-                "type": "MAX_RECORDS",
-                "max": num_records,
-            },
+            "count": num_records,
+            "seed": 0,
+            "records_per_sync": num_records,
+            "records_per_slice": 1000,
         },
         streams="*",
         install_if_missing=install_if_missing,
