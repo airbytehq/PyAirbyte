@@ -470,12 +470,14 @@ class ConnectorBase(abc.ABC):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
 
-                    # if (
-                    #     message.type == Type.RECORD
-                    #     and message.record
-                    #     and message.record.namespace is None
-                    # ):
-                    #     message.record.namespace = ""
+                    if (
+                        message.type == Type.TRACE
+                        and message.trace
+                        and message.trace.stream_status
+                        and message.trace.stream_status.stream_descriptor
+                        and message.trace.stream_status.stream_descriptor.namespace is None
+                    ):
+                        message.trace.stream_status.stream_descriptor.namespace = ""
 
                     if progress_tracker and message.record:
                         stream_name = message.record.stream
