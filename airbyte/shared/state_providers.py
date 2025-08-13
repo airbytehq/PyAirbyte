@@ -85,7 +85,7 @@ class StateProviderBase(abc.ABC):
             "["
             + "\n, ".join(
                 [
-                    state_artifact.model_dump_json()
+                    state_artifact.model_dump_json(exclude_none=True)
                     for state_artifact in (self._state_message_artifacts or [])
                 ]
             )
