@@ -172,8 +172,8 @@ def get_benchmark_source(
 
     if connector_name is None:
         connector_name = "source-faker"
-    
-    if connector_name not in ["source-faker", "source-e2e-test"]:
+
+    if connector_name not in {"source-faker", "source-e2e-test"}:
         raise PyAirbyteInputError(
             message="Invalid connector name for benchmarking.",
             input_value=connector_name,
@@ -190,19 +190,20 @@ def get_benchmark_source(
             streams="*",
             install_if_missing=install_if_missing,
         )
-    else:  # source-e2e-test
-        return get_source(
-            name="source-e2e-test",
-            docker_image=True,
-            config={
-                "type": "INFINITE_FEED",
-                "max_records": num_records,
-                "seed": 0,
-                "message_interval": 1000,
-            },
-            streams="*",
-            install_if_missing=install_if_missing,
-        )
+
+    # source-e2e-test
+    return get_source(
+        name="source-e2e-test",
+        docker_image=True,
+        config={
+            "type": "INFINITE_FEED",
+            "max_records": num_records,
+            "seed": 0,
+            "message_interval": 1000,
+        },
+        streams="*",
+        install_if_missing=install_if_missing,
+    )
 
 
 __all__ = [
