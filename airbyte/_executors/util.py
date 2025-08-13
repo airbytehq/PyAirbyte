@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 import sys
 import tempfile
 from pathlib import Path
@@ -20,6 +19,7 @@ from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
+from airbyte.logs import get_global_file_logger
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from airbyte._executors.base import Executor
 
 
-logger = logging.getLogger(__name__)
+logger = get_global_file_logger()
 
 VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
@@ -284,21 +284,34 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             if resolved_version is None:
                 if metadata and metadata.latest_available_version:
                     resolved_version = metadata.latest_available_version
-                elif AIRBYTE_OFFLINE_MODE or metadata is None:
+                elif AIRBYTE_OFFLINE_MODE:
                     resolved_version = "latest"
-                    logger.warning(
-                        f"Using 'latest' tag for connector '{name}' because no explicit version "
-                        f"was specified and the latest version could not be determined from the "
-                        f"registry. This may result in using an outdated connector version. "
-                        f"Consider specifying an explicit version or check your internet "
-                        f"connection."
-                    )
+                    if logger:
+                        logger.warning(
+                            f"Using 'latest' tag for connector '{name}' because no explicit "
+                            f"version was specified and Airbyte is running in offline mode. "
+                            f"This may result in using an outdated connector version. Consider "
+                            f"specifying an explicit version or disable offline mode to fetch "
+                            f"the latest version from the registry."
+                        )
+                elif metadata is None:
+                    resolved_version = "latest"
+                    if logger:
+                        logger.warning(
+                            f"Using 'latest' tag for connector '{name}' because no explicit "
+                            f"version was specified and the latest version could not be "
+                            f"determined from the registry (metadata missing). This may result "
+                            f"in using an outdated connector version. Consider specifying an "
+                            f"explicit version or check your internet connection."
+                        )
                 else:
                     resolved_version = "latest"
-                    logger.warning(
-                        f"Using 'latest' tag for connector '{name}' because no explicit version "
-                        f"was specified and no latest version was found in the registry."
-                    )
+                    if logger:
+                        logger.warning(
+                            f"Using 'latest' tag for connector '{name}' because no explicit "
+                            f"version was specified and no latest version was found in the "
+                            f"registry."
+                        )
 
             docker_image = f"{docker_image}:{resolved_version}"
 
