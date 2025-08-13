@@ -55,9 +55,9 @@ WAREHOUSE_CONFIGS = [
     {"name": "COMPUTE_WH_2XLARGE", "size": "xxlarge", "multiplier": 32},
 ]
 
-NUM_RECORDS: int = 100_000_000  # Total records to process (100 million for large-scale test)
+NUM_RECORDS: int = 1_000_000  # Reduced for debugging load timeout issue (was 100M)
 
-RELOAD_INITIAL_SOURCE_DATA = False  # Toggle to skip initial data load (assumes already loaded)
+RELOAD_INITIAL_SOURCE_DATA = True  # Reload with smaller dataset for debugging load timeout
 
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
