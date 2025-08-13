@@ -109,7 +109,7 @@ class AirbyteMessageIterator:
                                 ).timestamp()
                             ),
                             meta=None,
-                            namespace="",  # Some destinations fail if null/missing
+                            # namespace=None,  # Some destinations need this undeclared if null
                         ),
                     )
 
