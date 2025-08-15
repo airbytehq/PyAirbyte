@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from airbyte._executors.util import get_connector_executor
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.sources.base import Source
+from airbyte.sources.faker_utils import validate_faker_config, get_faker_config_recommendations
 
 
 if TYPE_CHECKING:
@@ -112,6 +113,23 @@ def get_source(  # noqa: PLR0913 # Too many arguments
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
     """
+    if name == "source-faker" and config:
+        try:
+            config = validate_faker_config(config)
+            recommendations = get_faker_config_recommendations(config)
+            if recommendations:
+                warnings.warn(
+                    f"Source Faker configuration recommendations:\n" +
+                    "\n".join(f"  • {rec}" for rec in recommendations),
+                    UserWarning,
+                    stacklevel=2
+                )
+        except ValueError as e:
+            raise PyAirbyteInputError(
+                message=f"Invalid Source Faker configuration: {e}",
+                guidance="Please check your Source Faker configuration parameters and try again.",
+            ) from e
+
     return Source(
         name=name,
         config=config,
