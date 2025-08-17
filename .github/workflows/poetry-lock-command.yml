@@ -121,7 +121,7 @@ jobs:
 
     - name: Append success comment (no-op)
       uses: peter-evans/create-or-update-comment@v4
-      if: steps.git-diff.outputs.changes != 'true'
+      if: steps.git-diff.outputs.changes != 'true' && steps.git-diff-2.outputs.changes != 'true'
       with:
         comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
         reactions: "+1"
