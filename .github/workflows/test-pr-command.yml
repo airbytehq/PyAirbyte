@@ -31,7 +31,7 @@ jobs:
 
     - name: Resolve workflow variables
       id: vars
-      uses: aaronsteers/resolve-vars-action@v0
+      uses: aaronsteers/resolve-ci-vars-action@v0
       with:
         log_outputs: true
 
