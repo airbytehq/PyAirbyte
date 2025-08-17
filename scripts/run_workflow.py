@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Script to run GitHub Actions workflows locally using wrkflw."""
 
 import subprocess
@@ -6,9 +6,12 @@ import sys
 from pathlib import Path
 
 
-def main():
+EXPECTED_ARGS = 2
+
+
+def main() -> None:
     """Run a GitHub Actions workflow locally using wrkflw."""
-    if len(sys.argv) != 2:
+    if len(sys.argv) != EXPECTED_ARGS:
         print("Usage: poe run-workflow <workflow-filename>")
         print("Example: poe run-workflow python_lint.yml")
         sys.exit(1)
