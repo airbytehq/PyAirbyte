@@ -1,0 +1,14 @@
+[tool.poe.tasks]
+wrkflw = { shell = """
+docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c "
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
+  . ~/.cargo/env && 
+  cargo install wrkflw && 
+  pip install poetry && 
+  wrkflw ${WRKFLW_ARGS:-}
+"
+""", help = "Run wrkflw commands in Docker container with Rust/Poetry setup (use WRKFLW_ARGS env var for arguments)" }
+
+ci-test = { shell = "wrkflw", help = "Run wrkflw (opens TUI if no args provided)" }
+
+ci-test-workflow = { shell = "WRKFLW_ARGS=\"run .github/workflows/$WORKFLOW --runtime emulation\" poe wrkflw", help = "Run a GitHub Actions workflow locally (e.g., WORKFLOW=python_lint.yml poe ci-test-workflow)" }
