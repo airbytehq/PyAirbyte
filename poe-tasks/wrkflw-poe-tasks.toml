@@ -1,16 +1,45 @@
-[tool.poe.tasks]
-wrkflw = { shell = """
+[tool.poe.tasks.wrkflw]
+help = "Run wrkflw commands in Docker container with Rust/Poetry setup"
+shell = """
+docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c '
+  curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
+  . ~/.cargo/env && 
+  cargo install wrkflw && 
+  pip install poetry && 
+  wrkflw "$@"
+' -- "$@"
+"""
+
+[tool.poe.tasks.ci-test]
+help = "Run wrkflw (opens TUI if no args provided)"
+shell = "poe wrkflw"
+
+[tool.poe.tasks.ci-test-workflow]
+help = "Run a GitHub Actions workflow locally (e.g., poe ci-test-workflow python_lint.yml)"
+shell = """
 docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c "
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
   . ~/.cargo/env && 
   cargo install wrkflw && 
   pip install poetry && 
-  wrkflw ${WRKFLW_ARGS:-}
+  wrkflw run .github/workflows/${workflow} --runtime emulation
 "
-""", help = "Run wrkflw commands in Docker container with Rust/Poetry setup (use WRKFLW_ARGS env var for arguments)" }
+"""
+args = [
+  { name = "workflow", positional = true, help = "Workflow filename (e.g., python_lint.yml)" }
+]
 
-ci-test = { shell = "wrkflw", help = "Run wrkflw (opens TUI if no args provided)" }
-
-ci-test-workflow = { shell = "WRKFLW_ARGS=\"run .github/workflows/$WORKFLOW --runtime emulation\" poe wrkflw", help = "Run a GitHub Actions workflow locally (e.g., WORKFLOW=python_lint.yml poe ci-test-workflow)" }
-
-ci-validate = { shell = "WRKFLW_ARGS=\"validate .github/workflows/$WORKFLOW\" poe wrkflw", help = "Validate a GitHub Actions workflow file (e.g., WORKFLOW=python_lint.yml poe ci-validate)" }
+[tool.poe.tasks.ci-validate]
+help = "Validate a GitHub Actions workflow file (e.g., poe ci-validate python_lint.yml)"
+shell = """
+docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c "
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
+  . ~/.cargo/env && 
+  cargo install wrkflw && 
+  pip install poetry && 
+  wrkflw validate .github/workflows/${workflow}
+"
+"""
+args = [
+  { name = "workflow", positional = true, help = "Workflow filename (e.g., python_lint.yml)" }
+]
