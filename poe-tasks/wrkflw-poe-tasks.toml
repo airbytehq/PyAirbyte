@@ -1,29 +1,31 @@
 [tool.poe.tasks.wrkflw]
-help = "Run wrkflw commands in Docker container with Rust/Poetry setup"
+help = "Run wrkflw commands with automatic brew installation if needed"
 shell = """
-docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c '
-  curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
-  . ~/.cargo/env && 
-  cargo install wrkflw && 
-  pip install poetry && 
-  wrkflw "$@"
-' -- "$@"
+if ! command -v wrkflw &> /dev/null; then
+  echo "Installing wrkflw via brew..."
+  brew install wrkflw
+fi
+wrkflw "$@"
 """
 
 [tool.poe.tasks.ci-test]
 help = "Run wrkflw (opens TUI if no args provided)"
-shell = "poe wrkflw"
+shell = """
+if ! command -v wrkflw &> /dev/null; then
+  echo "Installing wrkflw via brew..."
+  brew install wrkflw
+fi
+wrkflw
+"""
 
 [tool.poe.tasks.ci-test-workflow]
 help = "Run a GitHub Actions workflow locally (e.g., poe ci-test-workflow python_lint.yml)"
 shell = """
-docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c "
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
-  . ~/.cargo/env && 
-  cargo install wrkflw && 
-  pip install poetry && 
-  wrkflw run .github/workflows/${workflow} --runtime emulation
-"
+if ! command -v wrkflw &> /dev/null; then
+  echo "Installing wrkflw via brew..."
+  brew install wrkflw
+fi
+wrkflw run --runtime emulation .github/workflows/${workflow}
 """
 args = [
   { name = "workflow", positional = true, help = "Workflow filename (e.g., python_lint.yml)" }
@@ -32,13 +34,11 @@ args = [
 [tool.poe.tasks.ci-validate]
 help = "Validate a GitHub Actions workflow file (e.g., poe ci-validate python_lint.yml)"
 shell = """
-docker run --rm -v $(pwd):/workspace -w /workspace python:3.12 sh -c "
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && 
-  . ~/.cargo/env && 
-  cargo install wrkflw && 
-  pip install poetry && 
-  wrkflw validate .github/workflows/${workflow}
-"
+if ! command -v wrkflw &> /dev/null; then
+  echo "Installing wrkflw via brew..."
+  brew install wrkflw
+fi
+wrkflw validate .github/workflows/${workflow}
 """
 args = [
   { name = "workflow", positional = true, help = "Workflow filename (e.g., python_lint.yml)" }
