@@ -196,6 +196,7 @@ docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
 fix-and-check = { shell = "poe fix && poe check" }
+run-workflow = { script = "scripts.run_workflow:main", help = "Run a GitHub Actions workflow locally using wrkflw (e.g., poe run-workflow python_lint.yml)" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
