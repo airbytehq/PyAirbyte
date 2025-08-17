@@ -196,7 +196,7 @@ docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
 fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
 fix-and-check = { shell = "poe fix && poe check" }
-run-workflow = { shell = "docker run --rm -v $(pwd):/workspace -w /workspace rust:latest sh -c 'cargo install wrkflw && wrkflw run .github/workflows/${workflow} --runtime emulation'", help = "Run a GitHub Actions workflow locally using wrkflw (e.g., poe run-workflow workflow=python_lint.yml)" }
+run-workflow = { shell = "docker run --rm -v \"$(pwd)\":/workspace -w /workspace python:3.12 sh -c \"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && . ~/.cargo/env && cargo install wrkflw && pip install poetry && wrkflw run .github/workflows/$WORKFLOW --runtime emulation\"", help = "Run a GitHub Actions workflow locally using wrkflw (e.g., WORKFLOW=python_lint.yml poe run-workflow)" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
