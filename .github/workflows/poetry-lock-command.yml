@@ -58,8 +58,6 @@ jobs:
     - name: Resolve workflow variables
       id: vars
       uses: aaronsteers/resolve-ci-vars-action@v0
-      with:
-        log_outputs: true
 
     - name: Append comment with job run link
       id: first-comment-action
