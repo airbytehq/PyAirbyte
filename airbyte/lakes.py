@@ -67,21 +67,33 @@ class LakeStorage(abc.ABC):
         return f"AIRBYTE_LAKE_{self.short_name.upper()}_"
 
 
+class FileManifestEntry(BaseModel):
+    """Represents a file manifest entry for lake storage."""
+
+    file_path: str
+    file_size_bytes: int | None = None
+    record_count: int | None = None
+
+
 class FastUnloadResult(BaseModel):
     """Results from a Fast Unload operation."""
 
     model_config = {"arbitrary_types_allowed": True}
 
     lake_store: LakeStorage
-    lake_path_prefix: str
+    lake_store_prefix: str
     table_name: str
     stream_name: str | None = None
-    actual_record_count: int | None = None
-    files_created: int | None = None
+
+    record_count: int | None = None
+    file_manifest: list[FileManifestEntry] | None = None
+
     total_data_size_bytes: int | None = None
     compressed_size_bytes: int | None = None
-    file_manifest: list[dict] | None = None
-    query_id: str | None = None
+
+    def num_files(self) -> int | None:
+        """Return the number of files in the file manifest."""
+        return len(self.file_manifest) if self.file_manifest else None
 
 
 class FastLoadResult(BaseModel):
@@ -90,15 +102,19 @@ class FastLoadResult(BaseModel):
     model_config = {"arbitrary_types_allowed": True}
 
     lake_store: LakeStorage
-    lake_path_prefix: str
+    lake_store_prefix: str
     table_name: str
     stream_name: str | None = None
-    actual_record_count: int | None = None
-    files_processed: int | None = None
+
+    record_count: int | None = None
+    file_manifest: list[FileManifestEntry] | None = None
+
     total_data_size_bytes: int | None = None
     compressed_size_bytes: int | None = None
-    file_manifest: list[dict] | None = None
-    query_id: str | None = None
+
+    def num_files(self) -> int | None:
+        """Return the number of files in the file manifest."""
+        return len(self.file_manifest) if self.file_manifest else None
 
 
 class S3LakeStorage(LakeStorage):
@@ -106,11 +122,12 @@ class S3LakeStorage(LakeStorage):
 
     def __init__(
         self,
+        *,
         bucket_name: str,
         region: str,
+        short_name: str = "s3",
         aws_access_key_id: str,
         aws_secret_access_key: str,
-        short_name: str = "s3",
     ) -> None:
         """Initialize S3LakeStorage with required parameters."""
         self.bucket_name = bucket_name

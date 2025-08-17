@@ -12,21 +12,17 @@ import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 from sqlalchemy import text
 
-from airbyte_protocol.models import ConfiguredAirbyteCatalog
-
 from airbyte import constants
+from airbyte._util.text_util import generate_ulid
 from airbyte._writers.base import AirbyteWriterInterface
 from airbyte.caches._catalog_backend import CatalogBackendBase, SqlCatalogBackend
 from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
-
-
-if TYPE_CHECKING:
-    from airbyte.lakes import FastLoadResult, FastUnloadResult, LakeStorage
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.shared.sql_processor import SqlConfig
 from airbyte.shared.state_writers import StdOutStateWriter
+from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
 
 if TYPE_CHECKING:
@@ -34,6 +30,7 @@ if TYPE_CHECKING:
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
+    from airbyte.lakes import FastLoadResult, FastUnloadResult, LakeStorage
     from airbyte.progress import ProgressTracker
     from airbyte.shared.sql_processor import SqlProcessorBase
     from airbyte.shared.state_providers import StateProviderBase
@@ -42,7 +39,10 @@ if TYPE_CHECKING:
     from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig, AirbyteWriterInterface):
+DEFAULT_LAKE_STORE_OUTPUT_PREFIX: str = "airbyte/lake/output/{stream_name}/batch-{batch_id}/"
+
+
+class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings
@@ -384,10 +384,46 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         progress_tracker.log_cache_processing_complete()
 
     @final
+    def _resolve_lake_store_path(
+        self,
+        lake_store_prefix: str,
+        stream_name: str | None = None,
+        batch_id: str | None = None,
+    ) -> str:
+        """Resolve the lake path prefix.
+
+        The string is interpolated with "{stream_name}" and "{batch_id}" if requested.
+
+        If `stream_name` is requested but not provided, it raises a ValueError.
+        If `batch_id` is requested but not provided, it defaults to a generated ULID.
+        """
+        if lake_store_prefix is None:
+            raise ValueError(
+                "lake_store_prefix must be provided. Use DEFAULT_LAKE_STORE_OUTPUT_PREFIX if needed."
+            )
+
+        if "{stream_name}" in lake_store_prefix:
+            if stream_name is not None:
+                lake_store_prefix = lake_store_prefix.format(stream_name=stream_name)
+            else:
+                raise ValueError(
+                    "stream_name must be provided when lake_store_prefix contains {stream_name}."
+                )
+
+        if "{batch_id}" in lake_store_prefix:
+            batch_id = batch_id or generate_ulid()
+            lake_store_prefix = lake_store_prefix.format(
+                batch_id=batch_id,
+            )
+
+        return lake_store_prefix
+
+    @final
     def fast_unload_streams(
         self,
         lake_store: LakeStorage,
         *,
+        lake_store_prefix: str = DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
         streams: list[str] | Literal["*"] | None = None,
     ) -> list[FastUnloadResult]:
         """Unload the cache to a lake store.
@@ -403,35 +439,46 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             stream_names = self._catalog_backend.stream_names
         elif isinstance(streams, list):
             stream_names = streams
+        else:
+            raise ValueError(
+                f"Invalid streams argument: {streams}. Must be '*' or a list of stream names."
+            )
 
         return [
-            self.fast_unload_stream(stream_name, lake_store)
+            self.fast_unload_stream(
+                stream_name=stream_name,
+                lake_store=lake_store,
+                lake_store_prefix=lake_store_prefix,
+            )
             for stream_name in stream_names
         ]
 
     @final
     def fast_unload_stream(
         self,
-        stream_name: str,
         lake_store: LakeStorage,
+        *,
+        lake_store_prefix: str = DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
+        stream_name: str,
         **kwargs,
     ) -> FastUnloadResult:
         """Unload a single stream to the lake store.
 
         This generic implementation delegates to `fast_unload_table()`
         which subclasses should override for database-specific fast operations.
-        """
-        if not hasattr(self, "fast_unload_table"):
-            raise NotImplementedError("Subclasses must implement `fast_unload_table()` method")
 
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
+        """
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
 
+        # Raises NotImplementedError if subclass does not implement this method:
         return self.fast_unload_table(
+            lake_store=lake_store,
+            lake_store_prefix=lake_store_prefix,
             stream_name=stream_name,
             table_name=table_name,
-            lake_store=lake_store,
-            lake_path_prefix=stream_name,
             **kwargs,
         )
 
@@ -440,14 +487,26 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         table_name: str,
         lake_store: LakeStorage,
         *,
-        stream_name: str | None = None,
+        lake_store_prefix: str = DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
         db_name: str | None = None,
         schema_name: str | None = None,
-        path_prefix: str | None = None,
+        stream_name: str | None = None,
     ) -> FastUnloadResult:
         """Fast-unload a specific table to the designated lake storage.
 
         Subclasses should override this method to implement fast unloads.
+
+        Subclasses should also ensure that the `lake_store_prefix` is resolved
+        using the `_resolve_lake_store_path` method. E.g.:
+        ```python
+        lake_store_prefix = self._resolve_lake_store_path(
+            lake_store_prefix=lake_store_prefix,
+            stream_name=stream_name,
+        )
+        ```
+
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
         """
         raise NotImplementedError
 
@@ -456,32 +515,39 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         self,
         lake_store: LakeStorage,
         *,
+        lake_store_prefix: str,
         streams: list[str],
+        zero_copy: bool = False,
     ) -> None:
         """Unload the cache to a lake store.
 
         We dump data directly to parquet files in the lake store.
 
-        Args:
-            streams: The streams to unload. If None, unload all streams.
-            lake_store: The lake store to unload to. If None, use the default lake store.
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
         """
         for stream_name in streams:
             self.fast_load_stream(
-                stream_name,
-                lake_store,
+                stream_name=stream_name,
+                lake_store=lake_store,
+                lake_store_prefix=lake_store_prefix or stream_name,
+                zero_copy=zero_copy,
             )
 
     @final
     def fast_load_stream(
         self,
-        stream_name: str,
         lake_store: LakeStorage,
-        lake_path_prefix: str,
         *,
+        stream_name: str,
+        lake_store_prefix: str,
         zero_copy: bool = False,
     ) -> FastLoadResult:
-        """Load a single stream from the lake store using fast native LOAD operations."""
+        """Load a single stream from the lake store using fast native LOAD operations.
+
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
+        """
         sql_table = self.streams[stream_name].to_sql_table()
         table_name = sql_table.name
 
@@ -491,7 +557,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         return self.fast_load_table(
             table_name=table_name,
             lake_store=lake_store,
-            lake_path_prefix=lake_path_prefix,
+            lake_store_prefix=lake_store_prefix,
             zero_copy=zero_copy,
         )
 
@@ -499,7 +565,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         self,
         table_name: str,
         lake_store: LakeStorage,
-        lake_path_prefix: str,
+        lake_store_prefix: str,
         *,
         db_name: str | None = None,
         schema_name: str | None = None,
@@ -508,6 +574,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         """Fast-load a specific table from the designated lake storage.
 
         Subclasses should override this method to implement fast loads.
+
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
         """
         raise NotImplementedError
 
@@ -523,7 +592,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         return self.fast_load_stream(
             stream_name=stream_name,
             lake_store=unload_result.lake_store,
-            lake_path_prefix=unload_result.lake_path_prefix,
+            lake_store_prefix=unload_result.lake_store_prefix,
             zero_copy=zero_copy,
         )
 
@@ -539,6 +608,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         return self.fast_load_table(
             table_name=table_name,
             lake_store=unload_result.lake_store,
-            lake_path_prefix=unload_result.lake_path_prefix,
+            lake_store_prefix=unload_result.lake_store_prefix,
             zero_copy=zero_copy,
         )

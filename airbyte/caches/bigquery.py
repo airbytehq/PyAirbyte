@@ -24,13 +24,14 @@ from typing_extensions import override
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
 from airbyte.caches.base import (
+    DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
     CacheBase,
 )
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 from airbyte.destinations._translate_cache_to_dest import (
     bigquery_cache_to_destination_configuration,
 )
-from airbyte.lakes import FastUnloadResult
+from airbyte.lakes import FastLoadResult, FastUnloadResult, GCSLakeStorage
 
 
 if TYPE_CHECKING:
@@ -72,22 +73,30 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         table_name: str,
         lake_store: LakeStorage,
         *,
-        stream_name: str | None = None,
+        lake_store_prefix: str = DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
         db_name: str | None = None,
         schema_name: str | None = None,
-        lake_path_prefix: str,
+        stream_name: str | None = None,
         **_kwargs,
     ) -> FastUnloadResult:
         """Unload an arbitrary table to the lake store using BigQuery EXPORT DATA.
 
         This implementation uses BigQuery's native EXPORT DATA functionality
         to write directly to GCS, bypassing the Arrow dataset limitation.
+
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
         """
         if db_name is not None and schema_name is None:
             raise ValueError("If db_name is provided, schema_name must also be provided.")
 
-        if not hasattr(lake_store, "bucket_name"):
+        if not isinstance(lake_store, GCSLakeStorage):
             raise NotImplementedError("BigQuery unload currently only supports GCS lake storage")
+
+        resolved_lake_store_prefix = self._resolve_lake_store_path(
+            lake_store_prefix=lake_store_prefix,
+            stream_name=stream_name or table_name,
+        )
 
         if db_name is not None and schema_name is not None:
             qualified_table_name = f"{db_name}.{schema_name}.{table_name}"
@@ -96,8 +105,7 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         else:
             qualified_table_name = f"{self._read_processor.sql_config.schema_name}.{table_name}"
 
-        s3_path = lake_path_prefix if lake_path_prefix is not None else table_name
-        export_uri = f"{lake_store.root_storage_uri}{s3_path}/*.parquet"
+        export_uri = f"{lake_store.root_storage_uri}{resolved_lake_store_prefix}/*.parquet"
 
         export_statement = f"""
             EXPORT DATA OPTIONS(
@@ -111,19 +119,22 @@ class BigQueryCache(BigQueryConfig, CacheBase):
         self.execute_sql(export_statement)
         return FastUnloadResult(
             lake_store=lake_store,
-            lake_path_prefix=lake_path_prefix,
+            lake_store_prefix=resolved_lake_store_prefix,
             table_name=table_name,
             stream_name=stream_name,
         )
 
     @override
-    def fast_load_stream(
+    def fast_load_table(
         self,
-        stream_name: str,
+        table_name: str,
         lake_store: LakeStorage,
+        lake_store_prefix: str,
         *,
+        db_name: str | None = None,
+        schema_name: str | None = None,
         zero_copy: bool = False,
-    ) -> None:
+    ) -> FastLoadResult:
         """Load a single stream from the lake store using BigQuery LOAD DATA.
 
         This implementation uses BigQuery's native LOAD DATA functionality

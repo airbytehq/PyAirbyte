@@ -1,4 +1,7 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
+from airbyte.lakes import S3LakeStorage
+
+
 """A Snowflake implementation of the PyAirbyte cache.
 
 ## Usage Example
@@ -66,7 +69,7 @@ from sqlalchemy import text
 from typing_extensions import override
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
-from airbyte.caches.base import CacheBase
+from airbyte.caches.base import DEFAULT_LAKE_STORE_OUTPUT_PREFIX, CacheBase
 from airbyte.destinations._translate_cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
@@ -111,7 +114,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         self,
         lake_store: LakeStorage,
     ) -> None:
-        if not hasattr(lake_store, "aws_access_key_id"):
+        if not isinstance(lake_store, S3LakeStorage):
             raise NotImplementedError(
                 "Snowflake lake operations currently only support S3 lake storage"
             )
@@ -145,11 +148,11 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         self,
         table_name: str,
         lake_store: LakeStorage,
-        lake_path_prefix: str,
         *,
-        stream_name: str | None = None,
+        lake_store_prefix: str = DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
         db_name: str | None = None,
         schema_name: str | None = None,
+        stream_name: str | None = None,
     ) -> FastUnloadResult:
         """Unload an arbitrary table to the lake store using Snowflake COPY INTO.
 
@@ -161,6 +164,9 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         Uses connection context manager to capture rich unload results including
         actual record counts, file counts, and data size information from Snowflake's
         COPY INTO command metadata.
+
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
 
         Raises:
             ValueError: If db_name is provided but schema_name is not.
@@ -184,7 +190,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         self._setup_lake_artifacts(lake_store)
 
         unload_statement = f"""
-            COPY INTO @{qualified_prefix}.{stage_name}/{lake_path_prefix}/
+            COPY INTO @{qualified_prefix}.{stage_name}/{lake_store_prefix}/
             FROM {qualified_table_name}
             FILE_FORMAT = {qualified_prefix}.{file_format_name}
             OVERWRITE = TRUE
@@ -198,8 +204,6 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
             metadata_row = result_scan_result.fetchone()
 
-            actual_record_count = None
-            files_created = None
             total_data_size_bytes = None
             compressed_size_bytes = None
             file_manifest = []
@@ -212,18 +216,16 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
                 )
                 file_manifest.append(row_dict)
 
-                actual_record_count = row_dict.get("rows_unloaded")
+                record_count = row_dict.get("rows_unloaded")
                 total_data_size_bytes = row_dict.get("input_bytes")
                 compressed_size_bytes = row_dict.get("output_bytes")
-                files_created = 1
 
         return FastUnloadResult(
             stream_name=stream_name,
             table_name=table_name,
             lake_store=lake_store,
-            lake_path_prefix=lake_path_prefix,
-            actual_record_count=actual_record_count,
-            files_created=files_created,
+            lake_store_prefix=lake_store_prefix,
+            record_count=record_count,
             total_data_size_bytes=total_data_size_bytes,
             compressed_size_bytes=compressed_size_bytes,
             file_manifest=file_manifest,
@@ -234,7 +236,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
         self,
         table_name: str,
         lake_store: LakeStorage,
-        lake_path_prefix: str,
+        lake_store_prefix: str = DEFAULT_LAKE_STORE_OUTPUT_PREFIX,
         *,
         db_name: str | None = None,
         schema_name: str | None = None,
@@ -244,7 +246,10 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
         This implementation uses Snowflake's COPY INTO command to load data
         directly from S3 in Parquet format with managed artifacts for optimal performance.
-        
+
+        The `lake_store_prefix` arg can be interpolated with {stream_name} to create a unique path
+        for each stream.
+
         Uses connection context manager to capture rich load results including
         actual record counts, file counts, and data size information from Snowflake's
         COPY INTO command metadata.
@@ -272,7 +277,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
         load_statement = f"""
             COPY INTO {qualified_table_name}
-            FROM @{qualified_prefix}.{stage_name}/{lake_path_prefix}/
+            FROM @{qualified_prefix}.{stage_name}/{lake_store_prefix}/
             FILE_FORMAT = {qualified_prefix}.{file_format_name}
             MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
             PURGE = FALSE
@@ -284,8 +289,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
             result_scan_query = "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID()))"
             result_scan_result = connection.execute(text(result_scan_query))
 
-            actual_record_count = None
-            files_processed = None
+            record_count = None
             total_data_size_bytes = None
             compressed_size_bytes = None
             file_manifest = []
@@ -301,17 +305,15 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
                     file_manifest.append(row_dict)
 
                 first_row = file_manifest[0] if file_manifest else {}
-                actual_record_count = first_row.get("rows_loaded") or first_row.get("rows_parsed")
+                record_count = first_row.get("rows_loaded") or first_row.get("rows_parsed")
                 total_data_size_bytes = first_row.get("input_bytes")
                 compressed_size_bytes = first_row.get("output_bytes")
-                files_processed = len(file_manifest)
 
         return FastLoadResult(
             table_name=table_name,
             lake_store=lake_store,
-            lake_path_prefix=lake_path_prefix,
-            actual_record_count=actual_record_count,
-            files_processed=files_processed,
+            lake_store_prefix=lake_store_prefix,
+            record_count=record_count,
             total_data_size_bytes=total_data_size_bytes,
             compressed_size_bytes=compressed_size_bytes,
             file_manifest=file_manifest,

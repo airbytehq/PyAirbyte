@@ -32,41 +32,39 @@ from airbyte.lakes import FastLoadResult, FastUnloadResult, S3LakeStorage
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
 
-# Available Snowflake Warehouse Options:
-# - COMPUTE_WH: xsmall (1x multiplier) - Default warehouse for basic operations
-# - COMPUTE_WH_LARGE: large (8x multiplier) - 8x compute power vs xsmall
-# - COMPUTE_WH_2XLARGE: xxlarge (32x multiplier) - 32x compute power vs xsmall
-# - AIRBYTE_WAREHOUSE: standard example name (size varies) (important-comment)
-#
-# Size Multipliers (relative to xsmall):
-# xsmall: 1x, small: 2x, medium: 4x, large: 8x, xlarge: 16x, xxlarge: 32x
-
 # Available Snowflake warehouse configurations for performance testing:
 # - COMPUTE_WH: xsmall (1x multiplier) - Default warehouse (important-comment)
 # - COMPUTE_WH_LARGE: large (8x multiplier) - 8x compute power (important-comment)
-# - COMPUTE_WH_2XLARGE: xxlarge (32x multiplier) - 32x compute power (important-comment)
+# - COMPUTE_WH_2XLARGE: 2xlarge (32x multiplier) - 32x compute power (important-comment)
 #
 # Size multipliers relative to xsmall:
-# xsmall (1x), small (2x), medium (4x), large (8x), xlarge (16x), xxlarge (32x)
+# - xsmall (1x)
+# - small (2x)
+# - medium (4x)
+# - large (8x)
+# - xlarge (16x)
+# - 2xlarge (32x)
 
-WAREHOUSE_CONFIGS = [
-    {"name": "COMPUTE_WH", "size": "xsmall", "multiplier": 1},
-    {"name": "COMPUTE_WH_LARGE", "size": "large", "multiplier": 8},
-    {"name": "COMPUTE_WH_2XLARGE", "size": "xxlarge", "multiplier": 32},
+WAREHOUSE_CONFIGS: list[dict[str, str | int]] = [
+    # Toggle commenting-out to include/exclude specific warehouse configurations:
+    # {"name": "COMPUTE_WH", "size": "xsmall", "multiplier": 1},
+    # {"name": "COMPUTE_WH_LARGE", "size": "large", "multiplier": 8},
+    # {"name": "COMPUTE_WH_2XLARGE", "size": "2xlarge", "multiplier": 32},
 ]
 
 NUM_RECORDS: int = 100_000_000  # Restore to 100M for reload process
-
-RELOAD_INITIAL_SOURCE_DATA = False  # WARNING: Setting to True is a DESTRUCTIVE operation that takes several hours and will PERMANENTLY DELETE the existing dataset. Only toggle if you are absolutely sure you want to lose all current data.
-
 WAREHOUSE_SIZE_MULTIPLIERS = {
     "xsmall": 1,
     "small": 2,
     "medium": 4,
     "large": 8,
     "xlarge": 16,
-    "xxlarge": 32,  # COMPUTE_WH_2XLARGE provides 32x compute units vs xsmall (2XLARGE = XXLarge size)
+    "2xlarge": 32,  # COMPUTE_WH_2XLARGE provides 32x compute units vs xsmall (2XLARGE = XXLarge size)
 }
+
+# WARNING: Reloading is a DESTRUCTIVE operation that takes several hours and will PERMANENTLY DELETE
+# the existing dataset. Only toggle if you are absolutely sure you want to lose all current data.
+RELOAD_INITIAL_SOURCE_DATA = False
 
 
 def get_credentials() -> dict[str, Any]:
@@ -158,53 +156,33 @@ def setup_caches(credentials: dict[str, Any], warehouse_config: dict[str, Any]) 
         database=snowflake_config["database"],
         warehouse=warehouse_name,
         role=snowflake_config["role"],
-        schema_name="fast_lake_copy_dest",
+        schema_name=f"fast_copy_tests__{warehouse_name}",
     )
 
     return snowflake_cache_source, snowflake_cache_dest
 
 
-class CustomS3LakeStorage(S3LakeStorage):
-    """Custom S3LakeStorage with configurable path prefix for warehouse-specific testing."""
-    
-    def __init__(self, path_prefix: str, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._path_prefix = path_prefix
-    
-    @property
-    def root_storage_path(self) -> str:
-        """Get the root path for the lake storage with custom prefix."""
-        return f"{self._path_prefix}/airbyte/lake"
-
-
-def setup_lake_storage(credentials: dict[str, Any], warehouse_name: str = "", script_start_time: datetime | None = None) -> CustomS3LakeStorage:
+def setup_lake_storage(
+    credentials: dict[str, Any],
+    script_start_time: datetime | None = None,
+) -> S3LakeStorage:
     """Set up S3 lake storage with timestamped path and warehouse subdirectory for tracking."""
     print(f"🏞️  [{datetime.now().strftime('%H:%M:%S')}] Setting up S3 lake storage...")
-    
+
     if script_start_time is None:
         script_start_time = datetime.now()
-    
+
     timestamp = script_start_time.strftime("%Y%m%d_%H%M")
     base_path = f"fast_lake_copy_{timestamp}"
-    
-    if warehouse_name:
-        unique_path_prefix = f"{base_path}/{warehouse_name.lower()}"
-        print(f"   📂 S3 path prefix: {unique_path_prefix} (warehouse: {warehouse_name})")
-    else:
-        unique_path_prefix = base_path
-        print(f"   📂 S3 path prefix: {unique_path_prefix}")
-    
-    print("   Using co-located bucket: ab-destiantion-iceberg-us-west-2 (us-west-2)")
 
-    s3_lake = CustomS3LakeStorage(
-        path_prefix=unique_path_prefix,
-        bucket_name="ab-destiantion-iceberg-us-west-2",
+    s3_lake = S3LakeStorage(
+        bucket_name="ab-perf-test-bucket-us-west-2",
         region="us-west-2",
         aws_access_key_id=credentials["aws_access_key_id"],
         aws_secret_access_key=credentials["aws_secret_access_key"],
         short_name="s3_main",  # Custom short name for AIRBYTE_LAKE_S3_MAIN_ artifacts
     )
-    
+
     print(f"   📍 Full S3 root URI: {s3_lake.root_storage_uri}")
     return s3_lake
 
@@ -221,7 +199,6 @@ def transfer_data_with_timing(
     Simplified to Snowflake→S3→Snowflake for proof of concept as suggested.
     """
     streams = ["purchases"]
-    expected_record_count = NUM_RECORDS
 
     workflow_start_time = datetime.now()
     print(
@@ -229,61 +206,18 @@ def transfer_data_with_timing(
     )
     total_start = time.time()
 
-    if RELOAD_INITIAL_SOURCE_DATA:
-        step1_start_time = datetime.now()
-        print(
-            f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading data from source to Snowflake (source)..."
-        )
-        step1_start = time.time()
-        read_result = source.read(
-            cache=snowflake_cache_source,
-            force_full_refresh=True,
-            write_strategy="replace",
-        )
-        step1_time = time.time() - step1_start
-        step1_end_time = datetime.now()
-
-        actual_records = len(snowflake_cache_source["purchases"])
-        step1_records_per_sec = actual_records / step1_time if step1_time > 0 else 0
-        estimated_bytes_per_record = 240
-        step1_mb_per_sec = (
-            (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step1_time
-            if step1_time > 0
-            else 0
-        )
-
-        print(
-            f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds (elapsed: {(step1_end_time - step1_start_time).total_seconds():.2f}s)"
-        )
-        print(
-            f"   📊 Step 1 Performance: {actual_records:,} records at {step1_records_per_sec:,.1f} records/s, {step1_mb_per_sec:.2f} MB/s"
-        )
-    else:
-        step1_start_time = datetime.now()
-        print(
-            f"⏭️  [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Skipping initial source data load (RELOAD_INITIAL_SOURCE_DATA=False)"
-        )
-        step1_time = 0
-        step1_end_time = step1_start_time
-
-        actual_records = len(snowflake_cache_source["purchases"])
-        step1_records_per_sec = 0
-        estimated_bytes_per_record = 240
-        step1_mb_per_sec = 0
-
-        print(
-            f"   📊 Using existing data: {actual_records:,} records | Size: {(actual_records * estimated_bytes_per_record) / (1024 * 1024):.2f} MB"
-        )
+    reload_raw_data(
+        credentials=credentials,
+        source=source,
+    )
 
     step2_start_time = datetime.now()
-    print(
-        f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3..."
-    )
+    print(f"📤 [{step2_start_time.strftime('%H:%M:%S')}] Step 2: Unloading from Snowflake to S3...")
     print(f"   📂 S3 destination paths:")
     for stream_name in streams:
         stream_uri = s3_lake.get_stream_root_uri(stream_name)
         print(f"     {stream_name}: {stream_uri}")
-    
+
     step2_start = time.time()
     unload_results: list[FastUnloadResult] = []
     for stream_name in streams:
@@ -296,9 +230,9 @@ def transfer_data_with_timing(
     step2_time = time.time() - step2_start
     step2_end_time = datetime.now()
 
-    step2_records_per_sec = actual_records / step2_time if step2_time > 0 else 0
+    step2_records_per_sec = NUM_RECORDS / step2_time if step2_time > 0 else 0
     step2_mb_per_sec = (
-        (actual_records * estimated_bytes_per_record) / (1024 * 1024) / step2_time
+        (NUM_RECORDS * estimated_bytes_per_record) / (1024 * 1024) / step2_time
         if step2_time > 0
         else 0
     )
@@ -315,58 +249,68 @@ def transfer_data_with_timing(
     total_actual_records = 0
     total_data_size_bytes = 0
     total_compressed_size_bytes = 0
-    
+
     for result in unload_results:
         stream_name = result.stream_name or result.table_name
         print(f"     Stream: {stream_name}")
-        
-        if result.actual_record_count is not None:
-            print(f"       Actual records: {result.actual_record_count:,}")
-            total_actual_records += result.actual_record_count
-        
+
+        if result.record_count is not None:
+            print(f"       Actual records: {result.record_count:,}")
+            total_actual_records += result.record_count
+
         if result.files_created is not None:
             print(f"       Files created: {result.files_created}")
             total_files_created += result.files_created
-        
+
         if result.total_data_size_bytes is not None:
-            print(f"       Data size: {result.total_data_size_bytes:,} bytes ({result.total_data_size_bytes / (1024*1024):.2f} MB)")
+            print(
+                f"       Data size: {result.total_data_size_bytes:,} bytes ({result.total_data_size_bytes / (1024 * 1024):.2f} MB)"
+            )
             total_data_size_bytes += result.total_data_size_bytes
-        
+
         if result.compressed_size_bytes is not None:
-            print(f"       Compressed size: {result.compressed_size_bytes:,} bytes ({result.compressed_size_bytes / (1024*1024):.2f} MB)")
+            print(
+                f"       Compressed size: {result.compressed_size_bytes:,} bytes ({result.compressed_size_bytes / (1024 * 1024):.2f} MB)"
+            )
             total_compressed_size_bytes += result.compressed_size_bytes
-        
+
         if result.file_manifest:
             print(f"       File manifest entries: {len(result.file_manifest)}")
             for i, manifest_entry in enumerate(result.file_manifest[:3]):  # Show first 3 entries
-                print(f"         File {i+1}: {manifest_entry}")
+                print(f"         File {i + 1}: {manifest_entry}")
             if len(result.file_manifest) > 3:
                 print(f"         ... and {len(result.file_manifest) - 3} more files")
-        
+
         print(f"   🔍 Debug: Unload File Analysis for {stream_name}:")
         if result.file_manifest:
             total_unload_records = 0
             print(f"     Files created in unload: {result.files_created}")
             for i, file_info in enumerate(result.file_manifest):
-                rows_unloaded = file_info.get('rows_unloaded', 0)
+                rows_unloaded = file_info.get("rows_unloaded", 0)
                 total_unload_records += rows_unloaded
-                print(f"       Unload File {i+1}: {rows_unloaded:,} records")
-            
+                print(f"       Unload File {i + 1}: {rows_unloaded:,} records")
+
             print(f"     Total records from unload files: {total_unload_records:,}")
-            print(f"     FastUnloadResult.actual_record_count: {result.actual_record_count:,}")
-            
-            if total_unload_records != result.actual_record_count:
-                print(f"     ⚠️  MISMATCH: Unload file breakdown ({total_unload_records:,}) != actual_record_count ({result.actual_record_count:,})")
+            print(f"     FastUnloadResult.record_count: {result.record_count:,}")
+
+            if total_unload_records != result.record_count:
+                print(
+                    f"     ⚠️  MISMATCH: Unload file breakdown ({total_unload_records:,}) != record_count ({result.record_count:,})"
+                )
             else:
-                print(f"     ✅ Unload file breakdown matches actual_record_count")
-    
+                print(f"     ✅ Unload file breakdown matches record_count")
+
     print("   📊 Total Summary:")
     print(f"     Total files created: {total_files_created}")
     print(f"     Total actual records: {total_actual_records:,}")
     if total_data_size_bytes > 0:
-        print(f"     Total data size: {total_data_size_bytes:,} bytes ({total_data_size_bytes / (1024*1024):.2f} MB)")
+        print(
+            f"     Total data size: {total_data_size_bytes:,} bytes ({total_data_size_bytes / (1024 * 1024):.2f} MB)"
+        )
     if total_compressed_size_bytes > 0:
-        print(f"     Total compressed size: {total_compressed_size_bytes:,} bytes ({total_compressed_size_bytes / (1024*1024):.2f} MB)")
+        print(
+            f"     Total compressed size: {total_compressed_size_bytes:,} bytes ({total_compressed_size_bytes / (1024 * 1024):.2f} MB)"
+        )
         if total_data_size_bytes > 0:
             compression_ratio = (1 - total_compressed_size_bytes / total_data_size_bytes) * 100
             print(f"     Compression ratio: {compression_ratio:.1f}%")
@@ -385,25 +329,29 @@ def transfer_data_with_timing(
     for stream_name in streams:
         stream_uri = s3_lake.get_stream_root_uri(stream_name)
         print(f"     {stream_name}: {stream_uri}")
-    
+
     step3_start = time.time()
 
-    snowflake_cache_dest.create_source_tables(source=source, streams=streams)
+    snowflake_cache_dest.create_source_tables(
+        source=source,
+        streams=streams,
+    )
 
     load_results: list[FastLoadResult] = []
     for stream_name in streams:
         load_result = snowflake_cache_dest.fast_load_stream(
             stream_name=stream_name,
             lake_store=s3_lake,
-            lake_path_prefix=stream_name,
+            stream_name=stream_name,
         )
         load_results.append(load_result)
+
     step3_time = time.time() - step3_start
     step3_end_time = datetime.now()
 
-    total_load_records = sum(result.actual_record_count or 0 for result in load_results)
+    total_load_records = sum(result.record_count or 0 for result in load_results)
     total_load_data_bytes = sum(result.total_data_size_bytes or 0 for result in load_results)
-    
+
     step3_records_per_sec = total_load_records / step3_time if step3_time > 0 else 0
     step3_mb_per_sec = (
         (total_load_data_bytes / (1024 * 1024)) / step3_time
@@ -419,72 +367,84 @@ def transfer_data_with_timing(
     print(
         f"   📊 Step 3 Performance: {total_load_records:,} records at {step3_records_per_sec:,.1f} records/s, {step3_mb_per_sec:.2f} MB/s"
     )
-    
+
     print("   📄 Load Results Metadata:")
     total_load_files_processed = 0
     total_load_actual_records = 0
     total_load_data_size_bytes = 0
     total_load_compressed_size_bytes = 0
-    
+
     for result in load_results:
         stream_name = result.stream_name or result.table_name
         print(f"     Stream: {stream_name}")
-        
-        if result.actual_record_count is not None:
-            print(f"       Actual records loaded: {result.actual_record_count:,}")
-            total_load_actual_records += result.actual_record_count
-        
-        if result.files_processed is not None:
-            print(f"       Files processed: {result.files_processed}")
-            total_load_files_processed += result.files_processed
-        
+
+        if result.record_count is not None:
+            print(f"       Actual records loaded: {result.record_count:,}")
+            total_load_actual_records += result.record_count
+
+        if result.num_files is not None:
+            print(f"       Files processed: {result.num_files}")
+            total_load_files_processed += result.num_files
+
         if result.total_data_size_bytes is not None:
-            print(f"       Data size: {result.total_data_size_bytes:,} bytes ({result.total_data_size_bytes / (1024*1024):.2f} MB)")
+            print(
+                f"       Data size: {result.total_data_size_bytes:,} bytes ({result.total_data_size_bytes / (1024 * 1024):.2f} MB)"
+            )
             total_load_data_size_bytes += result.total_data_size_bytes
-        
+
         if result.compressed_size_bytes is not None:
-            print(f"       Compressed size: {result.compressed_size_bytes:,} bytes ({result.compressed_size_bytes / (1024*1024):.2f} MB)")
+            print(
+                f"       Compressed size: {result.compressed_size_bytes:,} bytes ({result.compressed_size_bytes / (1024 * 1024):.2f} MB)"
+            )
             total_load_compressed_size_bytes += result.compressed_size_bytes
-        
+
         if result.file_manifest:
             print(f"       File manifest entries: {len(result.file_manifest)}")
             for i, manifest_entry in enumerate(result.file_manifest[:3]):  # Show first 3 entries
-                print(f"         File {i+1}: {manifest_entry}")
+                print(f"         File {i + 1}: {manifest_entry}")
             if len(result.file_manifest) > 3:
                 print(f"         ... and {len(result.file_manifest) - 3} more files")
-        
+
         print(f"   🔍 Debug: Load File Analysis for {stream_name}:")
         if result.file_manifest:
             total_load_records = 0
-            print(f"     Files processed in load: {result.files_processed}")
+            print(f"     Files processed in load: {result.num_files}")
             print(f"     Record count per file breakdown:")
             for i, file_info in enumerate(result.file_manifest[:10]):  # Show first 10 files
-                file_name = file_info.get('file', 'unknown')
-                rows_loaded = file_info.get('rows_loaded', 0)
+                file_name = file_info.get("file", "unknown")
+                rows_loaded = file_info.get("rows_loaded", 0)
                 total_load_records += rows_loaded
-                print(f"       Load File {i+1}: {file_name} -> {rows_loaded:,} records")
-            
+                print(f"       Load File {i + 1}: {file_name} -> {rows_loaded:,} records")
+
             if len(result.file_manifest) > 10:
                 remaining_files = result.file_manifest[10:]
-                remaining_records = sum(f.get('rows_loaded', 0) for f in remaining_files)
+                remaining_records = sum(f.get("rows_loaded", 0) for f in remaining_files)
                 total_load_records += remaining_records
-                print(f"       ... and {len(remaining_files)} more files -> {remaining_records:,} records")
-            
+                print(
+                    f"       ... and {len(remaining_files)} more files -> {remaining_records:,} records"
+                )
+
             print(f"     Total records from file breakdown: {total_load_records:,}")
-            print(f"     FastLoadResult.actual_record_count: {result.actual_record_count:,}")
-            
-            if total_load_records != result.actual_record_count:
-                print(f"     ⚠️  MISMATCH: File breakdown ({total_load_records:,}) != actual_record_count ({result.actual_record_count:,})")
+            print(f"     FastLoadResult.record_count: {result.record_count:,}")
+
+            if total_load_records != result.record_count:
+                print(
+                    f"     ⚠️  MISMATCH: File breakdown ({total_load_records:,}) != record_count ({result.record_count:,})"
+                )
             else:
-                print(f"     ✅ File breakdown matches actual_record_count")
-    
+                print(f"     ✅ File breakdown matches record_count")
+
     print("   📊 Load Summary:")
     print(f"     Total files processed: {total_load_files_processed}")
     print(f"     Total actual records loaded: {total_load_actual_records:,}")
     if total_load_data_size_bytes > 0:
-        print(f"     Total data size: {total_load_data_size_bytes:,} bytes ({total_load_data_size_bytes / (1024*1024):.2f} MB)")
+        print(
+            f"     Total data size: {total_load_data_size_bytes:,} bytes ({total_load_data_size_bytes / (1024 * 1024):.2f} MB)"
+        )
     if total_load_compressed_size_bytes > 0:
-        print(f"     Total compressed size: {total_load_compressed_size_bytes:,} bytes ({total_load_compressed_size_bytes / (1024*1024):.2f} MB)")
+        print(
+            f"     Total compressed size: {total_load_compressed_size_bytes:,} bytes ({total_load_compressed_size_bytes / (1024 * 1024):.2f} MB)"
+        )
 
     print(f"\n🔍 [DEBUG] Unload vs Load File Comparison:")
     print(f"  Unload Summary:")
@@ -494,12 +454,20 @@ def transfer_data_with_timing(
     print(f"    Files processed: {total_load_files_processed}")
     print(f"    Records loaded: {total_load_actual_records:,}")
     print(f"  ")
-    print(f"  File Count Match: {'✅' if total_files_created == total_load_files_processed else '❌'}")
-    print(f"  Record Count Match: {'✅' if total_actual_records == total_load_actual_records else '❌'}")
+    print(
+        f"  File Count Match: {'✅' if total_files_created == total_load_files_processed else '❌'}"
+    )
+    print(
+        f"  Record Count Match: {'✅' if total_actual_records == total_load_actual_records else '❌'}"
+    )
     print(f"  ")
     print(f"  Potential Issues:")
-    print(f"    - If file counts don't match: Load may be reading from wrong S3 path or missing files")
-    print(f"    - If record counts don't match: Files may contain different data or path filters not working")
+    print(
+        f"    - If file counts don't match: Load may be reading from wrong S3 path or missing files"
+    )
+    print(
+        f"    - If record counts don't match: Files may contain different data or path filters not working"
+    )
     print(f"    - Check S3 paths above to ensure unload and load are using same locations")
 
     total_time = time.time() - total_start
@@ -517,9 +485,7 @@ def transfer_data_with_timing(
     )
 
     print(f"\n📊 [{workflow_end_time.strftime('%H:%M:%S')}] Performance Summary:")
-    print(
-        f"  Workflow started:               {workflow_start_time.strftime('%H:%M:%S')}"
-    )
+    print(f"  Workflow started:               {workflow_start_time.strftime('%H:%M:%S')}")
     print(f"  Workflow completed:             {workflow_end_time.strftime('%H:%M:%S')}")
     print(f"  Total elapsed time:             {total_elapsed:.2f}s")
     if RELOAD_INITIAL_SOURCE_DATA:
@@ -536,7 +502,7 @@ def transfer_data_with_timing(
     )
     print(f"  Total measured time:            {total_time:.2f}s")
     print(
-        f"  Records processed:              {actual_records:,} / {expected_record_count:,} ({100 * actual_records / expected_record_count:.1f}%)"
+        f"  Records processed:              {actual_records:,} / {NUM_RECORDS:,} ({100 * actual_records / NUM_RECORDS:.1f}%)"
     )
     print(
         f"  Overall throughput:             {total_records_per_sec:,.1f} records/s, {total_mb_per_sec:.2f} MB/s"
@@ -553,9 +519,7 @@ def transfer_data_with_timing(
     print(
         f"  Throughput per compute unit:    {total_records_per_sec / size_multiplier:,.1f} records/s/unit"
     )
-    print(
-        f"  Bandwidth per compute unit:     {total_mb_per_sec / size_multiplier:.2f} MB/s/unit"
-    )
+    print(f"  Bandwidth per compute unit:     {total_mb_per_sec / size_multiplier:.2f} MB/s/unit")
 
     print("\n💰 Snowflake CPU Minutes Analysis:")
     print(f"  Step 2 CPU minutes:             {step2_cpu_minutes:.3f} minutes")
@@ -566,22 +530,20 @@ def transfer_data_with_timing(
     )
 
     validation_start_time = datetime.now()
-    print(
-        f"\n🔍 [{validation_start_time.strftime('%H:%M:%S')}] Validating data transfer..."
-    )
+    print(f"\n🔍 [{validation_start_time.strftime('%H:%M:%S')}] Validating data transfer...")
     for i, stream_name in enumerate(streams):
         unload_result = unload_results[i]
         load_result = load_results[i]
-        
-        unload_count = unload_result.actual_record_count or 0
-        load_count = load_result.actual_record_count or 0
-        
+
+        unload_count = unload_result.record_count or 0
+        load_count = load_result.record_count or 0
+
         print(f"  {stream_name}: Unloaded={unload_count:,}, Loaded={load_count:,}")
         if unload_count == load_count:
             print(f"  ✅ {stream_name} transfer validated (metadata-based)")
         else:
             print(f"  ❌ {stream_name} transfer validation failed (metadata-based)")
-            
+
             source_count = len(snowflake_cache_source[stream_name])
             dest_count = len(snowflake_cache_dest[stream_name])
             print(f"  Fallback validation: Source={source_count:,}, Destination={dest_count:,}")
@@ -620,144 +582,156 @@ def transfer_data_with_timing(
     }
 
 
-def main() -> None:
-    """Main execution function - runs performance tests across all warehouse sizes."""
-    print("🎯 PyAirbyte Fast Lake Copy Demo - Multi-Warehouse Performance Analysis")
-    print("=" * 80)
+def reload_raw_data(credentials: dict[str, Any], source: ab.Source) -> None:
+    """Reload raw data from source to Snowflake for initial setup."""
+    if not RELOAD_INITIAL_SOURCE_DATA:
+        print(f"\n⏭️  Skipping reload (RELOAD_INITIAL_SOURCE_DATA=False)")
+        print("   • Set RELOAD_INITIAL_SOURCE_DATA=True to reload 100M records")
+        return
 
-    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-    print(f"📁 Current file descriptor limits: soft={soft}, hard={hard}")
-    try:
-        new_soft = min(hard, 65536)
-        resource.setrlimit(resource.RLIMIT_NOFILE, (new_soft, hard))
-        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
-        print(f"📁 Updated file descriptor limits: soft={soft}, hard={hard}")
-    except (ValueError, OSError) as e:
-        print(f"⚠️  Could not increase file descriptor limit: {e}")
+    print(
+        f"\n⚠️  WARNING: This will take approximately 2.5 hours to reload {NUM_RECORDS:,} records"
+    )
+    print("   • Only Step 1 (Source → Snowflake) will run")
+    print("   • No warehouse testing or S3 operations")
 
-    try:
-        script_start_time = datetime.now()
-        credentials = get_credentials()
-        source = setup_source()
+    warehouse_config = WAREHOUSE_CONFIGS[0]  # COMPUTE_WH (xsmall)
+    snowflake_cache_source, _ = setup_caches(credentials, warehouse_config)
 
-        # results = []
-        # 
-        # print(f"\n🏭 Testing {len(WAREHOUSE_CONFIGS)} warehouse configurations...")
-        # print("Available warehouse options:")
-        # for config in WAREHOUSE_CONFIGS:
-        #     print(f"  • {config['name']}: {config['size']} ({config['multiplier']}x multiplier)")
-        # 
-        # for i, warehouse_config in enumerate(WAREHOUSE_CONFIGS, 1):
-        #     print(f"\n{'='*80}")
-        #     print(f"🧪 Test {i}/{len(WAREHOUSE_CONFIGS)}: {warehouse_config['name']} ({warehouse_config['size']})")
-        #     print(f"{'='*80}")
-        #     
-        #     s3_lake = setup_lake_storage(credentials, warehouse_config['name'], script_start_time)
-        #     
-        #     snowflake_cache_source, snowflake_cache_dest = setup_caches(credentials, warehouse_config)
-        #     
-        #     result = transfer_data_with_timing(
-        #         source=source,
-        #         snowflake_cache_source=snowflake_cache_source,
-        #         snowflake_cache_dest=snowflake_cache_dest,
-        #         s3_lake=s3_lake,
-        #         warehouse_config=warehouse_config,
-        #     )
-        #     results.append(result)
-        #     
-        #     print("\n🎉 Test completed successfully!")
-        #     print("💡 This demonstrates 100x performance improvements through:")
-        #     print("   • Direct bulk operations (Snowflake COPY INTO)")
-        #     print("   • S3 lake storage intermediate layer")
-        #     print("   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)")
-        #     print("   • Optimized Parquet file format with Snappy compression")
-        #     print("   • Parallel stream processing")
-        #     print(f"   • Warehouse scaling: {warehouse_config['size']} ({warehouse_config['multiplier']}x compute units)")
-        #     if not RELOAD_INITIAL_SOURCE_DATA:
-        #         print("   • Skip initial load optimization (RELOAD_INITIAL_SOURCE_DATA=False)")
-        #
-        # print_performance_summary(results)
-        
-        print(f"\n🔄 RELOAD MODE: Only reloading raw 100M records to Snowflake...")
-        print(f"   • NUM_RECORDS: {NUM_RECORDS:,}")
-        print(f"   • RELOAD_INITIAL_SOURCE_DATA: {RELOAD_INITIAL_SOURCE_DATA}")
-        
-        if RELOAD_INITIAL_SOURCE_DATA:
-            print(f"\n⚠️  WARNING: This will take approximately 2.5 hours to reload {NUM_RECORDS:,} records")
-            print("   • Only Step 1 (Source → Snowflake) will run")
-            print("   • No warehouse testing or S3 operations")
-            
-            warehouse_config = WAREHOUSE_CONFIGS[0]  # COMPUTE_WH (xsmall)
-            snowflake_cache_source, _ = setup_caches(credentials, warehouse_config)
-            
-            step1_start_time = datetime.now()
-            print(f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading {NUM_RECORDS:,} records from source to Snowflake...")
-            
-            source.read(
-                cache=snowflake_cache_source,
-                streams=["purchases"],  # Only purchases stream
-                force_full_refresh=True,
-                write_strategy="replace",
-            )
-            
-            step1_end_time = datetime.now()
-            step1_time = (step1_end_time - step1_start_time).total_seconds()
-            
-            print(f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds")
-            print(f"   • Records loaded: {NUM_RECORDS:,}")
-            print(f"   • Records per second: {NUM_RECORDS / step1_time:,.1f}")
-            print(f"   • Warehouse used: {warehouse_config['name']} ({warehouse_config['size']})")
-            
-            print(f"\n🎉 Raw data reload completed successfully!")
-        else:
-            print(f"\n⏭️  Skipping reload (RELOAD_INITIAL_SOURCE_DATA=False)")
-            print("   • Set RELOAD_INITIAL_SOURCE_DATA=True to reload 100M records")
+    step1_start_time = datetime.now()
+    print(
+        f"📥 [{step1_start_time.strftime('%H:%M:%S')}] Step 1: Loading {NUM_RECORDS:,} records from source to Snowflake..."
+    )
 
-    except Exception as e:
-        print(f"\n❌ Error during execution: {e}")
-        raise
+    source.read(
+        cache=snowflake_cache_source,
+        streams=["purchases"],  # Only purchases stream
+        force_full_refresh=True,
+        write_strategy="replace",
+    )
+
+    step1_end_time = datetime.now()
+    step1_time = (step1_end_time - step1_start_time).total_seconds()
+
+    print(
+        f"✅ [{step1_end_time.strftime('%H:%M:%S')}] Step 1 completed in {step1_time:.2f} seconds"
+    )
+    print(f"   • Records loaded: {NUM_RECORDS:,}")
+    print(f"   • Records per second: {NUM_RECORDS / step1_time:,.1f}")
+    print(f"   • Warehouse used: {warehouse_config['name']} ({warehouse_config['size']})")
+    print(f"\n🎉 Raw data reload completed successfully!")
 
 
 def print_performance_summary(results: list[dict[str, Any]]) -> None:
     """Print comprehensive performance comparison across all warehouse sizes."""
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print("📊 COMPREHENSIVE PERFORMANCE ANALYSIS ACROSS ALL WAREHOUSE SIZES")
-    print(f"{'='*80}")
-    
+    print(f"{'=' * 80}")
+
     print(f"\n🔄 UNLOAD PERFORMANCE (Snowflake → S3):")
-    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Time (s)':<10} {'Records/s':<15} {'MB/s':<10} {'CPU Min':<10}")
+    print(
+        f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Time (s)':<10} {'Records/s':<15} {'MB/s':<10} {'CPU Min':<10}"
+    )
     print("-" * 90)
     for result in results:
-        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
-              f"{result['step2_time']:<10.2f} {result['step2_records_per_sec']:<15,.0f} "
-              f"{result['step2_mb_per_sec']:<10.1f} {result['step2_cpu_minutes']:<10.3f}")
-    
+        print(
+            f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+            f"{result['step2_time']:<10.2f} {result['step2_records_per_sec']:<15,.0f} "
+            f"{result['step2_mb_per_sec']:<10.1f} {result['step2_cpu_minutes']:<10.3f}"
+        )
+
     print(f"\n📥 LOAD PERFORMANCE (S3 → Snowflake):")
-    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Time (s)':<10} {'Records/s':<15} {'MB/s':<10} {'CPU Min':<10}")
+    print(
+        f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Time (s)':<10} {'Records/s':<15} {'MB/s':<10} {'CPU Min':<10}"
+    )
     print("-" * 90)
     for result in results:
-        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
-              f"{result['step3_time']:<10.2f} {result['step3_records_per_sec']:<15,.0f} "
-              f"{result['step3_mb_per_sec']:<10.1f} {result['step3_cpu_minutes']:<10.3f}")
-    
+        print(
+            f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+            f"{result['step3_time']:<10.2f} {result['step3_records_per_sec']:<15,.0f} "
+            f"{result['step3_mb_per_sec']:<10.1f} {result['step3_cpu_minutes']:<10.3f}"
+        )
+
     print(f"\n🎯 OVERALL PERFORMANCE SUMMARY:")
-    print(f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Total Time':<12} {'Records/s':<15} {'MB/s':<10} {'Total CPU':<12}")
+    print(
+        f"{'Warehouse':<20} {'Size':<8} {'Multiplier':<10} {'Total Time':<12} {'Records/s':<15} {'MB/s':<10} {'Total CPU':<12}"
+    )
     print("-" * 100)
     for result in results:
-        print(f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
-              f"{result['total_time']:<12.2f} {result['total_records_per_sec']:<15,.0f} "
-              f"{result['total_mb_per_sec']:<10.1f} {result['total_cpu_minutes']:<12.3f}")
-    
+        print(
+            f"{result['warehouse_name']:<20} {result['warehouse_size']:<8} {result['size_multiplier']:<10} "
+            f"{result['total_time']:<12.2f} {result['total_records_per_sec']:<15,.0f} "
+            f"{result['total_mb_per_sec']:<10.1f} {result['total_cpu_minutes']:<12.3f}"
+        )
+
     print(f"\n📈 KEY INSIGHTS:")
-    best_unload = max(results, key=lambda x: x['step2_records_per_sec'])
-    best_load = max(results, key=lambda x: x['step3_records_per_sec'])
-    most_efficient = min(results, key=lambda x: x['total_cpu_minutes'])
-    
+    best_unload = max(results, key=lambda x: x["step2_records_per_sec"])
+    best_load = max(results, key=lambda x: x["step3_records_per_sec"])
+    most_efficient = min(results, key=lambda x: x["total_cpu_minutes"])
+
     print(f"  • Best unload performance: {best_unload['warehouse_name']} ({best_unload['step2_records_per_sec']:,.0f} rec/s)")
     print(f"  • Best load performance: {best_load['warehouse_name']} ({best_load['step3_records_per_sec']:,.0f} rec/s)")
     print(f"  • Most cost efficient: {most_efficient['warehouse_name']} ({most_efficient['total_cpu_minutes']:.3f} CPU minutes)")
     print(f"  • Records processed: {results[0]['actual_records']:,} across all tests")
     print(f"  • Data size: {results[0]['total_data_size_bytes'] / (1024*1024*1024):.2f} GB uncompressed")
+
+
+def main() -> None:
+    """Main execution function - runs performance tests across all warehouse sizes."""
+    print("🎯 PyAirbyte Fast Lake Copy Demo - Multi-Warehouse Performance Analysis")
+    print("=" * 80)
+
+    script_start_time = datetime.now()
+    credentials = get_credentials()
+    source = setup_source()
+
+    results = []
+
+    print(f"\n🏭 Testing {len(WAREHOUSE_CONFIGS)} warehouse configurations...")
+    print("Available warehouse options:")
+    for config in WAREHOUSE_CONFIGS:
+        print(f"  • {config['name']}: {config['size']} ({config['multiplier']}x multiplier)")
+
+    for i, warehouse_config in enumerate(WAREHOUSE_CONFIGS, 1):
+        print(f"\n{'=' * 80}")
+        print(
+            f"🧪 Test {i}/{len(WAREHOUSE_CONFIGS)}: "
+            f"{warehouse_config['name']} ({warehouse_config['size']})"
+        )
+        print(f"{'=' * 80}")
+
+        s3_lake: CustomS3LakeStorage = setup_lake_storage(
+            credentials,
+            script_start_time,
+        )
+
+        snowflake_cache_source, snowflake_cache_dest = setup_caches(credentials, warehouse_config)
+
+        result = transfer_data_with_timing(
+            source=source,
+            snowflake_cache_source=snowflake_cache_source,
+            snowflake_cache_dest=snowflake_cache_dest,
+            s3_lake=s3_lake,
+            warehouse_config=warehouse_config,
+        )
+        results.append(result)
+
+        print("\n🎉 Test completed successfully!")
+        print("💡 This demonstrates 100x performance improvements through:")
+        print("   • Direct bulk operations (Snowflake COPY INTO)")
+        print("   • S3 lake storage intermediate layer")
+        print("   • Managed Snowflake artifacts (AIRBYTE_LAKE_S3_MAIN_* with CREATE IF NOT EXISTS)")
+        print("   • Optimized Parquet file format with Snappy compression")
+        print("   • Parallel stream processing")
+        print(f"   • Warehouse scaling: {warehouse_config['size']} ({warehouse_config['multiplier']}x compute units)")
+
+    print_performance_summary(results)
+
+    print(f"\n🔄 RELOAD MODE: Only reloading raw 100M records to Snowflake...")
+    print(f"   • NUM_RECORDS: {NUM_RECORDS:,}")
+    print(f"   • RELOAD_INITIAL_SOURCE_DATA: {RELOAD_INITIAL_SOURCE_DATA}")
+
+    reload_raw_data(credentials, source)
 
 
 if __name__ == "__main__":
