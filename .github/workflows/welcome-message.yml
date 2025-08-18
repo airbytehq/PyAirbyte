@@ -29,15 +29,19 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Resolve workflow variables
+        id: vars
+        uses: aaronsteers/resolve-ci-vars-action@v0
+
       - name: Render template
         id: template
         uses: chuhlomin/render-template@v1.10
         with:
           # Use a different template for internal vs forks (community)
-          template: ${{ github.event.pull_request.head.repo.fork == true && '.github/pr-welcome-community.md' || '.github/pr-welcome-internal.md' }}
+          template: ${{ steps.vars.outputs.pr-source-is-fork == 'true' && '.github/pr-welcome-community.md' || '.github/pr-welcome-internal.md' }}
           vars: |
-            repo_name: ${{ github.event.pull_request.head.repo.full_name }}
-            branch_name: ${{ github.event.pull_request.head.ref }}
+            repo_name: ${{ steps.vars.outputs.pr-source-repo-name-full }}
+            branch_name: ${{ steps.vars.outputs.pr-source-git-branch }}
 
       - name: Create comment
         uses: peter-evans/create-or-update-comment@v4
