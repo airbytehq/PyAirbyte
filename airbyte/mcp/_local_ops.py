@@ -77,8 +77,8 @@ def _get_mcp_source(
             "Expected one of: ['auto', 'docker', 'python', 'yaml']."
         )
 
-    # Install if needed:
-    source.install()
+    # Ensure installed:
+    source.executor.ensure_installation()
     return source
 
 
