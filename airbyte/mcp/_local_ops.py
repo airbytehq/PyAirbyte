@@ -22,7 +22,6 @@ from airbyte.sources.registry import get_connector_metadata
 
 if TYPE_CHECKING:
     from airbyte.caches.duckdb import DuckDBCache
-    from airbyte.sources.base import Source
 
 
 CONFIG_HELP = """
