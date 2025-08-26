@@ -305,6 +305,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
 
         return DockerExecutor(
             name=name,
+            image_name_full=docker_image,
             executable=docker_cmd,
             volumes=volumes,
         )
