@@ -52,14 +52,15 @@ def _get_mcp_source(
     if override_execution_mode == "auto" and is_docker_installed():
         override_execution_mode = "docker"
 
+    source: Source
     if override_execution_mode == "python":
-        source: Source = get_source(
+        source = get_source(
             connector_name,
             use_python=True,
             install_if_missing=False,
         )
     elif override_execution_mode == "docker":
-        source: Source = get_source(
+        source = get_source(
             connector_name,
             docker_image=True,
             install_if_missing=False,
