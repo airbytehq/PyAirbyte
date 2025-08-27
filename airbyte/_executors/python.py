@@ -17,7 +17,7 @@ from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.constants import DEFAULT_INSTALL_DIR, DEFAULT_VENV_PREFIX, NO_UV
+from airbyte.constants import DEFAULT_INSTALL_DIR, NO_UV
 
 
 if TYPE_CHECKING:
@@ -65,11 +65,13 @@ class VenvExecutor(Executor):
             if metadata and metadata.pypi_package_name
             else f"airbyte-{self.name}"
         )
-        self.install_root = install_root or DEFAULT_INSTALL_DIR
+        self.install_root = install_root or DEFAULT_INSTALL_DIR or Path.cwd()
+        with suppress(Exception):
+            self.install_root.mkdir(parents=True, exist_ok=True)
         self.use_python = use_python
 
     def _get_venv_name(self) -> str:
-        return f"{DEFAULT_VENV_PREFIX}-{self.name}"
+        return f".venv-{self.name}"
 
     def _get_venv_path(self) -> Path:
         return self.install_root / self._get_venv_name()

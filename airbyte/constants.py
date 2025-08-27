@@ -56,10 +56,11 @@ For example, in ephemeral environments like Google Colab, you might want to stor
 your mounted Google Drive by setting this to a path like `/content/drive/MyDrive/Airbyte/cache`.
 """
 
+_airbyte_project_dir = os.getenv("AIRBYTE_PROJECT_DIR")
 DEFAULT_PROJECT_DIR: Path = (
-    Path() / ".airbyte"
-    if "AIRBYTE_PROJECT_DIR" not in os.environ
-    else Path(os.environ["AIRBYTE_PROJECT_DIR"])
+    Path(os.path.expandvars(_airbyte_project_dir)).expanduser().absolute()
+    if _airbyte_project_dir
+    else Path.cwd() / ".airbyte"
 )
 """Default project directory is `.airbyte` in the current working directory.
 
@@ -69,10 +70,11 @@ This serves as the parent directory for both cache and install directories when 
 configured.
 """
 
+_airbyte_install_dir = os.getenv("AIRBYTE_INSTALL_DIR")
 DEFAULT_INSTALL_DIR: Path = (
-    DEFAULT_PROJECT_DIR / "installs"
-    if "AIRBYTE_INSTALL_DIR" not in os.environ
-    else Path(os.environ["AIRBYTE_INSTALL_DIR"])
+    Path(os.path.expandvars(_airbyte_install_dir)).expanduser().absolute()
+    if _airbyte_install_dir
+    else DEFAULT_PROJECT_DIR / "installs"
 )
 """Default install directory for Python connectors is `.airbyte/installs` in the current working
 directory.
@@ -82,8 +84,6 @@ The default location can be overridden by setting the `AIRBYTE_INSTALL_DIR` envi
 This is where virtual environments for Python connectors will be created.
 """
 
-DEFAULT_VENV_PREFIX = ".venv"
-"""Default prefix for virtual environment directory names."""
 
 DEFAULT_LOCAL_MOUNT_PREFIX = "local_mount"
 """Default prefix for Docker local mount directories."""
