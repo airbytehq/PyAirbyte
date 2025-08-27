@@ -14,6 +14,14 @@ from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret, is_secret_available
 
 
+def _raise_invalid_file_config_type(file_config: object) -> None:
+    """Raise TypeError for invalid file config type."""
+    raise TypeError(
+        f"Configuration file must contain a valid JSON/YAML object, "
+        f"got: {type(file_config).__name__}"
+    )
+
+
 AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
 
 
@@ -44,7 +52,7 @@ def initialize_secrets() -> None:
         )
 
 
-def resolve_config(
+def resolve_config(  # noqa: PLR0912
     config: dict | str | None = None,
     config_file: str | Path | None = None,
     config_secret_name: str | None = None,
@@ -89,13 +97,10 @@ def resolve_config(
         try:
             file_config = yaml.safe_load(config_file.read_text())
             if not isinstance(file_config, dict):
-                raise ValueError(
-                    f"Configuration file must contain a valid JSON/YAML object, "
-                    f"got: {type(file_config).__name__}"
-                )
+                _raise_invalid_file_config_type(file_config)
             config_dict.update(file_config)
         except Exception as e:
-            raise ValueError(f"Error reading configuration file {config_file}: {e}")
+            raise ValueError(f"Error reading configuration file {config_file}: {e}") from e
 
     if config is not None:
         if isinstance(config, dict):
@@ -104,13 +109,13 @@ def resolve_config(
             try:
                 parsed_config = json.loads(config)
                 if not isinstance(parsed_config, dict):
-                    raise ValueError(
+                    raise TypeError(
                         f"Parsed JSON config must be an object/dict, "
                         f"got: {type(parsed_config).__name__}"
                     )
                 config_dict.update(parsed_config)
             except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON in config parameter: {e}")
+                raise ValueError(f"Invalid JSON in config parameter: {e}") from e
         else:
             raise ValueError(f"Config must be a dict or JSON string, got: {type(config).__name__}")
 
