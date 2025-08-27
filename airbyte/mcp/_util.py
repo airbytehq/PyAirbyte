@@ -14,14 +14,6 @@ from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret, is_secret_available
 
 
-def _raise_invalid_file_config_type(file_config: object) -> None:
-    """Raise TypeError for invalid file config type."""
-    raise TypeError(
-        f"Configuration file must contain a valid JSON/YAML object, "
-        f"got: {type(file_config).__name__}"
-    )
-
-
 AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
 
 
@@ -71,10 +63,7 @@ def resolve_config(  # noqa: PLR0912
     config_dict: dict[str, Any] = {}
 
     if config is None and config_file is None and config_secret_name is None:
-        raise ValueError(
-            "No configuration provided. At least one of `config`, `config_file`, "
-            "or `config_secret_name` must be specified."
-        )
+        return {}
 
     if config_file is not None:
         if isinstance(config_file, str):
@@ -88,10 +77,16 @@ def resolve_config(  # noqa: PLR0912
         if not config_file.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
+        def _raise_invalid_type(file_config: object) -> None:
+            raise TypeError(
+                f"Configuration file must contain a valid JSON/YAML object, "
+                f"got: {type(file_config).__name__}"
+            )
+
         try:
             file_config = yaml.safe_load(config_file.read_text())
             if not isinstance(file_config, dict):
-                _raise_invalid_file_config_type(file_config)
+                _raise_invalid_type(file_config)
             config_dict.update(file_config)
         except Exception as e:
             raise ValueError(f"Error reading configuration file {config_file}: {e}") from e
