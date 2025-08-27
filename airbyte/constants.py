@@ -56,12 +56,11 @@ For example, in ephemeral environments like Google Colab, you might want to stor
 your mounted Google Drive by setting this to a path like `/content/drive/MyDrive/Airbyte/cache`.
 """
 
-_airbyte_project_dir = os.getenv("AIRBYTE_PROJECT_DIR")
-DEFAULT_PROJECT_DIR: Path = (
-    Path(os.path.expandvars(_airbyte_project_dir)).expanduser().absolute()
-    if _airbyte_project_dir
-    else Path.cwd() / ".airbyte"
-)
+DEFAULT_PROJECT_DIR: Path = Path(
+    os.getenv("AIRBYTE_PROJECT_DIR")
+    if "AIRBYTE_PROJECT_DIR" in os.environ
+    else Path.cwd()
+).expanduser().absolute()
 """Default project directory is `.airbyte` in the current working directory.
 
 The default location can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
