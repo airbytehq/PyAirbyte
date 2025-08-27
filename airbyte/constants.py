@@ -72,9 +72,7 @@ configured.
 """
 
 DEFAULT_INSTALL_DIR: Path = (
-    Path(
-        os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR
-    )
+    Path(os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR)
     .expanduser()
     .absolute()
 )
