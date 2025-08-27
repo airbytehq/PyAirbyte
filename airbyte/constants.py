@@ -56,6 +56,41 @@ For example, in ephemeral environments like Google Colab, you might want to stor
 your mounted Google Drive by setting this to a path like `/content/drive/MyDrive/Airbyte/cache`.
 """
 
+DEFAULT_PROJECT_DIR: Path = (
+    Path() / ".airbyte"
+    if "AIRBYTE_PROJECT_DIR" not in os.environ
+    else Path(os.environ["AIRBYTE_PROJECT_DIR"])
+)
+"""Default project directory is `.airbyte` in the current working directory.
+
+The default location can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
+
+This serves as the parent directory for both cache and install directories when not explicitly
+configured.
+"""
+
+DEFAULT_INSTALL_DIR: Path = (
+    DEFAULT_PROJECT_DIR / "installs"
+    if "AIRBYTE_INSTALL_DIR" not in os.environ
+    else Path(os.environ["AIRBYTE_INSTALL_DIR"])
+)
+"""Default install directory for Python connectors is `.airbyte/installs` in the current working
+directory.
+
+The default location can be overridden by setting the `AIRBYTE_INSTALL_DIR` environment variable.
+
+This is where virtual environments for Python connectors will be created.
+"""
+
+DEFAULT_VENV_PREFIX = ".venv"
+"""Default prefix for virtual environment directory names."""
+
+DEFAULT_LOCAL_MOUNT_PREFIX = "local_mount"
+"""Default prefix for Docker local mount directories."""
+
+DEFAULT_GOOGLE_DRIVE_MOUNT_PATH = "/content/drive"
+"""Default path to mount Google Drive in Google Colab environments."""
+
 DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
 
