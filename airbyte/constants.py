@@ -70,12 +70,11 @@ This serves as the parent directory for both cache and install directories when 
 configured.
 """
 
-_airbyte_install_dir = os.getenv("AIRBYTE_INSTALL_DIR")
-DEFAULT_INSTALL_DIR: Path = (
-    Path(os.path.expandvars(_airbyte_install_dir)).expanduser().absolute()
-    if _airbyte_install_dir
-    else DEFAULT_PROJECT_DIR / "installs"
-)
+DEFAULT_INSTALL_DIR: Path = Path(
+    os.getenv("AIRBYTE_INSTALL_DIR")
+    if "AIRBYTE_INSTALL_DIR" in os.environ
+    else DEFAULT_PROJECT_DIR
+).expanduser().absolute()
 """Default install directory for Python connectors is `.airbyte/installs` in the current working
 directory.
 
