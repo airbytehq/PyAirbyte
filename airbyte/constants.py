@@ -57,11 +57,7 @@ your mounted Google Drive by setting this to a path like `/content/drive/MyDrive
 """
 
 DEFAULT_PROJECT_DIR: Path = (
-    Path(
-        os.getenv("AIRBYTE_PROJECT_DIR", "") if "AIRBYTE_PROJECT_DIR" in os.environ else Path.cwd()
-    )
-    .expanduser()
-    .absolute()
+    Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute()
 )
 """Default project directory.
 
@@ -74,13 +70,7 @@ configured.
 """
 
 DEFAULT_INSTALL_DIR: Path = (
-    Path(
-        os.getenv("AIRBYTE_INSTALL_DIR", "")
-        if "AIRBYTE_INSTALL_DIR" in os.environ
-        else DEFAULT_PROJECT_DIR
-    )
-    .expanduser()
-    .absolute()
+    Path(os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR).expanduser().absolute()
 )
 """Default install directory for connectors.
 
