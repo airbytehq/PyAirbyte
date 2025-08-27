@@ -7,6 +7,7 @@ packages = [{ include = "airbyte" }]
 
 # This project uses dynamic versioning
 # https://github.com/mtkennerly/poetry-dynamic-versioning
+# Dummy change to trigger CI for cloud test xfail investigation
 version = "0.0.0"
 
 [tool.poetry-dynamic-versioning]
