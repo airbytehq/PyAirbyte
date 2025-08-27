@@ -74,8 +74,9 @@ DEFAULT_INSTALL_DIR: Path = Path(
     if "AIRBYTE_INSTALL_DIR" in os.environ
     else DEFAULT_PROJECT_DIR
 ).expanduser().absolute()
-"""Default install directory for Python connectors is `.airbyte/installs` in the current working
-directory.
+"""Default install directory for connectors.
+
+If not set, defaults to the current working directory.
 
 The default location can be overridden by setting the `AIRBYTE_INSTALL_DIR` environment variable.
 
