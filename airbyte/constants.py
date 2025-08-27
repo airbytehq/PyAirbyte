@@ -63,9 +63,11 @@ DEFAULT_PROJECT_DIR: Path = (
     .expanduser()
     .absolute()
 )
-"""Default project directory is the current working directory.
+"""Default project directory.
 
-The default location can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
+Can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
+
+If not set, defaults to the current working directory.
 
 This serves as the parent directory for both cache and install directories when not explicitly
 configured.
