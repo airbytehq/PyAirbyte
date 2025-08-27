@@ -65,7 +65,9 @@ class VenvExecutor(Executor):
             if metadata and metadata.pypi_package_name
             else f"airbyte-{self.name}"
         )
-        self.install_root = install_root or DEFAULT_INSTALL_DIR
+        self.install_root = install_root or DEFAULT_INSTALL_DIR or Path.cwd()
+        with suppress(Exception):
+            self.install_root.mkdir(parents=True, exist_ok=True)
         self.use_python = use_python
 
     def _get_venv_name(self) -> str:
