@@ -5,23 +5,64 @@ import shlex
 import subprocess
 import sys
 from contextlib import suppress
+from functools import lru_cache
 from pathlib import Path
 from shutil import rmtree
 from typing import TYPE_CHECKING, Literal
 
+import requests
 from overrides import overrides
 from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
+from airbyte._util.semver import check_python_version_compatibility
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.constants import NO_UV
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, NO_UV
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
     from airbyte.sources.registry import ConnectorMetadata
+
+
+@lru_cache(maxsize=128)
+def _get_pypi_python_requirements_cached(package_name: str) -> str | None:
+    """Get the requires_python field from PyPI for a package.
+
+    Args:
+        package_name: The PyPI package name to check
+
+    Returns:
+        The requires_python string from PyPI, or None if unavailable
+
+    Example:
+        For airbyte-source-hubspot, returns "<3.12,>=3.10"
+    """
+    if AIRBYTE_OFFLINE_MODE:
+        return None
+
+    url = f"https://pypi.org/pypi/{package_name}/json"
+    version = get_version()
+
+    try:
+        response = requests.get(
+            url=url,
+            headers={"User-Agent": f"PyAirbyte/{version}" if version else "PyAirbyte"},
+            timeout=10,
+        )
+
+        if not response.ok:
+            return None
+
+        data = response.json()
+        if not data:
+            return None
+        return data.get("info", {}).get("requires_python")
+    except Exception:
+        return None
 
 
 class VenvExecutor(Executor):
@@ -124,6 +165,18 @@ class VenvExecutor(Executor):
                 message="Invalid use_python parameter type",
                 input_value=str(self.use_python),
             )
+
+        package_name = (
+            self.metadata.pypi_package_name
+            if self.metadata and self.metadata.pypi_package_name
+            else f"airbyte-{self.name}"
+        )
+        requires_python = _get_pypi_python_requirements_cached(package_name)
+        check_python_version_compatibility(package_name, requires_python)
+
+        self._run_subprocess_and_raise_on_failure(
+            [sys.executable, "-m", "venv", str(self._get_venv_path())]
+        )
 
         python_override: str | None = None
         if not NO_UV and isinstance(self.use_python, Path):
