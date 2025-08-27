@@ -67,7 +67,7 @@ def resolve_config(
     We reject hardcoded secrets in a config dict if we detect them.
     """
     config_dict: dict[str, Any] = {}
-    
+
     if config is None and config_file is None and config_secret_name is None:
         raise ValueError(
             "No configuration provided. At least one of `config`, `config_file`, "
@@ -77,15 +77,15 @@ def resolve_config(
     if config_file is not None:
         if isinstance(config_file, str):
             config_file = Path(config_file)
-        
+
         if not isinstance(config_file, Path):
             raise ValueError(
                 f"config_file must be a string or Path object, got: {type(config_file).__name__}"
             )
-            
+
         if not config_file.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_file}")
-            
+
         try:
             file_config = yaml.safe_load(config_file.read_text())
             if not isinstance(file_config, dict):
@@ -105,15 +105,14 @@ def resolve_config(
                 parsed_config = json.loads(config)
                 if not isinstance(parsed_config, dict):
                     raise ValueError(
-                        f"Parsed JSON config must be an object/dict, got: {type(parsed_config).__name__}"
+                        f"Parsed JSON config must be an object/dict, "
+                        f"got: {type(parsed_config).__name__}"
                     )
                 config_dict.update(parsed_config)
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON in config parameter: {e}")
         else:
-            raise ValueError(
-                f"Config must be a dict or JSON string, got: {type(config).__name__}"
-            )
+            raise ValueError(f"Config must be a dict or JSON string, got: {type(config).__name__}")
 
     if config_dict and config_spec_jsonschema is not None:
         hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
