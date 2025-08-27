@@ -18,7 +18,7 @@ from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, DEFAULT_LOCAL_MOUNT_PREFIX, TEMP_DIR_OVERRIDE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, DEFAULT_PROJECT_DIR, TEMP_DIR_OVERRIDE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
@@ -282,7 +282,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
-        local_mount_dir = Path().absolute() / f"{DEFAULT_LOCAL_MOUNT_PREFIX}_{name}"
+        local_mount_dir = DEFAULT_PROJECT_DIR / "docker_mounts" / name
         local_mount_dir.mkdir(exist_ok=True)
 
         volumes = {

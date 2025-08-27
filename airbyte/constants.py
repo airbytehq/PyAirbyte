@@ -85,9 +85,6 @@ This is where virtual environments for Python connectors will be created.
 """
 
 
-DEFAULT_LOCAL_MOUNT_PREFIX = "local_mount"
-"""Default prefix for Docker local mount directories."""
-
 DEFAULT_GOOGLE_DRIVE_MOUNT_PATH = "/content/drive"
 """Default path to mount Google Drive in Google Colab environments."""
 
