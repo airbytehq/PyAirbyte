@@ -19,6 +19,7 @@ from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
+from airbyte.logs import get_global_file_logger
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
@@ -26,6 +27,8 @@ from airbyte.version import get_version
 if TYPE_CHECKING:
     from airbyte._executors.base import Executor
 
+
+logger = get_global_file_logger()
 
 VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
@@ -277,7 +280,20 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             )
 
         if ":" not in docker_image:
-            docker_image = f"{docker_image}:{version or 'latest'}"
+            resolved_version = version
+            if resolved_version is None:
+                if metadata and metadata.latest_available_version:
+                    resolved_version = metadata.latest_available_version
+                else:
+                    resolved_version = "latest"
+                    if logger:
+                        logger.warning(
+                            f"Using 'latest' tag for connector '{name}' because no explicit "
+                            f"version was specified and we could not locate the latest "
+                            f"version number."
+                        )
+
+            docker_image = f"{docker_image}:{resolved_version}"
 
         host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
