@@ -58,7 +58,7 @@ your mounted Google Drive by setting this to a path like `/content/drive/MyDrive
 
 DEFAULT_PROJECT_DIR: Path = (
     Path(
-        os.getenv("AIRBYTE_PROJECT_DIR", "") if "AIRBYTE_PROJECT_DIR" in os.environ else Path.cwd()
+        os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()
     )
     .expanduser()
     .absolute()
