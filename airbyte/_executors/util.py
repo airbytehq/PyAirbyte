@@ -282,7 +282,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
         container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
-        local_mount_dir = DEFAULT_PROJECT_DIR / "docker_mounts" / name
+        local_mount_dir = DEFAULT_PROJECT_DIR / name
         local_mount_dir.mkdir(exist_ok=True)
 
         volumes = {
