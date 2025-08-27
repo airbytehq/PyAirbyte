@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Internal utility functions for MCP."""
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -65,8 +66,6 @@ def resolve_config(
 
     We reject hardcoded secrets in a config dict if we detect them.
     """
-    import json
-    
     config_dict: dict[str, Any] = {}
     
     if config is None and config_file is None and config_secret_name is None:
