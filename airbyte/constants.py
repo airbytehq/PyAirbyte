@@ -82,7 +82,8 @@ DEFAULT_INSTALL_DIR: Path = (
 )
 """Default install directory for connectors.
 
-If not set, defaults to the current working directory.
+If not set, defaults to `DEFAULT_PROJECT_DIR` (`AIRBYTE_PROJECT_DIR` env var) or the current 
+working directory if neither is set.
 """
 
 
