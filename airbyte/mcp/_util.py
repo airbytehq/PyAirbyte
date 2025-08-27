@@ -60,12 +60,6 @@ def resolve_config(  # noqa: PLR0912
 ) -> dict[str, Any]:
     """Resolve a configuration dictionary, JSON string, or file path to a dictionary.
 
-    Args:
-        config: Configuration as a dict object OR a JSON string that will be parsed
-        config_file: Path to a YAML/JSON configuration file (separate from config)
-        config_secret_name: Name of secret containing configuration
-        config_spec_jsonschema: JSON schema for validation
-
     Returns:
         Resolved configuration dictionary
 
