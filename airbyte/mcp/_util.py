@@ -140,7 +140,7 @@ def resolve_config(  # noqa: PLR0912
                 f"but got: {type(secret_config).__name__}"
             )
 
-        # Merge the secret config into the main config (highest priority):
+        # Merge the secret config into the main config:
         deep_update(
             config_dict,
             secret_config,
