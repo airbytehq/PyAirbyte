@@ -53,7 +53,13 @@ def _get_mcp_source(
         override_execution_mode = "docker"
 
     source: Source
-    if override_execution_mode == "python":
+    if override_execution_mode == "auto":
+        # Use defaults with no overrides
+        source = get_source(
+            connector_name,
+            install_if_missing=False,
+        )
+    elif override_execution_mode == "python":
         source = get_source(
             connector_name,
             use_python=True,
