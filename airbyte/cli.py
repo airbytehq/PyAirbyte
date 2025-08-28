@@ -69,6 +69,7 @@ from typing import TYPE_CHECKING, Any
 import click
 import yaml
 
+from airbyte._executors.util import get_connector_executor
 from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.util import get_secret
@@ -632,6 +633,131 @@ def sync(
     )
 
 
+@click.command(
+    help=(
+        "Install a connector for later use. This is useful for pre-installing connectors "
+        "during image build processes to front-load installation costs.\n\n" + CLI_GUIDANCE
+    ),
+)
+@click.option(
+    "--connector",
+    type=str,
+    required=True,
+    help="The connector name, docker image, or path to executable.",
+)
+@click.option(
+    "--version",
+    type=str,
+    help="The connector version to install. If not provided, the latest version will be used.",
+)
+@click.option(
+    "--pip-url",
+    type=str,
+    help="Optional pip URL for Python connectors. " + PIP_URL_HELP,
+)
+@click.option(
+    "--docker-image",
+    type=str,
+    help="Docker image name for the connector. Use 'true' for default image.",
+)
+@click.option(
+    "--local-executable",
+    type=str,
+    help="Path to local executable for the connector.",
+)
+@click.option(
+    "--use-host-network",
+    is_flag=True,
+    help="Use host network when running Docker containers.",
+)
+@click.option(
+    "--source-manifest",
+    type=str,
+    help="Path to YAML manifest file for declarative connectors.",
+)
+@click.option(
+    "--use-python",
+    type=str,
+    help=(
+        "Python interpreter to use. Options: 'true' (current interpreter), "
+        "'false' (use Docker), path to interpreter, or version string (e.g., '3.11')."
+    ),
+)
+@click.option(
+    "--validate/--no-validate",
+    default=True,
+    help="Run spec command after installation to validate the connector can run properly.",
+)
+def install(  # noqa: PLR0913  # Too many arguments
+    connector: str,
+    *,
+    version: str | None = None,
+    pip_url: str | None = None,
+    docker_image: str | None = None,
+    local_executable: str | None = None,
+    use_host_network: bool = False,
+    source_manifest: str | None = None,
+    use_python: str | None = None,
+    validate: bool = True,
+) -> None:
+    """CLI command to install a connector."""
+    docker_image_param: bool | str | None = None
+    if docker_image == "true":
+        docker_image_param = True
+    elif docker_image:
+        docker_image_param = docker_image
+
+    source_manifest_param: bool | str | None = None
+    if source_manifest == "true":
+        source_manifest_param = True
+    elif source_manifest:
+        source_manifest_param = source_manifest
+
+    use_python_param = _parse_use_python(use_python)
+
+    try:
+        executor = get_connector_executor(
+            name=connector,
+            version=version,
+            pip_url=pip_url,
+            local_executable=local_executable,
+            docker_image=docker_image_param,
+            use_host_network=use_host_network,
+            source_manifest=source_manifest_param,
+            install_if_missing=True,
+            use_python=use_python_param,
+        )
+
+        print(f"Installing connector '{connector}'...", file=sys.stderr)
+        executor.install()
+        print(f"Connector '{connector}' installed successfully!", file=sys.stderr)
+
+        if validate:
+            print(f"Validating connector '{connector}' by running spec...", file=sys.stderr)
+            try:
+                spec_output = list(executor.execute(["spec"]))
+                if spec_output:
+                    print(f"Connector '{connector}' validation successful!", file=sys.stderr)
+                else:
+                    print(
+                        f"Warning: Connector '{connector}' installed but validation failed: "
+                        "spec command returned no output",
+                        file=sys.stderr,
+                    )
+            except Exception as validation_error:
+                print(
+                    f"Warning: Connector '{connector}' installed but validation failed: "
+                    f"{validation_error}",
+                    file=sys.stderr,
+                )
+
+    except Exception as e:
+        raise PyAirbyteInputError(
+            message=f"Failed to install connector '{connector}'.",
+            original_exception=e,
+        ) from e
+
+
 @click.group()
 def cli() -> None:
     """@private PyAirbyte CLI."""
@@ -641,6 +767,7 @@ def cli() -> None:
 cli.add_command(validate)
 cli.add_command(benchmark)
 cli.add_command(sync)
+cli.add_command(install)
 
 if __name__ == "__main__":
     cli()
