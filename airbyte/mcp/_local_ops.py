@@ -16,12 +16,12 @@ from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+from airbyte.sources.base import Source
 from airbyte.sources.registry import get_connector_metadata
 
 
 if TYPE_CHECKING:
     from airbyte.caches.duckdb import DuckDBCache
-    from airbyte.sources.base import Source
 
 
 CONFIG_HELP = """
@@ -44,6 +44,50 @@ will be layered on top of the non-secret config.
 """
 
 
+def _get_mcp_source(
+    connector_name: str,
+    override_execution_mode: Literal["auto", "docker", "python", "yaml"] = "auto",
+) -> Source:
+    """Get the MCP source for a connector."""
+    if override_execution_mode == "auto" and is_docker_installed():
+        override_execution_mode = "docker"
+
+    source: Source
+    if override_execution_mode == "auto":
+        # Use defaults with no overrides
+        source = get_source(
+            connector_name,
+            install_if_missing=False,
+        )
+    elif override_execution_mode == "python":
+        source = get_source(
+            connector_name,
+            use_python=True,
+            install_if_missing=False,
+        )
+    elif override_execution_mode == "docker":
+        source = get_source(
+            connector_name,
+            docker_image=True,
+            install_if_missing=False,
+        )
+    elif override_execution_mode == "yaml":
+        source = get_source(
+            connector_name,
+            source_manifest=True,
+            install_if_missing=False,
+        )
+    else:
+        raise ValueError(
+            f"Unknown execution method: {override_execution_mode}. "
+            "Expected one of: ['auto', 'docker', 'python', 'yaml']."
+        )
+
+    # Ensure installed:
+    source.executor.ensure_installation()
+    return source
+
+
 # @app.tool()  # << deferred
 def validate_connector_config(
     connector_name: Annotated[
@@ -62,15 +106,19 @@ def validate_connector_config(
         str | None,
         Field(description="The name of the secret containing the configuration."),
     ] = None,
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(description="Optionally override the execution method to use for the connector."),
+    ] = "auto",
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
 
     Returns a tuple of (is_valid: bool, message: str).
     """
     try:
-        source = get_source(
+        source: Source = _get_mcp_source(
             connector_name,
-            docker_image=is_docker_installed() or False,
+            override_execution_mode=override_execution_mode,
         )
     except Exception as ex:
         return False, f"Failed to get connector '{connector_name}': {ex}"
@@ -138,14 +186,18 @@ def list_source_streams(
         str | None,
         Field(description="The name of the secret containing the configuration."),
     ] = None,
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(description="Optionally override the execution method to use for the connector."),
+    ] = "auto",
 ) -> list[str]:
     """List all streams available in a source connector.
 
     This operation (generally) requires a valid configuration, including any required secrets.
     """
-    source: Source = get_source(
-        source_connector_name,
-        docker_image=is_docker_installed() or False,
+    source: Source = _get_mcp_source(
+        connector_name=source_connector_name,
+        override_execution_mode=override_execution_mode,
     )
     config_dict = resolve_config(
         config=config,
@@ -179,11 +231,15 @@ def get_source_stream_json_schema(
         str | None,
         Field(description="The name of the secret containing the configuration."),
     ] = None,
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(description="Optionally override the execution method to use for the connector."),
+    ] = "auto",
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
-    source: Source = get_source(
-        source_connector_name,
-        docker_image=is_docker_installed() or False,
+    source: Source = _get_mcp_source(
+        connector_name=source_connector_name,
+        override_execution_mode=override_execution_mode,
     )
     config_dict = resolve_config(
         config=config,
@@ -222,12 +278,16 @@ def read_source_stream_records(
         int,
         Field(description="The maximum number of records to read."),
     ] = 1000,
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(description="Optionally override the execution method to use for the connector."),
+    ] = "auto",
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
-        source = get_source(
-            source_connector_name,
-            docker_image=is_docker_installed() or False,
+        source: Source = _get_mcp_source(
+            connector_name=source_connector_name,
+            override_execution_mode=override_execution_mode,
         )
         config_dict = resolve_config(
             config=config,
@@ -283,6 +343,10 @@ def get_stream_previews(
         int,
         Field(description="The maximum number of sample records to return per stream."),
     ] = 10,
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(description="Optionally override the execution method to use for the connector."),
+    ] = "auto",
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
 
@@ -290,9 +354,9 @@ def get_stream_previews(
     Returns a dictionary mapping stream names to lists of sample records, or an error
     message string if an error occurred for that stream.
     """
-    source: Source = get_source(
-        source_name,
-        docker_image=is_docker_installed() or False,
+    source: Source = _get_mcp_source(
+        connector_name=source_name,
+        override_execution_mode=override_execution_mode,
     )
     config_dict = resolve_config(
         config=config,
@@ -357,11 +421,15 @@ def sync_source_to_cache(
         list[str] | str,
         Field(description="The streams to sync."),
     ] = "suggested",
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(description="Optionally override the execution method to use for the connector."),
+    ] = "auto",
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
-    source = get_source(
-        source_connector_name,
-        docker_image=is_docker_installed() or False,
+    source: Source = _get_mcp_source(
+        connector_name=source_connector_name,
+        override_execution_mode=override_execution_mode,
     )
     config_dict = resolve_config(
         config=config,
