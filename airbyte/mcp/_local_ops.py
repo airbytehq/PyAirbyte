@@ -95,8 +95,12 @@ def validate_connector_config(
         Field(description="The name of the connector to validate."),
     ],
     config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration for the connector."),
+        dict | str | None,
+        Field(description="The configuration for the connector as a dict object or JSON string."),
+    ] = None,
+    config_file: Annotated[
+        str | Path | None,
+        Field(description="Path to a YAML or JSON file containing the connector configuration."),
     ] = None,
     config_secret_name: Annotated[
         str | None,
@@ -122,6 +126,7 @@ def validate_connector_config(
     try:
         config_dict = resolve_config(
             config=config,
+            config_file=config_file,
             config_secret_name=config_secret_name,
             config_spec_jsonschema=source.config_spec,
         )
@@ -170,8 +175,12 @@ def list_source_streams(
         Field(description="The name of the source connector."),
     ],
     config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration for the source connector."),
+        dict | str | None,
+        Field(description="The configuration for the source connector as a dict or JSON string."),
+    ] = None,
+    config_file: Annotated[
+        str | Path | None,
+        Field(description="Path to a YAML or JSON file containing the source connector config."),
     ] = None,
     config_secret_name: Annotated[
         str | None,
@@ -192,6 +201,7 @@ def list_source_streams(
     )
     config_dict = resolve_config(
         config=config,
+        config_file=config_file,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )
@@ -210,13 +220,17 @@ def get_source_stream_json_schema(
         Field(description="The name of the stream."),
     ],
     config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration for the source connector."),
-    ],
+        dict | str | None,
+        Field(description="The configuration for the source connector as a dict or JSON string."),
+    ] = None,
+    config_file: Annotated[
+        str | Path | None,
+        Field(description="Path to a YAML or JSON file containing the source connector config."),
+    ] = None,
     config_secret_name: Annotated[
         str | None,
         Field(description="The name of the secret containing the configuration."),
-    ],
+    ] = None,
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(description="Optionally override the execution method to use for the connector."),
@@ -229,6 +243,7 @@ def get_source_stream_json_schema(
     )
     config_dict = resolve_config(
         config=config,
+        config_file=config_file,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )
@@ -243,8 +258,12 @@ def read_source_stream_records(
         Field(description="The name of the source connector."),
     ],
     config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration for the source connector."),
+        dict | str | None,
+        Field(description="The configuration for the source connector as a dict or JSON string."),
+    ] = None,
+    config_file: Annotated[
+        str | Path | None,
+        Field(description="Path to a YAML or JSON file containing the source connector config."),
     ] = None,
     config_secret_name: Annotated[
         str | None,
@@ -272,6 +291,7 @@ def read_source_stream_records(
         )
         config_dict = resolve_config(
             config=config,
+            config_file=config_file,
             config_secret_name=config_secret_name,
             config_spec_jsonschema=source.config_spec,
         )
@@ -301,8 +321,12 @@ def get_stream_previews(
         Field(description="The name of the source connector."),
     ],
     config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration for the source connector."),
+        dict | str | None,
+        Field(description="The configuration for the source connector as a dict or JSON string."),
+    ] = None,
+    config_file: Annotated[
+        str | Path | None,
+        Field(description="Path to a YAML or JSON file containing the source connector config."),
     ] = None,
     config_secret_name: Annotated[
         str | None,
@@ -336,6 +360,7 @@ def get_stream_previews(
     )
     config_dict = resolve_config(
         config=config,
+        config_file=config_file,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )
@@ -381,8 +406,12 @@ def sync_source_to_cache(
         Field(description="The name of the source connector."),
     ],
     config: Annotated[
-        dict | Path | None,
-        Field(description="The configuration for the source connector."),
+        dict | str | None,
+        Field(description="The configuration for the source connector as a dict or JSON string."),
+    ] = None,
+    config_file: Annotated[
+        str | Path | None,
+        Field(description="Path to a YAML or JSON file containing the source connector config."),
     ] = None,
     config_secret_name: Annotated[
         str | None,
@@ -404,6 +433,7 @@ def sync_source_to_cache(
     )
     config_dict = resolve_config(
         config=config,
+        config_file=config_file,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )

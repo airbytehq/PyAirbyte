@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Internal utility functions for MCP."""
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -43,50 +44,87 @@ def initialize_secrets() -> None:
         )
 
 
-def resolve_config(
-    config: dict | Path | None = None,
+def resolve_config(  # noqa: PLR0912
+    config: dict | str | None = None,
+    config_file: str | Path | None = None,
     config_secret_name: str | None = None,
     config_spec_jsonschema: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Resolve a configuration dictionary or file path to a dictionary.
+    """Resolve a configuration dictionary, JSON string, or file path to a dictionary.
+
+    Returns:
+        Resolved configuration dictionary
+
+    Raises:
+        ValueError: If no configuration provided or if JSON parsing fails
 
     We reject hardcoded secrets in a config dict if we detect them.
     """
     config_dict: dict[str, Any] = {}
-    if config is None and config_secret_name is None:
-        raise ValueError(
-            "No configuration provided. Either `config` or `config_secret_name` must be specified."
-        )
 
-    if isinstance(config, Path):
-        config_dict.update(yaml.safe_load(config.read_text()))
+    if config is None and config_file is None and config_secret_name is None:
+        return {}
 
-    elif isinstance(config, dict):
-        if config_spec_jsonschema is not None:
-            hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
-                config=config,
-                spec_json_schema=config_spec_jsonschema,
+    if config_file is not None:
+        if isinstance(config_file, str):
+            config_file = Path(config_file)
+
+        if not isinstance(config_file, Path):
+            raise ValueError(
+                f"config_file must be a string or Path object, got: {type(config_file).__name__}"
             )
-            if hardcoded_secrets:
-                error_msg = "Configuration contains hardcoded secrets in fields: "
-                error_msg += ", ".join(
-                    [".".join(hardcoded_secret) for hardcoded_secret in hardcoded_secrets]
-                )
 
-                error_msg += (
-                    "Please use environment variables instead. For example:\n"
-                    "To set a secret via reference, set its value to "
-                    "`secret_reference::ENV_VAR_NAME`.\n"
-                )
-                raise ValueError(error_msg)
+        if not config_file.exists():
+            raise FileNotFoundError(f"Configuration file not found: {config_file}")
 
-        config_dict.update(config)
-    elif config is not None:
-        # We shouldn't reach here.
-        raise ValueError(
-            "Config must be a dict or a Path object pointing to a YAML or JSON file. "
-            f"Found type: {type(config).__name__}"
+        def _raise_invalid_type(file_config: object) -> None:
+            raise TypeError(
+                f"Configuration file must contain a valid JSON/YAML object, "
+                f"got: {type(file_config).__name__}"
+            )
+
+        try:
+            file_config = yaml.safe_load(config_file.read_text())
+            if not isinstance(file_config, dict):
+                _raise_invalid_type(file_config)
+            config_dict.update(file_config)
+        except Exception as e:
+            raise ValueError(f"Error reading configuration file {config_file}: {e}") from e
+
+    if config is not None:
+        if isinstance(config, dict):
+            config_dict.update(config)
+        elif isinstance(config, str):
+            try:
+                parsed_config = json.loads(config)
+                if not isinstance(parsed_config, dict):
+                    raise TypeError(
+                        f"Parsed JSON config must be an object/dict, "
+                        f"got: {type(parsed_config).__name__}"
+                    )
+                config_dict.update(parsed_config)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in config parameter: {e}") from e
+        else:
+            raise ValueError(f"Config must be a dict or JSON string, got: {type(config).__name__}")
+
+    if config_dict and config_spec_jsonschema is not None:
+        hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
+            config=config_dict,
+            spec_json_schema=config_spec_jsonschema,
         )
+        if hardcoded_secrets:
+            error_msg = "Configuration contains hardcoded secrets in fields: "
+            error_msg += ", ".join(
+                [".".join(hardcoded_secret) for hardcoded_secret in hardcoded_secrets]
+            )
+
+            error_msg += (
+                "Please use environment variables instead. For example:\n"
+                "To set a secret via reference, set its value to "
+                "`secret_reference::ENV_VAR_NAME`.\n"
+            )
+            raise ValueError(error_msg)
 
     if config_secret_name is not None:
         # Assume this is a secret name that points to a JSON/YAML config.
