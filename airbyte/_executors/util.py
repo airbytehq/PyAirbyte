@@ -1,6 +1,8 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import hashlib
+import sys
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
@@ -11,12 +13,12 @@ from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
-from airbyte._executors.docker import DockerExecutor
+from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
 from airbyte._executors.local import PathExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, TEMP_DIR_OVERRIDE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, DEFAULT_PROJECT_DIR, TEMP_DIR_OVERRIDE
 from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
@@ -29,31 +31,32 @@ VERSION_LATEST = "latest"
 DEFAULT_MANIFEST_URL = (
     "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
 )
+DEFAULT_COMPONENTS_URL = (
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/components.py"
+)
 
 
-def _try_get_source_manifest(
+def _try_get_manifest_connector_files(
     source_name: str,
-    manifest_url: str | None,
     version: str | None = None,
-) -> dict:
-    """Try to get a source manifest from a URL.
+) -> tuple[dict, str | None, str | None]:
+    """Try to get source manifest and components.py from URLs.
 
-    If the URL is not provided, we'll try the default URL in the Airbyte registry.
+    Returns tuple of (manifest_dict, components_py_content, components_py_checksum).
+    Components values are None if components.py is not found (404 is handled gracefully).
 
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
-        - `HTTPError`: If fetching the URL was unsuccessful.
-        - `YAMLError`: If parsing the YAML failed.
+        - `AirbyteConnectorInstallationError`: If the manifest cannot be downloaded or parsed,
+          or if components.py cannot be downloaded (excluding 404 errors).
     """
     if source_name is None:
         raise exc.PyAirbyteInputError(
             message="Param 'source_name' is required.",
         )
 
-    # If manifest URL was provided, we'll use the default URL from the Airbyte registry.
-
     cleaned_version = (version or VERSION_LATEST).removeprefix("v")
-    manifest_url = manifest_url or DEFAULT_MANIFEST_URL.format(
+    manifest_url = DEFAULT_MANIFEST_URL.format(
         source_name=source_name,
         version=cleaned_version,
     )
@@ -62,9 +65,18 @@ def _try_get_source_manifest(
         url=manifest_url,
         headers={"User-Agent": f"PyAirbyte/{get_version()}"},
     )
-    response.raise_for_status()  # Raise HTTPError exception if the download failed
     try:
-        return cast("dict", yaml.safe_load(response.text))
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as ex:
+        raise exc.AirbyteConnectorInstallationError(
+            message="Failed to download the connector manifest.",
+            context={
+                "manifest_url": manifest_url,
+            },
+        ) from ex
+
+    try:
+        manifest_dict = cast("dict", yaml.safe_load(response.text))
     except yaml.YAMLError as ex:
         raise exc.AirbyteConnectorInstallationError(
             message="Failed to parse the connector manifest YAML.",
@@ -73,6 +85,34 @@ def _try_get_source_manifest(
                 "manifest_url": manifest_url,
             },
         ) from ex
+
+    components_url = DEFAULT_COMPONENTS_URL.format(
+        source_name=source_name,
+        version=cleaned_version,
+    )
+
+    response = requests.get(
+        url=components_url,
+        headers={"User-Agent": f"PyAirbyte/{get_version()}"},
+    )
+
+    if response.status_code == 404:  # noqa: PLR2004
+        return manifest_dict, None, None
+
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as ex:
+        raise exc.AirbyteConnectorInstallationError(
+            message="Failed to download the connector components.py file.",
+            context={
+                "components_url": components_url,
+            },
+        ) from ex
+
+    components_content = response.text
+    components_py_checksum = hashlib.md5(components_content.encode()).hexdigest()
+
+    return manifest_dict, components_content, components_py_checksum
 
 
 def _get_local_executor(
@@ -108,14 +148,14 @@ def _get_local_executor(
 
     # `local_executable` is now a Path object
 
-    print(f"Using local `{name}` executable: {local_executable!s}")
+    print(f"Using local `{name}` executable: {local_executable!s}", file=sys.stderr)
     return PathExecutor(
         name=name,
         path=local_executable,
     )
 
 
-def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branches/arugments/statements
+def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # Too complex
     name: str,
     *,
     version: str | None = None,
@@ -126,6 +166,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
     source_manifest: bool | dict | Path | str | None = None,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    use_python: bool | Path | str | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
@@ -135,10 +176,30 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
         [
             bool(local_executable),
             bool(docker_image),
-            bool(pip_url),
+            bool(pip_url) or bool(use_python),
             bool(source_manifest),
         ]
     )
+
+    if use_python is False:
+        docker_image = True
+
+    if use_python is None and pip_url is not None:
+        # If pip_url is set, we assume the user wants to use Python.
+        use_python = True
+
+    if version and pip_url:
+        raise exc.PyAirbyteInputError(
+            message=(
+                "Cannot specify both version and pip_url. "
+                "Make sure to specify the connector version directly in the pip_url."
+            ),
+            context={
+                "version": version,
+                "pip_url": pip_url,
+            },
+        )
+
     if install_method_count > 1:
         raise exc.PyAirbyteInputError(
             message=(
@@ -189,6 +250,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
                     source_manifest = True
                 case InstallType.PYTHON:
                     pip_url = metadata.pypi_package_name
+                    pip_url = f"{pip_url}=={version}" if version else pip_url
                 case _:
                     docker_image = True
 
@@ -217,21 +279,24 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
         if ":" not in docker_image:
             docker_image = f"{docker_image}:{version or 'latest'}"
 
-        temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        host_temp_dir = TEMP_DIR_OVERRIDE or Path(tempfile.gettempdir())
+        container_temp_dir = DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR
 
-        local_mount_dir = Path().absolute() / name
+        local_mount_dir = DEFAULT_PROJECT_DIR / name
         local_mount_dir.mkdir(exist_ok=True)
 
+        volumes = {
+            local_mount_dir: "/local",
+            host_temp_dir: container_temp_dir,
+        }
         docker_cmd = [
             "docker",
             "run",
             "--rm",
             "-i",
-            "--volume",
-            f"{local_mount_dir}:/local/",
-            "--volume",
-            f"{temp_dir}:{temp_dir}",
         ]
+        for local_dir, container_dir in volumes.items():
+            docker_cmd.extend(["--volume", f"{local_dir}:{container_dir}"])
 
         if use_host_network is True:
             docker_cmd.extend(["--network", "host"])
@@ -240,26 +305,40 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
 
         return DockerExecutor(
             name=name,
+            image_name_full=docker_image,
             executable=docker_cmd,
+            volumes=volumes,
         )
 
     if source_manifest:
         if isinstance(source_manifest, dict | Path):
+            components_py_path: Path | None = None
+            if isinstance(source_manifest, Path):
+                # If source_manifest is a Path, check if there's an associated components.py file
+                components_py_path = source_manifest.with_name("components.py")
+                if not components_py_path.exists():
+                    components_py_path = None
+
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
+                components_py=components_py_path,
             )
 
         if isinstance(source_manifest, str | bool):
             # Source manifest is either a URL or a boolean (True)
-            source_manifest = _try_get_source_manifest(
-                source_name=name,
-                manifest_url=None if source_manifest is True else source_manifest,
+            manifest_dict, components_py, components_py_checksum = (
+                _try_get_manifest_connector_files(
+                    source_name=name,
+                    version=version,
+                )
             )
 
             return DeclarativeExecutor(
                 name=name,
-                manifest=source_manifest,
+                manifest=manifest_dict,
+                components_py=components_py,
+                components_py_checksum=components_py_checksum,
             )
 
     # else: we are installing a connector in a Python virtual environment:
@@ -271,6 +350,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0915 # Too many branch
             target_version=version,
             pip_url=pip_url,
             install_root=install_root,
+            use_python=use_python,
         )
         if install_if_missing:
             executor.ensure_installation()

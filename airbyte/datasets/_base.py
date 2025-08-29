@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from pandas import DataFrame
 
+from airbyte_protocol.models.airbyte_protocol import ConfiguredAirbyteStream
+
 from airbyte._util.document_rendering import DocumentRenderer
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
 
@@ -75,3 +77,8 @@ class DatasetBase(ABC):
             render_metadata=render_metadata,
         )
         yield from renderer.render_documents(self)
+
+    @property
+    def column_names(self) -> list[str]:
+        """Return the list of top-level column names."""
+        return list(self._stream_metadata.stream.json_schema["properties"].keys())

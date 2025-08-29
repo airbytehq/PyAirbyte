@@ -19,9 +19,11 @@ def test_install_failure_log_pypi():
             install_if_missing=True,
         )
 
-    # Check that the stderr log contains the expected content from a failed pip install
+    # Check that the stderr log contains the expected content from a failed install (pip or uv)
     err_msg = str(exc_info.value.__cause__.log_text)
     assert any([
         "Cannot unpack file" in err_msg,
         "Could not install requirement" in err_msg,
+        "Failed to parse" in err_msg,
+        "Expected direct URL" in err_msg,
     ])

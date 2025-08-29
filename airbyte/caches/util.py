@@ -9,6 +9,7 @@ import ulid
 
 from airbyte import exceptions as exc
 from airbyte.caches.duckdb import DuckDBCache
+from airbyte.constants import DEFAULT_GOOGLE_DRIVE_MOUNT_PATH, DEFAULT_PROJECT_DIR
 
 
 # Google drive constants:
@@ -16,7 +17,7 @@ from airbyte.caches.duckdb import DuckDBCache
 _MY_DRIVE = "MyDrive"
 """The default name of the user's personal Google Drive."""
 
-_GOOGLE_DRIVE_DEFAULT_MOUNT_PATH = "/content/drive"
+_GOOGLE_DRIVE_DEFAULT_MOUNT_PATH = DEFAULT_GOOGLE_DRIVE_MOUNT_PATH
 """The recommended path to mount Google Drive to."""
 
 
@@ -29,7 +30,7 @@ def get_default_cache() -> DuckDBCache:
     Cache files are stored in the `.cache` directory, relative to the current
     working directory.
     """
-    cache_dir = Path("./.cache/default_cache")
+    cache_dir = DEFAULT_PROJECT_DIR / "cache" / "default_cache"
     return DuckDBCache(
         db_path=cache_dir / "default_cache.duckdb",
         cache_dir=cache_dir,
@@ -66,7 +67,7 @@ def new_local_cache(
             )
 
     cache_name = cache_name or str(ulid.ULID())
-    cache_dir = cache_dir or Path(f"./.cache/{cache_name}")
+    cache_dir = cache_dir or (DEFAULT_PROJECT_DIR / "cache" / cache_name)
     if not isinstance(cache_dir, Path):
         cache_dir = Path(cache_dir)
 

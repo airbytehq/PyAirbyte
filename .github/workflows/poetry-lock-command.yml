@@ -55,19 +55,9 @@ jobs:
           echo "poetry.lock found. Proceeding."
         fi
 
-    - name: Get PR info
-      id: pr-info
-      run: |
-        PR_JSON=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.inputs.pr }})
-        echo "::set-output name=repo::$(echo "$PR_JSON" | jq -r .head.repo.full_name)"
-        echo "::set-output name=branch::$(echo "$PR_JSON" | jq -r .head.ref)"
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      shell: bash
-
-    - name: Create URL to the run output
+    - name: Resolve workflow variables
       id: vars
-      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+      uses: aaronsteers/resolve-ci-vars-action@v0
 
     - name: Append comment with job run link
       id: first-comment-action
@@ -114,11 +104,11 @@ jobs:
         git add .
         git commit -m "Auto-commit `poetry lock` changes"
 
-    - name: Push changes to '(${{ steps.pr-info.outputs.repo }})'
+    - name: Push changes to '(${{ steps.vars.outputs.pr-source-repo-name-full }})'
       if: steps.git-diff.outputs.changes == 'true'
       run: |
-        git remote add contributor https://github.com/${{ steps.pr-info.outputs.repo }}.git
-        git push contributor HEAD:${{ steps.pr-info.outputs.branch }}
+        git remote add contributor https://github.com/${{ steps.vars.outputs.pr-source-repo-name-full }}.git
+        git push contributor HEAD:${{ steps.vars.outputs.pr-source-git-branch }}
 
     - name: Append success comment
       uses: peter-evans/create-or-update-comment@v4

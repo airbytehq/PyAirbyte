@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+
 from airbyte.caches.base import CacheBase
 from airbyte.caches.duckdb import DuckDBCache
 

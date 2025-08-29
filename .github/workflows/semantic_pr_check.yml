@@ -47,3 +47,13 @@ jobs:
           # scopes: |
           #   core
           #   ui
+
+      - name: Check for "do not merge" in PR title
+        if: ${{ github.event.pull_request.draft == false }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title.toLowerCase();
+            if (title.includes('do not merge') || title.includes('do-not-merge')) {
+              core.setFailed('PR title contains "do not merge" or "do-not-merge". Please remove this before merging.');
+            }

@@ -56,6 +56,32 @@ For example, in ephemeral environments like Google Colab, you might want to stor
 your mounted Google Drive by setting this to a path like `/content/drive/MyDrive/Airbyte/cache`.
 """
 
+DEFAULT_PROJECT_DIR: Path = (
+    Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute()
+)
+"""Default project directory.
+
+Can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
+
+If not set, defaults to the current working directory.
+
+This serves as the parent directory for both cache and install directories when not explicitly
+configured.
+"""
+
+DEFAULT_INSTALL_DIR: Path = (
+    Path(os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR).expanduser().absolute()
+)
+"""Default install directory for connectors.
+
+If not set, defaults to `DEFAULT_PROJECT_DIR` (`AIRBYTE_PROJECT_DIR` env var) or the current
+working directory if neither is set.
+"""
+
+
+DEFAULT_GOOGLE_DRIVE_MOUNT_PATH = "/content/drive"
+"""Default path to mount Google Drive in Google Colab environments."""
+
 DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
 
@@ -108,4 +134,47 @@ environment variable if you prefer to use a different registry source for metada
 
 This setting helps you make informed choices about data privacy and operation in restricted and
 air-gapped environments.
+"""
+
+AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _str_to_bool(
+    os.getenv(
+        key="AIRBYTE_PRINT_FULL_ERROR_LOGS",
+        default=os.getenv("CI", "false"),
+    )
+)
+"""Whether to print full error logs when an error occurs.
+This setting helps in debugging by providing detailed logs when errors occur. This is especially
+helpful in ephemeral environments like CI/CD pipelines where log files may not be persisted after
+the pipeline run.
+
+If not set, the default value is `False` for non-CI environments.
+If running in a CI environment ("CI" env var is set), then the default value is `True`.
+"""
+
+NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
+"""Whether to use uv for Python package management.
+
+This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
+is set to "1", "true", or "yes", uv will be disabled and pip will be used instead.
+
+If the variable is not set or set to any other value, uv will be used by default.
+This provides a safe fallback mechanism for environments where uv is not available
+or causes issues.
+"""
+
+SECRETS_HYDRATION_PREFIX = "secret_reference::"
+"""Use this prefix to indicate a secret reference in configuration.
+
+For example, this snippet will populate the `personal_access_token` field with the value of the
+secret named `GITHUB_PERSONAL_ACCESS_TOKEN`, for instance from an environment variable.
+
+```json
+{
+  "credentials": {
+    "personal_access_token": "secret_reference::GITHUB_PERSONAL_ACCESS_TOKEN"
+  }
+}
+```
+
+For more information, see the `airbyte.secrets` module documentation.
 """

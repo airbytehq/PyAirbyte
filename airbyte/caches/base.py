@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import IO, TYPE_CHECKING, Any, ClassVar, final
+from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
+from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from airbyte.shared.sql_processor import SqlProcessorBase
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
+    from airbyte.sources.base import Source
     from airbyte.strategies import WriteStrategy
 
 
@@ -89,11 +91,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
 
         # Initialize the catalog and state backends
         self._catalog_backend = SqlCatalogBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
         self._state_backend = SqlStateBackend(
-            engine=self.get_sql_engine(),
+            sql_config=self,
             table_prefix=self.table_prefix or "",
         )
 
@@ -143,6 +145,54 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     def processor(self) -> SqlProcessorBase:
         """Return the SQL processor instance."""
         return self._read_processor
+
+    def run_sql_query(
+        self,
+        sql_query: str,
+        *,
+        max_records: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run a SQL query against the cache and return results as a list of dictionaries.
+
+        This method is designed for single DML statements like SELECT, SHOW, or DESCRIBE.
+        For DDL statements or multiple statements, use the processor directly.
+
+        Args:
+            sql_query: The SQL query to execute
+            max_records: Maximum number of records to return. If None, returns all records.
+
+        Returns:
+            List of dictionaries representing the query results
+        """
+        # Execute the SQL within a connection context to ensure the connection stays open
+        # while we fetch the results
+        sql_text = text(sql_query) if isinstance(sql_query, str) else sql_query
+
+        with self.processor.get_sql_connection() as conn:
+            try:
+                result = conn.execute(sql_text)
+            except (
+                sqlalchemy_exc.ProgrammingError,
+                sqlalchemy_exc.SQLAlchemyError,
+            ) as ex:
+                msg = f"Error when executing SQL:\n{sql_query}\n{type(ex).__name__}{ex!s}"
+                raise RuntimeError(msg) from ex
+
+            # Convert the result to a list of dictionaries while connection is still open
+            if result.returns_rows:
+                # Get column names
+                columns = list(result.keys()) if result.keys() else []
+
+                # Fetch rows efficiently based on limit
+                if max_records is not None:
+                    rows = result.fetchmany(max_records)
+                else:
+                    rows = result.fetchall()
+
+                return [dict(zip(columns, row, strict=True)) for row in rows]
+
+            # For non-SELECT queries (INSERT, UPDATE, DELETE, etc.)
+            return []
 
     def get_record_processor(
         self,
@@ -292,6 +342,42 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             incoming_source_catalog=incoming_source_catalog,
             incoming_stream_names=stream_names,
         )
+
+    def create_source_tables(
+        self,
+        source: Source,
+        streams: Literal["*"] | list[str] | None = None,
+    ) -> None:
+        """Create tables in the cache for the provided source if they do not exist already.
+
+        Tables are created based upon the Source's catalog.
+
+        Args:
+            source: The source to create tables for.
+            streams: Stream names to create tables for. If None, use the Source's selected_streams
+                or "*" if neither is set. If "*", all available streams will be used.
+        """
+        if streams is None:
+            streams = source.get_selected_streams() or "*"
+
+        catalog_provider = CatalogProvider(source.get_configured_catalog(streams=streams))
+
+        # Register the incoming source catalog
+        self.register_source(
+            source_name=source.name,
+            incoming_source_catalog=catalog_provider.configured_catalog,
+            stream_names=set(catalog_provider.stream_names),
+        )
+
+        # Ensure schema exists
+        self.processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
+
+        # Create tables for each stream if they don't exist
+        for stream_name in catalog_provider.stream_names:
+            self.processor._ensure_final_table_exists(  # noqa: SLF001
+                stream_name=stream_name,
+                create_if_missing=True,
+            )
 
     def __getitem__(self, stream: str) -> CachedDataset:
         """Return a dataset by stream name."""

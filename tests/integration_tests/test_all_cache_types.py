@@ -13,14 +13,15 @@ import os
 import sys
 from pathlib import Path
 
-import airbyte as ab
 import pytest
-from airbyte import get_source
-from airbyte._util.venv_util import get_bin_dir
 from sqlalchemy import text
 from viztracer import VizTracer
 
+import airbyte as ab
+from airbyte import get_source
+from airbyte._util.venv_util import get_bin_dir
 from airbyte.results import ReadResult
+
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -140,7 +141,7 @@ def test_faker_read(
         read_result = source_faker_seed_a.read(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
-    configured_count = source_faker_seed_a._config["count"]
+    configured_count = source_faker_seed_a.get_config()["count"]
 
     # Check row counts match:
     assert len(list(read_result.cache.streams["users"])) == FAKER_SCALE_A
@@ -198,6 +199,19 @@ def test_replace_strategy(
             new_generic_cache, write_strategy="replace", force_full_refresh=True
         )
     assert len(list(result.cache.streams["users"])) == FAKER_SCALE_A
+
+
+@pytest.mark.requires_creds
+@pytest.mark.slow
+def test_cache_create_source_tables(
+    source_faker_seed_a: ab.Source,
+    new_generic_cache: ab.caches.CacheBase,
+) -> None:
+    """Test that the cache creation and source tables work as expected."""
+    new_generic_cache.create_source_tables(source_faker_seed_a)
+    assert set(new_generic_cache.streams.keys()) == set(
+        source_faker_seed_a.get_selected_streams()
+    )
 
 
 @pytest.mark.requires_creds
