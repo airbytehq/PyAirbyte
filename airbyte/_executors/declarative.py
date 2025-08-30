@@ -12,7 +12,10 @@ import pydantic
 import yaml
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
-from airbyte_cdk.sources.declarative.concurrent_declarative_source import ConcurrentDeclarativeSource
+from airbyte_cdk.models import ConfiguredAirbyteCatalog
+from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
+    ConcurrentDeclarativeSource,
+)
 
 from airbyte._executors.base import Executor
 
@@ -77,7 +80,6 @@ class DeclarativeExecutor(Executor):
                 "md5": components_py_checksum,
             }
 
-        from airbyte_cdk.models import ConfiguredAirbyteCatalog
         self.declarative_source = ConcurrentDeclarativeSource(
             catalog=ConfiguredAirbyteCatalog(streams=[]),
             config=config_dict,
