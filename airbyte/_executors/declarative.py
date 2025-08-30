@@ -12,7 +12,6 @@ import pydantic
 import yaml
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
-from airbyte_cdk.models import ConfiguredAirbyteCatalog
 from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
     ConcurrentDeclarativeSource,
 )
@@ -81,9 +80,7 @@ class DeclarativeExecutor(Executor):
             }
 
         self.declarative_source = ConcurrentDeclarativeSource(
-            catalog=ConfiguredAirbyteCatalog(streams=[]),
             config=config_dict,
-            state=[],
             source_config=self._manifest_dict,
         )
 
