@@ -12,7 +12,9 @@ import pydantic
 import yaml
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
-from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
+from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
+    ConcurrentDeclarativeSource,
+)
 
 from airbyte._executors.base import Executor
 
@@ -77,9 +79,9 @@ class DeclarativeExecutor(Executor):
                 "md5": components_py_checksum,
             }
 
-        self.declarative_source = ManifestDeclarativeSource(
+        self.declarative_source = ConcurrentDeclarativeSource(
+            config=config_dict,
             source_config=self._manifest_dict,
-            config=config_dict or None,
         )
 
         self.reported_version: str | None = self._manifest_dict.get("version", None)
