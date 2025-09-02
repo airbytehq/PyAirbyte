@@ -32,6 +32,7 @@ def test_deploy_source(
     source = ab.get_source(
         "source-faker",
         config={"count": 100},
+        docker_image=True,
     )
     source.check()
     cloud_source: CloudSource = cloud_workspace.deploy_source(

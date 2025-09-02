@@ -115,6 +115,7 @@ def deployable_dummy_source() -> Source:
             "count": 100,
         },
         # install_if_missing=False,
+        docker_image=True,
     )
 
 

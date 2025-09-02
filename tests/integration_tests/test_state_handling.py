@@ -38,6 +38,7 @@ def source_faker_seed_a() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         streams=["users", "products", "purchases"],
+        docker_image=True,
     )
     return source
 
@@ -53,6 +54,7 @@ def source_faker_seed_b() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         streams=["users", "products", "purchases"],
+        docker_image=True,
     )
     return source
 

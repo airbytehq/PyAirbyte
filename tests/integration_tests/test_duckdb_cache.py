@@ -52,6 +52,7 @@ def setup_source_faker() -> ab.Source:
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
+        docker_image=True,
     )
     source.check()
     source.select_streams([
