@@ -46,6 +46,7 @@ def new_source_faker() -> Source:
         install_if_missing=True,
         streams=["products"],
         config_change_callback=config_change_callback,
+        docker_image=True,
     )
 
 
