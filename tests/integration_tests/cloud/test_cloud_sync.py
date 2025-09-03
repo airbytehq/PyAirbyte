@@ -66,6 +66,7 @@ def test_deploy_and_run_connection(
     source = ab.get_source(
         "source-faker",
         config={"count": 100},
+        docker_image=True,
     )
     cloud_source = cloud_workspace.deploy_source(
         name=f"test-source-{text_util.generate_random_suffix()}",

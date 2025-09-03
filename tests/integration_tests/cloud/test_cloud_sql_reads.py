@@ -21,6 +21,7 @@ def deployable_source() -> ab.Source:
     return ab.get_source(
         "source-faker",
         config={"count": 100},
+        docker_image=True,
     )
 
 

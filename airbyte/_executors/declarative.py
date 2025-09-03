@@ -12,7 +12,9 @@ import pydantic
 import yaml
 
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
-from airbyte_cdk.sources.declarative.manifest_declarative_source import ManifestDeclarativeSource
+from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
+    ConcurrentDeclarativeSource,
+)
 
 from airbyte._executors.base import Executor
 
@@ -77,12 +79,24 @@ class DeclarativeExecutor(Executor):
                 "md5": components_py_checksum,
             }
 
-        self.declarative_source = ManifestDeclarativeSource(
-            source_config=self._manifest_dict,
-            config=config_dict or None,
-        )
-
         self.reported_version: str | None = self._manifest_dict.get("version", None)
+        self._config_dict = config_dict
+
+    @property
+    def declarative_source(self) -> ConcurrentDeclarativeSource:
+        """Get the declarative source object.
+
+        Notes:
+        1. Since Sep 2025, the declarative source class used is `ConcurrentDeclarativeSource`.
+        2. The `ConcurrentDeclarativeSource` object sometimes doesn't want to be read from twice,
+           likely due to threads being already shut down after a successful read.
+        3. Rather than cache the source object, we recreate it each time we need it, to
+           avoid any issues with re-using the same object.
+        """
+        return ConcurrentDeclarativeSource(
+            config=self._config_dict,
+            source_config=self._manifest_dict,
+        )
 
     def get_installed_version(
         self,
