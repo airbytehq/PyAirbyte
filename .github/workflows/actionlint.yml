@@ -10,6 +10,10 @@ on:
     paths:
       - '.github/workflows/**'
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   actionlint:
     name: actionlint
@@ -23,4 +27,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           reporter: github-pr-review
           level: error
-          invalid_parameter: this-does-not-exist
+      - name: Intentional syntax error for testing
+        run: |
+          echo "This step has invalid YAML syntax below"
+        invalid_yaml_key_without_proper_indentation: test
