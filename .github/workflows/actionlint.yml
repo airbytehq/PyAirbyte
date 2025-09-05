@@ -27,7 +27,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           reporter: github-pr-review
           level: error
-      - name: Intentional syntax error for testing
-        run: |
-          echo "This step has invalid YAML syntax below"
-        invalid_yaml_key_without_proper_indentation: test
+      - name: Test step with actionlint error
+        uses: nonexistent/invalid-action@v999
+        with:
+          fake_parameter: test
