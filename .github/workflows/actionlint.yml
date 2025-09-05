@@ -1,11 +1,6 @@
 name: GitHub action linting
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '.github/workflows/**'
   pull_request:
     paths:
       - '.github/workflows/**'
@@ -27,7 +22,3 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           reporter: github-pr-review
           level: error
-      - name: Test step with actionlint error
-        uses: nonexistent/invalid-action@v999
-        with:
-          fake_parameter: test
