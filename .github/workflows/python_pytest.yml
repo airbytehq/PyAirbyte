@@ -189,6 +189,8 @@ jobs:
       run: >
         poetry run coverage run -m pytest
         --verbose
+        --timeout=300
+        --session-timeout=3600
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
