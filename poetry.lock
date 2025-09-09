@@ -105,14 +105,14 @@ files = [
 
 [[package]]
 name = "airbyte-protocol-models-pdv2"
-version = "0.13.1"
+version = "0.18.0"
 description = "Declares the Airbyte Protocol."
 optional = false
-python-versions = ">=3.8"
+python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "airbyte_protocol_models_pdv2-0.13.1-py3-none-any.whl", hash = "sha256:0940465706141c873c8a649d215f4d8d364581469373e11bb901a4885e2ac820"},
-    {file = "airbyte_protocol_models_pdv2-0.13.1.tar.gz", hash = "sha256:f5f858f141db4ee2cf449c06179609631f323381182378e704ab4c0c895082e9"},
+    {file = "airbyte_protocol_models_pdv2-0.18.0-py3-none-any.whl", hash = "sha256:62b08659b3da0f03316c60d84736f12dbfd79340a49947155a1687c13314db8b"},
+    {file = "airbyte_protocol_models_pdv2-0.18.0.tar.gz", hash = "sha256:8ff9f2685f4ca77571db380419c37db5ba61b82d834758782fa817c2b437c68f"},
 ]
 
 [package.dependencies]
