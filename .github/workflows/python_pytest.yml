@@ -182,13 +182,25 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-    - name: Run Pytest
+    - name: Run Pytest [all]
+      if: matrix.os != 'Windows'
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
         poetry run coverage run -m pytest
         --verbose
+        -m "not linting and not super_slow and not flaky"
+
+    - name: Run Pytest [unit tests only]
+      if: matrix.os == 'Windows'
+      timeout-minutes: 60
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      run: >
+        poetry run coverage run -m pytest
+        --verbose
+        tests/unit_tests/
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
