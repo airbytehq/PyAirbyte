@@ -36,7 +36,7 @@ jobs:
 
     # Custom steps to fetch the PR and checkout the code:
     - name: Checkout Airbyte
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         # Important that this is set so that CI checks are triggered again
         # Without this we would be forever waiting on required checks to pass
