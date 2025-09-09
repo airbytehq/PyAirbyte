@@ -43,7 +43,7 @@ def add_venv_bin_to_path(monkeypatch):
     monkeypatch.setenv("PATH", new_path)
 
 
-def setup_source_faker() -> ab.Source:
+def setup_source_faker(*, use_docker: bool) -> ab.Source:
     """Test the source-faker setup."""
     source = ab.get_source(
         "source-faker",
@@ -52,7 +52,7 @@ def setup_source_faker() -> ab.Source:
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
-        docker_image=True,
+        docker_image=use_docker,
     )
     source.check()
     source.select_streams([

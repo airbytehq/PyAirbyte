@@ -27,12 +27,14 @@ def test_deploy_destination(
 
 def test_deploy_source(
     cloud_workspace: CloudWorkspace,
+    *,
+    use_docker: bool,
 ) -> None:
     """Test deploying a source to a workspace."""
     source = ab.get_source(
         "source-faker",
         config={"count": 100},
-        docker_image=True,
+        docker_image=use_docker,
     )
     source.check()
     cloud_source: CloudSource = cloud_workspace.deploy_source(

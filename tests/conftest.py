@@ -12,19 +12,18 @@ import time
 import warnings
 from pathlib import Path
 
+import airbyte
 import docker
 import psycopg
 import pytest
 from _pytest.nodes import Item
-from requests.exceptions import HTTPError
-
-import airbyte
 from airbyte._executors.util import get_connector_executor
 from airbyte._util import text_util
-from airbyte._util.meta import is_windows
+from airbyte._util.meta import is_docker_installed, is_windows
 from airbyte.caches import PostgresCache
 from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
+from requests.exceptions import HTTPError
 
 
 logger = logging.getLogger(__name__)
@@ -35,6 +34,12 @@ PYTEST_POSTGRES_CONTAINER = "postgres_pytest_container"
 PYTEST_POSTGRES_PORT = 5432
 
 LOCAL_TEST_REGISTRY_URL = "./tests/integration_tests/fixtures/registry.json"
+USE_DOCKER = is_docker_installed() and not is_windows()
+
+
+@pytest.fixture
+def use_docker() -> bool:
+    return USE_DOCKER
 
 
 def pytest_configure(config):

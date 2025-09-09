@@ -5,6 +5,7 @@ These tests are designed to be run against a running instance of the Airbyte API
 """
 
 from __future__ import annotations
+
 from dataclasses import asdict
 
 import airbyte as ab
@@ -61,12 +62,14 @@ def test_deploy_and_run_connection(
     new_deployable_destination,
     with_bigquery_credentials_env_vars,
     with_snowflake_password_env_var,
+    *,
+    use_docker: bool,
 ) -> None:
     """Test deploying a source and cache to a workspace as a new connection."""
     source = ab.get_source(
         "source-faker",
         config={"count": 100},
-        docker_image=True,
+        docker_image=use_docker,
     )
     cloud_source = cloud_workspace.deploy_source(
         name=f"test-source-{text_util.generate_random_suffix()}",

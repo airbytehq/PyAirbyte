@@ -18,6 +18,7 @@ from airbyte.destinations.base import Destination
 from airbyte.secrets import GoogleGSMSecretManager, SecretHandle
 from sqlalchemy import create_engine, text
 
+
 AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 
 

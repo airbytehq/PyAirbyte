@@ -13,14 +13,13 @@ import os
 import sys
 from pathlib import Path
 
-import pytest
-from sqlalchemy import text
-from viztracer import VizTracer
-
 import airbyte as ab
+import pytest
 from airbyte import get_source
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.results import ReadResult
+from sqlalchemy import text
+from viztracer import VizTracer
 
 
 # Product count is always the same, regardless of faker scale.
@@ -65,7 +64,7 @@ def add_venv_bin_to_path(monkeypatch):
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker_seed_a() -> ab.Source:
+def source_faker_seed_a(*, use_docker: bool) -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = get_source(
         "source-faker",
@@ -75,7 +74,7 @@ def source_faker_seed_a() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         streams=["users"],
-        docker_image=True,
+        docker_image=use_docker,
     )
     return source
 
