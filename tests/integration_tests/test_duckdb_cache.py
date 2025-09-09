@@ -64,14 +64,14 @@ def setup_source_faker(*, use_docker: bool) -> ab.Source:
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker() -> ab.Source:
+def source_faker(*, use_docker: bool) -> ab.Source:
     """Fixture to return a source-faker connector instance."""
-    return setup_source_faker()
+    return setup_source_faker(use_docker=use_docker)
 
 
-def test_setup_source_faker() -> None:
+def test_setup_source_faker(*, use_docker: bool) -> None:
     """Test that fixture logic works as expected."""
-    source = setup_source_faker()
+    source = setup_source_faker(use_docker=use_docker)
 
 
 @pytest.fixture(scope="function")
