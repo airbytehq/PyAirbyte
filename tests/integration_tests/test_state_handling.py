@@ -55,8 +55,11 @@ def source_faker_seed_b() -> ab.Source:
             "seed": SEED_B,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
+@pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
+def source_faker_seed_b(*, use_docker: bool) -> ab.Source:
+    source = ab.SourceFaker(
         streams=["users", "products", "purchases"],
-        docker_image=True,
+        docker_image=use_docker,
     )
     return source
 
