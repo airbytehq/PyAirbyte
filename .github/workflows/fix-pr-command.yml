@@ -35,12 +35,20 @@ jobs:
     steps:
 
     # Custom steps to fetch the PR and checkout the code:
+    - name: Authenticate as GitHub App
+      uses: actions/create-github-app-token@v2
+      id: get-app-token
+      with:
+        owner: "airbytehq"
+        repositories: "PyAirbyte"
+        app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+        private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Checkout Airbyte
       uses: actions/checkout@v5
       with:
         # Important that this is set so that CI checks are triggered again
         # Without this we would be forever waiting on required checks to pass
-        token: ${{ secrets.GH_PAT_APPROVINGTON_OCTAVIA }}
+        token: ${{ steps.get-app-token.outputs.token }}
 
     - name: Checkout PR (${{ github.event.inputs.pr }})
       uses: dawidd6/action-checkout-pr@v1
