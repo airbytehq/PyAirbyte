@@ -80,7 +80,7 @@ def source_faker_seed_a(*, use_docker: bool) -> ab.Source:
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker_seed_b() -> ab.Source:
+def source_faker_seed_b(*, use_docker: bool) -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = get_source(
         "source-faker",
@@ -90,7 +90,7 @@ def source_faker_seed_b() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         streams=["users"],
-        docker_image=True,
+        docker_image=use_docker,
     )
     return source
 
