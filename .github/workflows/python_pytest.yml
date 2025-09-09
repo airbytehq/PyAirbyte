@@ -143,7 +143,7 @@ jobs:
         path: /tmp/airbyte/logs/
 
   pytest:
-    name: Pytest (${{ matrix.os == 'Windows' && 'Unit Tests Only' || 'All Tests' }}, Python ${{ matrix.python-version }}, ${{ matrix.os }})
+    name: Pytest (All, Python ${{ matrix.python-version }}, ${{ matrix.os }})
     # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
@@ -182,14 +182,25 @@ jobs:
       run: poetry install
 
     # Job-specific step(s):
-    - name: Run Pytest
+    - name: Run Pytest [all]
+      if: matrix.os != 'Windows'
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
         poetry run coverage run -m pytest
         --verbose
-        ${{ matrix.os == 'Windows' && 'tests/unit_tests/' || '' }}
+        -m "not linting and not super_slow and not flaky"
+
+    - name: Run Pytest [unit tests only]
+      if: matrix.os == 'Windows'
+      timeout-minutes: 60
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      run: >
+        poetry run coverage run -m pytest
+        --verbose
+        tests/unit_tests/
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
