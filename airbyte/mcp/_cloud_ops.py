@@ -14,10 +14,6 @@ from airbyte.mcp._util import resolve_config
 
 
 def deploy_source_to_cloud(
-    workspace_id: Annotated[
-        str,
-        Field(description="The ID of the Airbyte Cloud workspace."),
-    ],
     source_name: Annotated[
         str,
         Field(description="The name to use when deploying the source."),
@@ -35,10 +31,6 @@ def deploy_source_to_cloud(
         str | None,
         Field(description="The name of the secret containing the configuration."),
     ] = None,
-    api_root: Annotated[
-        str | None,
-        Field(description="Optional Cloud API root URL override."),
-    ] = None,
     unique: Annotated[
         bool,
         Field(description="Whether to require a unique name."),
@@ -46,8 +38,9 @@ def deploy_source_to_cloud(
 ) -> str:
     """Deploy a source connector to Airbyte Cloud.
 
-    By default, the `AIRBYTE_CLIENT_ID` and `AIRBYTE_CLIENT_SECRET` environment variables will be
-    used to authenticate with the Airbyte Cloud API.
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
     """
     try:
         source = get_source(source_connector_name)
@@ -59,10 +52,10 @@ def deploy_source_to_cloud(
         source.set_config(config_dict)
 
         workspace = cloud.CloudWorkspace(
-            workspace_id,
+            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
             client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
             client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=api_root or CLOUD_API_ROOT,
+            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
         )
 
         deployed_source = workspace.deploy_source(
@@ -80,10 +73,6 @@ def deploy_source_to_cloud(
 
 
 def deploy_destination_to_cloud(
-    workspace_id: Annotated[
-        str,
-        Field(description="The ID of the Airbyte Cloud workspace."),
-    ],
     destination_name: Annotated[
         str,
         Field(description="The name to use when deploying the destination."),
@@ -101,10 +90,6 @@ def deploy_destination_to_cloud(
         str | None,
         Field(description="The name of the secret containing the configuration."),
     ] = None,
-    api_root: Annotated[
-        str | None,
-        Field(description="Optional Cloud API root URL override."),
-    ] = None,
     unique: Annotated[
         bool,
         Field(description="Whether to require a unique name."),
@@ -112,8 +97,9 @@ def deploy_destination_to_cloud(
 ) -> str:
     """Deploy a destination connector to Airbyte Cloud.
 
-    By default, the `AIRBYTE_CLIENT_ID` and `AIRBYTE_CLIENT_SECRET` environment variables will be
-    used to authenticate with the Airbyte Cloud API.
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
     """
     try:
         destination = get_destination(destination_connector_name)
@@ -125,10 +111,10 @@ def deploy_destination_to_cloud(
         destination.set_config(config_dict)
 
         workspace = cloud.CloudWorkspace(
-            workspace_id,
+            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
             client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
             client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=api_root or CLOUD_API_ROOT,
+            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
         )
 
         deployed_destination = workspace.deploy_destination(
@@ -147,10 +133,6 @@ def deploy_destination_to_cloud(
 
 
 def create_connection_on_cloud(
-    workspace_id: Annotated[
-        str,
-        Field(description="The ID of the Airbyte Cloud workspace."),
-    ],
     connection_name: Annotated[
         str,
         Field(description="The name of the connection."),
@@ -167,10 +149,6 @@ def create_connection_on_cloud(
         list[str],
         Field(description="The selected stream names to sync within the connection."),
     ],
-    api_root: Annotated[
-        str | None,
-        Field(description="Optional Cloud API root URL override."),
-    ] = None,
     table_prefix: Annotated[
         str | None,
         Field(description="Optional table prefix to use when syncing to the destination."),
@@ -178,15 +156,16 @@ def create_connection_on_cloud(
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
-    By default, the `AIRBYTE_CLIENT_ID` and `AIRBYTE_CLIENT_SECRET` environment variables will be
-    used to authenticate with the Airbyte Cloud API.
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
     """
     try:
         workspace = cloud.CloudWorkspace(
-            workspace_id,
+            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
             client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
             client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=api_root or CLOUD_API_ROOT,
+            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
         )
 
         deployed_connection = workspace.deploy_connection(
@@ -207,19 +186,11 @@ def create_connection_on_cloud(
 
 
 def run_cloud_sync(
-    workspace_id: Annotated[
-        str,
-        Field(description="The ID of the Airbyte Cloud workspace."),
-    ],
     connection_id: Annotated[
         str,
         Field(description="The ID of the Airbyte Cloud connection."),
     ],
     *,
-    api_root: Annotated[
-        str | None,
-        Field(description="Optional Cloud API root URL override."),
-    ] = None,
     wait: Annotated[
         bool,
         Field(description="Whether to wait for the sync to complete."),
@@ -231,15 +202,16 @@ def run_cloud_sync(
 ) -> str:
     """Run a sync job on Airbyte Cloud.
 
-    By default, the `AIRBYTE_CLIENT_ID` and `AIRBYTE_CLIENT_SECRET` environment variables will be
-    used to authenticate with the Airbyte Cloud API.
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
     """
     try:
         workspace = cloud.CloudWorkspace(
-            workspace_id,
+            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
             client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
             client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=api_root or CLOUD_API_ROOT,
+            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
         )
 
         connection = workspace.get_connection(connection_id=connection_id)
@@ -254,24 +226,41 @@ def run_cloud_sync(
         return f"Sync started. Job ID: {sync_result.job_id}"
 
 
+def check_airbyte_cloud_workspace() -> str:
+    """Check if we have a valid Airbyte Cloud connection and return workspace info.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+
+    Returns workspace ID and workspace URL for verification.
+    """
+    try:
+        workspace = cloud.CloudWorkspace(
+            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
+            client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
+            client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
+            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
+        )
+
+        workspace.connect()
+
+    except Exception as ex:
+        return f"❌ Failed to connect to Airbyte Cloud workspace: {ex}"
+    else:
+        return (
+            f"✅ Successfully connected to Airbyte Cloud workspace.\n"
+            f"Workspace ID: {workspace.workspace_id}\n"
+            f"Workspace URL: {workspace.workspace_url}"
+        )
+
+
 # @app.tool()  # << deferred
 def get_cloud_sync_status(
-    workspace_id: Annotated[
-        str,
-        Field(
-            description="The ID of the Airbyte Cloud workspace.",
-        ),
-    ],
     connection_id: Annotated[
         str,
         Field(
             description="The ID of the Airbyte Cloud connection.",
-        ),
-    ],
-    api_root: Annotated[
-        str | None,
-        Field(
-            description="Optional Cloud API root URL override.",
         ),
     ],
     job_id: Annotated[
@@ -281,16 +270,15 @@ def get_cloud_sync_status(
 ) -> JobStatusEnum | None:
     """Get the status of a sync job from the Airbyte Cloud.
 
-    By default, the `AIRBYTE_CLIENT_ID` and `AIRBYTE_CLIENT_SECRET` environment variables will be
-    used to authenticate with the Airbyte Cloud API.
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
     """
     workspace = cloud.CloudWorkspace(
-        workspace_id,
-        # We'll attempt any configured secrets managers to retrieve the client ID and secret.
-        # If no other secret manager is defined, this normally comes from environment variables.
+        workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
         client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
         client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-        api_root=api_root or CLOUD_API_ROOT,  # Defaults to the Airbyte Cloud API root if None.
+        api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
     )
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -301,6 +289,7 @@ def get_cloud_sync_status(
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """Register tools with the FastMCP app."""
+    app.tool(check_airbyte_cloud_workspace)
     app.tool(get_cloud_sync_status)
     app.tool(deploy_source_to_cloud)
     app.tool(deploy_destination_to_cloud)
