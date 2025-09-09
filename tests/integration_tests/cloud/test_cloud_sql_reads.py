@@ -17,10 +17,11 @@ from sqlalchemy.engine.base import Engine
 
 
 @pytest.fixture
-def deployable_source() -> ab.Source:
+def deployable_source(*, use_docker: bool) -> ab.Source:
     return ab.get_source(
         "source-faker",
         config={"count": 100},
+        docker_image=use_docker,
     )
 
 

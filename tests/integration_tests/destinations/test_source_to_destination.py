@@ -16,6 +16,7 @@ from airbyte.results import ReadResult, WriteResult
 from airbyte.shared.catalog_providers import CatalogProvider
 from airbyte.sources.base import Source
 from airbyte.strategies import WriteStrategy
+
 from airbyte_protocol.models import AirbyteMessage, AirbyteRecordMessage, Type
 
 
@@ -43,7 +44,7 @@ def new_duckdb_destination(new_duckdb_destination_executor: Destination) -> Dest
 
 
 @pytest.fixture
-def new_source_faker() -> Source:
+def new_source_faker(*, use_docker: str) -> Source:
     return get_source(
         "source-faker",
         config={
@@ -53,6 +54,7 @@ def new_source_faker() -> Source:
         },
         install_if_missing=True,
         streams=["products"],
+        docker_image=use_docker,
     )
 
 
