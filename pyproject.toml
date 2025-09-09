@@ -183,6 +183,10 @@ airbyte-mcp = "airbyte.mcp.server:main"
 [tool.poe.tasks]
 test = { shell = "pytest" }
 test-fast = { shell = "pytest --durations=5 --exitfirst -m 'not slow'" }
+test-unit-tests = { shell = "pytest tests/unit_tests/" }
+test-with-short-timeout = { shell = "pytest --timeout=300 --durations=10" }
+test-integration-timeout = { shell = "pytest tests/integration_tests/ --timeout=180 --durations=10 -m 'not super_slow'" }
+test-slow-analysis = { shell = "pytest tests/integration_tests/ --collect-only --durations=0 -m slow" }
 
 coverage = { shell = "coverage run -m pytest && coverage report" }
 coverage-report = { shell = "coverage report" }
