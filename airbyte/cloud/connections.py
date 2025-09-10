@@ -169,6 +169,13 @@ class CloudConnection:
 
         return sync_result
 
+    def __repr__(self) -> str:
+        """String representation of the connection."""
+        return (
+            f"CloudConnection(connection_id={self.connection_id}, source_id={self.source_id}, "
+            f"destination_id={self.destination_id}, connection_url={self.connection_url})"
+        )
+
     # Logs
 
     def get_previous_sync_logs(

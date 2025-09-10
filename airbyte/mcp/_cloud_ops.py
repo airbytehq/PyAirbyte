@@ -15,7 +15,10 @@ from airbyte.cloud.auth import (
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
 )
+from airbyte.cloud.connections import CloudConnection
+from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._util import resolve_config
 
 
@@ -29,6 +32,7 @@ def _get_cloud_workspace() -> CloudWorkspace:
     )
 
 
+# @app.tool()  # << deferred
 def deploy_source_to_cloud(
     source_name: Annotated[
         str,
@@ -83,6 +87,7 @@ def deploy_source_to_cloud(
         )
 
 
+# @app.tool()  # << deferred
 def deploy_destination_to_cloud(
     destination_name: Annotated[
         str,
@@ -137,6 +142,7 @@ def deploy_destination_to_cloud(
         )
 
 
+# @app.tool()  # << deferred
 def create_connection_on_cloud(
     connection_name: Annotated[
         str,
@@ -185,6 +191,7 @@ def create_connection_on_cloud(
         )
 
 
+# @app.tool()  # << deferred
 def run_cloud_sync(
     connection_id: Annotated[
         str,
@@ -228,6 +235,7 @@ def run_cloud_sync(
         )
 
 
+# @app.tool()  # << deferred
 def check_airbyte_cloud_workspace() -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
@@ -248,6 +256,36 @@ def check_airbyte_cloud_workspace() -> str:
             f"✅ Successfully connected to Airbyte Cloud workspace.\n"
             f"Workspace ID: {workspace.workspace_id}\n"
             f"Workspace URL: {workspace.workspace_url}"
+        )
+
+
+# @app.tool()  # << deferred
+def deploy_noop_destination_to_cloud(
+    name: str = "No-op Destination",
+    *,
+    unique: bool = True,
+) -> str:
+    """Deploy the No-op destination to Airbyte Cloud for testing purposes.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    try:
+        destination = get_noop_destination()
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        deployed_destination = workspace.deploy_destination(
+            name=name,
+            destination=destination,
+            unique=unique,
+        )
+    except Exception as ex:
+        return f"Failed to deploy No-op Destination: {ex}"
+    else:
+        return (
+            f"Successfully deployed No-op Destination "
+            f"with ID '{deployed_destination.connector_id}' and "
+            f"URL: {deployed_destination.connector_url}"
         )
 
 
@@ -278,11 +316,51 @@ def get_cloud_sync_status(
     return sync_result.get_job_status() if sync_result else None
 
 
+# @app.tool()  # << deferred
+def list_deployed_cloud_source_connectors() -> list[CloudSource]:
+    """List all deployed source connectors in the Airbyte Cloud workspace.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    return workspace.list_sources()
+
+
+# @app.tool()  # << deferred
+def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
+    """List all deployed destination connectors in the Airbyte Cloud workspace.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    return workspace.list_destinations()
+
+
+# @app.tool()  # << deferred
+def list_deployed_cloud_connections() -> list[CloudConnection]:
+    """List all deployed connections in the Airbyte Cloud workspace.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    return workspace.list_connections()
+
+
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """Register tools with the FastMCP app."""
     app.tool(check_airbyte_cloud_workspace)
-    app.tool(get_cloud_sync_status)
     app.tool(deploy_source_to_cloud)
     app.tool(deploy_destination_to_cloud)
+    app.tool(deploy_noop_destination_to_cloud)
     app.tool(create_connection_on_cloud)
     app.tool(run_cloud_sync)
+    app.tool(get_cloud_sync_status)
+    app.tool(list_deployed_cloud_source_connectors)
+    app.tool(list_deployed_cloud_destination_connectors)
+    app.tool(list_deployed_cloud_connections)

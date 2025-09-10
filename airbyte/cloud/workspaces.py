@@ -376,7 +376,10 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
     ) -> list[CloudConnection]:
-        """List connections by name in the workspace."""
+        """List connections by name in the workspace.
+
+        TODO: Add pagination support
+        """
         connections = api_util.list_connections(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
@@ -402,7 +405,10 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
     ) -> list[CloudSource]:
-        """List all sources in the workspace."""
+        """List all sources in the workspace.
+
+        TODO: Add pagination support
+        """
         sources = api_util.list_sources(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
@@ -426,7 +432,10 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
     ) -> list[CloudDestination]:
-        """List all destinations in the workspace."""
+        """List all destinations in the workspace.
+
+        TODO: Add pagination support
+        """
         destinations = api_util.list_destinations(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
