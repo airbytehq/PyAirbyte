@@ -78,7 +78,8 @@ def deploy_source_to_cloud(
         return f"Failed to deploy source '{source_name}': {ex}"
     else:
         return (
-            f"Successfully deployed source '{source_name}' with ID: {deployed_source.connector_id}"
+            f"Successfully deployed source '{source_name}' with ID '{deployed_source.connector_id}'"
+            f" and URL: {deployed_source.connector_url}"
         )
 
 
@@ -179,7 +180,8 @@ def create_connection_on_cloud(
     else:
         return (
             f"Successfully created connection '{connection_name}' "
-            f"with ID: {deployed_connection.connection_id}"
+            f"with ID '{deployed_connection.connection_id}' and "
+            f"URL: {deployed_connection.connection_url}"
         )
 
 
@@ -214,8 +216,16 @@ def run_cloud_sync(
     else:
         if wait:
             status = sync_result.get_job_status()
-            return f"Sync completed with status: {status}. Job ID: {sync_result.job_id}"
-        return f"Sync started. Job ID: {sync_result.job_id}"
+            return (
+                f"Sync completed with status: {status}. "  # Sync completed.
+                f"Job ID is '{sync_result.job_id}' and "
+                f"job URL is: {sync_result.job_url}"
+            )
+        return (
+            f"Sync started. "  # Sync started.
+            f"Job ID is '{sync_result.job_id}' and "
+            f"job URL is: {sync_result.job_url}"
+        )
 
 
 def check_airbyte_cloud_workspace() -> str:

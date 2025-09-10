@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
+from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.destinations.base import Destination
@@ -72,8 +73,8 @@ class CloudWorkspace:
 
     @property
     def workspace_url(self) -> str | None:
-        """The URL of the workspace."""
-        return f"{self.api_root}/workspaces/{self.workspace_id}"
+        """The web URL of the workspace."""
+        return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
 
     # Test connection and creds
 

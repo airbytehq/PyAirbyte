@@ -20,7 +20,7 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 
-from airbyte.cloud.auth import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
@@ -58,6 +58,19 @@ def get_config_api_root(api_root: str) -> str:
         return CLOUD_CONFIG_API_ROOT
 
     raise NotImplementedError("Configuration API root not implemented for this API root.")
+
+
+def get_web_url_root(api_root: str) -> str:
+    """Get the web URL root from the main API root.
+
+    # TODO: This does not return a valid URL for self-managed instances, due to not knowing the
+    # web URL root. Logged here:
+    # - https://github.com/airbytehq/PyAirbyte/issues/563
+    """
+    if api_root == CLOUD_API_ROOT:
+        return "https://cloud.airbyte.com"
+
+    return api_root
 
 
 def get_airbyte_server_instance(

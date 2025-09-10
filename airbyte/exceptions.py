@@ -462,7 +462,7 @@ class AirbyteConnectionError(AirbyteError):
 
     @property
     def connection_url(self) -> str | None:
-        """The URL to the connection where the error occurred."""
+        """The web URL to the connection where the error occurred."""
         if self.workspace_url and self.connection_id:
             return f"{self.workspace_url}/connections/{self.connection_id}"
 

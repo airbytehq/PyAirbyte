@@ -130,13 +130,13 @@ class CloudConnection:
 
     @property
     def connection_url(self) -> str | None:
-        """The URL to the connection."""
+        """The web URL to the connection."""
         return f"{self.workspace.workspace_url}/connections/{self.connection_id}"
 
     @property
     def job_history_url(self) -> str | None:
         """The URL to the job history for the connection."""
-        return f"{self.connection_url}/job-history"
+        return f"{self.connection_url}/timeline"
 
     # Run Sync
 
