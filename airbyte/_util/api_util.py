@@ -20,6 +20,7 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 
+from airbyte.cloud.auth import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
@@ -44,20 +45,6 @@ if TYPE_CHECKING:
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
-CLOUD_API_ROOT = "https://api.airbyte.com/v1"
-"""The Airbyte Cloud API root URL.
-
-This is the root URL for the Airbyte Cloud API. It is used to interact with the Airbyte Cloud API
-and is the default API root for the `CloudWorkspace` class.
-- https://reference.airbyte.com/reference/getting-started
-"""
-CLOUD_CONFIG_API_ROOT = "https://cloud.airbyte.com/api/v1"
-"""Internal-Use API Root, aka Airbyte "Config API".
-
-Documentation:
-- https://docs.airbyte.com/api-documentation#configuration-api-deprecated
-- https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
-"""
 
 
 def status_ok(status_code: int) -> bool:

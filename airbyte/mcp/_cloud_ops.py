@@ -7,10 +7,26 @@ from typing import Annotated
 from fastmcp import FastMCP
 from pydantic import Field
 
-from airbyte import cloud, get_destination, get_source, secrets
+from airbyte import cloud, get_destination, get_source
 from airbyte._util.api_imports import JobStatusEnum
-from airbyte._util.api_util import CLOUD_API_ROOT
+from airbyte.cloud.auth import (
+    resolve_cloud_api_url,
+    resolve_cloud_client_id,
+    resolve_cloud_client_secret,
+    resolve_cloud_workspace_id,
+)
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.mcp._util import resolve_config
+
+
+def _get_cloud_workspace() -> CloudWorkspace:
+    """Get an authenticated CloudWorkspace using environment variables."""
+    return CloudWorkspace(
+        workspace_id=resolve_cloud_workspace_id(),
+        client_id=resolve_cloud_client_id(),
+        client_secret=resolve_cloud_client_secret(),
+        api_root=resolve_cloud_api_url(),
+    )
 
 
 def deploy_source_to_cloud(
@@ -51,13 +67,7 @@ def deploy_source_to_cloud(
         )
         source.set_config(config_dict)
 
-        workspace = cloud.CloudWorkspace(
-            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
-            client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
-            client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
-        )
-
+        workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_source = workspace.deploy_source(
             name=source_name,
             source=source,
@@ -110,13 +120,7 @@ def deploy_destination_to_cloud(
         )
         destination.set_config(config_dict)
 
-        workspace = cloud.CloudWorkspace(
-            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
-            client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
-            client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
-        )
-
+        workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_destination = workspace.deploy_destination(
             name=destination_name,
             destination=destination,
@@ -161,13 +165,7 @@ def create_connection_on_cloud(
     Airbyte Cloud API.
     """
     try:
-        workspace = cloud.CloudWorkspace(
-            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
-            client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
-            client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
-        )
-
+        workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_connection = workspace.deploy_connection(
             connection_name=connection_name,
             source=source_id,
@@ -207,13 +205,7 @@ def run_cloud_sync(
     Airbyte Cloud API.
     """
     try:
-        workspace = cloud.CloudWorkspace(
-            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
-            client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
-            client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
-        )
-
+        workspace: CloudWorkspace = _get_cloud_workspace()
         connection = workspace.get_connection(connection_id=connection_id)
         sync_result = connection.run_sync(wait=wait, wait_timeout=wait_timeout)
 
@@ -236,13 +228,7 @@ def check_airbyte_cloud_workspace() -> str:
     Returns workspace ID and workspace URL for verification.
     """
     try:
-        workspace = cloud.CloudWorkspace(
-            workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
-            client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
-            client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-            api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
-        )
-
+        workspace: CloudWorkspace = _get_cloud_workspace()
         workspace.connect()
 
     except Exception as ex:
@@ -274,12 +260,7 @@ def get_cloud_sync_status(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace = cloud.CloudWorkspace(
-        workspace_id=secrets.get_secret("AIRBYTE_WORKSPACE_ID"),
-        client_id=secrets.get_secret("AIRBYTE_CLIENT_ID"),
-        client_secret=secrets.get_secret("AIRBYTE_CLIENT_SECRET"),
-        api_root=secrets.get_secret("AIRBYTE_API_ROOT") or CLOUD_API_ROOT,
-    )
+    workspace: CloudWorkspace = _get_cloud_workspace()
     connection = workspace.get_connection(connection_id=connection_id)
 
     # If a job ID is provided, get the job by ID.
