@@ -170,7 +170,7 @@ class SyncAttempt:
         if self._attempt_info is not None:
             return self._attempt_info
 
-        self._attempt_info = api_util._make_config_api_request(
+        self._attempt_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
             path="/v1/attempts/get_for_job",
             json={
@@ -273,7 +273,7 @@ class SyncResult:
         if self._job_with_attempts_info is not None:
             return self._job_with_attempts_info
 
-        self._job_with_attempts_info = api_util._make_config_api_request(
+        self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
             path="/v1/jobs/get",
             json={
