@@ -129,7 +129,7 @@ def get_workspace(
 # List resources
 
 
-def list_connections(
+def list_connections(  # noqa: PLR0913
     workspace_id: str,
     *,
     api_root: str,
@@ -137,6 +137,9 @@ def list_connections(
     client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = 20,
+    offset: int | None = 0,
+    include_deleted: bool | None = False,
 ) -> list[models.ConnectionResponse]:
     """List connections."""
     if name and name_filter:
@@ -153,6 +156,9 @@ def list_connections(
     response = airbyte_instance.connections.list_connections(
         api.ListConnectionsRequest(
             workspace_ids=[workspace_id],
+            limit=limit,
+            offset=offset,
+            include_deleted=include_deleted,
         ),
     )
 
@@ -212,7 +218,7 @@ def list_workspaces(
     ]
 
 
-def list_sources(
+def list_sources(  # noqa: PLR0913
     workspace_id: str,
     *,
     api_root: str,
@@ -220,6 +226,9 @@ def list_sources(
     client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = 20,
+    offset: int | None = 0,
+    include_deleted: bool | None = False,
 ) -> list[models.SourceResponse]:
     """List sources."""
     if name and name_filter:
@@ -236,6 +245,9 @@ def list_sources(
     response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
         api.ListSourcesRequest(
             workspace_ids=[workspace_id],
+            limit=limit,
+            offset=offset,
+            include_deleted=include_deleted,
         ),
     )
 
@@ -250,7 +262,7 @@ def list_sources(
     return [source for source in response.sources_response.data if name_filter(source.name)]
 
 
-def list_destinations(
+def list_destinations(  # noqa: PLR0913
     workspace_id: str,
     *,
     api_root: str,
@@ -258,6 +270,9 @@ def list_destinations(
     client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = 20,
+    offset: int | None = 0,
+    include_deleted: bool | None = False,
 ) -> list[models.DestinationResponse]:
     """List destinations."""
     if name and name_filter:
@@ -274,6 +289,9 @@ def list_destinations(
     response = airbyte_instance.destinations.list_destinations(
         api.ListDestinationsRequest(
             workspace_ids=[workspace_id],
+            limit=limit,
+            offset=offset,
+            include_deleted=include_deleted,
         ),
     )
 
