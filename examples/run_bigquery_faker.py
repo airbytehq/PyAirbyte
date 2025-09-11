@@ -14,6 +14,7 @@ import airbyte as ab
 from airbyte.caches.bigquery import BigQueryCache
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 
+
 warnings.filterwarnings("ignore", message="Cannot create BigQuery Storage client")
 
 
@@ -21,7 +22,7 @@ AIRBYTE_INTERNAL_GCP_PROJECT = "dataline-integration-testing"
 SECRET_NAME = "SECRET_DESTINATION-BIGQUERY_CREDENTIALS__CREDS"
 
 bigquery_destination_secret: dict = (
-    GoogleGSMSecretManager(
+    GoogleGSMSecretManager(  # type: ignore[union-attr]
         project=AIRBYTE_INTERNAL_GCP_PROJECT,
         credentials_json=ab.get_secret("GCP_GSM_CREDENTIALS"),
     )

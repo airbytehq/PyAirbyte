@@ -6,20 +6,25 @@ These tests are designed to be run against a running instance of the Airbyte API
 """
 
 from __future__ import annotations
+
 from typing import Literal
 
-from airbyte_api.models import DestinationResponse, SourceResponse, WorkspaceResponse
+import pytest
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import (
-    get_bearer_token,
-    check_connector,
-    AirbyteError,
     CLOUD_API_ROOT,
+    AirbyteError,
+    check_connector,
+    get_bearer_token,
 )
-from airbyte_api.models import DestinationDuckdb, SourceFaker
-
 from airbyte.secrets.base import SecretString
-import pytest
+from airbyte_api.models import (
+    DestinationDuckdb,
+    DestinationResponse,
+    SourceFaker,
+    SourceResponse,
+    WorkspaceResponse,
+)
 
 
 def test_get_workspace(
@@ -243,8 +248,8 @@ def test_create_and_delete_connection(
     ],
 )
 def test_get_bearer_token(
-    airbyte_cloud_client_id,
-    airbyte_cloud_client_secret,
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
     api_root: str,
 ) -> None:
     try:
