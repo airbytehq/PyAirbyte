@@ -262,7 +262,7 @@ def list_sources(
                 limit=page_size,
             ),
         )
-        has_more = (response.source_response.next is not None) if response.sources_response else False
+        has_more = (response.sources_response.next is not None) if response.sources_response else False
         offset += page_size
 
         if not status_ok(response.status_code) and response.sources_response:
