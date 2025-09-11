@@ -39,6 +39,7 @@ class DotenvSecretManager(SecretManager):
         if self.dotenv_path:
             return f"{SecretSourceEnum.DOTENV.value}:{self.dotenv_path}"
         return SecretSourceEnum.DOTENV.value
+
     def __init__(
         self,
         dotenv_path: Path | None = None,

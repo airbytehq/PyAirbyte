@@ -32,7 +32,7 @@ def initialize_secrets() -> None:
     if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
         dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR]).absolute()
         custom_dotenv_secret_mgr = DotenvSecretManager(dotenv_path)
-_load_dotenv_file(dotenv_path)
+        _load_dotenv_file(dotenv_path)
         register_secret_manager(
             custom_dotenv_secret_mgr,
         )
