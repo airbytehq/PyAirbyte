@@ -29,9 +29,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-    - name: Create URL to the run output
+    - name: Resolve workflow variables
       id: vars
-      run: echo "run-url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
+      uses: aaronsteers/resolve-ci-vars-action@v0
+
     - name: Append comment with job run link
       id: first-comment-action
       uses: peter-evans/create-or-update-comment@v4
@@ -44,18 +45,12 @@ jobs:
 
           [1]: ${{ steps.vars.outputs.run-url }}
 
-    - name: Get PR Info
-      id: pr-info
-      uses: cloudposse-github-actions/get-pr@v2.0.0
-      with:
-        id: ${{ inputs.pr }}
-
     outputs:
-      source-repo: ${{ fromJSON(steps.pr-info.outputs.json).head.repo.full_name }}
-      source-branch: ${{ fromJSON(steps.pr-info.outputs.json).head.ref }}
-      commit-sha: ${{ fromJSON(steps.pr-info.outputs.json).head.sha }}
-      pr-number: ${{ steps.pr-info.outputs.number }}
-      pr-title: ${{ steps.pr-info.outputs.title }}
+      source-repo: ${{ steps.vars.outputs.pr-source-repo-name-full }}
+      source-branch: ${{ steps.vars.outputs.pr-source-git-branch }}
+      commit-sha: ${{ steps.vars.outputs.pr-source-git-sha }}
+      pr-number: ${{ steps.vars.outputs.pr-number }}
+      pr-title: ${{ steps.vars.outputs.pr-title }}
       job-run-url: ${{ steps.vars.outputs.run-url }}
 
   # This is copied from the `python_pytest.yml` file.
@@ -91,7 +86,7 @@ jobs:
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     - name: Checkout PR
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         ref: ${{ needs.start-workflow.outputs.commit-sha }}
@@ -113,15 +108,14 @@ jobs:
 
     # Same as the `python_pytest.yml` file:
 
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "2.0.1"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry'
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v9
+      with:
+        poetry-version: "2.0.1"
     - name: Install dependencies
       run: poetry install
 

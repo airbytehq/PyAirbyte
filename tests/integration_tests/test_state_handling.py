@@ -13,7 +13,9 @@ from airbyte.caches.duckdb import DuckDBCache
 from airbyte.caches.util import new_local_cache
 from airbyte.shared.state_providers import StateProviderBase
 from airbyte.shared.state_writers import StateWriterBase
+
 from airbyte_protocol import models
+
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -28,7 +30,7 @@ FAKER_SCALE_B = 300
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker_seed_a() -> ab.Source:
+def source_faker_seed_a(*, use_docker: bool) -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
@@ -38,12 +40,13 @@ def source_faker_seed_a() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         streams=["users", "products", "purchases"],
+        docker_image=use_docker,
     )
     return source
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker_seed_b() -> ab.Source:
+def source_faker_seed_b(*, use_docker: bool) -> ab.Source:
     """Fixture to return a source-faker connector instance."""
     source = ab.get_source(
         "source-faker",
@@ -53,6 +56,7 @@ def source_faker_seed_b() -> ab.Source:
             "parallelism": 16,  # Otherwise defaults to 4.
         },
         streams=["users", "products", "purchases"],
+        docker_image=use_docker,
     )
     return source
 

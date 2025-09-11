@@ -7,6 +7,7 @@ packages = [{ include = "airbyte" }]
 
 # This project uses dynamic versioning
 # https://github.com/mtkennerly/poetry-dynamic-versioning
+# Dummy change to trigger CI for cloud test xfail investigation
 version = "0.0.0"
 
 [tool.poetry-dynamic-versioning]
@@ -16,7 +17,7 @@ enable = true
 python = ">=3.10,<3.13"
 
 airbyte-api = "^0.52.1"
-airbyte-cdk = "^6.56.5"
+airbyte-cdk = ">=6.61.6,<7.0.0"
 airbyte-protocol-models-pdv2 = "^0.13.0"
 click = "^8.1.7"
 cryptography = ">=44.0.0,<45.0.0"
@@ -51,8 +52,8 @@ sqlalchemy = ">=1.4.51,!=2.0.36,<3.0"
 sqlalchemy-bigquery = { version = "1.12.0", python = "<3.13" }
 typing-extensions = "*"
 uuid7 = "^0.1.0"
-fastmcp = "^2.8.1"
-uv = "^0.5.0"
+fastmcp = ">=2.11.3,<3.0.0"
+uv = ">=0.5.0,<0.9.0"
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
@@ -182,6 +183,7 @@ airbyte-mcp = "airbyte.mcp.server:main"
 [tool.poe.tasks]
 test = { shell = "pytest" }
 test-fast = { shell = "pytest --durations=5 --exitfirst -m 'not slow'" }
+test-unit-tests = { shell = "pytest tests/unit_tests/" }
 
 coverage = { shell = "coverage run -m pytest && coverage report" }
 coverage-report = { shell = "coverage report" }

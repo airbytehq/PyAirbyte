@@ -43,7 +43,7 @@ def add_venv_bin_to_path(monkeypatch):
     monkeypatch.setenv("PATH", new_path)
 
 
-def setup_source_faker() -> ab.Source:
+def setup_source_faker(*, use_docker: bool) -> ab.Source:
     """Test the source-faker setup."""
     source = ab.get_source(
         "source-faker",
@@ -52,6 +52,7 @@ def setup_source_faker() -> ab.Source:
             "seed": SEED_A,
             "parallelism": 16,  # Otherwise defaults to 4.
         },
+        docker_image=use_docker,
     )
     source.check()
     source.select_streams([
@@ -63,14 +64,14 @@ def setup_source_faker() -> ab.Source:
 
 
 @pytest.fixture(scope="function")  # Each test gets a fresh source-faker instance.
-def source_faker() -> ab.Source:
+def source_faker(*, use_docker: bool) -> ab.Source:
     """Fixture to return a source-faker connector instance."""
-    return setup_source_faker()
+    return setup_source_faker(use_docker=use_docker)
 
 
-def test_setup_source_faker() -> None:
+def test_setup_source_faker(*, use_docker: bool) -> None:
     """Test that fixture logic works as expected."""
-    source = setup_source_faker()
+    source = setup_source_faker(use_docker=use_docker)
 
 
 @pytest.fixture(scope="function")

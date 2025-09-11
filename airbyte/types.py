@@ -142,7 +142,7 @@ class SQLTypeConverter:
                 # This is a class. Call its constructor.
                 sql_type = sql_type()
 
-            return cast("sqlalchemy.types.TypeEngine", sql_type)
+            return sql_type  # type: ignore[return-value]
 
         json_schema_type = json_schema_property_def.get("type", None)
         json_schema_format = json_schema_property_def.get("format", None)

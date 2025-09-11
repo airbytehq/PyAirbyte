@@ -10,6 +10,7 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
+from typing import cast
 
 import requests
 from pydantic import BaseModel
@@ -120,7 +121,10 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
 
     remote_registries: dict = entry.get("remoteRegistries", {})
     pypi_registry: dict = remote_registries.get("pypi", {})
-    pypi_package_name: str | None = pypi_registry.get("packageName", None)
+    pypi_package_name = cast(
+        "str | None",
+        pypi_registry.get("packageName", None),
+    )
     pypi_enabled: bool = pypi_registry.get("enabled", False)
     install_types: set[InstallType] = {
         x

@@ -17,6 +17,8 @@ from airbyte.cloud import CloudWorkspace
 from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
+from airbyte.sources.base import Source
+from airbyte.sources.util import get_source
 from airbyte_api.models import (
     DestinationBigquery,
     DestinationDuckdb,
@@ -24,8 +26,6 @@ from airbyte_api.models import (
     DestinationSnowflake,
 )
 
-from airbyte.sources.base import Source
-from airbyte.sources.util import get_source
 
 AIRBYTE_CLOUD_WORKSPACE_ID = "19d7a891-8e0e-40ac-8a8c-5faf8d11e47c"
 
@@ -103,7 +103,7 @@ def cloud_workspace(
 
 
 @pytest.fixture
-def deployable_dummy_source() -> Source:
+def deployable_dummy_source(*, use_docker: bool) -> Source:
     """A local PyAirbyte `Source` object.
 
     For some reason `source-hardcoded-records` and `source-e2e-tests` are not working.
@@ -115,6 +115,7 @@ def deployable_dummy_source() -> Source:
             "count": 100,
         },
         # install_if_missing=False,
+        docker_image=use_docker,
     )
 
 

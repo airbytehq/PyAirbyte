@@ -30,7 +30,13 @@ def test_nocode_execution(connector_name: str, config: dict) -> None:
     )
     source.check()
     source.select_all_streams()
-    source.read()
-    for name, records in source.read().streams.items():
+    read_result = source.read()
+    for name, records in read_result.streams.items():
+        assert name
+        assert len(records) > 0, f"No records were returned from the '{name}' stream."
+
+    # Confirm we can read twice:
+    read_result_2 = source.read()
+    for name, records in read_result_2.streams.items():
         assert name
         assert len(records) > 0, f"No records were returned from the '{name}' stream."

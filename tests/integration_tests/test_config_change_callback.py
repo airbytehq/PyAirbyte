@@ -4,16 +4,18 @@
 
 from __future__ import annotations
 
-import pytest
 from typing import Any
 from unittest.mock import patch
-from airbyte import get_source, get_destination, Source, Destination
+
+import pytest
+from airbyte import Destination, Source, get_destination, get_source
+
 from airbyte_protocol.models import (
-    AirbyteMessage,
-    Type,
-    AirbyteControlMessage,
-    OrchestratorType,
     AirbyteControlConnectorConfigMessage,
+    AirbyteControlMessage,
+    AirbyteMessage,
+    OrchestratorType,
+    Type,
 )
 
 
@@ -35,7 +37,7 @@ def new_duckdb_destination() -> Destination:
 
 
 @pytest.fixture
-def new_source_faker() -> Source:
+def new_source_faker(*, use_docker: bool) -> Source:
     return get_source(
         "source-faker",
         config={
@@ -46,6 +48,7 @@ def new_source_faker() -> Source:
         install_if_missing=True,
         streams=["products"],
         config_change_callback=config_change_callback,
+        docker_image=use_docker,
     )
 
 

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
+from contextlib import suppress
 from pathlib import Path
-from typing import NoReturn
 
 from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
@@ -20,7 +21,8 @@ DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR = "/airbyte/tmp"
 class DockerExecutor(Executor):
     def __init__(
         self,
-        name: str | None = None,
+        name: str,
+        image_name_full: str,
         *,
         executable: list[str],
         target_version: str | None = None,
@@ -28,7 +30,7 @@ class DockerExecutor(Executor):
     ) -> None:
         self.executable: list[str] = executable
         self.volumes: dict[Path, str] = volumes or {}
-        name = name or executable[0]
+        self.image_name_full: str = image_name_full
         super().__init__(name=name, target_version=target_version)
 
     def ensure_installation(
@@ -51,17 +53,25 @@ class DockerExecutor(Executor):
                 connector_name=self.name,
             ) from e
 
-    def install(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be installed because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
+    def install(self) -> None:
+        """Install the connector.
 
-    def uninstall(self) -> NoReturn:
-        raise exc.AirbyteConnectorInstallationError(
-            message="Connector cannot be uninstalled because it is not managed by PyAirbyte.",
-            connector_name=self.name,
-        )
+        For docker images, for now this is a no-op. In the future we might
+        pull the Docker image in this step.
+        """
+        pass
+
+    def uninstall(self) -> None:
+        """Uninstall the connector.
+
+        For docker images, this operation runs an `docker rmi` command to remove the image.
+
+        We suppress any errors that occur during the removal process.
+        """
+        with suppress(subprocess.CalledProcessError):
+            subprocess.check_output(
+                ["docker", "rmi", self.image_name_full],
+            )
 
     @property
     def _cli(self) -> list[str]:

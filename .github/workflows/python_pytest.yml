@@ -26,7 +26,7 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
@@ -35,7 +35,10 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'poetry'
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v9
+      with:
+        poetry-version: "2.0.1"
     - name: Install dependencies
       run: poetry install
 
@@ -88,7 +91,7 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
@@ -97,7 +100,10 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'poetry'
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v9
+      with:
+        poetry-version: "2.0.1"
     - name: Install dependencies
       run: poetry install
 
@@ -163,27 +169,38 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v4
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
-      with:
-        poetry-version: "2.0.1"
+      uses: actions/checkout@v5
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        cache: 'poetry'
+    - name: Set up Poetry
+      uses: Gr1N/setup-poetry@v9
+      with:
+        poetry-version: "2.0.1"
     - name: Install dependencies
       run: poetry install
 
     # Job-specific step(s):
-    - name: Run Pytest
+    - name: Run Pytest [all]
+      if: matrix.os != 'Windows'
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
         poetry run coverage run -m pytest
         --verbose
+        -m "not linting and not super_slow and not flaky"
+
+    - name: Run Pytest [unit tests only]
+      if: matrix.os == 'Windows'
+      timeout-minutes: 60
+      env:
+        GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
+      run: >
+        poetry run coverage run -m pytest
+        --verbose
+        tests/unit_tests/
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
@@ -225,7 +242,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
