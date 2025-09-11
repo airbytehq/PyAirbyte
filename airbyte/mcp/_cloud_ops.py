@@ -1,7 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
-from pathlib import Path
 from typing import Annotated
 
 from fastmcp import FastMCP
@@ -44,7 +43,7 @@ def deploy_source_to_cloud(
     ],
     *,
     config: Annotated[
-        dict | Path | None,
+        dict | str | None,
         Field(description="The configuration for the source connector."),
     ] = None,
     config_secret_name: Annotated[
@@ -99,7 +98,7 @@ def deploy_destination_to_cloud(
     ],
     *,
     config: Annotated[
-        dict | Path | None,
+        dict | str | None,
         Field(description="The configuration for the destination connector."),
     ] = None,
     config_secret_name: Annotated[
