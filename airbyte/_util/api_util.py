@@ -161,7 +161,7 @@ def list_connections(
                 limit=page_size,
             ),
         )
-        has_more = response.next is not None
+        has_more = (response.connections_response.next is not None) if response.connections_response else False
         offset += page_size
 
         if not status_ok(response.status_code) and response.connections_response:
@@ -209,7 +209,7 @@ def list_workspaces(
         response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
             api.ListWorkspacesRequest(workspace_ids=[workspace_id], offset=offset, limit=page_size),
         )
-        has_more = response.next is not None
+        has_more = (response.workspaces_response.next is not None) if response.workspaces_response else False
         offset += page_size
 
         if not status_ok(response.status_code) and response.workspaces_response:
@@ -262,7 +262,7 @@ def list_sources(
                 limit=page_size,
             ),
         )
-        has_more = response.next is not None
+        has_more = (response.source_response.next is not None) if response.sources_response else False
         offset += page_size
 
         if not status_ok(response.status_code) and response.sources_response:
@@ -310,7 +310,7 @@ def list_destinations(
                 limit=page_size,
             ),
         )
-        has_more = response.next is not None
+        has_more = (response.destinations_response.next is not None) if response.destinations_response else False
         offset += page_size
 
         if not status_ok(response.status_code) and response.destinations_response:
