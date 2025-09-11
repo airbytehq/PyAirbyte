@@ -129,7 +129,7 @@ def get_workspace(
 # List resources
 
 
-def list_connections(  # noqa: PLR0913
+def list_connections(
     workspace_id: str,
     *,
     api_root: str,
@@ -207,11 +207,7 @@ def list_workspaces(
     offset, page_size = 0, 100
     while has_more:
         response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-            api.ListWorkspacesRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size
-            ),
+            api.ListWorkspacesRequest(workspace_ids=[workspace_id], offset=offset, limit=page_size),
         )
         has_more = response.next is not None
         offset += page_size
@@ -234,7 +230,7 @@ def list_workspaces(
     return result
 
 
-def list_sources(  # noqa: PLR0913
+def list_sources(
     workspace_id: str,
     *,
     api_root: str,
@@ -277,16 +273,12 @@ def list_sources(  # noqa: PLR0913
                 }
             )
         assert response.sources_response is not None
-        result += [
-            source
-            for source in response.sources_response.data
-            if name_filter(source.name)
-        ]
+        result += [source for source in response.sources_response.data if name_filter(source.name)]
 
     return result
 
 
-def list_destinations(  # noqa: PLR0913
+def list_destinations(
     workspace_id: str,
     *,
     api_root: str,
