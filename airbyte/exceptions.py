@@ -472,7 +472,7 @@ class AirbyteConnectionError(AirbyteError):
     def job_history_url(self) -> str | None:
         """The URL to the job history where the error occurred."""
         if self.connection_url:
-            return f"{self.connection_url}/job-history"
+            return f"{self.connection_url}/timeline"
 
         return None
 
