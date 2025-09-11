@@ -168,6 +168,8 @@ class SyncAttempt:
     def _fetch_attempt_info(self) -> dict[str, Any]:
         """Fetch attempt info from Config API using lazy loading pattern."""
         if self._attempt_info is not None:
+            # TODO: Additionally check if status is of the completed type.
+            #       If not, we should get the latest. (Unless all properties are immutable anyway.)
             return self._attempt_info
 
         self._attempt_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
