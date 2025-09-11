@@ -32,13 +32,10 @@ def initialize_secrets() -> None:
     if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
         dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR]).absolute()
         custom_dotenv_secret_mgr = DotenvSecretManager(dotenv_path)
-        _load_dotenv_file(dotenv_path)
+_load_dotenv_file(dotenv_path)
         register_secret_manager(
             custom_dotenv_secret_mgr,
         )
-        assert custom_dotenv_secret_mgr.get_secret(
-            "AIRBYTE_CLOUD_WORKSPACE_ID"
-        ), "expected a workspace ID."
 
     if is_secret_available("GCP_GSM_CREDENTIALS") and is_secret_available("GCP_GSM_PROJECT_ID"):
         # Initialize the GoogleGSMSecretManager if the credentials and project are set.
