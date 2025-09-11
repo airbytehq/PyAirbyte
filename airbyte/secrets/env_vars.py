@@ -36,8 +36,9 @@ class DotenvSecretManager(SecretManager):
     @property
     def name(self) -> str:  # type: ignore[override]
         """Get name of secret manager."""
-        return str(self.dotenv_path) if self.dotenv_path else SecretSourceEnum.ENV.value
-
+        if self.dotenv_path:
+            return f"{SecretSourceEnum.DOTENV.value}:{self.dotenv_path}"
+        return SecretSourceEnum.DOTENV.value
     def __init__(
         self,
         dotenv_path: Path | None = None,
