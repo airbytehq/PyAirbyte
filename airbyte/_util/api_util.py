@@ -540,8 +540,13 @@ def create_destination(
         client_secret=client_secret,
         api_root=api_root,
     )
+    definition_id_override: str | None = None
+    if config.get("destinationType") == "dev-null":
+        # HACK: We have to hard-code the definition ID for dev-null destination.
+        definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
     response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
         models.DestinationCreateRequest(
+            definition_id=definition_id_override,
             name=name,
             workspace_id=workspace_id,
             configuration=config,  # Speakeasy API wants a dataclass, not a dict
