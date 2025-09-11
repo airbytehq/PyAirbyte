@@ -199,6 +199,7 @@ class SyncResult:
     _latest_job_info: JobResponse | None = None
     _connection_response: ConnectionResponse | None = None
     _cache: CacheBase | None = None
+    _job_with_attempts_info: dict[str, Any] | None = None
 
     @property
     def job_url(self) -> str:
@@ -267,15 +268,35 @@ class SyncResult:
         # Parse from ISO 8601 format:
         return datetime.fromisoformat(self._fetch_latest_job_info().start_time)
 
+    def _fetch_job_with_attempts(self) -> dict[str, Any]:
+        """Fetch job info with attempts from Config API using lazy loading pattern."""
+        if self._job_with_attempts_info is not None:
+            return self._job_with_attempts_info
+
+        self._job_with_attempts_info = api_util._make_config_api_request(
+            api_root=self.workspace.api_root,
+            path="/v1/jobs/get",
+            json={
+                "id": self.job_id,
+            },
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return self._job_with_attempts_info
+
     def get_attempts(self) -> list[SyncAttempt]:
         """Return a list of attempts for this sync job."""
+        job_with_attempts = self._fetch_job_with_attempts()
+        attempts_data = job_with_attempts.get("attempts", [])
+
         return [
             SyncAttempt(
                 workspace=self.workspace,
                 connection=self.connection,
                 job_id=self.job_id,
-                attempt_number=0,
+                attempt_number=i,
             )
+            for i in range(len(attempts_data))
         ]
 
     def raise_failure_status(
