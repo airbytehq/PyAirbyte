@@ -103,7 +103,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte._util import api_util
@@ -163,7 +163,7 @@ class SyncAttempt:
     def created_at(self) -> datetime:
         """Return the creation time of the attempt."""
         timestamp = self._fetch_attempt_info()["attempt"]["createdAt"]
-        return datetime.fromtimestamp(timestamp / 1000, tz=datetime.timezone.utc)
+        return datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
 
     def _fetch_attempt_info(self) -> dict[str, Any]:
         """Fetch attempt info from Config API using lazy loading pattern."""
