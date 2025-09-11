@@ -137,9 +137,6 @@ def list_connections(  # noqa: PLR0913
     client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
-    limit: int | None = 20,
-    offset: int | None = 0,
-    include_deleted: bool | None = False,
 ) -> list[models.ConnectionResponse]:
     """List connections."""
     if name and name_filter:
@@ -153,28 +150,35 @@ def list_connections(  # noqa: PLR0913
         client_secret=client_secret,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.list_connections(
-        api.ListConnectionsRequest(
-            workspace_ids=[workspace_id],
-            limit=limit,
-            offset=offset,
-            include_deleted=include_deleted,
-        ),
-    )
-
-    if not status_ok(response.status_code) and response.connections_response:
-        raise AirbyteError(
-            context={
-                "workspace_id": workspace_id,
-                "response": response,
-            }
+    result: list[models.ConnectionResponse] = []
+    has_more = True
+    offset, page_size = 0, 100
+    while has_more:
+        response = airbyte_instance.connections.list_connections(
+            api.ListConnectionsRequest(
+                workspace_ids=[workspace_id],
+                offset=offset,
+                limit=page_size,
+            ),
         )
-    assert response.connections_response is not None
-    return [
-        connection
-        for connection in response.connections_response.data
-        if name_filter(connection.name)
-    ]
+        has_more = response.next is not None
+        offset += page_size
+
+        if not status_ok(response.status_code) and response.connections_response:
+            raise AirbyteError(
+                context={
+                    "workspace_id": workspace_id,
+                    "response": response,
+                }
+            )
+        assert response.connections_response is not None
+        result += [
+            connection
+            for connection in response.connections_response.data
+            if name_filter(connection.name)
+        ]
+
+    return result
 
 
 def list_workspaces(
@@ -198,24 +202,36 @@ def list_workspaces(
         client_secret=client_secret,
         api_root=api_root,
     )
-
-    response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-        api.ListWorkspacesRequest(
-            workspace_ids=[workspace_id],
-        ),
-    )
-
-    if not status_ok(response.status_code) and response.workspaces_response:
-        raise AirbyteError(
-            context={
-                "workspace_id": workspace_id,
-                "response": response,
-            }
+    result: list[models.WorkspaceResponse] = []
+    has_more = True
+    offset, page_size = 0, 100
+    while has_more:
+        response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
+            api.ListWorkspacesRequest(
+                workspace_ids=[workspace_id],
+                offset=offset,
+                limit=page_size
+            ),
         )
-    assert response.workspaces_response is not None
-    return [
-        workspace for workspace in response.workspaces_response.data if name_filter(workspace.name)
-    ]
+        has_more = response.next is not None
+        offset += page_size
+
+        if not status_ok(response.status_code) and response.workspaces_response:
+            raise AirbyteError(
+                context={
+                    "workspace_id": workspace_id,
+                    "response": response,
+                }
+            )
+
+        assert response.workspaces_response is not None
+        result += [
+            workspace
+            for workspace in response.workspaces_response.data
+            if name_filter(workspace.name)
+        ]
+
+    return result
 
 
 def list_sources(  # noqa: PLR0913
@@ -226,9 +242,6 @@ def list_sources(  # noqa: PLR0913
     client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
-    limit: int | None = 20,
-    offset: int | None = 0,
-    include_deleted: bool | None = False,
 ) -> list[models.SourceResponse]:
     """List sources."""
     if name and name_filter:
@@ -242,24 +255,35 @@ def list_sources(  # noqa: PLR0913
         client_secret=client_secret,
         api_root=api_root,
     )
-    response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
-        api.ListSourcesRequest(
-            workspace_ids=[workspace_id],
-            limit=limit,
-            offset=offset,
-            include_deleted=include_deleted,
-        ),
-    )
-
-    if not status_ok(response.status_code) and response.sources_response:
-        raise AirbyteError(
-            context={
-                "workspace_id": workspace_id,
-                "response": response,
-            }
+    result: list[models.SourceResponse] = []
+    has_more = True
+    offset, page_size = 0, 100
+    while has_more:
+        response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
+            api.ListSourcesRequest(
+                workspace_ids=[workspace_id],
+                offset=offset,
+                limit=page_size,
+            ),
         )
-    assert response.sources_response is not None
-    return [source for source in response.sources_response.data if name_filter(source.name)]
+        has_more = response.next is not None
+        offset += page_size
+
+        if not status_ok(response.status_code) and response.sources_response:
+            raise AirbyteError(
+                context={
+                    "workspace_id": workspace_id,
+                    "response": response,
+                }
+            )
+        assert response.sources_response is not None
+        result += [
+            source
+            for source in response.sources_response.data
+            if name_filter(source.name)
+        ]
+
+    return result
 
 
 def list_destinations(  # noqa: PLR0913
@@ -270,9 +294,6 @@ def list_destinations(  # noqa: PLR0913
     client_secret: SecretString,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
-    limit: int | None = 20,
-    offset: int | None = 0,
-    include_deleted: bool | None = False,
 ) -> list[models.DestinationResponse]:
     """List destinations."""
     if name and name_filter:
@@ -286,28 +307,35 @@ def list_destinations(  # noqa: PLR0913
         client_secret=client_secret,
         api_root=api_root,
     )
-    response = airbyte_instance.destinations.list_destinations(
-        api.ListDestinationsRequest(
-            workspace_ids=[workspace_id],
-            limit=limit,
-            offset=offset,
-            include_deleted=include_deleted,
-        ),
-    )
-
-    if not status_ok(response.status_code) and response.destinations_response:
-        raise AirbyteError(
-            context={
-                "workspace_id": workspace_id,
-                "response": response,
-            }
+    result: list[models.DestinationResponse] = []
+    has_more = True
+    offset, page_size = 0, 100
+    while has_more:
+        response = airbyte_instance.destinations.list_destinations(
+            api.ListDestinationsRequest(
+                workspace_ids=[workspace_id],
+                offset=offset,
+                limit=page_size,
+            ),
         )
-    assert response.destinations_response is not None
-    return [
-        destination
-        for destination in response.destinations_response.data
-        if name_filter(destination.name)
-    ]
+        has_more = response.next is not None
+        offset += page_size
+
+        if not status_ok(response.status_code) and response.destinations_response:
+            raise AirbyteError(
+                context={
+                    "workspace_id": workspace_id,
+                    "response": response,
+                }
+            )
+        assert response.destinations_response is not None
+        result += [
+            destination
+            for destination in response.destinations_response.data
+            if name_filter(destination.name)
+        ]
+
+    return result
 
 
 # Get and run connections
@@ -387,7 +415,7 @@ def run_connection(
 def get_job_logs(
     workspace_id: str,
     connection_id: str,
-    limit: int = 20,
+    limit: int = 100,
     *,
     api_root: str,
     client_id: SecretString,

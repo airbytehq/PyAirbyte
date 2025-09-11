@@ -374,27 +374,13 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
-        limit: int | None = 20,
-        offset: int | None = 0,
-        include_deleted: bool | None = False,
     ) -> list[CloudConnection]:
-        """List connections by name in the workspace.
-
-        Args:
-            name: Optional name filter for connections.
-            name_filter: Optional callable to filter connections by name.
-            limit: Maximum number of connections to return (default: 20).
-            offset: Number of connections to skip (default: 0).
-            include_deleted: Whether to include deleted connections (default: False).
-        """
+        """List connections by name in the workspace."""
         connections = api_util.list_connections(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            limit=limit,
-            offset=offset,
-            include_deleted=include_deleted,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
@@ -414,27 +400,13 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
-        limit: int | None = 20,
-        offset: int | None = 0,
-        include_deleted: bool | None = False,
     ) -> list[CloudSource]:
-        """List all sources in the workspace.
-
-        Args:
-            name: Optional name filter for sources.
-            name_filter: Optional callable to filter sources by name.
-            limit: Maximum number of sources to return (default: 20).
-            offset: Number of sources to skip (default: 0).
-            include_deleted: Whether to include deleted sources (default: False).
-        """
+        """List all sources in the workspace."""
         sources = api_util.list_sources(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            limit=limit,
-            offset=offset,
-            include_deleted=include_deleted,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
@@ -452,27 +424,13 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
-        limit: int | None = 20,
-        offset: int | None = 0,
-        include_deleted: bool | None = False,
     ) -> list[CloudDestination]:
-        """List all destinations in the workspace.
-
-        Args:
-            name: Optional name filter for destinations.
-            name_filter: Optional callable to filter destinations by name.
-            limit: Maximum number of destinations to return (default: 20).
-            offset: Number of destinations to skip (default: 0).
-            include_deleted: Whether to include deleted destinations (default: False).
-        """
+        """List all destinations in the workspace."""
         destinations = api_util.list_destinations(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            limit=limit,
-            offset=offset,
-            include_deleted=include_deleted,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
