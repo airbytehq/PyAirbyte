@@ -126,6 +126,64 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class SyncAttempt:
+    """Represents a single attempt of a sync job.
+
+    **This class is not meant to be instantiated directly.** Instead, obtain a `SyncAttempt` by
+    calling `.SyncResult.get_attempts()`.
+    """
+
+    workspace: CloudWorkspace
+    connection: CloudConnection
+    job_id: int
+    attempt_number: int
+    _attempt_info: dict[str, Any] | None = None
+
+    @property
+    def attempt_id(self) -> int:
+        """Return the attempt ID."""
+        return self._fetch_attempt_info()["attempt"]["id"]
+
+    @property
+    def status(self) -> str:
+        """Return the attempt status."""
+        return self._fetch_attempt_info()["attempt"]["status"]
+
+    @property
+    def bytes_synced(self) -> int:
+        """Return the number of bytes synced in this attempt."""
+        return self._fetch_attempt_info()["attempt"].get("bytesSynced", 0)
+
+    @property
+    def records_synced(self) -> int:
+        """Return the number of records synced in this attempt."""
+        return self._fetch_attempt_info()["attempt"].get("recordsSynced", 0)
+
+    @property
+    def created_at(self) -> datetime:
+        """Return the creation time of the attempt."""
+        timestamp = self._fetch_attempt_info()["attempt"]["createdAt"]
+        return datetime.fromtimestamp(timestamp / 1000, tz=datetime.timezone.utc)
+
+    def _fetch_attempt_info(self) -> dict[str, Any]:
+        """Fetch attempt info from Config API using lazy loading pattern."""
+        if self._attempt_info is not None:
+            return self._attempt_info
+
+        self._attempt_info = api_util._make_config_api_request(
+            api_root=self.workspace.api_root,
+            path="/v1/attempts/get_for_job",
+            json={
+                "jobId": self.job_id,
+                "attemptNumber": self.attempt_number,
+            },
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return self._attempt_info
+
+
+@dataclass
 class SyncResult:
     """The result of a sync operation.
 
@@ -208,6 +266,17 @@ class SyncResult:
         """Return the start time of the sync job in UTC."""
         # Parse from ISO 8601 format:
         return datetime.fromisoformat(self._fetch_latest_job_info().start_time)
+
+    def get_attempts(self) -> list[SyncAttempt]:
+        """Return a list of attempts for this sync job."""
+        return [
+            SyncAttempt(
+                workspace=self.workspace,
+                connection=self.connection,
+                job_id=self.job_id,
+                attempt_number=0,
+            )
+        ]
 
     def raise_failure_status(
         self,
@@ -355,4 +424,5 @@ class SyncResult:
 
 __all__ = [
     "SyncResult",
+    "SyncAttempt",
 ]
