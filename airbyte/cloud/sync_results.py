@@ -103,7 +103,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, final
 
 from airbyte._util import api_util
@@ -126,6 +126,66 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class SyncAttempt:
+    """Represents a single attempt of a sync job.
+
+    **This class is not meant to be instantiated directly.** Instead, obtain a `SyncAttempt` by
+    calling `.SyncResult.get_attempts()`.
+    """
+
+    workspace: CloudWorkspace
+    connection: CloudConnection
+    job_id: int
+    attempt_number: int
+    _attempt_info: dict[str, Any] | None = None
+
+    @property
+    def attempt_id(self) -> int:
+        """Return the attempt ID."""
+        return self._fetch_attempt_info()["attempt"]["id"]
+
+    @property
+    def status(self) -> str:
+        """Return the attempt status."""
+        return self._fetch_attempt_info()["attempt"]["status"]
+
+    @property
+    def bytes_synced(self) -> int:
+        """Return the number of bytes synced in this attempt."""
+        return self._fetch_attempt_info()["attempt"].get("bytesSynced", 0)
+
+    @property
+    def records_synced(self) -> int:
+        """Return the number of records synced in this attempt."""
+        return self._fetch_attempt_info()["attempt"].get("recordsSynced", 0)
+
+    @property
+    def created_at(self) -> datetime:
+        """Return the creation time of the attempt."""
+        timestamp = self._fetch_attempt_info()["attempt"]["createdAt"]
+        return datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+
+    def _fetch_attempt_info(self) -> dict[str, Any]:
+        """Fetch attempt info from Config API using lazy loading pattern."""
+        if self._attempt_info is not None:
+            # TODO: Additionally check if status is of the completed type.
+            #       If not, we should get the latest. (Unless all properties are immutable anyway.)
+            return self._attempt_info
+
+        self._attempt_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
+            api_root=self.workspace.api_root,
+            path="/v1/attempts/get_for_job",
+            json={
+                "jobId": self.job_id,
+                "attemptNumber": self.attempt_number,
+            },
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return self._attempt_info
+
+
+@dataclass
 class SyncResult:
     """The result of a sync operation.
 
@@ -141,6 +201,7 @@ class SyncResult:
     _latest_job_info: JobResponse | None = None
     _connection_response: ConnectionResponse | None = None
     _cache: CacheBase | None = None
+    _job_with_attempts_info: dict[str, Any] | None = None
 
     @property
     def job_url(self) -> str:
@@ -208,6 +269,37 @@ class SyncResult:
         """Return the start time of the sync job in UTC."""
         # Parse from ISO 8601 format:
         return datetime.fromisoformat(self._fetch_latest_job_info().start_time)
+
+    def _fetch_job_with_attempts(self) -> dict[str, Any]:
+        """Fetch job info with attempts from Config API using lazy loading pattern."""
+        if self._job_with_attempts_info is not None:
+            return self._job_with_attempts_info
+
+        self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
+            api_root=self.workspace.api_root,
+            path="/v1/jobs/get",
+            json={
+                "id": self.job_id,
+            },
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return self._job_with_attempts_info
+
+    def get_attempts(self) -> list[SyncAttempt]:
+        """Return a list of attempts for this sync job."""
+        job_with_attempts = self._fetch_job_with_attempts()
+        attempts_data = job_with_attempts.get("attempts", [])
+
+        return [
+            SyncAttempt(
+                workspace=self.workspace,
+                connection=self.connection,
+                job_id=self.job_id,
+                attempt_number=i,
+            )
+            for i in range(len(attempts_data))
+        ]
 
     def raise_failure_status(
         self,
@@ -355,4 +447,5 @@ class SyncResult:
 
 __all__ = [
     "SyncResult",
+    "SyncAttempt",
 ]
