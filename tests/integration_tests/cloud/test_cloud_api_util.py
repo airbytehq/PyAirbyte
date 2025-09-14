@@ -15,6 +15,7 @@ from airbyte._util.api_util import (
     check_connector,
     AirbyteError,
     CLOUD_API_ROOT,
+    get_connector_image_override,
 )
 from airbyte_api.models import DestinationDuckdb, SourceFaker
 
@@ -280,5 +281,36 @@ def test_check_connector(
             client_secret=airbyte_cloud_client_secret,
         )
         assert result == expect_success
+    except NotImplementedError:
+        pytest.fail("check_connector function is not implemented")
+    except AirbyteError as e:
+        pytest.fail(f"API call failed: {e}")
+
+
+@pytest.mark.parametrize(
+    "connector_id, connector_type, expect_success",
+    [
+        ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", "source", True),
+        # ("......-....-....-....-............", "destination", True),
+    ],
+)
+def test_get_connector_overrides(
+    airbyte_cloud_client_id: SecretString,
+    airbyte_cloud_client_secret: SecretString,
+    connector_id: str,
+    connector_type: Literal["source", "destination"],
+    expect_success: bool,
+) -> None:
+    try:
+        result = get_connector_image_override(
+            workspace_id=None,  # type: ignore  # Unused anyway
+            actor_id=connector_id,
+            actor_type=connector_type,
+            client_id=airbyte_cloud_client_id,
+            client_secret=airbyte_cloud_client_secret,
+        )
+        # assert result is not None  # No overrides on this item
+    except NotImplementedError:
+        pytest.fail("check_connector function is not implemented")
     except AirbyteError as e:
         pytest.fail(f"API call failed: {e}")
