@@ -77,7 +77,7 @@ jobs:
           [1]: ${{ steps.vars.outputs.run-url }}
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
     - name: Set up Poetry
