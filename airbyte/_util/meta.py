@@ -35,22 +35,17 @@ def is_ci() -> bool:
 _MCP_MODE_ENABLED: bool = False
 
 
-def _set_mcp_mode(*, enabled: bool) -> None:
-    """Set MCP mode flag. This is a private function - use enable_mcp_mode() instead."""
-    global _MCP_MODE_ENABLED
-    _MCP_MODE_ENABLED = enabled
-
-
-def enable_mcp_mode() -> None:
+def set_mcp_mode() -> None:
     """Enable MCP (Model Context Protocol) mode.
 
     This should be called early in MCP server initialization to ensure
     proper detection and prevent interactive prompts.
     """
-    _set_mcp_mode(enabled=True)
+    global _MCP_MODE_ENABLED
+    _MCP_MODE_ENABLED = True
 
 
-def is_mcp() -> bool:
+def is_mcp_mode() -> bool:
     """Return True if running in MCP (Model Context Protocol) mode."""
     if _MCP_MODE_ENABLED:
         return True
@@ -59,10 +54,7 @@ def is_mcp() -> bool:
     if script_name and "airbyte-mcp" in script_name:
         return True
 
-    if "fastmcp" in sys.modules:
-        return True
-
-    return "MCP_SERVER" in os.environ or "AIRBYTE_MCP_MODE" in os.environ
+    return "fastmcp" in sys.modules
 
 
 @lru_cache
@@ -93,7 +85,7 @@ def is_interactive() -> bool:
         if is_colab() or is_jupyter():
             return True
 
-        if is_ci() or is_mcp():
+        if is_ci() or is_mcp_mode():
             return False
 
         return bool(
