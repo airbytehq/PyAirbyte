@@ -531,7 +531,7 @@ def _get_destination_type_str(
     if isinstance(destination, dict):
         destination_type = destination.get("destinationType")
     else:
-        destination_type = getattr(destination, "destinationType", None)
+        destination_type = getattr(destination, "DESTINATION_TYPE", None)
 
     if not destination_type or not isinstance(destination_type, str):
         raise PyAirbyteInputError(
