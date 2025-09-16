@@ -9,7 +9,14 @@ from typing import Any
 import dotenv
 import yaml
 
-from airbyte.secrets import DotenvSecretManager, GoogleGSMSecretManager, register_secret_manager
+from airbyte._util.meta import is_interactive
+from airbyte.secrets import (
+    DotenvSecretManager,
+    GoogleGSMSecretManager,
+    SecretSourceEnum,
+    register_secret_manager,
+)
+from airbyte.secrets.config import disable_secret_source
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret, is_secret_available
 
@@ -54,6 +61,10 @@ def initialize_secrets() -> None:
                 credentials_json=get_secret("GCP_GSM_CREDENTIALS"),
             )
         )
+
+    # Make sure we disable the prompt source in non-interactive environments.
+    if not is_interactive():
+        disable_secret_source(SecretSourceEnum.PROMPT)
 
 
 def resolve_config(  # noqa: PLR0912
