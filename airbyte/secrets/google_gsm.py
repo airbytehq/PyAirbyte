@@ -161,13 +161,19 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
         return full_name
 
-    def get_secret(self, secret_name: str) -> SecretString:
-        """Get a named secret from Google Colab user secrets."""
-        return SecretString(
-            self.secret_client.access_secret_version(
-                name=self._fully_qualified_secret_name(secret_name)
-            ).payload.data.decode("UTF-8")
-        )
+    def get_secret(self, secret_name: str) -> SecretString | None:
+        """Get a named secret from GSM.
+
+        Returns 'None' if the secret is not found.
+        """
+        try:
+            return SecretString(
+                self.secret_client.access_secret_version(
+                    name=self._fully_qualified_secret_name(secret_name)
+                ).payload.data.decode("UTF-8")
+            )
+        except Exception:
+            return None
 
     def get_secret_handle(
         self,
