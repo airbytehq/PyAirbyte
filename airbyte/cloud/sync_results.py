@@ -184,6 +184,41 @@ class SyncAttempt:
         )
         return self._attempt_info
 
+    def get_full_log_text(self) -> str:
+        """Return the complete log text for this attempt.
+
+        Returns:
+            String containing all log text for this attempt, with lines separated by newlines.
+        """
+        attempt_info = self._fetch_attempt_info()
+        logs_data = attempt_info.get("logs")
+
+        if not logs_data:
+            return ""
+
+        if "events" in logs_data:
+            log_events = logs_data["events"]
+            if not log_events:
+                return ""
+
+            log_lines = []
+            for event in log_events:
+                timestamp = event.get("timestamp", "")
+                level = event.get("level", "INFO")
+                message = event.get("message", "")
+                log_lines.append(f"[{timestamp}] {level}: {message}")
+
+            return "\n".join(log_lines)
+
+        if "logLines" in logs_data:
+            log_lines = logs_data["logLines"]
+            if not log_lines:
+                return ""
+
+            return "\n".join(log_lines)
+
+        return ""
+
 
 @dataclass
 class SyncResult:
