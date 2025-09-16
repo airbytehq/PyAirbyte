@@ -522,6 +522,28 @@ def delete_source(
         )
 
 
+# Utility function
+
+
+def _get_destination_type_str(
+    destination: DestinationConfiguration | dict[str, Any],
+) -> str:
+    if isinstance(destination, dict):
+        destination_type = destination.get("destinationType")
+    else:
+        destination_type = getattr(destination, "destinationType", None)
+
+    if not destination_type or not isinstance(destination_type, str):
+        raise PyAirbyteInputError(
+            message="Could not determine destination type from configuration.",
+            context={
+                "destination": destination,
+            },
+        )
+
+    return destination_type
+
+
 # Create, get, and delete destinations
 
 
@@ -541,7 +563,7 @@ def create_destination(
         api_root=api_root,
     )
     definition_id_override: str | None = None
-    if config.get("destinationType") == "dev-null":
+    if _get_destination_type_str(config) == "dev-null":
         # TODO: We have to hard-code the definition ID for dev-null destination. (important-comment)
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
