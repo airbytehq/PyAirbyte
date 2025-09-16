@@ -30,20 +30,20 @@ def _load_dotenv_file(dotenv_path: Path | str) -> None:
 def initialize_secrets() -> None:
     """Initialize dotenv to load environment variables from .env files."""
     # Load the .env file from the current working directory.
-    if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
-        dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR]).absolute()
-        custom_dotenv_secret_mgr = DotenvSecretManager(dotenv_path)
-        _load_dotenv_file(dotenv_path)
-        register_secret_manager(
-            custom_dotenv_secret_mgr,
-        )
-
     envrc_path = Path.cwd() / ".envrc"
     if envrc_path.exists():
         envrc_secret_mgr = DotenvSecretManager(envrc_path)
         _load_dotenv_file(envrc_path)
         register_secret_manager(
             envrc_secret_mgr,
+        )
+
+    if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
+        dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR]).absolute()
+        custom_dotenv_secret_mgr = DotenvSecretManager(dotenv_path)
+        _load_dotenv_file(dotenv_path)
+        register_secret_manager(
+            custom_dotenv_secret_mgr,
         )
 
     if is_secret_available("GCP_GSM_CREDENTIALS") and is_secret_available("GCP_GSM_PROJECT_ID"):
