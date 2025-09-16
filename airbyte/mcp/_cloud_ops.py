@@ -345,7 +345,8 @@ def get_cloud_sync_status(
             ]
         else:
             result["attempts"] = []
-            return result
+
+        return result
 
     except Exception as ex:
         return {
