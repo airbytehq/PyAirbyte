@@ -55,7 +55,8 @@ def is_mcp_mode() -> bool:
     if script_name and "airbyte-mcp" in script_name:
         return True
 
-    return "fastmcp" in sys.modules
+    # Else, we are not running in an MCP context.
+    return False
 
 
 @lru_cache
