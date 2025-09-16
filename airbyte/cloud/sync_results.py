@@ -104,7 +104,11 @@ import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, final
+from typing import TYPE_CHECKING, Any
+
+from typing_extensions import final
+
+from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 
 from airbyte._util import api_util
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
@@ -163,7 +167,7 @@ class SyncAttempt:
     def created_at(self) -> datetime:
         """Return the creation time of the attempt."""
         timestamp = self._fetch_attempt_info()["attempt"]["createdAt"]
-        return datetime.fromtimestamp(timestamp / 1000, tz=timezone.utc)
+        return ab_datetime_parse(timestamp)
 
     def _fetch_attempt_info(self) -> dict[str, Any]:
         """Fetch attempt info from Config API using lazy loading pattern."""
@@ -308,7 +312,7 @@ class SyncResult:
     def start_time(self) -> datetime:
         """Return the start time of the sync job in UTC."""
         # Parse from ISO 8601 format:
-        return datetime.fromisoformat(self._fetch_latest_job_info().start_time)
+        return ab_datetime_parse(self._fetch_latest_job_info().start_time)
 
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
         """Fetch job info with attempts from Config API using lazy loading pattern."""
