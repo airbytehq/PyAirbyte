@@ -13,9 +13,6 @@ from airbyte.mcp._local_ops import register_local_ops_tools
 from airbyte.mcp._util import initialize_secrets
 
 
-set_mcp_mode()
-initialize_secrets()
-
 app: FastMCP = FastMCP("airbyte-mcp")
 register_connector_registry_tools(app)
 register_local_ops_tools(app)
@@ -25,6 +22,8 @@ register_cloud_ops_tools(app)
 def main() -> None:
     """Main entry point for the MCP server."""
     print("Starting Airbyte MCP server.", file=sys.stderr)
+    set_mcp_mode()
+    initialize_secrets()
     try:
         asyncio.run(app.run_stdio_async())
     except KeyboardInterrupt:
