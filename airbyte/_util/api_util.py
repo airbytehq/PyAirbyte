@@ -823,9 +823,10 @@ def _make_config_api_request(
         "Authorization": f"Bearer {bearer_token}",
         "User-Agent": "PyAirbyte Client",
     }
+    full_url = config_api_root + path
     response = requests.request(
         method="POST",
-        url=config_api_root + path,
+        url=full_url,
         headers=headers,
         json=json,
     )
@@ -833,8 +834,16 @@ def _make_config_api_request(
         try:
             response.raise_for_status()
         except requests.HTTPError as ex:
+            error_message = f"API request failed with status {response.status_code}"
+            if response.status_code == 403:
+                error_message += f" (Forbidden) when accessing: {full_url}"
             raise AirbyteError(
+                message=error_message,
                 context={
+                    "full_url": full_url,
+                    "config_api_root": config_api_root,
+                    "path": path,
+                    "status_code": response.status_code,
                     "url": response.request.url,
                     "body": response.request.body,
                     "response": response.__dict__,
