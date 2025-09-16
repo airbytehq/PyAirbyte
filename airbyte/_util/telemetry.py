@@ -184,7 +184,7 @@ def get_env_flags() -> dict[str, Any]:
     flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
         "LANGCHAIN": meta.is_langchain(),
-        "MCP": meta.is_mcp(),
+        "MCP": meta.is_mcp_mode(),
         "NOTEBOOK_RUNTIME": (
             "GOOGLE_COLAB"
             if meta.is_colab()
