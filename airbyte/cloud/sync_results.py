@@ -176,7 +176,7 @@ class SyncAttempt:
 
         self._attempt_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
-            path="/v1/attempts/get_for_job",
+            path="/attempts/get_for_job",
             json={
                 "jobId": self.job_id,
                 "attemptNumber": self.attempt_number,
@@ -317,7 +317,7 @@ class SyncResult:
             if "Invalid isoformat string" in str(e):
                 job_info_raw = api_util._make_config_api_request(
                     api_root=self.workspace.api_root,
-                    path="/v1/jobs/get",
+                    path="/jobs/get",
                     json={"id": self.job_id},
                     client_id=self.workspace.client_id,
                     client_secret=self.workspace.client_secret,
@@ -334,7 +334,7 @@ class SyncResult:
 
         self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
-            path="/v1/jobs/get",
+            path="/jobs/get",
             json={
                 "id": self.job_id,
             },
