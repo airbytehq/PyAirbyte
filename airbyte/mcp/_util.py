@@ -9,7 +9,14 @@ from typing import Any
 import dotenv
 import yaml
 
-from airbyte.secrets import DotenvSecretManager, GoogleGSMSecretManager, register_secret_manager
+from airbyte._util.meta import is_interactive
+from airbyte.secrets import (
+    DotenvSecretManager,
+    GoogleGSMSecretManager,
+    SecretSourceEnum,
+    register_secret_manager,
+)
+from airbyte.secrets.config import disable_secret_source
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret, is_secret_available
 
@@ -30,6 +37,14 @@ def _load_dotenv_file(dotenv_path: Path | str) -> None:
 def initialize_secrets() -> None:
     """Initialize dotenv to load environment variables from .env files."""
     # Load the .env file from the current working directory.
+    envrc_path = Path.cwd() / ".envrc"
+    if envrc_path.exists():
+        envrc_secret_mgr = DotenvSecretManager(envrc_path)
+        _load_dotenv_file(envrc_path)
+        register_secret_manager(
+            envrc_secret_mgr,
+        )
+
     if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
         dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR]).absolute()
         custom_dotenv_secret_mgr = DotenvSecretManager(dotenv_path)
@@ -54,6 +69,10 @@ def initialize_secrets() -> None:
                 credentials_json=get_secret("GCP_GSM_CREDENTIALS"),
             )
         )
+
+    # Make sure we disable the prompt source in non-interactive environments.
+    if not is_interactive():
+        disable_secret_source(SecretSourceEnum.PROMPT)
 
 
 def resolve_config(  # noqa: PLR0912
