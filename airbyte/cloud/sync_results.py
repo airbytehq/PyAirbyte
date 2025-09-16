@@ -182,6 +182,83 @@ class SyncAttempt:
         )
         return self._attempt_info
 
+    def get_log_text_tail(self, num_lines: int = 1000) -> str:
+        """Return the last N lines of log text for this attempt.
+
+        Args:
+            num_lines: Maximum number of lines to return from the end of the logs.
+                      Defaults to 1000 lines.
+
+        Returns:
+            String containing the last N lines of log text, with lines separated by newlines.
+        """
+        attempt_info = self._fetch_attempt_info()
+        logs_data = attempt_info.get("logs")
+
+        if not logs_data:
+            return ""
+
+        if "events" in logs_data:
+            log_events = logs_data["events"]
+            if not log_events:
+                return ""
+
+            tail_events = log_events[-num_lines:] if len(log_events) > num_lines else log_events
+            log_lines = []
+
+            for event in tail_events:
+                timestamp = event.get("timestamp", "")
+                level = event.get("level", "INFO")
+                message = event.get("message", "")
+                log_lines.append(f"[{timestamp}] {level}: {message}")
+
+            return "\n".join(log_lines)
+
+        if "logLines" in logs_data:
+            log_lines = logs_data["logLines"]
+            if not log_lines:
+                return ""
+
+            tail_lines = log_lines[-num_lines:] if len(log_lines) > num_lines else log_lines
+            return "\n".join(tail_lines)
+
+        return ""
+
+    def get_full_log_text(self) -> str:
+        """Return the complete log text for this attempt.
+
+        Returns:
+            String containing all log text for this attempt, with lines separated by newlines.
+        """
+        attempt_info = self._fetch_attempt_info()
+        logs_data = attempt_info.get("logs")
+
+        if not logs_data:
+            return ""
+
+        if "events" in logs_data:
+            log_events = logs_data["events"]
+            if not log_events:
+                return ""
+
+            log_lines = []
+            for event in log_events:
+                timestamp = event.get("timestamp", "")
+                level = event.get("level", "INFO")
+                message = event.get("message", "")
+                log_lines.append(f"[{timestamp}] {level}: {message}")
+
+            return "\n".join(log_lines)
+
+        if "logLines" in logs_data:
+            log_lines = logs_data["logLines"]
+            if not log_lines:
+                return ""
+
+            return "\n".join(log_lines)
+
+        return ""
+
 
 @dataclass
 class SyncResult:
