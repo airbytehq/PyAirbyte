@@ -240,8 +240,15 @@ class SyncResult:
 
     @property
     def job_url(self) -> str:
-        """Return the URL of the sync job."""
-        return f"{self.connection.job_history_url}/{self.job_id}"
+        """Return the URL of the sync job.
+
+        Note: This currently returns the connection's job history URL, as there is no direct URL
+        to a specific job in the Airbyte Cloud web app.
+
+        TODO: Implement a direct job logs URL on top of the event-id of the specific attempt number.
+              E.g. {self.connection.job_history_url}?eventId={event-guid}&openLogs=true
+        """
+        return f"{self.connection.job_history_url}"
 
     def _get_connection_info(self, *, force_refresh: bool = False) -> ConnectionResponse:
         """Return connection info for the sync job."""
