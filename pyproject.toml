@@ -199,6 +199,13 @@ fix = { shell = "ruff format . && ruff check --fix -s || ruff format ." }
 fix-unsafe = { shell = "ruff format . && ruff check --fix --unsafe-fixes . && ruff format ." }
 fix-and-check = { shell = "poe fix && poe check" }
 
+# MCP Server Tasks
+mcp-serve-local = { cmd = "poetry run airbyte-mcp", help = "Start the MCP server with STDIO transport" }
+mcp-serve-http = { cmd = "poetry run python -c \"from airbyte.mcp.server import app; app.run(transport='http', host='127.0.0.1', port=8000)\"", help = "Start the MCP server with HTTP transport" }
+mcp-serve-sse = { cmd = "poetry run python -c \"from airbyte.mcp.server import app; app.run(transport='sse', host='127.0.0.1', port=8000)\"", help = "Start the MCP server with SSE transport" }
+mcp-inspect = { cmd = "poetry run fastmcp inspect airbyte/mcp/server.py:app", help = "Inspect MCP tools and resources (supports --tools, --health, etc.)" }
+mcp-tool-test = { cmd = "poetry run python bin/test_mcp_tool.py", help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'" }
+
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
 poe_tasks = ["test"]
