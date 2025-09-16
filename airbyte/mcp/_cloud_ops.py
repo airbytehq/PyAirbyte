@@ -328,6 +328,7 @@ def get_cloud_sync_status(
             "records_synced": sync_result.records_synced,
             "start_time": sync_result.start_time.isoformat(),
             "job_url": sync_result.job_url,
+            "attempts": [],
         }
 
         if include_attempts:
@@ -343,10 +344,8 @@ def get_cloud_sync_status(
                 }
                 for attempt in attempts
             ]
-            return result
 
-        result["attempts"] = []
-        return result
+        return result  # noqa: TRY300
 
     except Exception as ex:
         return {
@@ -438,7 +437,7 @@ def get_cloud_sync_logs(
                 f"attempt {target_attempt.attempt_number}"
             )
 
-        return logs
+        return logs  # noqa: TRY300
 
     except Exception as ex:
         return f"Failed to get logs for connection '{connection_id}': {ex}"
