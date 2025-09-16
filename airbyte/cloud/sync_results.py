@@ -311,8 +311,21 @@ class SyncResult:
     @property
     def start_time(self) -> datetime:
         """Return the start time of the sync job in UTC."""
-        # Parse from ISO 8601 format:
-        return ab_datetime_parse(self._fetch_latest_job_info().start_time)
+        try:
+            return ab_datetime_parse(self._fetch_latest_job_info().start_time)
+        except (ValueError, TypeError) as e:
+            if "Invalid isoformat string" in str(e):
+                job_info_raw = api_util._make_config_api_request(
+                    api_root=self.workspace.api_root,
+                    path="/v1/jobs/get",
+                    json={"id": self.job_id},
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                )
+                raw_start_time = job_info_raw.get("startTime")
+                if raw_start_time:
+                    return ab_datetime_parse(raw_start_time)
+            raise
 
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
         """Fetch job info with attempts from Config API using lazy loading pattern."""
