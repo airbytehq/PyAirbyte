@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""
-One-liner CLI tool for testing PyAirbyte MCP tools directly with JSON arguments.
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+"""One-liner CLI tool for testing PyAirbyte MCP tools directly with JSON arguments.
 
 Usage:
     poe mcp-tool-test <tool_name> '<json_args>'
@@ -8,8 +8,10 @@ Usage:
 Examples:
     poe mcp-tool-test list_connectors '{}'
     poe mcp-tool-test get_config_spec '{"connector_name": "source-pokeapi"}'
-    poe mcp-tool-test validate_config '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
-    poe mcp-tool-test run_sync '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
+    poe mcp-tool-test validate_config \
+        '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
+    poe mcp-tool-test run_sync \
+        '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
     poe mcp-tool-test check_airbyte_cloud_workspace '{}'
     poe mcp-tool-test list_deployed_cloud_connections '{}'
@@ -18,24 +20,26 @@ Examples:
 import asyncio
 import json
 import sys
-from pathlib import Path
+import traceback
 from typing import Any
 
 from fastmcp import Client
+
 from airbyte.mcp.server import app
 
 
-async def call_mcp_tool(tool_name: str, args: dict[str, Any]) -> Any:
-    """Call an MCP tool using the FastMCP client."""
+MIN_ARGS = 3
 
+
+async def call_mcp_tool(tool_name: str, args: dict[str, Any]) -> object:
+    """Call an MCP tool using the FastMCP client."""
     async with Client(app) as client:
-        result = await client.call_tool(tool_name, args)
-        return result
+        return await client.call_tool(tool_name, args)
 
 
 def main() -> None:
     """Main entry point for the MCP tool tester."""
-    if len(sys.argv) < 3:
+    if len(sys.argv) < MIN_ARGS:
         print(__doc__, file=sys.stderr)
         sys.exit(1)
 
@@ -58,8 +62,6 @@ def main() -> None:
 
     except Exception as e:
         print(f"Error executing tool '{tool_name}': {e}", file=sys.stderr)
-        import traceback
-
         traceback.print_exc()
         sys.exit(1)
 

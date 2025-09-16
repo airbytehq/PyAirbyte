@@ -65,8 +65,10 @@ poe mcp-tool-test <tool_name> '<json_args>'
 
 poe mcp-tool-test list_connectors '{}'
 poe mcp-tool-test get_config_spec '{"connector_name": "source-pokeapi"}'
-poe mcp-tool-test validate_config '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
-poe mcp-tool-test run_sync '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
+poe mcp-tool-test validate_config \
+    '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
+poe mcp-tool-test run_sync \
+    '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
 poe mcp-tool-test check_airbyte_cloud_workspace '{}'
 poe mcp-tool-test list_deployed_cloud_connections '{}'
