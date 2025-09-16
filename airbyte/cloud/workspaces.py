@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Any
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
+from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.destinations.base import Destination
@@ -72,8 +73,8 @@ class CloudWorkspace:
 
     @property
     def workspace_url(self) -> str | None:
-        """The URL of the workspace."""
-        return f"{self.api_root}/workspaces/{self.workspace_id}"
+        """The web URL of the workspace."""
+        return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
 
     # Test connection and creds
 
@@ -375,7 +376,10 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
     ) -> list[CloudConnection]:
-        """List connections by name in the workspace."""
+        """List connections by name in the workspace.
+
+        TODO: Add pagination support
+        """
         connections = api_util.list_connections(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
@@ -401,7 +405,10 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
     ) -> list[CloudSource]:
-        """List all sources in the workspace."""
+        """List all sources in the workspace.
+
+        TODO: Add pagination support
+        """
         sources = api_util.list_sources(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
@@ -425,7 +432,10 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
     ) -> list[CloudDestination]:
-        """List all destinations in the workspace."""
+        """List all destinations in the workspace.
+
+        TODO: Add pagination support
+        """
         destinations = api_util.list_destinations(
             api_root=self.api_root,
             workspace_id=self.workspace_id,

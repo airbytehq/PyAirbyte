@@ -20,6 +20,7 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 
+from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
@@ -44,20 +45,6 @@ if TYPE_CHECKING:
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
-CLOUD_API_ROOT = "https://api.airbyte.com/v1"
-"""The Airbyte Cloud API root URL.
-
-This is the root URL for the Airbyte Cloud API. It is used to interact with the Airbyte Cloud API
-and is the default API root for the `CloudWorkspace` class.
-- https://reference.airbyte.com/reference/getting-started
-"""
-CLOUD_CONFIG_API_ROOT = "https://cloud.airbyte.com/api/v1"
-"""Internal-Use API Root, aka Airbyte "Config API".
-
-Documentation:
-- https://docs.airbyte.com/api-documentation#configuration-api-deprecated
-- https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
-"""
 
 
 def status_ok(status_code: int) -> bool:
@@ -71,6 +58,19 @@ def get_config_api_root(api_root: str) -> str:
         return CLOUD_CONFIG_API_ROOT
 
     raise NotImplementedError("Configuration API root not implemented for this API root.")
+
+
+def get_web_url_root(api_root: str) -> str:
+    """Get the web URL root from the main API root.
+
+    # TODO: This does not return a valid URL for self-managed instances, due to not knowing the
+    # web URL root. Logged here:
+    # - https://github.com/airbytehq/PyAirbyte/issues/563
+    """
+    if api_root == CLOUD_API_ROOT:
+        return "https://cloud.airbyte.com"
+
+    return api_root
 
 
 def get_airbyte_server_instance(
@@ -522,6 +522,28 @@ def delete_source(
         )
 
 
+# Utility function
+
+
+def _get_destination_type_str(
+    destination: DestinationConfiguration | dict[str, Any],
+) -> str:
+    if isinstance(destination, dict):
+        destination_type = destination.get("destinationType")
+    else:
+        destination_type = getattr(destination, "DESTINATION_TYPE", None)
+
+    if not destination_type or not isinstance(destination_type, str):
+        raise PyAirbyteInputError(
+            message="Could not determine destination type from configuration.",
+            context={
+                "destination": destination,
+            },
+        )
+
+    return destination_type
+
+
 # Create, get, and delete destinations
 
 
@@ -540,8 +562,14 @@ def create_destination(
         client_secret=client_secret,
         api_root=api_root,
     )
+    definition_id_override: str | None = None
+    if _get_destination_type_str(config) == "dev-null":
+        # TODO: We have to hard-code the definition ID for dev-null destination. (important-comment)
+        #  https://github.com/airbytehq/PyAirbyte/issues/743
+        definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
     response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
         models.DestinationCreateRequest(
+            definition_id=definition_id_override,
             name=name,
             workspace_id=workspace_id,
             configuration=config,  # Speakeasy API wants a dataclass, not a dict
