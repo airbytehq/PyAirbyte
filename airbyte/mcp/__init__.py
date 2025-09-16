@@ -56,72 +56,32 @@ and then create the configuration file as follows:
 
 ## Testing the MCP Server
 
-You can use your tool of choice to test the MCP server. Below we'll use the Devin `mcp-cli`
-tool. First, we install our MCP CLI client:
 
-```
-uv tool install devin-mcp-cli
-```
-
-Next, we export the configuration path so that MCP CLI can find your server:
+The easiest way to test PyAirbyte MCP tools during development is using the built-in Poe tasks.
+These tasks automatically inherit environment variables from your shell session:
 
 ```bash
-# You can use a custom path in your home directory:
-export MCP_CLI_CONFIG_PATH=~/.mcp/mcp_server_config.json
-touch $MCP_CLI_CONFIG_PATH
+poe mcp-tool-test <tool_name> '<json_args>'
 
-# Then you can symlink your file to also be available in Claude Desktop path:
-mkdir -p ~/Library/"Application Support"/Claude
-ln -s $MCP_CLI_CONFIG_PATH ~/Library/"Application Support"/Claude/claude_desktop_config.json
+poe mcp-tool-test list_connectors '{}'
+poe mcp-tool-test get_config_spec '{"connector_name": "source-pokeapi"}'
+poe mcp-tool-test validate_config '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
+poe mcp-tool-test run_sync '{"connector_name": "source-pokeapi", "config": {"pokemon_name": "pikachu"}}'
 
-# Confirm the Claude Desktop symlink is working:
-cat ~/Library/"Application Support"/Claude/claude_desktop_config.json
+poe mcp-tool-test check_airbyte_cloud_workspace '{}'
+poe mcp-tool-test list_deployed_cloud_connections '{}'
 ```
 
-### Check that your server is properly registered
 
 ```bash
-mcp-cli server list
-mcp-cli tool list
+poe mcp-serve-local    # STDIO transport (default)
+poe mcp-serve-http     # HTTP transport on localhost:8000
+poe mcp-serve-sse      # Server-Sent Events transport on localhost:8000
+
+poe mcp-inspect        # Show all available MCP tools and their schemas
 ```
 
-This should show `airbyte` in the list of available servers.
 
-### Verify the server can be reached
-
-```bash
-mcp-cli server check
-```
-
-This should show `✓ Connected` for the Airbyte server with a list of available tools.
-
-### Test the MCP Tools
-
-You should now be able to validate specific tools:
-
-```bash
-# Show a list of all available Airbyte source connectors:
-mcp-cli tool call list_connectors --server airbyte
-
-# Get JSON schema of expected config for the specified connector:
-mcp-cli tool call get_config_spec --server airbyte --input '{"connector_name": "source-pokeapi"}'
-
-# Validate the provided configuration:
-mcp-cli tool call validate_config --server airbyte --input '{
-  "connector_name": "source-pokeapi",
-  "config": {
-    "pokemon_name": "pikachu"
-  }
-}'
-
-# Run a sync operation with the provided configuration:
-mcp-cli tool call run_sync --server airbyte --input '{
-  "connector_name": "source-pokeapi",
-  "config": {
-    "pokemon_name": "pikachu"
-  }
-}'
-```
 
 ## Contributing to PyAirbyte and the Airbyte MCP Server
 
