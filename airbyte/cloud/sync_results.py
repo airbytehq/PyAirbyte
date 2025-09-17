@@ -97,7 +97,6 @@ for record in dataset:
 ------
 
 """
-
 from __future__ import annotations
 
 import time
@@ -107,9 +106,6 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import final
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 from airbyte._util import api_util
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
@@ -122,6 +118,8 @@ DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 """The default timeout for waiting for a sync job to complete, in seconds."""
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     import sqlalchemy
 
     from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
