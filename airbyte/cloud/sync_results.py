@@ -103,8 +103,11 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
+
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 from typing_extensions import final
 
@@ -172,7 +175,10 @@ class SyncAttempt:
     def _get_attempt_data(self) -> dict[str, Any]:
         """Get attempt data from the provided attempt data."""
         if self._attempt_data is None:
-            raise ValueError("Attempt data not provided. SyncAttempt should be created via SyncResult.get_attempts().")
+            raise ValueError(
+                "Attempt data not provided. SyncAttempt should be created via "
+                "SyncResult.get_attempts()."
+            )
         return self._attempt_data["attempt"]
 
     def get_full_log_text(self) -> str:
@@ -183,34 +189,29 @@ class SyncAttempt:
         """
         if self._attempt_data is None:
             return ""
-            
-        logs_data = self._attempt_data.get("logs")
 
+        logs_data = self._attempt_data.get("logs")
         if not logs_data:
             return ""
 
+        result = ""
+
         if "events" in logs_data:
             log_events = logs_data["events"]
-            if not log_events:
-                return ""
-
-            log_lines = []
-            for event in log_events:
-                timestamp = event.get("timestamp", "")
-                level = event.get("level", "INFO")
-                message = event.get("message", "")
-                log_lines.append(f"[{timestamp}] {level}: {message}")
-
-            return "\n".join(log_lines)
-
-        if "logLines" in logs_data:
+            if log_events:
+                log_lines = []
+                for event in log_events:
+                    timestamp = event.get("timestamp", "")
+                    level = event.get("level", "INFO")
+                    message = event.get("message", "")
+                    log_lines.append(f"[{timestamp}] {level}: {message}")
+                result = "\n".join(log_lines)
+        elif "logLines" in logs_data:
             log_lines = logs_data["logLines"]
-            if not log_lines:
-                return ""
+            if log_lines:
+                result = "\n".join(log_lines)
 
-            return "\n".join(log_lines)
-
-        return ""
+        return result
 
 
 @dataclass
@@ -306,7 +307,7 @@ class SyncResult:
             return ab_datetime_parse(self._fetch_latest_job_info().start_time)
         except (ValueError, TypeError) as e:
             if "Invalid isoformat string" in str(e):
-                job_info_raw = api_util._make_config_api_request(
+                job_info_raw = api_util._make_config_api_request(  # noqa: SLF001
                     api_root=self.workspace.api_root,
                     path="/jobs/get",
                     json={"id": self.job_id},
@@ -347,7 +348,7 @@ class SyncResult:
                 attempt_number=i,
                 _attempt_data=attempt_data,
             )
-            for i, attempt_data in enumerate(attempts_data)
+            for i, attempt_data in enumerate(attempts_data, start=0)
         ]
 
     def raise_failure_status(
