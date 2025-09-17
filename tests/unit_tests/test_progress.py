@@ -161,6 +161,9 @@ def test_ci_environment_a_progress_style(monkeypatch):
 def test_ci_environment_b_progress_style(monkeypatch):
     """Test the style in a CI environment."""
     monkeypatch.setenv("CI", "1")
+    from airbyte._util import meta
+
+    meta.is_ci.cache_clear()
     progress = ProgressTracker(source=None, cache=None, destination=None)
     assert progress.style == ProgressStyle.PLAIN
 

@@ -35,7 +35,10 @@ def _load_dotenv_file(dotenv_path: Path | str) -> None:
 
 
 def initialize_secrets() -> None:
-    """Initialize dotenv to load environment variables from .env files."""
+    """Initialize dotenv to load environment variables from .env files.
+
+    Note: Later secret manager registrations have higher priority than earlier ones.
+    """
     # Load the .env file from the current working directory.
     envrc_path = Path.cwd() / ".envrc"
     if envrc_path.exists():

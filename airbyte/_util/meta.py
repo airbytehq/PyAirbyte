@@ -52,11 +52,7 @@ def is_mcp_mode() -> bool:
         return True
 
     script_name = get_python_script_name()
-    if script_name and "airbyte-mcp" in script_name:
-        return True
-
-    # Else, we are not running in an MCP context.
-    return False
+    return bool(script_name and "airbyte-mcp" in script_name)
 
 
 @lru_cache
