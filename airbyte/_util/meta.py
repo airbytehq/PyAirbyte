@@ -31,7 +31,6 @@ def get_colab_release_version() -> str | None:
     return None
 
 
-@lru_cache
 def is_ci() -> bool:
     return "CI" in os.environ
 
