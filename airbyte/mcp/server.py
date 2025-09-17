@@ -6,14 +6,12 @@ import sys
 
 from fastmcp import FastMCP
 
-from airbyte._util.meta import set_mcp_mode
 from airbyte.mcp._cloud_ops import register_cloud_ops_tools
 from airbyte.mcp._connector_registry import register_connector_registry_tools
 from airbyte.mcp._local_ops import register_local_ops_tools
 from airbyte.mcp._util import initialize_secrets
 
 
-set_mcp_mode()
 initialize_secrets()
 
 app: FastMCP = FastMCP("airbyte-mcp")

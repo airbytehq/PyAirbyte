@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
 import requests
+from http import HTTPStatus
 from airbyte_api import api, models
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
@@ -835,7 +836,7 @@ def _make_config_api_request(
             response.raise_for_status()
         except requests.HTTPError as ex:
             error_message = f"API request failed with status {response.status_code}"
-            if response.status_code == 403:
+            if response.status_code == HTTPStatus.FORBIDDEN:  # 403 error
                 error_message += f" (Forbidden) when accessing: {full_url}"
             raise AirbyteError(
                 message=error_message,
