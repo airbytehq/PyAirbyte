@@ -141,50 +141,39 @@ class SyncAttempt:
     connection: CloudConnection
     job_id: int
     attempt_number: int
-    _attempt_info: dict[str, Any] | None = None
+    _attempt_data: dict[str, Any] | None = None
 
     @property
     def attempt_id(self) -> int:
         """Return the attempt ID."""
-        return self._fetch_attempt_info()["attempt"]["id"]
+        return self._get_attempt_data()["id"]
 
     @property
     def status(self) -> str:
         """Return the attempt status."""
-        return self._fetch_attempt_info()["attempt"]["status"]
+        return self._get_attempt_data()["status"]
 
     @property
     def bytes_synced(self) -> int:
         """Return the number of bytes synced in this attempt."""
-        return self._fetch_attempt_info()["attempt"].get("bytesSynced", 0)
+        return self._get_attempt_data().get("bytesSynced", 0)
 
     @property
     def records_synced(self) -> int:
         """Return the number of records synced in this attempt."""
-        return self._fetch_attempt_info()["attempt"].get("recordsSynced", 0)
+        return self._get_attempt_data().get("recordsSynced", 0)
 
     @property
     def created_at(self) -> datetime:
         """Return the creation time of the attempt."""
-        timestamp = self._fetch_attempt_info()["attempt"]["createdAt"]
+        timestamp = self._get_attempt_data()["createdAt"]
         return ab_datetime_parse(timestamp)
 
-    def _fetch_attempt_info(self) -> dict[str, Any]:
-        """Fetch attempt info from Config API using lazy loading pattern."""
-        if self._attempt_info is not None:
-            return self._attempt_info
-
-        self._attempt_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
-            api_root=self.workspace.api_root,
-            path="/attempts/get_for_job",
-            json={
-                "jobId": self.job_id,
-                "attemptNumber": self.attempt_number,
-            },
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-        )
-        return self._attempt_info
+    def _get_attempt_data(self) -> dict[str, Any]:
+        """Get attempt data from the provided attempt data."""
+        if self._attempt_data is None:
+            raise ValueError("Attempt data not provided. SyncAttempt should be created via SyncResult.get_attempts().")
+        return self._attempt_data["attempt"]
 
     def get_full_log_text(self) -> str:
         """Return the complete log text for this attempt.
@@ -192,8 +181,10 @@ class SyncAttempt:
         Returns:
             String containing all log text for this attempt, with lines separated by newlines.
         """
-        attempt_info = self._fetch_attempt_info()
-        logs_data = attempt_info.get("logs")
+        if self._attempt_data is None:
+            return ""
+            
+        logs_data = self._attempt_data.get("logs")
 
         if not logs_data:
             return ""
@@ -354,8 +345,9 @@ class SyncResult:
                 connection=self.connection,
                 job_id=self.job_id,
                 attempt_number=i,
+                _attempt_data=attempt_data,
             )
-            for i in range(len(attempts_data))
+            for i, attempt_data in enumerate(attempts_data)
         ]
 
     def raise_failure_status(
