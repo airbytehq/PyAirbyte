@@ -114,40 +114,24 @@ def is_port_in_use(port):
         return s.connect_ex(("localhost", port)) == 0
 
 
-def find_free_port():
-    """Find a free port to use for PostgreSQL testing."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("", 0))
-        s.listen(1)
-        port = s.getsockname()[1]
-    return port
-
-
 @pytest.fixture(scope="session", autouse=True)
 def remove_postgres_container():
-    """Remove any existing PostgreSQL container before tests start."""
-    try:
-        client = docker.from_env()
+    if is_port_in_use(PYTEST_POSTGRES_PORT):
         try:
-            container = client.containers.get(PYTEST_POSTGRES_CONTAINER)
-            if container.status in ["running", "paused"]:
-                container.stop(timeout=10)
-            container.remove(force=True)
+            client = docker.from_env()
+            container = client.containers.get(
+                PYTEST_POSTGRES_CONTAINER,
+            )
+            container.stop()
+            container.remove()
         except docker.errors.NotFound:
             pass  # Container not found, nothing to do.
-
-        for container in client.containers.list(all=True):
-            if container.name == PYTEST_POSTGRES_CONTAINER:
-                if container.status in ["running", "paused"]:
-                    container.stop(timeout=10)
-                container.remove(force=True)
-
-    except docker.errors.DockerException:
-        pass  # Docker not running, nothing to do.
+        except docker.errors.DockerException:
+            pass  # Docker not running, nothing to do.
 
 
-def test_pg_connection(host, port) -> bool:
-    pg_url = f"postgresql://postgres:postgres@{host}:{port}/postgres"
+def test_pg_connection(host) -> bool:
+    pg_url = f"postgresql://postgres:postgres@{host}:{PYTEST_POSTGRES_PORT}/postgres"
 
     max_attempts = 120
     for attempt in range(max_attempts):
@@ -193,18 +177,9 @@ def new_postgres_db():
 
     try:
         previous_container = client.containers.get(PYTEST_POSTGRES_CONTAINER)
-        if previous_container.status in ["running", "paused"]:
-            previous_container.stop(timeout=10)
-        previous_container.remove(force=True)
+        previous_container.remove()
     except docker.errors.NotFound:
         pass
-
-    postgres_port = PYTEST_POSTGRES_PORT
-    if is_port_in_use(postgres_port):
-        postgres_port = find_free_port()
-        logger.info(
-            f"Port {PYTEST_POSTGRES_PORT} is in use, using port {postgres_port} instead"
-        )
 
     postgres_is_running = False
     postgres = client.containers.run(
@@ -215,9 +190,8 @@ def new_postgres_db():
             "POSTGRES_PASSWORD": "postgres",
             "POSTGRES_DB": "postgres",
         },
-        ports={"5432/tcp": postgres_port},
+        ports={"5432/tcp": PYTEST_POSTGRES_PORT},
         detach=True,
-        remove=False,
     )
 
     attempts = 10
@@ -235,18 +209,18 @@ def new_postgres_db():
 
     final_host = None
     if host := os.environ.get("DOCKER_HOST_NAME"):
-        final_host = host if test_pg_connection(host, postgres_port) else None
+        final_host = host if test_pg_connection(host) else None
     else:
         # Try to connect to the database using localhost and the docker host IP
         for host in ["127.0.0.1", "localhost", "host.docker.internal", "172.17.0.1"]:
-            if test_pg_connection(host, postgres_port):
+            if test_pg_connection(host):
                 final_host = host
                 break
 
     if final_host is None:
         raise Exception(f"Failed to connect to the PostgreSQL database on host {host}.")
 
-    yield (final_host, postgres_port)
+    yield final_host
 
     # Stop and remove the container after the tests are done
     postgres.stop()
@@ -254,15 +228,14 @@ def new_postgres_db():
 
 
 @pytest.fixture(scope="function")
-def new_postgres_cache(new_postgres_db):
+def new_postgres_cache(new_postgres_db: str):
     """Fixture to return a fresh Postgres cache.
 
     Each test that uses this fixture will get a unique table prefix.
     """
-    host, port = new_postgres_db
     config = PostgresCache(
-        host=host,
-        port=port,
+        host=new_postgres_db,
+        port=PYTEST_POSTGRES_PORT,
         username="postgres",
         password="postgres",
         database="postgres",
