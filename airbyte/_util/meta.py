@@ -47,11 +47,7 @@ def set_mcp_mode() -> None:
 
 def is_mcp_mode() -> bool:
     """Return True if running in MCP (Model Context Protocol) mode."""
-    if _MCP_MODE_ENABLED:
-        return True
-
-    script_name = get_python_script_name()
-    return bool(script_name and "airbyte-mcp" in script_name)
+    return _MCP_MODE_ENABLED
 
 
 @lru_cache
