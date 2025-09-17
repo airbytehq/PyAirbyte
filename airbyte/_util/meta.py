@@ -76,11 +76,11 @@ def is_colab() -> bool:
 def is_interactive() -> bool:
     """Return True if running in an interactive environment where we can prompt users for input."""
     try:
-        if is_colab() or is_jupyter():
-            return True
-
         if is_ci() or is_mcp_mode():
             return False
+
+        if is_colab() or is_jupyter():
+            return True
 
         # No special modes detected. Return result based on whether stdin and stdout are ttys.
         return bool(
