@@ -27,7 +27,9 @@ def list_connectors(
         Field(description="Filter connectors by type ('source' or 'destination')."),
     ] = None,
     install_types: Annotated[
-        set[Literal["java", "python", "yaml", "docker"]] | None,
+        Literal["java", "python", "yaml", "docker"]
+        | set[Literal["java", "python", "yaml", "docker"]]
+        | None,
         Field(
             description="""
               Filter connectors by install type.
