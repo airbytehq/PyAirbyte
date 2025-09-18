@@ -3,9 +3,6 @@
 
 from __future__ import annotations
 
-import sys
-from typing import TYPE_CHECKING
-
 from airbyte._util import meta
 from airbyte.secrets.base import SecretManager, SecretSourceEnum
 from airbyte.secrets.env_vars import DotenvSecretManager, EnvVarSecretManager
