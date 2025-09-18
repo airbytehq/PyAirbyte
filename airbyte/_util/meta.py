@@ -16,7 +16,6 @@ from platform import python_implementation, python_version, system
 
 import requests
 
-from airbyte._util import meta
 from airbyte.version import get_version
 
 
@@ -45,7 +44,7 @@ def set_mcp_mode() -> None:
     proper detection and prevent interactive prompts.
     """
     print(
-        f"Running in MCP mode: PyAirbyte MCP v{get_version()} (Python v{meta.python_version()})",
+        f"Running in MCP mode: PyAirbyte MCP v{get_version()} (Python v{python_version()})",
         file=sys.stderr,
     )
     global _MCP_MODE_ENABLED
