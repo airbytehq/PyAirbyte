@@ -1,8 +1,8 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Internal utility functions for MCP."""
-
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, overload
 
