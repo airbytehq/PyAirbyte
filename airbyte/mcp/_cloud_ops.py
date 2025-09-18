@@ -18,7 +18,7 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
-from airbyte.mcp._util import resolve_config
+from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -62,7 +62,10 @@ def deploy_source_to_cloud(
     Airbyte Cloud API.
     """
     try:
-        source = get_source(source_connector_name)
+        source = get_source(
+            source_connector_name,
+            install_if_missing=False,
+        )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
@@ -117,7 +120,10 @@ def deploy_destination_to_cloud(
     Airbyte Cloud API.
     """
     try:
-        destination = get_destination(destination_connector_name)
+        destination = get_destination(
+            destination_connector_name,
+            install_if_missing=False,
+        )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
@@ -156,8 +162,14 @@ def create_connection_on_cloud(
         Field(description="The ID of the deployed destination."),
     ],
     selected_streams: Annotated[
-        list[str],
-        Field(description="The selected stream names to sync within the connection."),
+        str | list[str],
+        Field(
+            description=(
+                "The selected stream names to sync within the connection. "
+                "Must be an explicit stream name or list of streams. "
+                "Cannot be empty or '*'."
+            )
+        ),
     ],
     table_prefix: Annotated[
         str | None,
@@ -170,13 +182,14 @@ def create_connection_on_cloud(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams)
     try:
         workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_connection = workspace.deploy_connection(
             connection_name=connection_name,
             source=source_id,
             destination=destination_id,
-            selected_streams=selected_streams,
+            selected_streams=resolved_streams_list,
             table_prefix=table_prefix,
         )
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
+from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.sources import get_available_connectors
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 from airbyte.sources.util import get_source
@@ -27,7 +28,9 @@ def list_connectors(
         Field(description="Filter connectors by type ('source' or 'destination')."),
     ] = None,
     install_types: Annotated[
-        set[Literal["java", "python", "yaml", "docker"]] | None,
+        Literal["java", "python", "yaml", "docker"]
+        | list[Literal["java", "python", "yaml", "docker"]]
+        | None,
         Field(
             description="""
               Filter connectors by install type.
@@ -54,14 +57,19 @@ def list_connectors(
         List of connector names.
     """
     connectors: list[str] = get_available_connectors()
-    if install_types:
+
+    install_types_list: list[str] | None = resolve_list_of_strings(
+        install_types,  # type: ignore[arg-type]  # Type check doesn't understand literal is str
+    )
+
+    if install_types_list:
         # If install_types is provided, filter connectors based on the specified install types.
         connectors = [
             connector
             for connector in connectors
             if any(
                 connector in get_available_connectors(install_type=install_type)
-                for install_type in install_types
+                for install_type in install_types_list
             )
         ]
 
