@@ -120,7 +120,10 @@ def deploy_destination_to_cloud(
     Airbyte Cloud API.
     """
     try:
-        destination = get_destination(destination_connector_name)
+        destination = get_destination(
+            destination_connector_name,
+            install_if_missing=False,
+        )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
