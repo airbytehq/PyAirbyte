@@ -62,7 +62,10 @@ def deploy_source_to_cloud(
     Airbyte Cloud API.
     """
     try:
-        source = get_source(source_connector_name)
+        source = get_source(
+            source_connector_name,
+            install_if_missing=False,
+        )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
