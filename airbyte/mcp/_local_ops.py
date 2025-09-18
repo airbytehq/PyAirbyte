@@ -1,6 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Local MCP operations."""
-
 import sys
 import traceback
 from itertools import islice
@@ -13,7 +12,7 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
-from airbyte.mcp._util import resolve_config
+from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
@@ -47,6 +46,8 @@ will be layered on top of the non-secret config.
 def _get_mcp_source(
     connector_name: str,
     override_execution_mode: Literal["auto", "docker", "python", "yaml"] = "auto",
+    *,
+    install_if_missing: bool = True,
 ) -> Source:
     """Get the MCP source for a connector."""
     if override_execution_mode == "auto" and is_docker_installed():
@@ -84,7 +85,9 @@ def _get_mcp_source(
         )
 
     # Ensure installed:
-    source.executor.ensure_installation()
+    if install_if_missing:
+        source.executor.ensure_installation()
+
     return source
 
 
@@ -158,12 +161,10 @@ def list_connector_config_secrets(
     secrets_names: list[str] = []
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, GoogleGSMSecretManager):
-            secrets_names.extend(
-                [
-                    secret_handle.secret_name.split("/")[-1]
-                    for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
-                ]
-            )
+            secrets_names.extend([
+                secret_handle.secret_name.split("/")[-1]
+                for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
+            ])
 
     return secrets_names
 
@@ -358,6 +359,7 @@ def get_stream_previews(
         connector_name=source_name,
         override_execution_mode=override_execution_mode,
     )
+
     config_dict = resolve_config(
         config=config,
         config_file=config_file,
@@ -366,15 +368,9 @@ def get_stream_previews(
     )
     source.set_config(config_dict)
 
-    streams_param: list[str] | Literal["*"] | None
-    if streams == "*":
+    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(streams)
+    if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
         streams_param = "*"
-    elif isinstance(streams, str) and streams != "*":
-        streams_param = [streams]
-    elif isinstance(streams, list):
-        streams_param = streams
-    else:
-        streams_param = None
 
     try:
         samples_result = source.get_samples(
@@ -439,6 +435,11 @@ def sync_source_to_cache(
     )
     source.set_config(config_dict)
     cache = get_default_cache()
+
+    streams = resolve_list_of_strings(streams)
+    if streams and len(streams) == 1 and streams[0] in {"*", "suggested"}:
+        # Float '*' and 'suggested' to the top-level for special processing:
+        streams = streams[0]
 
     if isinstance(streams, str) and streams == "suggested":
         streams = "*"  # Default to all streams if 'suggested' is not otherwise specified.

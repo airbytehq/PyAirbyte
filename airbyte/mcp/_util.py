@@ -4,7 +4,7 @@
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 import dotenv
 import yaml
@@ -68,6 +68,62 @@ def initialize_secrets() -> None:
     # Make sure we disable the prompt source in non-interactive environments.
     if not is_interactive():
         disable_secret_source(SecretSourceEnum.PROMPT)
+
+
+# Hint: Null result if input is Null
+@overload
+def resolve_list_of_strings(value: None) -> None: ...
+
+
+# Hint: Non-null result if input is non-null
+@overload
+def resolve_list_of_strings(value: str | list[str] | set[str]) -> list[str]: ...
+
+
+def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[str] | None:
+    """Resolve a string or list of strings to a list of strings.
+
+    This method will handle three types of input:
+
+    1. A list of strings (e.g., ["stream1", "stream2"]) will be returned as-is.
+    2. None or empty input will return None.
+    3. A single CSV string (e.g., "stream1,stream2") will be split into a list.
+    4. A JSON string (e.g., '["stream1", "stream2"]') will be parsed into a list.
+    5. If the input is empty or None, an empty list will be returned.
+
+    Args:
+        value: A string or list of strings.
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return value
+
+    if isinstance(value, set):
+        return list(value)
+
+    if not isinstance(value, str):
+        raise TypeError(
+            "Expected a string, list of strings, a set of strings, or None. "
+            f"Got '{type(value).__name__}': {value}"
+        )
+
+    value = value.strip()
+    if not value:
+        return []
+
+    if value.startswith("[") and value.endswith("]"):
+        # Try to parse as JSON array:
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+                return parsed
+        except json.JSONDecodeError as ex:
+            raise ValueError(f"Invalid JSON array: {value}") from ex
+
+    # Fallback to CSV split:
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def resolve_config(  # noqa: PLR0912
