@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
+
 from typing import Annotated
 
 from fastmcp import FastMCP

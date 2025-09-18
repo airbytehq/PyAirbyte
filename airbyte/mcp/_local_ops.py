@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Local MCP operations."""
+
 import sys
 import traceback
 from itertools import islice
@@ -161,10 +162,12 @@ def list_connector_config_secrets(
     secrets_names: list[str] = []
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, GoogleGSMSecretManager):
-            secrets_names.extend([
-                secret_handle.secret_name.split("/")[-1]
-                for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
-            ])
+            secrets_names.extend(
+                [
+                    secret_handle.secret_name.split("/")[-1]
+                    for secret_handle in secrets_mgr.fetch_connector_secrets(connector_name)
+                ]
+            )
 
     return secrets_names
 
