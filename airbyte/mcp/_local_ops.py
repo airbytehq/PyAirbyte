@@ -387,7 +387,10 @@ def get_stream_previews(
     streams: Annotated[
         list[str] | str | None,
         Field(
-            description="The streams to get previews for. Use '*' for all streams, or None for selected streams.",
+            description=(
+                "The streams to get previews for. "
+                "Use '*' for all streams, or None for selected streams."
+            ),
             default=None,
         ),
     ],
