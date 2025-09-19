@@ -86,7 +86,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "2.0.1"
+        poetry-version: "2.2.0"
 
     # Run `poetry lock`
 
