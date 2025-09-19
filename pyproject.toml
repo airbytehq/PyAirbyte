@@ -205,6 +205,7 @@ mcp-serve-http = { cmd = "poetry run python -c \"from airbyte.mcp.server import 
 mcp-serve-sse = { cmd = "poetry run python -c \"from airbyte.mcp.server import app; app.run(transport='sse', host='127.0.0.1', port=8000)\"", help = "Start the MCP server with SSE transport" }
 mcp-inspect = { cmd = "poetry run fastmcp inspect airbyte/mcp/server.py:app", help = "Inspect MCP tools and resources (supports --tools, --health, etc.)" }
 mcp-tool-test = { cmd = "poetry run python bin/test_mcp_tool.py", help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'" }
+cloud-cleanup = { cmd = "poetry run python bin/cleanup_cloud_artifacts.py", help = "Clean up stale cloud artifacts from integration tests: poe cloud-cleanup [--dry-run=false]" }
 
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
