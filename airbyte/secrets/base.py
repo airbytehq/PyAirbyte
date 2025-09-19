@@ -30,6 +30,10 @@ class SecretSourceEnum(str, Enum):
 
     PROMPT = "prompt"
 
+    def __str__(self) -> str:
+        """Return the string representation of the enum value."""
+        return self.value
+
 
 class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of UserStr
     """A string that represents a secret.

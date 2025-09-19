@@ -56,7 +56,7 @@ jobs:
 
     # Job-specifc step(s):
     - name: Check code format
-      run: poetry run ruff format --check .
+      run: poetry run ruff format --diff .
 
   mypy-check:
     name: MyPy Check
