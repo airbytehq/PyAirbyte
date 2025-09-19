@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
-from airbyte.mcp._util import resolve_config
+from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
@@ -47,6 +47,8 @@ will be layered on top of the non-secret config.
 def _get_mcp_source(
     connector_name: str,
     override_execution_mode: Literal["auto", "docker", "python", "yaml"] = "auto",
+    *,
+    install_if_missing: bool = True,
 ) -> Source:
     """Get the MCP source for a connector."""
     if override_execution_mode == "auto" and is_docker_installed():
@@ -84,7 +86,9 @@ def _get_mcp_source(
         )
 
     # Ensure installed:
-    source.executor.ensure_installation()
+    if install_if_missing:
+        source.executor.ensure_installation()
+
     return source
 
 
@@ -96,20 +100,32 @@ def validate_connector_config(
     ],
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the connector as a dict object or JSON string."),
-    ] = None,
+        Field(
+            description="The configuration for the connector as a dict object or JSON string.",
+            default=None,
+        ),
+    ],
     config_file: Annotated[
         str | Path | None,
-        Field(description="Path to a YAML or JSON file containing the connector configuration."),
-    ] = None,
+        Field(
+            description="Path to a YAML or JSON file containing the connector configuration.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
-        Field(description="Optionally override the execution method to use for the connector."),
-    ] = "auto",
+        Field(
+            description="Optionally override the execution method to use for the connector.",
+            default="auto",
+        ),
+    ],
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
 
@@ -221,20 +237,32 @@ def get_source_stream_json_schema(
     ],
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the source connector as a dict or JSON string."),
-    ] = None,
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
+    ],
     config_file: Annotated[
         str | Path | None,
-        Field(description="Path to a YAML or JSON file containing the source connector config."),
-    ] = None,
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
-        Field(description="Optionally override the execution method to use for the connector."),
-    ] = "auto",
+        Field(
+            description="Optionally override the execution method to use for the connector.",
+            default="auto",
+        ),
+    ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
     source: Source = _get_mcp_source(
@@ -259,16 +287,25 @@ def read_source_stream_records(
     ],
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the source connector as a dict or JSON string."),
-    ] = None,
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
+    ],
     config_file: Annotated[
         str | Path | None,
-        Field(description="Path to a YAML or JSON file containing the source connector config."),
-    ] = None,
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     *,
     stream_name: Annotated[
         str,
@@ -276,12 +313,18 @@ def read_source_stream_records(
     ],
     max_records: Annotated[
         int,
-        Field(description="The maximum number of records to read."),
-    ] = 1000,
+        Field(
+            description="The maximum number of records to read.",
+            default=1000,
+        ),
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
-        Field(description="Optionally override the execution method to use for the connector."),
-    ] = "auto",
+        Field(
+            description="Optionally override the execution method to use for the connector.",
+            default="auto",
+        ),
+    ],
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
@@ -322,31 +365,49 @@ def get_stream_previews(
     ],
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the source connector as a dict or JSON string."),
-    ] = None,
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
+    ],
     config_file: Annotated[
         str | Path | None,
-        Field(description="Path to a YAML or JSON file containing the source connector config."),
-    ] = None,
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     streams: Annotated[
         list[str] | str | None,
         Field(
-            description="The streams to get previews for. Use '*' for all streams, "
-            "or None for selected streams."
+            description=(
+                "The streams to get previews for. "
+                "Use '*' for all streams, or None for selected streams."
+            ),
+            default=None,
         ),
-    ] = None,
+    ],
     limit: Annotated[
         int,
-        Field(description="The maximum number of sample records to return per stream."),
-    ] = 10,
+        Field(
+            description="The maximum number of sample records to return per stream.",
+            default=10,
+        ),
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
-        Field(description="Optionally override the execution method to use for the connector."),
-    ] = "auto",
+        Field(
+            description="Optionally override the execution method to use for the connector.",
+            default="auto",
+        ),
+    ],
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
 
@@ -358,6 +419,7 @@ def get_stream_previews(
         connector_name=source_name,
         override_execution_mode=override_execution_mode,
     )
+
     config_dict = resolve_config(
         config=config,
         config_file=config_file,
@@ -366,15 +428,9 @@ def get_stream_previews(
     )
     source.set_config(config_dict)
 
-    streams_param: list[str] | Literal["*"] | None
-    if streams == "*":
+    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(streams)
+    if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
         streams_param = "*"
-    elif isinstance(streams, str) and streams != "*":
-        streams_param = [streams]
-    elif isinstance(streams, list):
-        streams_param = streams
-    else:
-        streams_param = None
 
     try:
         samples_result = source.get_samples(
@@ -407,24 +463,39 @@ def sync_source_to_cache(
     ],
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the source connector as a dict or JSON string."),
-    ] = None,
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
+    ],
     config_file: Annotated[
         str | Path | None,
-        Field(description="Path to a YAML or JSON file containing the source connector config."),
-    ] = None,
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     streams: Annotated[
         list[str] | str,
-        Field(description="The streams to sync."),
-    ] = "suggested",
+        Field(
+            description="The streams to sync.",
+            default="suggested",
+        ),
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
-        Field(description="Optionally override the execution method to use for the connector."),
-    ] = "auto",
+        Field(
+            description="Optionally override the execution method to use for the connector.",
+            default="auto",
+        ),
+    ],
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
     source: Source = _get_mcp_source(
@@ -439,6 +510,11 @@ def sync_source_to_cache(
     )
     source.set_config(config_dict)
     cache = get_default_cache()
+
+    streams = resolve_list_of_strings(streams)
+    if streams and len(streams) == 1 and streams[0] in {"*", "suggested"}:
+        # Float '*' and 'suggested' to the top-level for special processing:
+        streams = streams[0]
 
     if isinstance(streams, str) and streams == "suggested":
         streams = "*"  # Default to all streams if 'suggested' is not otherwise specified.
@@ -543,8 +619,11 @@ def run_sql_query(
     ],
     max_records: Annotated[
         int,
-        Field(description="Maximum number of records to return."),
-    ] = 1000,
+        Field(
+            description="Maximum number of records to return.",
+            default=1000,
+        ),
+    ],
 ) -> list[dict[str, Any]]:
     """Run a SQL query against the default cache.
 

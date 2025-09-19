@@ -16,6 +16,8 @@ from platform import python_implementation, python_version, system
 
 import requests
 
+from airbyte.version import get_version
+
 
 _MCP_MODE_ENABLED: bool = False
 """Whether we are running in MCP (Model Context Protocol) mode."""
@@ -41,6 +43,10 @@ def set_mcp_mode() -> None:
     This should be called early in MCP server initialization to ensure
     proper detection and prevent interactive prompts.
     """
+    print(
+        f"Running in MCP mode: PyAirbyte MCP v{get_version()} (Python v{python_version()})",
+        file=sys.stderr,
+    )
     global _MCP_MODE_ENABLED
     _MCP_MODE_ENABLED = True
 
