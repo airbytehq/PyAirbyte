@@ -101,8 +101,17 @@ class CloudConnector(abc.ABC):
 
     @property
     def connector_url(self) -> str:
-        """Get the URL of the source connector."""
-        return f"{self.workspace.workspace_url}/{self.connector_type}s/{self.connector_id}"
+        """Get the web URL of the source connector."""
+        return f"{self.workspace.workspace_url}/{self.connector_type}/{self.connector_id}"
+
+    def __repr__(self) -> str:
+        """String representation of the connector."""
+        return (
+            f"CloudConnector(type={self.connector_type!s}, "
+            f"workspace_id={self.workspace.workspace_id}, "
+            f"connector_id={self.connector_id}, "
+            f"connector_url={self.connector_url})"
+        )
 
     def permanently_delete(self) -> None:
         """Permanently delete the connector."""

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
+from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.sources import get_available_connectors
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
 from airbyte.sources.util import get_source
@@ -20,33 +21,44 @@ from airbyte.sources.util import get_source
 def list_connectors(
     keyword_filter: Annotated[
         str | None,
-        Field(description="Filter connectors by keyword."),
-    ] = None,
+        Field(
+            description="Filter connectors by keyword.",
+            default=None,
+        ),
+    ],
     connector_type_filter: Annotated[
         Literal["source", "destination"] | None,
-        Field(description="Filter connectors by type ('source' or 'destination')."),
-    ] = None,
-    install_types: Annotated[
-        set[Literal["java", "python", "yaml", "docker"]] | None,
         Field(
-            description="""
-              Filter connectors by install type.
-              These are not mutually exclusive:
-              - "python": Connectors that can be installed as Python packages.
-              - "yaml": Connectors that can be installed simply via YAML download.
-                These connectors are the fastest to install and run, as they do not require any
-                additional dependencies.
-              - "java": Connectors that can only be installed via Java. Since PyAirbyte does not
-                currently ship with a JVM, these connectors will be run via Docker instead.
-                In environments where Docker is not available, these connectors may not be
-                runnable.
-              - "docker": Connectors that can be installed via Docker. Note that all connectors
-                can be run in Docker, so this filter should generally return the same results as
-                not specifying a filter.
-              If no install types are specified, all connectors will be returned.
-              """
+            description="Filter connectors by type ('source' or 'destination').",
+            default=None,
         ),
-    ] = None,
+    ],
+    install_types: Annotated[
+        Literal["java", "python", "yaml", "docker"]
+        | list[Literal["java", "python", "yaml", "docker"]]
+        | None,
+        Field(
+            description=(
+                """
+                Filter connectors by install type.
+                These are not mutually exclusive:
+                - "python": Connectors that can be installed as Python packages.
+                - "yaml": Connectors that can be installed simply via YAML download.
+                    These connectors are the fastest to install and run, as they do not require any
+                    additional dependencies.
+                - "java": Connectors that can only be installed via Java. Since PyAirbyte does not
+                    currently ship with a JVM, these connectors will be run via Docker instead.
+                    In environments where Docker is not available, these connectors may not be
+                    runnable.
+                - "docker": Connectors that can be installed via Docker. Note that all connectors
+                    can be run in Docker, so this filter should generally return the same results as
+                    not specifying a filter.
+                If no install types are specified, all connectors will be returned.
+                """
+            ),
+            default=None,
+        ),
+    ],
 ) -> list[str]:
     """List available Airbyte connectors with optional filtering.
 
@@ -54,14 +66,19 @@ def list_connectors(
         List of connector names.
     """
     connectors: list[str] = get_available_connectors()
-    if install_types:
+
+    install_types_list: list[str] | None = resolve_list_of_strings(
+        install_types,  # type: ignore[arg-type]  # Type check doesn't understand literal is str
+    )
+
+    if install_types_list:
         # If install_types is provided, filter connectors based on the specified install types.
         connectors = [
             connector
             for connector in connectors
             if any(
                 connector in get_available_connectors(install_type=install_type)
-                for install_type in install_types
+                for install_type in install_types_list
             )
         ]
 

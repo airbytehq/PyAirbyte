@@ -16,6 +16,11 @@ from platform import python_implementation, python_version, system
 
 import requests
 
+from airbyte.version import get_version
+
+
+_MCP_MODE_ENABLED: bool = False
+"""Whether we are running in MCP (Model Context Protocol) mode."""
 
 COLAB_SESSION_URL = "http://172.28.0.12:9000/api/sessions"
 """URL to get the current Google Colab session information."""
@@ -30,6 +35,25 @@ def get_colab_release_version() -> str | None:
 
 def is_ci() -> bool:
     return "CI" in os.environ
+
+
+def set_mcp_mode() -> None:
+    """Set flag indicating we are running in MCP (Model Context Protocol) mode.
+
+    This should be called early in MCP server initialization to ensure
+    proper detection and prevent interactive prompts.
+    """
+    print(
+        f"Running in MCP mode: PyAirbyte MCP v{get_version()} (Python v{python_version()})",
+        file=sys.stderr,
+    )
+    global _MCP_MODE_ENABLED
+    _MCP_MODE_ENABLED = True
+
+
+def is_mcp_mode() -> bool:
+    """Return True if running in MCP (Model Context Protocol) mode."""
+    return _MCP_MODE_ENABLED
 
 
 @lru_cache
@@ -55,15 +79,16 @@ def is_colab() -> bool:
     return bool(get_colab_release_version())
 
 
-@lru_cache
 def is_interactive() -> bool:
+    """Return True if running in an interactive environment where we can prompt users for input."""
     try:
+        if is_ci() or is_mcp_mode():
+            return False
+
         if is_colab() or is_jupyter():
             return True
 
-        if is_ci():
-            return False
-
+        # No special modes detected. Return result based on whether stdin and stdout are ttys.
         return bool(
             sys.__stdin__ and sys.__stdin__.isatty() and sys.__stdout__ and sys.__stdout__.isatty()
         )

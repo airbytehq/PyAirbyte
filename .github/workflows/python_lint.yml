@@ -20,7 +20,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "2.0.1"
+        poetry-version: "2.2.0"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -28,7 +28,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "2.0.1"
+        poetry-version: "2.2.0"
     - name: Install dependencies
       run: poetry install
 
@@ -50,13 +50,13 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "2.0.1"
+        poetry-version: "2.2.0"
     - name: Install dependencies
       run: poetry install
 
     # Job-specifc step(s):
     - name: Check code format
-      run: poetry run ruff format --check .
+      run: poetry run ruff format --diff .
 
   mypy-check:
     name: MyPy Check
@@ -68,7 +68,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "2.0.1"
+        poetry-version: "2.2.0"
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -76,7 +76,7 @@ jobs:
     - name: Set up Poetry
       uses: Gr1N/setup-poetry@v9
       with:
-        poetry-version: "2.0.1"
+        poetry-version: "2.2.0"
     - name: Install dependencies
       run: poetry install
 

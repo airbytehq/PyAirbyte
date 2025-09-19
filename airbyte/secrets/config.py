@@ -3,18 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from airbyte._util import meta
-from airbyte.secrets.base import SecretManager
+from airbyte.secrets.base import SecretManager, SecretSourceEnum
 from airbyte.secrets.env_vars import DotenvSecretManager, EnvVarSecretManager
 from airbyte.secrets.google_colab import ColabSecretManager
 from airbyte.secrets.prompt import SecretsPrompt
-
-
-if TYPE_CHECKING:
-    from airbyte.secrets.base import SecretSourceEnum
-    from airbyte.secrets.custom import CustomSecretManager
 
 
 _SECRETS_SOURCES: list[SecretManager] = []
@@ -44,7 +37,7 @@ _ = _get_secret_sources()
 
 
 def register_secret_manager(
-    secret_manager: CustomSecretManager,
+    secret_manager: SecretManager,
     *,
     as_backup: bool = False,
     replace_existing: bool = False,
@@ -77,6 +70,6 @@ def disable_secret_source(source: SecretManager | SecretSourceEnum) -> None:
         return
 
     # Else, remove by name
-    for s in list(_SECRETS_SOURCES).copy():
-        if s.name == str(source):
-            _SECRETS_SOURCES.remove(s)
+    for existing_source in list(_SECRETS_SOURCES).copy():
+        if str(existing_source) == str(source):
+            _SECRETS_SOURCES.remove(existing_source)
