@@ -21,35 +21,44 @@ from airbyte.sources.util import get_source
 def list_connectors(
     keyword_filter: Annotated[
         str | None,
-        Field(description="Filter connectors by keyword."),
-    ] = None,
+        Field(
+            description="Filter connectors by keyword.",
+            default=None,
+        ),
+    ],
     connector_type_filter: Annotated[
         Literal["source", "destination"] | None,
-        Field(description="Filter connectors by type ('source' or 'destination')."),
-    ] = None,
+        Field(
+            description="Filter connectors by type ('source' or 'destination').",
+            default=None,
+        ),
+    ],
     install_types: Annotated[
         Literal["java", "python", "yaml", "docker"]
         | list[Literal["java", "python", "yaml", "docker"]]
         | None,
         Field(
-            description="""
-              Filter connectors by install type.
-              These are not mutually exclusive:
-              - "python": Connectors that can be installed as Python packages.
-              - "yaml": Connectors that can be installed simply via YAML download.
-                These connectors are the fastest to install and run, as they do not require any
-                additional dependencies.
-              - "java": Connectors that can only be installed via Java. Since PyAirbyte does not
-                currently ship with a JVM, these connectors will be run via Docker instead.
-                In environments where Docker is not available, these connectors may not be
-                runnable.
-              - "docker": Connectors that can be installed via Docker. Note that all connectors
-                can be run in Docker, so this filter should generally return the same results as
-                not specifying a filter.
-              If no install types are specified, all connectors will be returned.
-              """
+            description=(
+                """
+                Filter connectors by install type.
+                These are not mutually exclusive:
+                - "python": Connectors that can be installed as Python packages.
+                - "yaml": Connectors that can be installed simply via YAML download.
+                    These connectors are the fastest to install and run, as they do not require any
+                    additional dependencies.
+                - "java": Connectors that can only be installed via Java. Since PyAirbyte does not
+                    currently ship with a JVM, these connectors will be run via Docker instead.
+                    In environments where Docker is not available, these connectors may not be
+                    runnable.
+                - "docker": Connectors that can be installed via Docker. Note that all connectors
+                    can be run in Docker, so this filter should generally return the same results as
+                    not specifying a filter.
+                If no install types are specified, all connectors will be returned.
+                """
+            ),
+            default=None,
         ),
-    ] = None,
+    ],
 ) -> list[str]:
     """List available Airbyte connectors with optional filtering.
 
