@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import os
-import sys
 from pathlib import Path
 
 
@@ -43,12 +42,17 @@ def _try_create_dir_if_missing(path: Path, desc: str = "specified") -> Path:
     try:
         if resolved_path.exists():
             if not resolved_path.is_dir():
-                logging.warning("The %s path exists but is not a directory: '%s'", desc, resolved_path)
+                logging.warning(
+                    "The %s path exists but is not a directory: '%s'", desc, resolved_path
+                )
             return resolved_path
         resolved_path.mkdir(parents=True, exist_ok=True)
     except Exception as ex:
-        logging.warning("Could not auto-create missing %s directory at '%s': %s", desc, resolved_path, ex)
+        logging.warning(
+            "Could not auto-create missing %s directory at '%s': %s", desc, resolved_path, ex
+        )
     return resolved_path
+
 
 DEFAULT_PROJECT_DIR: Path = _try_create_dir_if_missing(
     Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute(),
