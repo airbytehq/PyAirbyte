@@ -4,11 +4,11 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
-
 
 AB_EXTRACTED_AT_COLUMN = "_airbyte_extracted_at"
 """A column that stores the timestamp when the record was extracted."""
@@ -36,8 +36,38 @@ AB_INTERNAL_COLUMNS = {
 }
 """A set of internal columns that are reserved for PyAirbyte's internal use."""
 
-DEFAULT_PROJECT_DIR: Path = (
-    Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute()
+
+def _try_create_dir_if_missing(
+    path: Path,
+    desc: str = "specified",
+) -> Path:
+    """Try to create a directory if it does not exist."""
+    if not path:
+        return path
+
+    resolved_path = path.resolve().absolute()
+    if not resolved_path.exists():
+        if resolved_path.name == Path().cwd().name:
+            # Don't try to create the current working directory.
+            return resolved_path
+        try:
+            resolved_path.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+        except Exception as ex:
+            print(
+                f"Warning: The {desc} dir appears to be missing and could "
+                f"not be created automatically '{resolved_path}': {ex}",
+                file=sys.stderr,
+            )
+
+    return resolved_path
+
+
+DEFAULT_PROJECT_DIR: Path = _try_create_dir_if_missing(
+    Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute(),
+    desc="project",
 )
 """Default project directory.
 
@@ -47,7 +77,23 @@ If not set, defaults to the current working directory.
 
 This serves as the parent directory for both cache and install directories when not explicitly
 configured.
+
+If a path is specified that does not yet exist, PyAirbyte will attempt to create it.
 """
+
+
+DEFAULT_INSTALL_DIR: Path = _try_create_dir_if_missing(
+    Path(os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR).expanduser().absolute(),
+    desc="install",
+)
+"""Default install directory for connectors.
+
+If not set, defaults to `DEFAULT_PROJECT_DIR` (`AIRBYTE_PROJECT_DIR` env var) or the current
+working directory if neither is set.
+
+If a path is specified that does not yet exist, PyAirbyte will attempt to create it.
+"""
+
 
 DEFAULT_CACHE_ROOT: Path = (
     (Path(os.getenv("AIRBYTE_CACHE_ROOT", "") or (DEFAULT_PROJECT_DIR / ".cache")))
@@ -68,16 +114,6 @@ DEFAULT_CACHE_SCHEMA_NAME = "airbyte_raw"
 
 Specific caches may override this value with a different schema name.
 """
-
-DEFAULT_INSTALL_DIR: Path = (
-    Path(os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR).expanduser().absolute()
-)
-"""Default install directory for connectors.
-
-If not set, defaults to `DEFAULT_PROJECT_DIR` (`AIRBYTE_PROJECT_DIR` env var) or the current
-working directory if neither is set.
-"""
-
 
 DEFAULT_GOOGLE_DRIVE_MOUNT_PATH = "/content/drive"
 """Default path to mount Google Drive in Google Colab environments."""
