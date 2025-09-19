@@ -44,16 +44,25 @@ def deploy_source_to_cloud(
     *,
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the source connector."),
-    ] = None,
+        Field(
+            description="The configuration for the source connector.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     unique: Annotated[
         bool,
-        Field(description="Whether to require a unique name."),
-    ] = True,
+        Field(
+            description="Whether to require a unique name.",
+            default=True,
+        ),
+    ],
 ) -> str:
     """Deploy a source connector to Airbyte Cloud.
 
@@ -102,16 +111,25 @@ def deploy_destination_to_cloud(
     *,
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the destination connector."),
-    ] = None,
+        Field(
+            description="The configuration for the destination connector.",
+            default=None,
+        ),
+    ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ] = None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
     unique: Annotated[
         bool,
-        Field(description="Whether to require a unique name."),
-    ] = True,
+        Field(
+            description="Whether to require a unique name.",
+            default=True,
+        ),
+    ],
 ) -> str:
     """Deploy a destination connector to Airbyte Cloud.
 
@@ -173,8 +191,11 @@ def create_connection_on_cloud(
     ],
     table_prefix: Annotated[
         str | None,
-        Field(description="Optional table prefix to use when syncing to the destination."),
-    ] = None,
+        Field(
+            description="Optional table prefix to use when syncing to the destination.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
@@ -212,12 +233,18 @@ def run_cloud_sync(
     *,
     wait: Annotated[
         bool,
-        Field(description="Whether to wait for the sync to complete."),
-    ] = True,
+        Field(
+            description="Whether to wait for the sync to complete.",
+            default=True,
+        ),
+    ],
     wait_timeout: Annotated[
         int,
-        Field(description="Maximum time to wait for sync completion (seconds)."),
-    ] = 300,
+        Field(
+            description="Maximum time to wait for sync completion (seconds).",
+            default=300,
+        ),
+    ],
 ) -> str:
     """Run a sync job on Airbyte Cloud.
 
@@ -311,8 +338,11 @@ def get_cloud_sync_status(
     ],
     job_id: Annotated[
         int | None,
-        Field(description="Optional job ID. If not provided, the latest job will be used."),
-    ] = None,
+        Field(
+            description="Optional job ID. If not provided, the latest job will be used.",
+            default=None,
+        ),
+    ],
 ) -> JobStatusEnum | None:
     """Get the status of a sync job from the Airbyte Cloud.
 
