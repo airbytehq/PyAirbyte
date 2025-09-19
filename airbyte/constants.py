@@ -37,33 +37,18 @@ AB_INTERNAL_COLUMNS = {
 """A set of internal columns that are reserved for PyAirbyte's internal use."""
 
 
-def _try_create_dir_if_missing(
-    path: Path,
-    desc: str = "specified",
-) -> Path:
+def _try_create_dir_if_missing(path: Path, desc: str = "specified") -> Path:
     """Try to create a directory if it does not exist."""
-    if not path:
-        return path
-
-    resolved_path = path.resolve().absolute()
-    if not resolved_path.exists():
-        if resolved_path.name == Path().cwd().name:
-            # Don't try to create the current working directory.
+    resolved_path = path.expanduser().resolve()
+    try:
+        if resolved_path.exists():
+            if not resolved_path.is_dir():
+                logging.warning("The %s path exists but is not a directory: '%s'", desc, resolved_path)
             return resolved_path
-        try:
-            resolved_path.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-        except Exception as ex:
-            print(
-                f"Warning: The {desc} dir appears to be missing and could "
-                f"not be created automatically '{resolved_path}': {ex}",
-                file=sys.stderr,
-            )
-
+        resolved_path.mkdir(parents=True, exist_ok=True)
+    except Exception as ex:
+        logging.warning("Could not auto-create missing %s directory at '%s': %s", desc, resolved_path, ex)
     return resolved_path
-
 
 DEFAULT_PROJECT_DIR: Path = _try_create_dir_if_missing(
     Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute(),
