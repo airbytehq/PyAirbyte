@@ -346,9 +346,9 @@ def get_cloud_sync_status(
     include_attempts: Annotated[
         bool,
         Field(
-          description="Whether to include detailed attempts information.",
-          default=False,
-      )
+            description="Whether to include detailed attempts information.",
+            default=False,
+        ),
     ],
 ) -> dict[str, Any]:
     """Get the status of a sync job from the Airbyte Cloud.

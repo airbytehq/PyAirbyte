@@ -14,11 +14,11 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
+from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
 import airbyte_api
 import requests
-from http import HTTPStatus
 from airbyte_api import api, models
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT

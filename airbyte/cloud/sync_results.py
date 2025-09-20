@@ -97,12 +97,14 @@ for record in dataset:
 ------
 
 """
+
 from __future__ import annotations
 
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
+
 from typing_extensions import final
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
