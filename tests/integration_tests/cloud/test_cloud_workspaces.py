@@ -38,8 +38,9 @@ def test_deploy_source(
     )
     source.check()
     cloud_source: CloudSource = cloud_workspace.deploy_source(
-        name="test-source",
+        name="test-faker-source-deleteme",
         source=source,
+        unique=False,
     )
     cloud_workspace.permanently_delete_source(cloud_source)
 
@@ -52,8 +53,9 @@ def test_deploy_dummy_source(
     deployable_dummy_source.check()
 
     cloud_source: CloudSource = cloud_workspace.deploy_source(
-        name="test-source",
+        name="test-source-deleteme",
         source=deployable_dummy_source,
+        unique=False,
     )
     cloud_workspace.permanently_delete_source(cloud_source)
 

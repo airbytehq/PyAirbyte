@@ -389,11 +389,9 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
         return [
-            CloudConnection(
+            CloudConnection._from_connection_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
-                connection_id=connection.connection_id,
-                source=None,
-                destination=None,
+                connection_response=connection,
             )
             for connection in connections
             if name is None or connection.name == name
@@ -418,9 +416,9 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
         return [
-            CloudSource(
+            CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
-                connector_id=source.source_id,
+                source_response=source,
             )
             for source in sources
             if name is None or source.name == name
@@ -445,9 +443,9 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
         return [
-            CloudDestination(
+            CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
-                connector_id=destination.destination_id,
+                destination_response=destination,
             )
             for destination in destinations
             if name is None or destination.name == name

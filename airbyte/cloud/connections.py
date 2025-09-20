@@ -64,7 +64,34 @@ class CloudConnection:
             client_secret=self.workspace.client_secret,
         )
 
+    @classmethod
+    def _from_connection_response(
+        cls,
+        workspace: CloudWorkspace,
+        connection_response: ConnectionResponse,
+    ) -> CloudConnection:
+        """Create a CloudConnection from a ConnectionResponse."""
+        result = cls(
+            workspace=workspace,
+            connection_id=connection_response.connection_id,
+            source=connection_response.source_id,
+            destination=connection_response.destination_id,
+        )
+        result._connection_info = connection_response  # noqa: SLF001 # Accessing Non-Public API
+        return result
+
     # Properties
+
+    @property
+    def name(self) -> str | None:
+        """Get the display name of the connection, if available.
+
+        E.g. "My Postgres to Snowflake", not the connection ID.
+        """
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        return self._connection_info.name
 
     @property
     def source_id(self) -> str:
