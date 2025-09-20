@@ -6,14 +6,14 @@ This script scans the source code for hardcoded UUIDs/GUIDs and exempts them fro
 It uses the existing PyAirbyte cloud operations to list and delete resources.
 
 Usage:
-    python bin/cleanup_cloud_artifacts.py --dry-run   # Default, lists what would be deleted
-    python bin/cleanup_cloud_artifacts.py --no-dry-run  # Actually performs deletions
-    python bin/cleanup_cloud_artifacts.py --help      # Show help
+    poetry run python bin/cleanup_cloud_artifacts.py --dry-run   # Default, lists what would be deleted
+    poetry run python bin/cleanup_cloud_artifacts.py --no-dry-run  # Actually performs deletions
+    poetry run python bin/cleanup_cloud_artifacts.py --help      # Show help
 
 Examples:
-    python bin/cleanup_cloud_artifacts.py
+    poetry run python bin/cleanup_cloud_artifacts.py
 
-    python bin/cleanup_cloud_artifacts.py --no-dry-run
+    poetry run python bin/cleanup_cloud_artifacts.py --no-dry-run
 """
 
 import re
@@ -79,11 +79,9 @@ def scan_connections(
         for connection in connections:
             if connection.connection_id not in hardcoded_uuids:
                 connections_to_delete.append(connection)
-                if is_dry_run:
-                    click.echo(
-                        f"  Would delete connection: {connection.connection_id} - "
-                        f"{connection.connection_url}"
-                    )
+                click.echo(
+                    f"  Found connection: {connection.connection_id} - {connection.connection_url}: {connection.name}"
+                )
     except Exception as e:
         click.echo(f"⚠️  Failed to list connections: {e}", err=True)
 
@@ -100,10 +98,9 @@ def scan_sources(workspace: CloudWorkspace, hardcoded_uuids: set[str], *, is_dry
         for source in sources:
             if source.connector_id not in hardcoded_uuids:
                 sources_to_delete.append(source)
-                if is_dry_run:
-                    click.echo(
-                        f"  Would delete source: {source.connector_id} - {source.connector_url}"
-                    )
+                click.echo(
+                    f"  Found source: {source.connector_id} - {source.connector_url}: {source.name}"
+                )
     except Exception as e:
         click.echo(f"⚠️  Failed to list sources: {e}", err=True)
 
@@ -122,11 +119,9 @@ def scan_destinations(
         for destination in destinations:
             if destination.connector_id not in hardcoded_uuids:
                 destinations_to_delete.append(destination)
-                if is_dry_run:
-                    click.echo(
-                        f"  Would delete destination: {destination.connector_id} - "
-                        f"{destination.connector_url}"
-                    )
+                click.echo(
+                    f"  Found destination: {destination.connector_id} - {destination.connector_url}: {destination.name}"
+                )
     except Exception as e:
         click.echo(f"⚠️  Failed to list destinations: {e}", err=True)
 
@@ -135,6 +130,7 @@ def scan_destinations(
 
 def perform_deletions(connections: list, sources: list, destinations: list) -> int:
     """Perform actual deletions and return count of successful deletions."""
+    return False
     deleted_count = 0
 
     for connection in connections:
@@ -184,7 +180,7 @@ def main(*, dry_run: bool, repo_path: Path) -> None:
     """Clean up stale connector and connection definitions from cloud integration tests."""
     click.echo(f"🔍 Scanning source code for hardcoded UUIDs in: {repo_path}")
 
-    hardcoded_uuids = scan_source_code_for_uuids(repo_path)
+    hardcoded_uuids = scan_source_code_for_uuids(repo_path / "tests")
     click.echo(f"📋 Found {len(hardcoded_uuids)} hardcoded UUIDs to exempt from cleanup")
 
     if hardcoded_uuids:
