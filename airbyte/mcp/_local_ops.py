@@ -194,7 +194,7 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     result: dict[str, list[str]] = {}
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, DotenvSecretManager) and secrets_mgr.dotenv_path:
-            result[secrets_mgr.dotenv_path.absolute().name] = secrets_mgr.list_secrets_names()
+            result[str(secrets_mgr.dotenv_path.resolve())] = secrets_mgr.list_secrets_names()
 
     return result
 
