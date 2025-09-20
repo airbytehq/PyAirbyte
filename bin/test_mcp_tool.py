@@ -15,6 +15,10 @@ Examples:
 
     poe mcp-tool-test check_airbyte_cloud_workspace '{}'
     poe mcp-tool-test list_deployed_cloud_connections '{}'
+    poe mcp-tool-test get_cloud_sync_status \
+        '{"connection_id": "0791e193-811b-4fcf-91c3-f8c5963e74a0", "include_attempts": true}'
+    poe mcp-tool-test get_cloud_sync_logs \
+        '{"connection_id": "0791e193-811b-4fcf-91c3-f8c5963e74a0"}'
 """
 
 import asyncio
