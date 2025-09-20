@@ -161,11 +161,7 @@ def list_connections(
                 limit=page_size,
             ),
         )
-        has_more = (
-            (response.connections_response.next is not None)
-            if response.connections_response
-            else False
-        )
+        has_more = bool(response.connections_response and response.connections_response.next)
         offset += page_size
 
         if not status_ok(response.status_code) and response.connections_response:
@@ -181,7 +177,6 @@ def list_connections(
             for connection in response.connections_response.data
             if name_filter(connection.name)
         ]
-
     return result
 
 
@@ -213,11 +208,7 @@ def list_workspaces(
         response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
             api.ListWorkspacesRequest(workspace_ids=[workspace_id], offset=offset, limit=page_size),
         )
-        has_more = (
-            (response.workspaces_response.next is not None)
-            if response.workspaces_response
-            else False
-        )
+        has_more = bool(response.workspaces_response and response.workspaces_response.next)
         offset += page_size
 
         if not status_ok(response.status_code) and response.workspaces_response:
@@ -270,9 +261,7 @@ def list_sources(
                 limit=page_size,
             ),
         )
-        has_more = (
-            (response.sources_response.next is not None) if response.sources_response else False
-        )
+        has_more = bool(response.sources_response and response.sources_response.next)
         offset += page_size
 
         if not status_ok(response.status_code) and response.sources_response:
@@ -320,11 +309,7 @@ def list_destinations(
                 limit=page_size,
             ),
         )
-        has_more = (
-            (response.destinations_response.next is not None)
-            if response.destinations_response
-            else False
-        )
+        has_more = bool(response.destinations_response and response.destinations_response.next)
         offset += page_size
 
         if not status_ok(response.status_code) and response.destinations_response:

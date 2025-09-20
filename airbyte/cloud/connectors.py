@@ -43,6 +43,8 @@ import abc
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Literal
 
+from airbyte_api import models as api_models  # noqa: TC002
+
 from airbyte._util import api_util
 
 
@@ -98,6 +100,27 @@ class CloudConnector(abc.ABC):
         """The workspace that the connector belongs to."""
         self.connector_id = connector_id
         """The ID of the connector."""
+
+        self._connector_info: api_models.SourceResponse | api_models.DestinationResponse | None = (
+            None
+        )
+        """The connection info object. (Cached.)"""
+
+    @property
+    def name(self) -> str | None:
+        """Get the display name of the connector, if available.
+
+        E.g. "My Postgres Source", not the canonical connector name ("source-postgres").
+        """
+        if not self._connector_info:
+            self._connector_info = self._fetch_connector_info()
+
+        return self._connector_info.name
+
+    @abc.abstractmethod
+    def _fetch_connector_info(self) -> api_models.SourceResponse | api_models.DestinationResponse:
+        """Populate the connector with data from the API."""
+        ...
 
     @property
     def connector_url(self) -> str:
@@ -164,6 +187,32 @@ class CloudSource(CloudConnector):
         """
         return self.connector_id
 
+    def _fetch_connector_info(self) -> api_models.SourceResponse:
+        """Populate the source with data from the API."""
+        return api_util.get_source(
+            source_id=self.connector_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    @classmethod
+    def _from_source_response(
+        cls,
+        workspace: CloudWorkspace,
+        source_response: api_models.SourceResponse,
+    ) -> CloudSource:
+        """Internal factory method.
+
+        Creates a CloudSource object from a REST API SourceResponse object.
+        """
+        result = cls(
+            workspace=workspace,
+            connector_id=source_response.source_id,
+        )
+        result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
+        return result
+
 
 class CloudDestination(CloudConnector):
     """A cloud destination is a destination that is deployed on Airbyte Cloud."""
@@ -178,3 +227,29 @@ class CloudDestination(CloudConnector):
         This is an alias for `connector_id`.
         """
         return self.connector_id
+
+    def _fetch_connector_info(self) -> api_models.DestinationResponse:
+        """Populate the destination with data from the API."""
+        return api_util.get_destination(
+            destination_id=self.connector_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    @classmethod
+    def _from_destination_response(
+        cls,
+        workspace: CloudWorkspace,
+        destination_response: api_models.DestinationResponse,
+    ) -> CloudDestination:
+        """Internal factory method.
+
+        Creates a CloudDestination object from a REST API DestinationResponse object.
+        """
+        result = cls(
+            workspace=workspace,
+            connector_id=destination_response.destination_id,
+        )
+        result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
+        return result
