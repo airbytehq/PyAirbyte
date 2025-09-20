@@ -62,3 +62,10 @@ class DotenvSecretManager(SecretManager):
             return None
 
         return SecretString(dotenv_vars[secret_name])
+
+    def list_secrets_names(self) -> list[str]:
+        """List all secrets available in the .env file."""
+        dotenv_vars: dict[str, str | None] = dotenv_values(
+            dotenv_path=self.dotenv_path,
+        )
+        return list(dotenv_vars.keys())
