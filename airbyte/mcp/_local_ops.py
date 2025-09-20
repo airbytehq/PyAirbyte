@@ -185,7 +185,7 @@ def list_connector_config_secrets(
     return secrets_names
 
 
-def list_dotenv_secret_names() -> dict[str, list[str]]:
+def list_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
 
     This returns a dictionary mapping the .env file name to a list of environment
@@ -688,6 +688,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         get_source_stream_json_schema,
         get_stream_previews,
         list_cached_streams,
+        list_dotenv_secrets,
         list_source_streams,
         read_source_stream_records,
         run_sql_query,
