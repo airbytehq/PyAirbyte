@@ -15,6 +15,7 @@ from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
+from airbyte.secrets.env_vars import DotenvSecretManager
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
 from airbyte.sources.registry import get_connector_metadata
@@ -182,6 +183,20 @@ def list_connector_config_secrets(
             )
 
     return secrets_names
+
+
+def list_dotenv_secrets() -> dict[str, list[str]]:
+    """List all environment variable names declared within declared .env files.
+
+    This returns a dictionary mapping the .env file name to a list of environment
+    variable names. The values of the environment variables are not returned.
+    """
+    result: dict[str, list[str]] = {}
+    for secrets_mgr in _get_secret_sources():
+        if isinstance(secrets_mgr, DotenvSecretManager) and secrets_mgr.dotenv_path:
+            result[str(secrets_mgr.dotenv_path.resolve())] = secrets_mgr.list_secrets_names()
+
+    return result
 
 
 # @app.tool()  # << deferred
@@ -673,6 +688,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         get_source_stream_json_schema,
         get_stream_previews,
         list_cached_streams,
+        list_dotenv_secrets,
         list_source_streams,
         read_source_stream_records,
         run_sql_query,
