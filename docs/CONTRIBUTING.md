@@ -73,5 +73,8 @@ This repo uses a policy of SHA-pinning GitHub Actions, for hardened security.
 To pin your GitHub actions, you can use the [pinact](https://github.com/suzuki-shunsuke/pinact) tool:
 
 ```bash
-[tk] - bash CLI example here
+# Convert from from fixed version to sha
+# Example: actions/checkout@v4 -> actions/checkout@08e... # v4.3.0
+pinact run [optional_file]
+
 ```
