@@ -245,7 +245,7 @@ def list_source_streams(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
-    ] = None,
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
