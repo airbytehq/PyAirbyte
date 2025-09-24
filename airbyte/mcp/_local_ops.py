@@ -52,13 +52,15 @@ connector manifests.
 
 def _get_mcp_source(
     connector_name: str,
-    override_execution_mode: Literal["auto", "docker", "python", "yaml"] = "auto",
+    override_execution_mode: Literal["auto", "docker", "python", "yaml"],
     *,
     install_if_missing: bool = True,
-    manifest_path: str | Path | None = None,
+    manifest_path: str | Path | None,
 ) -> Source:
     """Get the MCP source for a connector."""
-    if override_execution_mode == "auto" and is_docker_installed():
+    if manifest_path:
+        override_execution_mode = "yaml"
+    elif override_execution_mode == "auto" and is_docker_installed():
         override_execution_mode = "docker"
 
     source: Source
@@ -121,28 +123,29 @@ def validate_connector_config(
             description="Path to a YAML or JSON file containing the connector configuration.",
             default=None,
         ),
-    ] = None,
+    ],
     config_secret_name: Annotated[
         str | None,
         Field(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
-    ] = None,
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
-            description="Optionally override the execution method to use for the connector.",
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
             default="auto",
         ),
-    ] = "auto",
+    ],
     manifest_path: Annotated[
         str | Path | None,
         Field(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
 
@@ -225,23 +228,26 @@ def list_source_streams(
     config: Annotated[
         dict | str | None,
         Field(description="The configuration for the source connector as a dict or JSON string."),
-    ] = None,
+    ],
     config_file: Annotated[
         str | Path | None,
         Field(description="Path to a YAML or JSON file containing the source connector config."),
-    ] = None,
+    ],
     config_secret_name: Annotated[
         str | None,
         Field(description="The name of the secret containing the configuration."),
-    ] = None,
+    ],
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
-        Field(description="Optionally override the execution method to use for the connector."),
-    ] = "auto",
+        Field(
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used)."
+        ),
+    ],
     manifest_path: Annotated[
         str | Path | None,
         Field(description="Path to a local YAML manifest file for declarative connectors."),
-    ] = None,
+    ],
 ) -> list[str]:
     """List all streams available in a source connector.
 
@@ -296,17 +302,18 @@ def get_source_stream_json_schema(
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
-            description="Optionally override the execution method to use for the connector.",
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
             default="auto",
         ),
-    ] = "auto",
+    ],
     manifest_path: Annotated[
         str | Path | None,
         Field(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
     source: Source = _get_mcp_source(
@@ -366,17 +373,18 @@ def read_source_stream_records(
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
-            description="Optionally override the execution method to use for the connector.",
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
             default="auto",
         ),
-    ] = "auto",
+    ],
     manifest_path: Annotated[
         str | Path | None,
         Field(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
@@ -457,17 +465,18 @@ def get_stream_previews(
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
-            description="Optionally override the execution method to use for the connector.",
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
             default="auto",
         ),
-    ] = "auto",
+    ],
     manifest_path: Annotated[
         str | Path | None,
         Field(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
 
@@ -553,17 +562,18 @@ def sync_source_to_cache(
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
-            description="Optionally override the execution method to use for the connector.",
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
             default="auto",
         ),
-    ] = "auto",
+    ],
     manifest_path: Annotated[
         str | Path | None,
         Field(
             description="Path to a local YAML manifest file for declarative connectors.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
     source: Source = _get_mcp_source(
