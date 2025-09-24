@@ -52,7 +52,7 @@ connector manifests.
 
 def _get_mcp_source(
     connector_name: str,
-    override_execution_mode: Literal["auto", "docker", "python", "yaml"],
+    override_execution_mode: Literal["auto", "docker", "python", "yaml"] = "auto",
     *,
     install_if_missing: bool = True,
     manifest_path: str | Path | None,
