@@ -317,7 +317,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             and not source_manifest.startswith(("http://", "https://"))
         ):
             # If source_manifest is a single line string and not a URL, assume it's a file path
-            source_manifest = Path(source_manifest)
+            source_manifest = Path(source_manifest).expanduser()
 
         if isinstance(source_manifest, dict | Path):
             components_py_path: Path | None = None
