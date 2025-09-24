@@ -26,17 +26,17 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.10'
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
     - name: Install dependencies
@@ -63,20 +63,20 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: fasttest-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: pytest-fast-test-logs
         path: /tmp/airbyte/logs/
 
     - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@v2
+      uses: EnricoMi/publish-unit-test-result-action@3a74b2957438d0b6e2e61d67b05318aa25c9e6c6 # v2.20.0
       if: always() && !cancelled()
       continue-on-error: true
       with:
@@ -91,17 +91,17 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.10'
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
     - name: Install dependencies
@@ -130,14 +130,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: nocreds-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: pytest-no-creds-test-logs
         path: /tmp/airbyte/logs/
@@ -169,13 +169,13 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: ${{ matrix.python-version }}
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
     - name: Install dependencies
@@ -215,20 +215,20 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-logs
         path: /tmp/airbyte/logs/
 
     - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@v2
+      uses: EnricoMi/publish-unit-test-result-action@3a74b2957438d0b6e2e61d67b05318aa25c9e6c6 # v2.20.0
       if: always() && !cancelled() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
       continue-on-error: true
       with:
@@ -242,13 +242,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v5
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: '3.10'
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
     - name: Install dependencies
