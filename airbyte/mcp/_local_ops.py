@@ -227,26 +227,39 @@ def list_source_streams(
     ],
     config: Annotated[
         dict | str | None,
-        Field(description="The configuration for the source connector as a dict or JSON string."),
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
     ],
     config_file: Annotated[
         str | Path | None,
-        Field(description="Path to a YAML or JSON file containing the source connector config."),
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
     ],
     config_secret_name: Annotated[
         str | None,
-        Field(description="The name of the secret containing the configuration."),
-    ],
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ] = None,
     override_execution_mode: Annotated[
         Literal["docker", "python", "yaml", "auto"],
         Field(
             description="Optionally override the execution method to use for the connector. "
-            "This parameter is ignored if manifest_path is provided (yaml mode will be used)."
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
+            default="auto",
         ),
     ],
     manifest_path: Annotated[
         str | Path | None,
-        Field(description="Path to a local YAML manifest file for declarative connectors."),
+        Field(
+            description="Path to a local YAML manifest file for declarative connectors.",
+            default=None,
+        ),
     ],
 ) -> list[str]:
     """List all streams available in a source connector.
