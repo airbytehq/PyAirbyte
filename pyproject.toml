@@ -201,8 +201,8 @@ fix-and-check = { shell = "poe fix && poe check" }
 
 # GitHub Actions CI tasks
 install = { shell = "poetry install" }
-gh-ci-check = { shell = "pinact run --dry-run", help = "Check if GitHub Actions are pinned to SHA hashes" }
-gh-ci-fix = { shell = "pinact run", help = "Pin GitHub Actions to their SHA hashes" }
+gh-ci-check = { shell = "$HOME/go/bin/pinact run --check", help = "Check if GitHub Actions are pinned to SHA hashes" }
+gh-ci-fix = { shell = "$HOME/go/bin/pinact run", help = "Pin GitHub Actions to their SHA hashes" }
 
 # MCP Server Tasks
 mcp-serve-local = { cmd = "poetry run airbyte-mcp", help = "Start the MCP server with STDIO transport" }

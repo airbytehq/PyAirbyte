@@ -35,7 +35,7 @@ jobs:
           private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
       - name: Run Poe Command
-        uses: aaronsteers/poe-command-processor@v1
+        uses: aaronsteers/poe-command-processor@04330aa7047b6b182ff280a962cbbcd99d6eb683 # v1.3.0
         with:
           command: "gh-ci-fix"
           github-token: ${{ steps.get-app-token.outputs.token }}
