@@ -12,10 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
         fetch-depth: 0
-    - uses: hynek/build-and-inspect-python-package@v2
+    - uses: hynek/build-and-inspect-python-package@c52c3a4710070b50470d903818a7b25115dcd076 # v2.13.0
 
   publish:
     name: Publish to PyPI
@@ -29,12 +29,12 @@ jobs:
       url: https://pypi.org/p/airbyte
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
       with:
         name: Packages
         path: dist
     - name: Upload wheel to release
-      uses: svenstaro/upload-release-action@v2
+      uses: svenstaro/upload-release-action@81c65b7cd4de9b2570615ce3aad67a41de5b1a13 # latest
       with:
         repo_token: ${{ secrets.GITHUB_TOKEN }}
         file: dist/*.whl
@@ -43,4 +43,4 @@ jobs:
         file_glob: true
 
     - name: Publish
-      uses: pypa/gh-action-pypi-publish@v1.13.0
+      uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0

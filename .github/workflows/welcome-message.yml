@@ -27,15 +27,15 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
 
       - name: Resolve workflow variables
         id: vars
-        uses: aaronsteers/resolve-ci-vars-action@v0
+        uses: aaronsteers/resolve-ci-vars-action@2e56afab0344bbe03c047dfa39bae559d0291472 # v0.1.6
 
       - name: Render template
         id: template
-        uses: chuhlomin/render-template@v1.10
+        uses: chuhlomin/render-template@807354a04d9300c9c2ac177c0aa41556c92b3f75 # v1.10
         with:
           # Use a different template for internal vs forks (community)
           template: ${{ steps.vars.outputs.pr-source-is-fork == 'true' && '.github/pr-welcome-community.md' || '.github/pr-welcome-internal.md' }}
@@ -44,7 +44,7 @@ jobs:
             branch_name: ${{ steps.vars.outputs.pr-source-git-branch }}
 
       - name: Create comment
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body: ${{ steps.template.outputs.result }}
