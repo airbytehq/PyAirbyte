@@ -73,8 +73,17 @@ This repo uses a policy of SHA-pinning GitHub Actions, for hardened security.
 To pin your GitHub actions, you can use the [pinact](https://github.com/suzuki-shunsuke/pinact) tool:
 
 ```bash
-# Convert from from fixed version to sha
-# Example: actions/checkout@v4 -> actions/checkout@08e... # v4.3.0
-pinact run [optional_file]
+# Install pinact CLI tool
+go install github.com/suzuki-shunsuke/pinact/cmd/pinact@latest
 
+# Pin all GitHub Actions in workflow files
+pinact run
+
+# Pin actions in a specific file
+pinact run .github/workflows/python_lint.yml
+
+# Check if actions are pinned (dry-run)
+pinact run --dry-run
 ```
+
+You can also use the `/gh-ci-fix` slash command on pull requests to automatically pin actions.
