@@ -18,8 +18,8 @@ CONVERSION_MAP = {
     "number": sqlalchemy.types.DECIMAL(38, 9),
     "boolean": sqlalchemy.types.BOOLEAN,
     "date": sqlalchemy.types.DATE,
-    "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP,
-    "timestamp_without_timezone": sqlalchemy.types.TIMESTAMP,
+    "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP(timezone=True),
+    "timestamp_without_timezone": sqlalchemy.types.TIMESTAMP(timezone=False),
     "time_with_timezone": sqlalchemy.types.TIME,
     "time_without_timezone": sqlalchemy.types.TIME,
     # Technically 'object' and 'array' as JSON Schema types, not airbyte types.
