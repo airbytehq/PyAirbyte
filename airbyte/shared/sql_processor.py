@@ -576,7 +576,7 @@ class SqlProcessorBase(abc.ABC):
         temp_table_name = self._get_temp_table_name(stream_name, batch_id)
         engine = self.get_sql_engine()
         column_definition_str = ",\n  ".join(
-            f"{self._quote_identifier(column_name)} {sql_type.compile(dialect=engine.dialect)}"
+            f"{self._quote_identifier(column_name)} {sql_type.compile(engine.dialect)}"
             for column_name, sql_type in self._get_sql_column_definitions(stream_name).items()
         )
         self._create_table(temp_table_name, column_definition_str)
