@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import pytest_mock
 from airbyte._processors.sql.postgres import PostgresConfig, PostgresSqlProcessor
-from airbyte.caches.postgres import PostgresCache
 from airbyte.caches.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
 from airbyte.secrets.base import SecretString
 from airbyte.shared.catalog_providers import CatalogProvider
