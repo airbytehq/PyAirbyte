@@ -101,7 +101,7 @@ and then create the configuration file as follows:
 ```
 
 Note:
-- Replace `/path/to/.mcp/airbyte_mcp.env` with the absolute path to your dotenv file created in
+- Replace `/path/to/my/.mcp/airbyte_mcp.env` with the absolute path to your dotenv file created in
   Step 1.
 
 ### Step 3: Testing the MCP Server Connection

@@ -95,7 +95,7 @@ In your MCP config, you can test your development updates using `poetry` as the 
         "airbyte-mcp"
       ],
       "env": {
-        "AIRBYTE_MCP_ENV_FILE": "/path/to/.mcp/airbyte_mcp.env"
+        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
       }
     }
   }
