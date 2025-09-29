@@ -54,9 +54,9 @@ AIRBYTE_CLOUD_WORKSPACE_ID=your_workspace_id
 Note:
 1. You can add more environment variables to this file as needed for different connectors. To start,
    you only need to create the file and pass it to the MCP server.
-2. Ensure that this file is kept secure, as it contains sensitive information. Your LLM _should
-   never_ be given direct access to this file or its contents.
-3. The MCP tools will give your LLM the ability to view _which_ variables are available, but it
+2. Ensure that this file is kept secure, as it contains sensitive information. Your LLM
+   *should never* be given direct access to this file or its contents.
+3. The MCP tools will give your LLM the ability to view *which* variables are available, but it
    does not give access to their values.
 4. The `AIRBYTE_PROJECT_DIR` variable specifies a directory where the MCP server can
    store temporary project files. Ensure this directory is writable by the user running
@@ -111,7 +111,7 @@ You can test the MCP server connection using your MCP client.
 Helpful prompts to try:
 
 1. "Use your MCP tools to list all available Airbyte connectors."
-2. "Use your MCP tools to get information about the Airbyte "stripe" connector."
+2. "Use your MCP tools to get information about the Airbyte Stripe connector."
 3. "Use your MCP tools to list all variables you have access to in the dotenv secrets
    file."
 4. "Use your MCP tools to check your connection to your Airbyte Cloud workspace."
