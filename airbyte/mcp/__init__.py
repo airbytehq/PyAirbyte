@@ -121,7 +121,7 @@ Helpful prompts to try:
    file."
 4. "User your MCP tools to check your connection to your Airbyte Cloud workspace."
 
-## Contributing the Airbyte MCP Server
+## Contributing to the Airbyte MCP Server
 
 - [PyAirbyte Contributing Guide](https://github.com/airbytehq/PyAirbyte/blob/main/docs/CONTRIBUTING.md)
 
