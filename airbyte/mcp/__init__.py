@@ -11,14 +11,6 @@ managing Airbyte connectors through MCP-compatible clients. This experimental fe
 allows you to list connectors, validate configurations, and run sync operations using
 the MCP protocol.
 
-The Model Context Protocol (MCP) is an open standard that enables AI assistants and
-other tools to securely connect to data sources, tools, and services. PyAirbyte's MCP
-server implementation allows you to build and interact with Airbyte connectors through
-this standardized protocol.
-
-Create a JSON configuration file to register the PyAirbyte MCP server with your MCP
-client. Create a file named `server_config.json`:
-
 ## Getting Started with PyAirbyte MCP
 
 To get started with the PyAirbyte MCP server, follow these steps:
@@ -72,7 +64,10 @@ Note:
 
 ### Step 2: Registering the MCP Server
 
-First install `uv` (`brew install uv`), and then you can use the following configuration:
+First install `uv` (`brew install uv`).
+
+Then, create a file named `server_config.json` (or the file name required by your MCP client)
+with the following content:
 
 ```json
 {
@@ -81,7 +76,7 @@ First install `uv` (`brew install uv`), and then you can use the following confi
       "command": "uvx",
       "args": ["--from=airbyte", "airbyte-mcp"],
       "env": {
-        "AIRBYTE_MCP_ENV_FILE": "/path/to/.mcp/airbyte_mcp.env"
+        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
       }
     }
   }
@@ -98,7 +93,7 @@ and then create the configuration file as follows:
       "command": "airbyte-mcp",
       "args": [],
       "env": {
-        "AIRBYTE_MCP_ENV_FILE": "/path/to/.mcp/airbyte_mcp.env"
+        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
       }
     }
   }
@@ -119,7 +114,8 @@ Helpful prompts to try:
 2. "Use your MCP tools to get information about the Airbyte "stripe" connector."
 3. "Use your MCP tools to list all variables you have access to in the dotenv secrets
    file."
-4. "User your MCP tools to check your connection to your Airbyte Cloud workspace."
+4. "Use your MCP tools to check your connection to your Airbyte Cloud workspace."
+5. "Use your MCP tools to list all available destinations in my Airbyte Cloud workspace."
 
 ## Contributing the Airbyte MCP Server
 
