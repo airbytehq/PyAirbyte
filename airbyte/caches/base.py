@@ -3,8 +3,15 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
+
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 import pandas as pd
 import pyarrow as pa
@@ -28,6 +35,7 @@ from airbyte.shared.state_writers import StdOutStateWriter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from types import TracebackType
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
@@ -107,6 +115,46 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
+
+    def close(self) -> None:
+        """Close all database connections and dispose of connection pools.
+
+        This method ensures that all SQLAlchemy engines created by this cache
+        and its processors are properly disposed, releasing all database connections.
+        This is especially important for file-based databases like DuckDB, which
+        lock the database file until all connections are closed.
+
+        This method is idempotent and can be called multiple times safely.
+        """
+        if hasattr(self, "_read_processor") and self._read_processor is not None:
+            with contextlib.suppress(Exception):
+                self._read_processor.sql_config.dispose_engine()
+
+        for backend in [self._catalog_backend, self._state_backend]:
+            if backend is not None and hasattr(backend, "_sql_config"):
+                with contextlib.suppress(Exception):
+                    backend._sql_config.dispose_engine()  # noqa: SLF001
+
+        with contextlib.suppress(Exception):
+            self.dispose_engine()
+
+    def __enter__(self) -> Self:
+        """Enter context manager."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit context manager and clean up resources."""
+        self.close()
+
+    def __del__(self) -> None:
+        """Clean up resources when cache is garbage collected."""
+        with contextlib.suppress(Exception):
+            self.close()
 
     @property
     def config_hash(self) -> str | None:
