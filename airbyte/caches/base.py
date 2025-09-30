@@ -7,18 +7,13 @@ import contextlib
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
-
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
+from typing_extensions import Self
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
@@ -47,7 +42,7 @@ if TYPE_CHECKING:
     from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig, AirbyteWriterInterface):
+class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings
