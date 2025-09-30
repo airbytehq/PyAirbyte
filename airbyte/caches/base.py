@@ -120,18 +120,19 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         lock the database file until all connections are closed.
 
         This method is idempotent and can be called multiple times safely.
+
+        Raises:
+            Exception: If any engine disposal fails, the exception will propagate
+                to the caller. This ensures callers are aware of cleanup failures.
         """
         if hasattr(self, "_read_processor") and self._read_processor is not None:
-            with contextlib.suppress(Exception):
-                self._read_processor.sql_config.dispose_engine()
+            self._read_processor.sql_config.dispose_engine()
 
         for backend in [self._catalog_backend, self._state_backend]:
             if backend is not None and hasattr(backend, "_sql_config"):
-                with contextlib.suppress(Exception):
-                    backend._sql_config.dispose_engine()  # noqa: SLF001
+                backend._sql_config.dispose_engine()  # noqa: SLF001
 
-        with contextlib.suppress(Exception):
-            self.dispose_engine()
+        self.dispose_engine()
 
     def __enter__(self) -> Self:
         """Enter context manager."""
