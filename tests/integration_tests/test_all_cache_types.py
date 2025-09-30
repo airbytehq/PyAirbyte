@@ -12,15 +12,17 @@ import datetime
 import os
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import airbyte as ab
 import pytest
 from airbyte import get_source
+from airbyte._processors.sql.duckdb import DuckDBConfig, DuckDBSqlProcessor
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.results import ReadResult
+from airbyte.shared.catalog_providers import CatalogProvider
 from sqlalchemy import text
 from viztracer import VizTracer
-
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -284,3 +286,46 @@ def test_auto_add_columns(
     result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")
 
     assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
+
+
+@pytest.mark.slow
+def test_cache_columns_for_datetime_types_are_timezone_aware():
+    """Ensures sql types are correctly converted to the correct sql timezone aware column types"""
+    expected_sql = """
+        CREATE TABLE airbyte."products" (
+            "id" BIGINT,
+  "make" VARCHAR,
+  "model" VARCHAR,
+  "year" BIGINT,
+  "price" DECIMAL(38, 9),
+  "created_at" TIMESTAMP WITH TIME ZONE,
+  "updated_at" TIMESTAMP WITH TIME ZONE,
+  "_airbyte_raw_id" VARCHAR,
+  "_airbyte_extracted_at" TIMESTAMP WITH TIME ZONE,
+  "_airbyte_meta" JSON
+        )
+        \n        """
+    source = get_source(
+        name="source-faker",
+        config={},
+    )
+
+    config = DuckDBConfig(
+        schema_name="airbyte",
+        db_path=":memory:",
+    )
+
+    processor = DuckDBSqlProcessor(
+        catalog_provider=CatalogProvider(source.configured_catalog),
+        temp_dir=Path(),
+        temp_file_cleanup=True,
+        sql_config=config,
+    )
+
+    with (
+        patch.object(processor, "_execute_sql") as _execute_sql_mock,
+    ):
+        processor._ensure_final_table_exists(
+            stream_name="products",
+        )
+        _execute_sql_mock.assert_called_with(expected_sql)
