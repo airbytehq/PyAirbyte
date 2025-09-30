@@ -151,7 +151,7 @@ class SQLTypeConverter:
             return sqlalchemy.types.DATE()
 
         if json_schema_type == "string" and json_schema_format == "date-time":
-            return sqlalchemy.types.TIMESTAMP()
+            return sqlalchemy.types.TIMESTAMP(timezone=True)
 
         if json_schema_type == "array":
             return sqlalchemy.types.JSON()
