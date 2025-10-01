@@ -125,12 +125,14 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
             Exception: If any engine disposal fails, the exception will propagate
                 to the caller. This ensures callers are aware of cleanup failures.
         """
-        if hasattr(self, "_read_processor") and self._read_processor is not None:
+        if self._read_processor is not None:
             self._read_processor.sql_config.dispose_engine()
 
-        for backend in [self._catalog_backend, self._state_backend]:
-            if backend is not None and hasattr(backend, "_sql_config"):
-                backend._sql_config.dispose_engine()  # noqa: SLF001
+        if self._catalog_backend is not None:
+            self._catalog_backend._sql_config.dispose_engine()  # noqa: SLF001
+
+        if self._state_backend is not None:
+            self._state_backend._sql_config.dispose_engine()  # noqa: SLF001
 
         self.dispose_engine()
 
