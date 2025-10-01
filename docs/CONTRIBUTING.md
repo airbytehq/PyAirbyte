@@ -65,6 +65,18 @@ Note: If you have pre-installed [Poe](https://poethepoet.natn.io/index.html)
 
 Versioning follows [Semantic Versioning](https://semver.org/). For new features, bump the minor version. For bug fixes, bump the patch version. For pre-releases, append `dev.N` to the version. For example, `0.1.0dev.1` is the first pre-release of the `0.1.0` version.
 
+## GitHub Action Workflows
+
+This repo uses a policy of SHA-pinning GitHub Actions, for hardened security.
+
+To pin your GitHub actions, you can use the [pinact](https://github.com/suzuki-shunsuke/pinact) tool:
+
+```bash
+# Convert from from fixed version to sha
+# Example: actions/checkout@v4 -> actions/checkout@08e... # v4.3.0
+pinact run [optional_file]
+```
+
 ## Contributing to the PyAirbyte MCP Server
 
 The Airbyte MCP server is part of the PyAirbyte project. Contributions are welcome!

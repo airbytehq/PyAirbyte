@@ -33,7 +33,7 @@ jobs:
 
     # Custom steps to fetch the PR and checkout the code:
     - name: Authenticate as GitHub App
-      uses: actions/create-github-app-token@v2
+      uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
       id: get-app-token
       with:
         owner: "airbytehq"
@@ -41,14 +41,14 @@ jobs:
         app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Checkout Airbyte
-      uses: actions/checkout@v5
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
         # Important that this is set so that CI checks are triggered again
         # Without this we would be forever waiting on required checks to pass
         token: ${{ steps.get-app-token.outputs.token }}
 
     - name: Checkout PR (${{ github.event.inputs.pr }})
-      uses: dawidd6/action-checkout-pr@v1
+      uses: dawidd6/action-checkout-pr@a7598e18433a763b784f17d666372913d8bd4205 # v1.2.0
       with:
         pr: ${{ github.event.inputs.pr }}
 
@@ -65,11 +65,11 @@ jobs:
 
     - name: Resolve workflow variables
       id: vars
-      uses: aaronsteers/resolve-ci-vars-action@v0
+      uses: aaronsteers/resolve-ci-vars-action@2e56afab0344bbe03c047dfa39bae559d0291472 # v0.1.6
 
     - name: Append comment with job run link
       id: first-comment-action
-      uses: peter-evans/create-or-update-comment@v4
+      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
       with:
         comment-id: ${{ github.event.inputs.comment-id }}
         issue-number: ${{ github.event.inputs.pr }}
@@ -80,11 +80,11 @@ jobs:
           [1]: ${{ steps.vars.outputs.run-url }}
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
       with:
         python-version: ${{ matrix.python-version }}
     - name: Set up Poetry
-      uses: Gr1N/setup-poetry@v9
+      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
       with:
         poetry-version: "2.2.0"
 
@@ -118,7 +118,7 @@ jobs:
         git push contributor HEAD:${{ steps.vars.outputs.pr-source-git-branch }}
 
     - name: Append success comment
-      uses: peter-evans/create-or-update-comment@v4
+      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
       if: steps.git-diff.outputs.changes == 'true'
       with:
         comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
@@ -127,8 +127,8 @@ jobs:
           > ✅ `poetry lock` applied successfully.
 
     - name: Append success comment (no-op)
-      uses: peter-evans/create-or-update-comment@v4
-      if: steps.git-diff.outputs.changes != 'true' && steps.git-diff-2.outputs.changes != 'true'
+      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
+      if: steps.git-diff.outputs.changes != 'true'
       with:
         comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
         reactions: "+1"
@@ -136,7 +136,7 @@ jobs:
           > 🟦 Job completed successfully (no changes).
 
     - name: Append failure comment
-      uses: peter-evans/create-or-update-comment@v4
+      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
       if: failure()
       with:
         comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
