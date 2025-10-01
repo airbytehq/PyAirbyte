@@ -92,24 +92,6 @@ requirements.
 }
 ```
 
-Alternatively, if you prefer to pre-install (though `uvx` with `airbyte@latest` is
-recommended for automatic updates), first run `uv tool install airbyte` or
-`pipx install airbyte`, and then create the configuration file as follows:
-
-```json
-{
-  "mcpServers": {
-    "airbyte": {
-      "command": "airbyte-mcp",
-      "args": [],
-      "env": {
-        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
-      }
-    }
-  }
-}
-```
-
 Note:
 - Replace `/path/to/my/.mcp/airbyte_mcp.env` with the absolute path to your dotenv file created in
   Step 1.
