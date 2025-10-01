@@ -67,14 +67,23 @@ Note:
 First install `uv` (`brew install uv`).
 
 Then, create a file named `server_config.json` (or the file name required by your MCP client)
-with the following content:
+with the following content. This uses `uvx` (from `brew install uv`) to run the MCP
+server. If a matching version Python is not yet installed, a `uv`-managed Python
+version will be installed automatically. This will also auto-update to use the
+"latest" Airbyte MCP release at time of launch. You can alternatively pin to a
+specific version of Python and/or of the Airbyte library if you have special
+requirements.
 
 ```json
 {
   "mcpServers": {
     "airbyte": {
       "command": "uvx",
-      "args": ["--from=airbyte", "airbyte-mcp"],
+      "args": [
+        "--python=3.11",
+        "--from=airbyte@latest",
+        "airbyte-mcp"
+      ],
       "env": {
         "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
       }
@@ -83,8 +92,9 @@ with the following content:
 }
 ```
 
-If you prefer to pre-install, first run `uv install airbyte` or `pipx install airbyte`,
-and then create the configuration file as follows:
+Alternatively, if you prefer to pre-install (though `uvx` with `airbyte@latest` is
+recommended for automatic updates), first run `uv tool install airbyte` or
+`pipx install airbyte`, and then create the configuration file as follows:
 
 ```json
 {
