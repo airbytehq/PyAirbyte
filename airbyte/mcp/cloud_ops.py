@@ -502,7 +502,10 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
-    """Register tools with the FastMCP app."""
+    """@private Register tools with the FastMCP app.
+
+    This is an internal function and should not be called directly.
+    """
     app.tool(check_airbyte_cloud_workspace)
     app.tool(deploy_source_to_cloud)
     app.tool(deploy_destination_to_cloud)

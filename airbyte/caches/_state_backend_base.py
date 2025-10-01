@@ -13,6 +13,7 @@ if TYPE_CHECKING:
         AirbyteStreamState,
     )
 
+    from airbyte.shared.sql_processor import SqlConfig
     from airbyte.shared.state_providers import StateProviderBase
     from airbyte.shared.state_writers import StateWriterBase
 
@@ -23,6 +24,8 @@ class StateBackendBase(abc.ABC):
     The backend is responsible for storing and retrieving the state of streams. It generates
     `StateProvider` objects, which are paired to a specific source and table prefix.
     """
+
+    _sql_config: SqlConfig
 
     def __init__(self) -> None:
         """Initialize the state manager with a static catalog state."""
