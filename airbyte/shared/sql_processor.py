@@ -92,6 +92,9 @@ class SqlConfig(BaseModel, abc.ABC):
     table_prefix: str | None = ""
     """A prefix to add to created table names."""
 
+    _engine: Engine | None = None
+    """Cached SQL engine instance."""
+
     @abc.abstractmethod
     def get_sql_alchemy_url(self) -> SecretString:
         """Returns a SQL Alchemy URL."""
@@ -133,16 +136,24 @@ class SqlConfig(BaseModel, abc.ABC):
         return {}
 
     def get_sql_engine(self) -> Engine:
-        """Return a new SQL engine to use."""
-        return create_engine(
-            url=self.get_sql_alchemy_url(),
-            echo=DEBUG_MODE,
-            execution_options={
-                "schema_translate_map": {None: self.schema_name},
-            },
-            future=True,
-            connect_args=self.get_sql_alchemy_connect_args(),
-        )
+        """Return a cached SQL engine, creating it if necessary."""
+        if self._engine is None:
+            self._engine = create_engine(
+                url=self.get_sql_alchemy_url(),
+                echo=DEBUG_MODE,
+                execution_options={
+                    "schema_translate_map": {None: self.schema_name},
+                },
+                future=True,
+                connect_args=self.get_sql_alchemy_connect_args(),
+            )
+        return self._engine
+
+    def dispose_engine(self) -> None:
+        """Dispose of the cached SQL engine and release all connections."""
+        if self._engine is not None:
+            self._engine.dispose()
+            self._engine = None
 
     def get_vendor_client(self) -> object:
         """Return the vendor-specific client object.

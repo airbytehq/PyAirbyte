@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from airbyte.caches.duckdb import DuckDBCache
 
 
-CONFIG_HELP = """
+_CONFIG_HELP = """
 You can provide `config` as JSON or a Path to a YAML/JSON file.
 If a `dict` is provided, it must not contain hardcoded secrets.
 Instead, secrets should be provided using environment variables,
@@ -643,6 +643,7 @@ class CachedDatasetInfo(BaseModel):
     schema_name: str | None = None
 
 
+# @app.tool()  # << deferred
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
     cache: DuckDBCache = get_default_cache()
@@ -658,6 +659,7 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     return result
 
 
+# @app.tool()  # << deferred
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
     cache = get_default_cache()
@@ -704,6 +706,7 @@ def _is_safe_sql(sql_query: str) -> bool:
     return any(normalized_query.startswith(prefix) for prefix in allowed_prefixes)
 
 
+# @app.tool()  # << deferred
 def run_sql_query(
     sql_query: Annotated[
         str,
@@ -758,7 +761,10 @@ def run_sql_query(
 
 
 def register_local_ops_tools(app: FastMCP) -> None:
-    """Register tools with the FastMCP app."""
+    """@private Register tools with the FastMCP app.
+
+    This is an internal function and should not be called directly.
+    """
     app.tool(list_connector_config_secrets)
     for tool in (
         describe_default_cache,
@@ -775,5 +781,5 @@ def register_local_ops_tools(app: FastMCP) -> None:
         # Register each tool with the FastMCP app.
         app.tool(
             tool,
-            description=(tool.__doc__ or "").rstrip() + "\n" + CONFIG_HELP,
+            description=(tool.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         )
