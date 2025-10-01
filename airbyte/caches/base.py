@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
@@ -12,6 +13,7 @@ import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
+from typing_extensions import Self
 
 from airbyte_protocol.models import ConfiguredAirbyteCatalog
 
@@ -28,6 +30,7 @@ from airbyte.shared.state_writers import StdOutStateWriter
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from types import TracebackType
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches._state_backend_base import StateBackendBase
@@ -39,7 +42,7 @@ if TYPE_CHECKING:
     from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig, AirbyteWriterInterface):
+class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings
@@ -107,6 +110,49 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
+
+    def close(self) -> None:
+        """Close all database connections and dispose of connection pools.
+
+        This method ensures that all SQLAlchemy engines created by this cache
+        and its processors are properly disposed, releasing all database connections.
+        This is especially important for file-based databases like DuckDB, which
+        lock the database file until all connections are closed.
+
+        This method is idempotent and can be called multiple times safely.
+
+        Raises:
+            Exception: If any engine disposal fails, the exception will propagate
+                to the caller. This ensures callers are aware of cleanup failures.
+        """
+        if self._read_processor is not None:
+            self._read_processor.sql_config.dispose_engine()
+
+        if self._catalog_backend is not None:
+            self._catalog_backend._sql_config.dispose_engine()  # noqa: SLF001
+
+        if self._state_backend is not None:
+            self._state_backend._sql_config.dispose_engine()  # noqa: SLF001
+
+        self.dispose_engine()
+
+    def __enter__(self) -> Self:
+        """Enter context manager."""
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> None:
+        """Exit context manager and clean up resources."""
+        self.close()
+
+    def __del__(self) -> None:
+        """Clean up resources when cache is garbage collected."""
+        with contextlib.suppress(Exception):
+            self.close()
 
     @property
     def config_hash(self) -> str | None:

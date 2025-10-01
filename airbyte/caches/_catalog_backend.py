@@ -55,6 +55,8 @@ class CatalogBackendBase(abc.ABC):
     - The JSON schema for each stream
     """
 
+    _sql_config: SqlConfig
+
     # Abstract implementations
 
     @abc.abstractmethod

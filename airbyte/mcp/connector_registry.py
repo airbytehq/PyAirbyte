@@ -101,7 +101,7 @@ def list_connectors(
 
 
 class ConnectorInfo(BaseModel):
-    """Class to hold connector information."""
+    """@private Class to hold connector information."""
 
     connector_name: str
     connector_metadata: ConnectorMetadata | None = None
@@ -110,6 +110,7 @@ class ConnectorInfo(BaseModel):
     manifest_url: str | None = None
 
 
+# @app.tool()  # << deferred
 def get_connector_info(
     connector_name: Annotated[
         str,
@@ -151,6 +152,9 @@ def get_connector_info(
 
 
 def register_connector_registry_tools(app: FastMCP) -> None:
-    """Register tools with the FastMCP app."""
+    """@private Register tools with the FastMCP app.
+
+    This is an internal function and should not be called directly.
+    """
     app.tool(list_connectors)
     app.tool(get_connector_info)
