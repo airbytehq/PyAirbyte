@@ -12,7 +12,6 @@ import datetime
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 import airbyte as ab
 import pytest
@@ -308,24 +307,12 @@ def test_cache_columns_for_datetime_types_are_timezone_aware():
         sql_config=config,
     )
 
-    with (
-        patch.object(processor, "_execute_sql") as _execute_sql_mock,
-    ):
-        processor._ensure_final_table_exists(
-            stream_name="products",
+    column_definitions = processor._get_sql_column_definitions("products")
+
+    for col_name in ["created_at", "updated_at", "_airbyte_extracted_at"]:
+        assert col_name in column_definitions, f"{col_name} column should exist"
+        col_type = column_definitions[col_name]
+        col_type_repr = repr(col_type)
+        assert "TIMESTAMP(timezone=True)" in col_type_repr, (
+            f"{col_name} should be timezone-aware. Got: {col_type_repr}"
         )
-        for call_args in _execute_sql_mock.call_args_list:
-            sql = call_args[0][0]
-            if 'CREATE TABLE airbyte."products"' in sql:
-                assert '"created_at" TIMESTAMP' in sql, (
-                    "created_at should be a TIMESTAMP column"
-                )
-                assert '"updated_at" TIMESTAMP' in sql, (
-                    "updated_at should be a TIMESTAMP column"
-                )
-                assert '"_airbyte_extracted_at" TIMESTAMP' in sql, (
-                    "_airbyte_extracted_at should be a TIMESTAMP column"
-                )
-                break
-        else:
-            pytest.fail("Expected CREATE TABLE statement for products not found")
