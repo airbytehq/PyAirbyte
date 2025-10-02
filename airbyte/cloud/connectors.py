@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from airbyte_api import models as api_models  # noqa: TC002
 
@@ -252,4 +252,234 @@ class CloudDestination(CloudConnector):
             connector_id=destination_response.destination_id,
         )
         result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
+        return result
+
+
+class CloudCustomSourceDefinition:
+    """A custom source connector definition in Airbyte Cloud.
+
+    This represents either a YAML (declarative) or Docker-based custom source definition.
+    """
+
+    def __init__(
+        self,
+        workspace: CloudWorkspace,
+        definition_id: str,
+        connector_type: Literal["yaml", "docker"],
+    ) -> None:
+        """Initialize a custom source definition object."""
+        self.workspace = workspace
+        self.definition_id = definition_id
+        self.connector_type = connector_type
+        self._definition_info: (
+            api_models.DeclarativeSourceDefinitionResponse | api_models.DefinitionResponse | None
+        ) = None
+
+    def _fetch_definition_info(
+        self,
+    ) -> api_models.DeclarativeSourceDefinitionResponse | api_models.DefinitionResponse:
+        """Fetch definition info from the API."""
+        if self.connector_type == "yaml":
+            return api_util.get_custom_yaml_source_definition(
+                workspace_id=self.workspace.workspace_id,
+                definition_id=self.definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+        return api_util.get_custom_docker_source_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    @property
+    def name(self) -> str:
+        """Get the display name of the custom connector definition."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.name
+
+    @property
+    def manifest(self) -> dict[str, Any] | None:
+        """Get the Low-code CDK manifest. Only present for YAML connectors."""
+        if self.connector_type != "yaml":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.manifest
+
+    @property
+    def version(self) -> str | None:
+        """Get the manifest version. Only present for YAML connectors."""
+        if self.connector_type != "yaml":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.version
+
+    @property
+    def docker_repository(self) -> str | None:
+        """Get the Docker repository. Only present for Docker connectors."""
+        if self.connector_type != "docker":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.docker_repository
+
+    @property
+    def docker_image_tag(self) -> str | None:
+        """Get the Docker image tag. Only present for Docker connectors."""
+        if self.connector_type != "docker":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.docker_image_tag
+
+    @property
+    def documentation_url(self) -> str | None:
+        """Get the documentation URL. Only present for Docker connectors."""
+        if self.connector_type != "docker":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.documentation_url
+
+    @property
+    def definition_url(self) -> str:
+        """Get the web URL of the custom source definition."""
+        return (
+            f"{self.workspace.workspace_url}/settings/custom-connectors/"
+            f"sources/{self.definition_id}"
+        )
+
+    def permanently_delete(self) -> None:
+        """Permanently delete this custom source definition."""
+        self.workspace.permanently_delete_custom_source_definition(self.definition_id)
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return (
+            f"CloudCustomSourceDefinition(definition_id={self.definition_id}, "
+            f"name={self.name}, connector_type={self.connector_type})"
+        )
+
+    @classmethod
+    def _from_yaml_response(
+        cls,
+        workspace: CloudWorkspace,
+        response: api_models.DeclarativeSourceDefinitionResponse,
+    ) -> CloudCustomSourceDefinition:
+        """Internal factory method for YAML connectors."""
+        result = cls(
+            workspace=workspace,
+            definition_id=response.id,
+            connector_type="yaml",
+        )
+        result._definition_info = response  # noqa: SLF001
+        return result
+
+    @classmethod
+    def _from_docker_response(
+        cls,
+        workspace: CloudWorkspace,
+        response: api_models.DefinitionResponse,
+    ) -> CloudCustomSourceDefinition:
+        """Internal factory method for Docker connectors."""
+        result = cls(
+            workspace=workspace,
+            definition_id=response.id,
+            connector_type="docker",
+        )
+        result._definition_info = response  # noqa: SLF001
+        return result
+
+
+class CloudCustomDestinationDefinition:
+    """A custom destination connector definition in Airbyte Cloud.
+
+    Currently only supports Docker-based custom destinations.
+    """
+
+    def __init__(
+        self,
+        workspace: CloudWorkspace,
+        definition_id: str,
+    ) -> None:
+        """Initialize a custom destination definition object."""
+        self.workspace = workspace
+        self.definition_id = definition_id
+        self._definition_info: api_models.DefinitionResponse | None = None
+
+    def _fetch_definition_info(self) -> api_models.DefinitionResponse:
+        """Fetch definition info from the API."""
+        return api_util.get_custom_docker_destination_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    @property
+    def name(self) -> str:
+        """Get the display name of the custom connector definition."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.name
+
+    @property
+    def docker_repository(self) -> str:
+        """Get the Docker repository."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.docker_repository
+
+    @property
+    def docker_image_tag(self) -> str:
+        """Get the Docker image tag."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.docker_image_tag
+
+    @property
+    def documentation_url(self) -> str | None:
+        """Get the documentation URL."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.documentation_url
+
+    @property
+    def definition_url(self) -> str:
+        """Get the web URL of the custom destination definition."""
+        return (
+            f"{self.workspace.workspace_url}/settings/custom-connectors/"
+            f"destinations/{self.definition_id}"
+        )
+
+    def permanently_delete(self) -> None:
+        """Permanently delete this custom destination definition."""
+        self.workspace.permanently_delete_custom_destination_definition(self.definition_id)
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return (
+            f"CloudCustomDestinationDefinition(definition_id={self.definition_id}, "
+            f"name={self.name}, docker_repository={self.docker_repository})"
+        )
+
+    @classmethod
+    def _from_docker_response(
+        cls,
+        workspace: CloudWorkspace,
+        response: api_models.DefinitionResponse,
+    ) -> CloudCustomDestinationDefinition:
+        """Internal factory method."""
+        result = cls(
+            workspace=workspace,
+            definition_id=response.id,
+        )
+        result._definition_info = response  # noqa: SLF001
         return result

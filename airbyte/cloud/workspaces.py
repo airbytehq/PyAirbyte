@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 
@@ -45,7 +45,12 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.connectors import (
+    CloudCustomDestinationDefinition,
+    CloudCustomSourceDefinition,
+    CloudDestination,
+    CloudSource,
+)
 from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
 
@@ -454,310 +459,341 @@ class CloudWorkspace:
             if name is None or destination.name == name
         ]
 
-    def publish_custom_yaml_source(
+    def publish_custom_source_definition(
         self,
         name: str,
-        manifest: dict[str, Any] | Path | str,
         *,
-        unique: bool = True,
-        pre_validate: bool = True,
-    ) -> dict[str, Any]:
-        """Publish a custom YAML source definition to the workspace."""
-        manifest_dict: dict[str, Any]
-        if isinstance(manifest, Path):
-            manifest_dict = yaml.safe_load(manifest.read_text())
-        elif isinstance(manifest, str):
-            manifest_dict = yaml.safe_load(manifest)
-        else:
-            manifest_dict = manifest
-
-        if pre_validate:
-            api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
-
-        if unique:
-            existing = self.list_custom_yaml_sources(name=name)
-            if existing:
-                raise exc.AirbyteDuplicateResourcesError(
-                    resource_type="custom_yaml_source_definition",
-                    resource_name=name,
-                )
-
-        result = api_util.create_custom_yaml_source_definition(
-            name=name,
-            workspace_id=self.workspace_id,
-            manifest=manifest_dict,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
-
-        return {
-            "id": result.id,
-            "name": result.name,
-            "manifest": result.manifest,
-            "version": result.version,
-        }
-
-    def list_custom_yaml_sources(
-        self,
-        name: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """List all custom YAML source definitions in the workspace."""
-        definitions = api_util.list_custom_yaml_source_definitions(
-            workspace_id=self.workspace_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
-
-        result = [
-            {
-                "id": d.id,
-                "name": d.name,
-                "manifest": d.manifest,
-                "version": d.version,
-            }
-            for d in definitions
-        ]
-
-        if name:
-            result = [d for d in result if d["name"] == name]
-
-        return result
-
-    def get_custom_yaml_source(
-        self,
-        definition_id: str,
-    ) -> dict[str, Any]:
-        """Get a specific custom YAML source definition by ID."""
-        result = api_util.get_custom_yaml_source_definition(
-            workspace_id=self.workspace_id,
-            definition_id=definition_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
-        return {
-            "id": result.id,
-            "name": result.name,
-            "manifest": result.manifest,
-            "version": result.version,
-        }
-
-    def update_custom_yaml_source(
-        self,
-        definition_id: str,
-        *,
-        manifest: dict[str, Any] | Path | str,
-        pre_validate: bool = True,
-    ) -> dict[str, Any]:
-        """Update a custom YAML source definition."""
-        manifest_dict: dict[str, Any]
-        if isinstance(manifest, Path):
-            manifest_dict = yaml.safe_load(manifest.read_text())
-        elif isinstance(manifest, str):
-            manifest_dict = yaml.safe_load(manifest)
-        else:
-            manifest_dict = manifest
-
-        if pre_validate:
-            api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
-
-        result = api_util.update_custom_yaml_source_definition(
-            workspace_id=self.workspace_id,
-            definition_id=definition_id,
-            manifest=manifest_dict,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
-
-        return {
-            "id": result.id,
-            "name": result.name,
-            "manifest": result.manifest,
-            "version": result.version,
-        }
-
-    def delete_custom_yaml_source(
-        self,
-        definition_id: str,
-    ) -> None:
-        """Delete a custom YAML source definition."""
-        api_util.delete_custom_yaml_source_definition(
-            workspace_id=self.workspace_id,
-            definition_id=definition_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
-
-    def publish_custom_docker_source(
-        self,
-        name: str,
-        docker_repository: str,
-        docker_image_tag: str,
-        *,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        docker_image: str | None = None,
+        docker_tag: str | None = None,
         documentation_url: str | None = None,
         unique: bool = True,
-    ) -> dict[str, Any]:
-        """Publish a custom Docker source definition to the workspace."""
+        pre_validate: bool = True,
+    ) -> CloudCustomSourceDefinition:
+        """Publish a custom source connector definition.
+
+        You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
+        and docker_tag (for Docker connectors), but not both.
+
+        Args:
+            name: Display name for the connector definition
+            manifest_yaml: Low-code CDK manifest (dict, Path to YAML file, or YAML string)
+            docker_image: Docker repository (e.g., 'airbyte/source-custom')
+            docker_tag: Docker image tag (e.g., '1.0.0')
+            documentation_url: Optional URL to connector documentation (Docker only)
+            unique: Whether to enforce name uniqueness
+            pre_validate: Whether to validate manifest client-side (YAML only)
+
+        Returns:
+            CloudCustomSourceDefinition object representing the created definition
+
+        Raises:
+            PyAirbyteInputError: If both or neither of manifest_yaml and docker_image provided
+            AirbyteDuplicateResourcesError: If unique=True and name already exists
+        """
+        is_yaml = manifest_yaml is not None
+        is_docker = docker_image is not None
+
+        if is_yaml == is_docker:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EITHER manifest_yaml (for YAML connectors) OR "
+                    "docker_image + docker_tag (for Docker connectors), but not both"
+                ),
+                context={
+                    "manifest_yaml_provided": is_yaml,
+                    "docker_image_provided": is_docker,
+                },
+            )
+
+        if is_docker and docker_tag is None:
+            raise exc.PyAirbyteInputError(
+                message="docker_tag is required when docker_image is specified",
+                context={"docker_image": docker_image},
+            )
+
         if unique:
-            existing = self.list_custom_docker_sources(name=name)
+            existing = self.list_custom_source_definitions(
+                name=name,
+                custom_connector_type="yaml" if is_yaml else "docker",
+            )
             if existing:
                 raise exc.AirbyteDuplicateResourcesError(
-                    resource_type="custom_docker_source_definition",
+                    resource_type="custom_source_definition",
                     resource_name=name,
                 )
 
+        if is_yaml:
+            manifest_dict: dict[str, Any]
+            if isinstance(manifest_yaml, Path):
+                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
+            elif isinstance(manifest_yaml, str):
+                manifest_dict = yaml.safe_load(manifest_yaml)
+            elif manifest_yaml is not None:
+                manifest_dict = manifest_yaml
+            else:
+                raise exc.PyAirbyteInputError(
+                    message="manifest_yaml is required for YAML connectors",
+                    context={"name": name},
+                )
+
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+            result = api_util.create_custom_yaml_source_definition(
+                name=name,
+                workspace_id=self.workspace_id,
+                manifest=manifest_dict,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
         result = api_util.create_custom_docker_source_definition(
             name=name,
-            docker_repository=docker_repository,
-            docker_image_tag=docker_image_tag,
+            docker_repository=docker_image,  # type: ignore[arg-type]
+            docker_image_tag=docker_tag,  # type: ignore[arg-type]
             workspace_id=self.workspace_id,
             documentation_url=documentation_url,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
+        return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
 
-        return {
-            "id": result.id,
-            "name": result.name,
-            "docker_repository": result.docker_repository,
-            "docker_image_tag": result.docker_image_tag,
-            "documentation_url": result.documentation_url,
-        }
-
-    def list_custom_docker_sources(
+    def list_custom_source_definitions(
         self,
+        *,
         name: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """List all custom Docker source definitions in the workspace."""
-        definitions = api_util.list_custom_docker_source_definitions(
-            workspace_id=self.workspace_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
+        custom_connector_type: Literal["yaml", "docker"] | None = None,
+    ) -> list[CloudCustomSourceDefinition]:
+        """List custom source connector definitions.
 
-        result = [
-            {
-                "id": d.id,
-                "name": d.name,
-                "docker_repository": d.docker_repository,
-                "docker_image_tag": d.docker_image_tag,
-                "documentation_url": d.documentation_url,
-            }
-            for d in definitions
-        ]
+        Args:
+            name: Filter by exact name match
+            custom_connector_type: Filter by connector type ("yaml" or "docker")
 
-        if name:
-            result = [d for d in result if d["name"] == name]
+        Returns:
+            List of CloudCustomSourceDefinition objects
+        """
+        result: list[CloudCustomSourceDefinition] = []
+
+        if custom_connector_type is None or custom_connector_type == "yaml":
+            yaml_definitions = api_util.list_custom_yaml_source_definitions(
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            result.extend(
+                CloudCustomSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
+                for d in yaml_definitions
+                if name is None or d.name == name
+            )
+
+        if custom_connector_type is None or custom_connector_type == "docker":
+            docker_definitions = api_util.list_custom_docker_source_definitions(
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            result.extend(
+                CloudCustomSourceDefinition._from_docker_response(self, d)  # noqa: SLF001
+                for d in docker_definitions
+                if name is None or d.name == name
+            )
 
         return result
 
-    def get_custom_docker_source(
+    def get_custom_source_definition(
         self,
         definition_id: str,
-    ) -> dict[str, Any]:
-        """Get a specific custom Docker source definition by ID."""
-        result = api_util.get_custom_docker_source_definition(
-            workspace_id=self.workspace_id,
-            definition_id=definition_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
-        return {
-            "id": result.id,
-            "name": result.name,
-            "docker_repository": result.docker_repository,
-            "docker_image_tag": result.docker_image_tag,
-            "documentation_url": result.documentation_url,
-        }
+    ) -> CloudCustomSourceDefinition:
+        """Get a specific custom source definition by ID.
 
-    def update_custom_docker_source(
+        This method will attempt to fetch as a YAML definition first, then as a Docker
+        definition if not found.
+
+        Args:
+            definition_id: The definition ID
+
+        Returns:
+            CloudCustomSourceDefinition object
+        """
+        try:
+            result = api_util.get_custom_yaml_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+        except Exception:
+            result = api_util.get_custom_docker_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
+
+    def update_custom_source_definition(
         self,
         definition_id: str,
         *,
-        name: str,
-        docker_image_tag: str,
-    ) -> dict[str, Any]:
-        """Update a custom Docker source definition."""
+        name: str | None = None,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        docker_tag: str | None = None,
+        pre_validate: bool = True,
+    ) -> CloudCustomSourceDefinition:
+        """Update a custom source definition.
+
+        For YAML connectors: can update manifest_yaml
+        For Docker connectors: can update name and/or docker_tag
+
+        Args:
+            definition_id: The definition ID to update
+            name: New display name (Docker connectors only)
+            manifest_yaml: New manifest (YAML connectors only)
+            docker_tag: New Docker tag (Docker connectors only)
+            pre_validate: Whether to validate manifest (YAML only)
+
+        Returns:
+            Updated CloudCustomSourceDefinition object
+        """
+        definition = self.get_custom_source_definition(definition_id)
+
+        if definition.connector_type == "yaml":
+            if manifest_yaml is None:
+                raise exc.PyAirbyteInputError(
+                    message="manifest_yaml is required for updating YAML connectors",
+                    context={"definition_id": definition_id},
+                )
+
+            manifest_dict: dict[str, Any]
+            if isinstance(manifest_yaml, Path):
+                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
+            elif isinstance(manifest_yaml, str):
+                manifest_dict = yaml.safe_load(manifest_yaml)
+            else:
+                manifest_dict = manifest_yaml
+
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+            result = api_util.update_custom_yaml_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                manifest=manifest_dict,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+        if name is None or docker_tag is None:
+            raise exc.PyAirbyteInputError(
+                message="Both name and docker_tag are required for updating Docker connectors",
+                context={"definition_id": definition_id},
+            )
+
         result = api_util.update_custom_docker_source_definition(
             workspace_id=self.workspace_id,
             definition_id=definition_id,
             name=name,
-            docker_image_tag=docker_image_tag,
+            docker_image_tag=docker_tag,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
+        return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
 
-        return {
-            "id": result.id,
-            "name": result.name,
-            "docker_repository": result.docker_repository,
-            "docker_image_tag": result.docker_image_tag,
-            "documentation_url": result.documentation_url,
-        }
-
-    def delete_custom_docker_source(
+    def permanently_delete_custom_source_definition(
         self,
         definition_id: str,
     ) -> None:
-        """Delete a custom Docker source definition."""
-        api_util.delete_custom_docker_source_definition(
-            workspace_id=self.workspace_id,
-            definition_id=definition_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
+        """Permanently delete a custom source definition.
 
-    def publish_custom_docker_destination(
+        Args:
+            definition_id: The definition ID to delete
+        """
+        definition = self.get_custom_source_definition(definition_id)
+
+        if definition.connector_type == "yaml":
+            api_util.delete_custom_yaml_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+        else:
+            api_util.delete_custom_docker_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+
+    def publish_custom_destination_definition(
         self,
         name: str,
-        docker_repository: str,
-        docker_image_tag: str,
         *,
+        docker_image: str,
+        docker_tag: str,
         documentation_url: str | None = None,
         unique: bool = True,
-    ) -> dict[str, Any]:
-        """Publish a custom Docker destination definition to the workspace."""
+    ) -> CloudCustomDestinationDefinition:
+        """Publish a custom destination connector definition.
+
+        Currently only Docker-based destinations are supported.
+
+        Args:
+            name: Display name for the connector definition
+            docker_image: Docker repository (e.g., 'airbyte/destination-custom')
+            docker_tag: Docker image tag (e.g., '1.0.0')
+            documentation_url: Optional URL to connector documentation
+            unique: Whether to enforce name uniqueness
+
+        Returns:
+            CloudCustomDestinationDefinition object representing the created definition
+        """
         if unique:
-            existing = self.list_custom_docker_destinations(name=name)
+            existing = self.list_custom_destination_definitions(name=name)
             if existing:
                 raise exc.AirbyteDuplicateResourcesError(
-                    resource_type="custom_docker_destination_definition",
+                    resource_type="custom_destination_definition",
                     resource_name=name,
                 )
 
         result = api_util.create_custom_docker_destination_definition(
             name=name,
-            docker_repository=docker_repository,
-            docker_image_tag=docker_image_tag,
+            docker_repository=docker_image,
+            docker_image_tag=docker_tag,
             workspace_id=self.workspace_id,
             documentation_url=documentation_url,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
+        return CloudCustomDestinationDefinition._from_docker_response(self, result)  # noqa: SLF001
 
-        return {
-            "id": result.id,
-            "name": result.name,
-            "docker_repository": result.docker_repository,
-            "docker_image_tag": result.docker_image_tag,
-            "documentation_url": result.documentation_url,
-        }
-
-    def list_custom_docker_destinations(
+    def list_custom_destination_definitions(
         self,
+        *,
         name: str | None = None,
-    ) -> list[dict[str, Any]]:
-        """List all custom Docker destination definitions in the workspace."""
+    ) -> list[CloudCustomDestinationDefinition]:
+        """List custom destination connector definitions.
+
+        Args:
+            name: Filter by exact name match
+
+        Returns:
+            List of CloudCustomDestinationDefinition objects
+        """
         definitions = api_util.list_custom_docker_destination_definitions(
             workspace_id=self.workspace_id,
             api_root=self.api_root,
@@ -765,27 +801,24 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
 
-        result = [
-            {
-                "id": d.id,
-                "name": d.name,
-                "docker_repository": d.docker_repository,
-                "docker_image_tag": d.docker_image_tag,
-                "documentation_url": d.documentation_url,
-            }
+        return [
+            CloudCustomDestinationDefinition._from_docker_response(self, d)  # noqa: SLF001
             for d in definitions
+            if name is None or d.name == name
         ]
 
-        if name:
-            result = [d for d in result if d["name"] == name]
-
-        return result
-
-    def get_custom_docker_destination(
+    def get_custom_destination_definition(
         self,
         definition_id: str,
-    ) -> dict[str, Any]:
-        """Get a specific custom Docker destination definition by ID."""
+    ) -> CloudCustomDestinationDefinition:
+        """Get a specific custom destination definition by ID.
+
+        Args:
+            definition_id: The definition ID
+
+        Returns:
+            CloudCustomDestinationDefinition object
+        """
         result = api_util.get_custom_docker_destination_definition(
             workspace_id=self.workspace_id,
             definition_id=definition_id,
@@ -793,45 +826,45 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
-        return {
-            "id": result.id,
-            "name": result.name,
-            "docker_repository": result.docker_repository,
-            "docker_image_tag": result.docker_image_tag,
-            "documentation_url": result.documentation_url,
-        }
+        return CloudCustomDestinationDefinition._from_docker_response(self, result)  # noqa: SLF001
 
-    def update_custom_docker_destination(
+    def update_custom_destination_definition(
         self,
         definition_id: str,
         *,
         name: str,
-        docker_image_tag: str,
-    ) -> dict[str, Any]:
-        """Update a custom Docker destination definition."""
+        docker_tag: str,
+    ) -> CloudCustomDestinationDefinition:
+        """Update a custom destination definition.
+
+        Args:
+            definition_id: The definition ID to update
+            name: New display name
+            docker_tag: New Docker tag
+
+        Returns:
+            Updated CloudCustomDestinationDefinition object
+        """
         result = api_util.update_custom_docker_destination_definition(
             workspace_id=self.workspace_id,
             definition_id=definition_id,
             name=name,
-            docker_image_tag=docker_image_tag,
+            docker_image_tag=docker_tag,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
         )
+        return CloudCustomDestinationDefinition._from_docker_response(self, result)  # noqa: SLF001
 
-        return {
-            "id": result.id,
-            "name": result.name,
-            "docker_repository": result.docker_repository,
-            "docker_image_tag": result.docker_image_tag,
-            "documentation_url": result.documentation_url,
-        }
-
-    def delete_custom_docker_destination(
+    def permanently_delete_custom_destination_definition(
         self,
         definition_id: str,
     ) -> None:
-        """Delete a custom Docker destination definition."""
+        """Permanently delete a custom destination definition.
+
+        Args:
+            definition_id: The definition ID to delete
+        """
         api_util.delete_custom_docker_destination_definition(
             workspace_id=self.workspace_id,
             definition_id=definition_id,

@@ -41,39 +41,44 @@ def test_publish_custom_yaml_source(
 
     name = f"test-yaml-source-{text_util.generate_random_suffix()}"
 
-    result = cloud_workspace.publish_custom_yaml_source(
+    result = cloud_workspace.publish_custom_source_definition(
         name=name,
-        manifest=TEST_YAML_MANIFEST,
+        manifest_yaml=TEST_YAML_MANIFEST,
         unique=True,
         pre_validate=True,
     )
 
-    assert "id" in result
-    assert result["name"] == name
-    assert "manifest" in result
-    assert "version" in result
+    assert result.definition_id
+    assert result.name == name
+    assert result.manifest is not None
+    assert result.version is not None
+    assert result.connector_type == "yaml"
 
-    definition_id = result["id"]
+    definition_id = result.definition_id
 
     try:
-        definitions = cloud_workspace.list_custom_yaml_sources(name=name)
+        definitions = cloud_workspace.list_custom_source_definitions(
+            name=name,
+            custom_connector_type="yaml",
+        )
         assert len(definitions) == 1
-        assert definitions[0]["id"] == definition_id
+        assert definitions[0].definition_id == definition_id
 
-        fetched = cloud_workspace.get_custom_yaml_source(definition_id)
-        assert fetched["id"] == definition_id
-        assert fetched["name"] == name
+        fetched = cloud_workspace.get_custom_source_definition(definition_id)
+        assert fetched.definition_id == definition_id
+        assert fetched.name == name
+        assert fetched.connector_type == "yaml"
 
         updated_manifest = TEST_YAML_MANIFEST.copy()
         updated_manifest["version"] = "0.2.0"
-        updated = cloud_workspace.update_custom_yaml_source(
+        updated = cloud_workspace.update_custom_source_definition(
             definition_id=definition_id,
-            manifest=updated_manifest,
+            manifest_yaml=updated_manifest,
         )
-        assert updated["manifest"]["version"] == "0.2.0"
+        assert updated.manifest["version"] == "0.2.0"
 
     finally:
-        cloud_workspace.delete_custom_yaml_source(definition_id)
+        cloud_workspace.permanently_delete_custom_source_definition(definition_id)
 
 
 @pytest.mark.requires_creds
@@ -85,39 +90,44 @@ def test_publish_custom_docker_source(
 
     name = f"test-docker-source-{text_util.generate_random_suffix()}"
 
-    result = cloud_workspace.publish_custom_docker_source(
+    result = cloud_workspace.publish_custom_source_definition(
         name=name,
-        docker_repository="airbyte/test-source",
-        docker_image_tag="1.0.0",
+        docker_image="airbyte/test-source",
+        docker_tag="1.0.0",
         documentation_url="https://example.com/docs",
         unique=True,
     )
 
-    assert "id" in result
-    assert result["name"] == name
-    assert result["docker_repository"] == "airbyte/test-source"
-    assert result["docker_image_tag"] == "1.0.0"
+    assert result.definition_id
+    assert result.name == name
+    assert result.docker_repository == "airbyte/test-source"
+    assert result.docker_image_tag == "1.0.0"
+    assert result.connector_type == "docker"
 
-    definition_id = result["id"]
+    definition_id = result.definition_id
 
     try:
-        definitions = cloud_workspace.list_custom_docker_sources(name=name)
+        definitions = cloud_workspace.list_custom_source_definitions(
+            name=name,
+            custom_connector_type="docker",
+        )
         assert len(definitions) == 1
-        assert definitions[0]["id"] == definition_id
+        assert definitions[0].definition_id == definition_id
 
-        fetched = cloud_workspace.get_custom_docker_source(definition_id)
-        assert fetched["id"] == definition_id
-        assert fetched["name"] == name
+        fetched = cloud_workspace.get_custom_source_definition(definition_id)
+        assert fetched.definition_id == definition_id
+        assert fetched.name == name
+        assert fetched.connector_type == "docker"
 
-        updated = cloud_workspace.update_custom_docker_source(
+        updated = cloud_workspace.update_custom_source_definition(
             definition_id=definition_id,
             name=name,
-            docker_image_tag="2.0.0",
+            docker_tag="2.0.0",
         )
-        assert updated["docker_image_tag"] == "2.0.0"
+        assert updated.docker_image_tag == "2.0.0"
 
     finally:
-        cloud_workspace.delete_custom_docker_source(definition_id)
+        cloud_workspace.permanently_delete_custom_source_definition(definition_id)
 
 
 @pytest.mark.requires_creds
@@ -129,38 +139,38 @@ def test_publish_custom_docker_destination(
 
     name = f"test-docker-dest-{text_util.generate_random_suffix()}"
 
-    result = cloud_workspace.publish_custom_docker_destination(
+    result = cloud_workspace.publish_custom_destination_definition(
         name=name,
-        docker_repository="airbyte/test-destination",
-        docker_image_tag="1.0.0",
+        docker_image="airbyte/test-destination",
+        docker_tag="1.0.0",
         unique=True,
     )
 
-    assert "id" in result
-    assert result["name"] == name
-    assert result["docker_repository"] == "airbyte/test-destination"
-    assert result["docker_image_tag"] == "1.0.0"
+    assert result.definition_id
+    assert result.name == name
+    assert result.docker_repository == "airbyte/test-destination"
+    assert result.docker_image_tag == "1.0.0"
 
-    definition_id = result["id"]
+    definition_id = result.definition_id
 
     try:
-        definitions = cloud_workspace.list_custom_docker_destinations(name=name)
+        definitions = cloud_workspace.list_custom_destination_definitions(name=name)
         assert len(definitions) == 1
-        assert definitions[0]["id"] == definition_id
+        assert definitions[0].definition_id == definition_id
 
-        fetched = cloud_workspace.get_custom_docker_destination(definition_id)
-        assert fetched["id"] == definition_id
-        assert fetched["name"] == name
+        fetched = cloud_workspace.get_custom_destination_definition(definition_id)
+        assert fetched.definition_id == definition_id
+        assert fetched.name == name
 
-        updated = cloud_workspace.update_custom_docker_destination(
+        updated = cloud_workspace.update_custom_destination_definition(
             definition_id=definition_id,
             name=name,
-            docker_image_tag="2.0.0",
+            docker_tag="2.0.0",
         )
-        assert updated["docker_image_tag"] == "2.0.0"
+        assert updated.docker_image_tag == "2.0.0"
 
     finally:
-        cloud_workspace.delete_custom_docker_destination(definition_id)
+        cloud_workspace.permanently_delete_custom_destination_definition(definition_id)
 
 
 @pytest.mark.requires_creds
@@ -175,9 +185,9 @@ def test_yaml_validation_error(
     invalid_manifest = {"version": "0.1.0"}
 
     with pytest.raises(PyAirbyteInputError) as exc_info:
-        cloud_workspace.publish_custom_yaml_source(
+        cloud_workspace.publish_custom_source_definition(
             name=name,
-            manifest=invalid_manifest,
+            manifest_yaml=invalid_manifest,
             pre_validate=True,
         )
 
