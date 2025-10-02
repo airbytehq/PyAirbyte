@@ -698,7 +698,7 @@ class SqlProcessorBase(abc.ABC):
             )
 
         columns[AB_RAW_ID_COLUMN] = self.type_converter_class.get_string_type()
-        columns[AB_EXTRACTED_AT_COLUMN] = sqlalchemy.TIMESTAMP()
+        columns[AB_EXTRACTED_AT_COLUMN] = sqlalchemy.TIMESTAMP(timezone=True)
         columns[AB_META_COLUMN] = self.type_converter_class.get_json_type()
 
         return columns
