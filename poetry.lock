@@ -2,15 +2,15 @@
 
 [[package]]
 name = "airbyte-api"
-version = "0.52.2"
+version = "0.53.0"
 description = "Python Client SDK for Airbyte API"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
 files = [
-    {file = "airbyte-api-0.52.2.tar.gz", hash = "sha256:0abd4570083352cad9c23d1f6f59f288aeecca84d85746018d41de9c531aa852"},
-    {file = "airbyte_api-0.52.2-py3-none-any.whl", hash = "sha256:d08ee620e8dc9b85e3f167087225a7867702aa3cf1a06d8b42eb48a48e64382d"},
+    {file = "airbyte-api-0.53.0.tar.gz", hash = "sha256:f054ed170f9a691c3304e93a5212670fd2a38e5debb667c72d5ef8eb89cf7e9d"},
+    {file = "airbyte_api-0.53.0-py3-none-any.whl", hash = "sha256:0bd86d5122789a7c97115a4b52ce492b013d0ea8eeab597b6495b0b310332f28"},
 ]
 
 [package.dependencies]
@@ -6022,4 +6022,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "ea17fb2ea89208b551a2fc6ded0bad9966597ff65ba027f622c4b5ed544b2fa4"
+content-hash = "f2853e586cee0d7b884a76084c3e582accadb324e0a035c33181f9148e375731"
