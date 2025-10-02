@@ -25,7 +25,7 @@ from sqlalchemy import types
                 "format": "date-time",
                 "airbyte_type": "timestamp_without_timezone",
             },
-            types.TIMESTAMP,
+            types.TIMESTAMP(timezone=False),
         ),
         (
             {
@@ -33,7 +33,7 @@ from sqlalchemy import types
                 "format": "date-time",
                 "airbyte_type": "timestamp_with_timezone",
             },
-            types.TIMESTAMP,
+            types.TIMESTAMP(timezone=True),
         ),
         (
             {
@@ -68,7 +68,11 @@ from sqlalchemy import types
 def test_to_sql_type(json_schema_property_def, expected_sql_type):
     converter = SQLTypeConverter()
     sql_type = converter.to_sql_type(json_schema_property_def)
-    assert isinstance(sql_type, expected_sql_type)
+    if isinstance(expected_sql_type, types.TIMESTAMP):
+        assert isinstance(sql_type, types.TIMESTAMP)
+        assert sql_type.timezone == expected_sql_type.timezone
+    else:
+        assert isinstance(sql_type, expected_sql_type)
 
 
 @pytest.mark.parametrize(

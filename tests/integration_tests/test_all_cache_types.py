@@ -16,11 +16,12 @@ from pathlib import Path
 import airbyte as ab
 import pytest
 from airbyte import get_source
+from airbyte._processors.sql.duckdb import DuckDBConfig, DuckDBSqlProcessor
 from airbyte._util.venv_util import get_bin_dir
 from airbyte.results import ReadResult
+from airbyte.shared.catalog_providers import CatalogProvider
 from sqlalchemy import text
 from viztracer import VizTracer
-
 
 # Product count is always the same, regardless of faker scale.
 NUM_PRODUCTS = 100
@@ -284,3 +285,34 @@ def test_auto_add_columns(
     result = source_faker_seed_a.read(cache=new_generic_cache, write_strategy="auto")
 
     assert "_airbyte_raw_id" in result["users"].to_sql_table().columns
+
+
+@pytest.mark.slow
+def test_cache_columns_for_datetime_types_are_timezone_aware():
+    """Ensures sql types are correctly converted to the correct sql timezone aware column types"""
+    source = get_source(
+        name="source-faker",
+        config={},
+    )
+
+    config = DuckDBConfig(
+        schema_name="airbyte",
+        db_path=":memory:",
+    )
+
+    processor = DuckDBSqlProcessor(
+        catalog_provider=CatalogProvider(source.configured_catalog),
+        temp_dir=Path(),
+        temp_file_cleanup=True,
+        sql_config=config,
+    )
+
+    column_definitions = processor._get_sql_column_definitions("products")
+
+    for col_name in ["created_at", "updated_at", "_airbyte_extracted_at"]:
+        assert col_name in column_definitions, f"{col_name} column should exist"
+        col_type = column_definitions[col_name]
+        col_type_repr = repr(col_type)
+        assert "TIMESTAMP(timezone=True)" in col_type_repr, (
+            f"{col_name} should be timezone-aware. Got: {col_type_repr}"
+        )
