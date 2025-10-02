@@ -593,18 +593,15 @@ def publish_custom_source_definition(
 
 def list_custom_source_definitions(
     custom_connector_type: Annotated[
-        str | None,
+        str,
         Field(
-            description=(
-                "Filter by connector type: 'yaml' or 'docker'. " "If not specified, returns all."
-            ),
-            default=None,
+            description="Connector type to list: 'yaml' or 'docker'. Required.",
         ),
-    ] = None,
+    ],
 ) -> list[dict[str, Any]]:
-    """List all custom source definitions in the Airbyte Cloud workspace.
+    """List custom source definitions in the Airbyte Cloud workspace.
 
-    Returns both YAML and Docker source definitions unless filtered by type.
+    You must specify the connector type to list - either 'yaml' or 'docker'.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     definitions = workspace.list_custom_source_definitions(
@@ -632,13 +629,6 @@ def update_custom_source_definition(
         Field(description="The ID of the definition to update."),
     ],
     *,
-    name: Annotated[
-        str | None,
-        Field(
-            description="New name for the definition (Docker connectors only).",
-            default=None,
-        ),
-    ] = None,
     manifest_yaml: Annotated[
         dict | str | None,
         Field(
@@ -663,14 +653,15 @@ def update_custom_source_definition(
 ) -> str:
     """Update a custom source definition in Airbyte Cloud.
 
+    You must specify EXACTLY ONE of manifest_yaml or docker_tag, but not both.
     For YAML connectors: specify manifest_yaml
-    For Docker connectors: specify name and/or docker_tag
+    For Docker connectors: specify docker_tag (updates tag only, not name)
+    To rename a Docker connector, use rename_custom_source_definition instead.
     """
     try:
         workspace: CloudWorkspace = _get_cloud_workspace()
         result = workspace.update_custom_source_definition(
             definition_id=definition_id,
-            name=name,
             manifest_yaml=manifest_yaml,
             docker_tag=docker_tag,
             pre_validate=pre_validate,
@@ -686,6 +677,45 @@ def update_custom_source_definition(
         return (
             f"Successfully updated custom Docker source definition. "
             f"Name: {result.name}, tag: {result.docker_image_tag}"
+        )
+
+
+def rename_custom_source_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the definition to rename."),
+    ],
+    new_name: Annotated[
+        str,
+        Field(description="New display name for the connector."),
+    ],
+    custom_connector_type: Annotated[
+        str,
+        Field(
+            description=(
+                "Connector type: 'yaml' or 'docker'. " "Only Docker connectors can be renamed."
+            ),
+        ),
+    ],
+) -> str:
+    """Rename a custom source definition in Airbyte Cloud.
+
+    Note: Only Docker custom sources can be renamed. YAML custom sources
+    cannot be renamed as their names are derived from the manifest.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        result = workspace.rename_custom_source_definition(
+            definition_id=definition_id,
+            new_name=new_name,
+            custom_connector_type=custom_connector_type,  # type: ignore[arg-type]
+        )
+    except Exception as ex:
+        return f"Failed to rename custom source definition '{definition_id}': {ex}"
+    else:
+        return (
+            f"Successfully renamed custom Docker source definition to '{result.name}' "
+            f"(ID: {result.definition_id})"
         )
 
 
@@ -808,6 +838,7 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(publish_custom_source_definition)
     app.tool(list_custom_source_definitions)
     app.tool(update_custom_source_definition)
+    app.tool(rename_custom_source_definition)
     app.tool(publish_custom_destination_definition)
     app.tool(list_custom_destination_definitions)
     app.tool(update_custom_destination_definition)

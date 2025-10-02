@@ -64,7 +64,10 @@ def test_publish_custom_yaml_source(
         assert len(definitions) == 1
         assert definitions[0].definition_id == definition_id
 
-        fetched = cloud_workspace.get_custom_source_definition(definition_id)
+        fetched = cloud_workspace.get_custom_source_definition(
+            definition_id,
+            custom_connector_type="yaml",
+        )
         assert fetched.definition_id == definition_id
         assert fetched.name == name
         assert fetched.connector_type == "yaml"
@@ -78,7 +81,10 @@ def test_publish_custom_yaml_source(
         assert updated.manifest["version"] == "0.2.0"
 
     finally:
-        cloud_workspace.permanently_delete_custom_source_definition(definition_id)
+        cloud_workspace.permanently_delete_custom_source_definition(
+            definition_id,
+            custom_connector_type="yaml",
+        )
 
 
 @pytest.mark.requires_creds
@@ -114,20 +120,25 @@ def test_publish_custom_docker_source(
         assert len(definitions) == 1
         assert definitions[0].definition_id == definition_id
 
-        fetched = cloud_workspace.get_custom_source_definition(definition_id)
+        fetched = cloud_workspace.get_custom_source_definition(
+            definition_id,
+            custom_connector_type="docker",
+        )
         assert fetched.definition_id == definition_id
         assert fetched.name == name
         assert fetched.connector_type == "docker"
 
         updated = cloud_workspace.update_custom_source_definition(
             definition_id=definition_id,
-            name=name,
             docker_tag="2.0.0",
         )
         assert updated.docker_image_tag == "2.0.0"
 
     finally:
-        cloud_workspace.permanently_delete_custom_source_definition(definition_id)
+        cloud_workspace.permanently_delete_custom_source_definition(
+            definition_id,
+            custom_connector_type="docker",
+        )
 
 
 @pytest.mark.requires_creds

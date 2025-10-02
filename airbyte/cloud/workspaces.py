@@ -565,20 +565,20 @@ class CloudWorkspace:
         self,
         *,
         name: str | None = None,
-        custom_connector_type: Literal["yaml", "docker"] | None = None,
+        custom_connector_type: Literal["yaml", "docker"],
     ) -> list[CloudCustomSourceDefinition]:
         """List custom source connector definitions.
 
         Args:
             name: Filter by exact name match
-            custom_connector_type: Filter by connector type ("yaml" or "docker")
+            custom_connector_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
-            List of CloudCustomSourceDefinition objects
+            List of CloudCustomSourceDefinition objects matching the specified type
         """
         result: list[CloudCustomSourceDefinition] = []
 
-        if custom_connector_type is None or custom_connector_type == "yaml":
+        if custom_connector_type == "yaml":
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
                 workspace_id=self.workspace_id,
                 api_root=self.api_root,
@@ -590,8 +590,7 @@ class CloudWorkspace:
                 for d in yaml_definitions
                 if name is None or d.name == name
             )
-
-        if custom_connector_type is None or custom_connector_type == "docker":
+        elif custom_connector_type == "docker":
             docker_definitions = api_util.list_custom_docker_source_definitions(
                 workspace_id=self.workspace_id,
                 api_root=self.api_root,
@@ -609,19 +608,19 @@ class CloudWorkspace:
     def get_custom_source_definition(
         self,
         definition_id: str,
+        *,
+        custom_connector_type: Literal["yaml", "docker"],
     ) -> CloudCustomSourceDefinition:
         """Get a specific custom source definition by ID.
 
-        This method will attempt to fetch as a YAML definition first, then as a Docker
-        definition if not found.
-
         Args:
             definition_id: The definition ID
+            custom_connector_type: Connector type ("yaml" or "docker"). Required.
 
         Returns:
             CloudCustomSourceDefinition object
         """
-        try:
+        if custom_connector_type == "yaml":
             result = api_util.get_custom_yaml_source_definition(
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,
@@ -630,56 +629,112 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
             )
             return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-        except Exception:
-            result = api_util.get_custom_docker_source_definition(
-                workspace_id=self.workspace_id,
-                definition_id=definition_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
+        result = api_util.get_custom_docker_source_definition(
+            workspace_id=self.workspace_id,
+            definition_id=definition_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+        return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
+
+    def rename_custom_source_definition(
+        self,
+        definition_id: str,
+        *,
+        new_name: str,
+        custom_connector_type: Literal["yaml", "docker"],
+    ) -> CloudCustomSourceDefinition:
+        """Rename a custom source definition.
+
+        Note: Only Docker custom sources can be renamed. YAML custom sources
+        cannot be renamed as their names are derived from the manifest.
+
+        Args:
+            definition_id: The definition ID to rename
+            new_name: New display name for the connector
+            custom_connector_type: Connector type ("yaml" or "docker"). Required.
+
+        Returns:
+            Updated CloudCustomSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If attempting to rename a YAML connector
+        """
+        if custom_connector_type == "yaml":
+            raise exc.PyAirbyteInputError(
+                message="Cannot rename YAML custom source definitions",
+                context={"definition_id": definition_id},
             )
-            return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
+
+        current_definition = self.get_custom_source_definition(
+            definition_id=definition_id,
+            custom_connector_type="docker",
+        )
+
+        result = api_util.update_custom_docker_source_definition(
+            workspace_id=self.workspace_id,
+            definition_id=definition_id,
+            name=new_name,
+            docker_image_tag=current_definition.docker_image_tag,  # type: ignore[arg-type]
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+        return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
 
     def update_custom_source_definition(
         self,
         definition_id: str,
         *,
-        name: str | None = None,
         manifest_yaml: dict[str, Any] | Path | str | None = None,
         docker_tag: str | None = None,
         pre_validate: bool = True,
     ) -> CloudCustomSourceDefinition:
         """Update a custom source definition.
 
-        For YAML connectors: can update manifest_yaml
-        For Docker connectors: can update name and/or docker_tag
+        You must specify EXACTLY ONE of manifest_yaml (for YAML connectors) OR
+        docker_tag (for Docker connectors), but not both.
+
+        For YAML connectors: updates the manifest
+        For Docker connectors: updates the image tag (name remains unchanged - use
+        rename_custom_source_definition to change the name)
 
         Args:
             definition_id: The definition ID to update
-            name: New display name (Docker connectors only)
             manifest_yaml: New manifest (YAML connectors only)
             docker_tag: New Docker tag (Docker connectors only)
             pre_validate: Whether to validate manifest (YAML only)
 
         Returns:
             Updated CloudCustomSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If both or neither parameters are provided
         """
-        definition = self.get_custom_source_definition(definition_id)
+        is_yaml = manifest_yaml is not None
+        is_docker = docker_tag is not None
 
-        if definition.connector_type == "yaml":
-            if manifest_yaml is None:
-                raise exc.PyAirbyteInputError(
-                    message="manifest_yaml is required for updating YAML connectors",
-                    context={"definition_id": definition_id},
-                )
+        if is_yaml == is_docker:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of manifest_yaml (for YAML) OR "
+                    "docker_tag (for Docker), but not both"
+                ),
+                context={
+                    "manifest_yaml_provided": is_yaml,
+                    "docker_tag_provided": is_docker,
+                },
+            )
 
+        if is_yaml:
             manifest_dict: dict[str, Any]
             if isinstance(manifest_yaml, Path):
                 manifest_dict = yaml.safe_load(manifest_yaml.read_text())
             elif isinstance(manifest_yaml, str):
                 manifest_dict = yaml.safe_load(manifest_yaml)
             else:
-                manifest_dict = manifest_yaml
+                manifest_dict = manifest_yaml  # type: ignore[assignment]
 
             if pre_validate:
                 api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
@@ -693,17 +748,17 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
             )
             return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-        if name is None or docker_tag is None:
-            raise exc.PyAirbyteInputError(
-                message="Both name and docker_tag are required for updating Docker connectors",
-                context={"definition_id": definition_id},
-            )
+
+        current_definition = self.get_custom_source_definition(
+            definition_id=definition_id,
+            custom_connector_type="docker",
+        )
 
         result = api_util.update_custom_docker_source_definition(
             workspace_id=self.workspace_id,
             definition_id=definition_id,
-            name=name,
-            docker_image_tag=docker_tag,
+            name=current_definition.name,
+            docker_image_tag=docker_tag,  # type: ignore[arg-type]
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
@@ -713,15 +768,16 @@ class CloudWorkspace:
     def permanently_delete_custom_source_definition(
         self,
         definition_id: str,
+        *,
+        custom_connector_type: Literal["yaml", "docker"],
     ) -> None:
         """Permanently delete a custom source definition.
 
         Args:
             definition_id: The definition ID to delete
+            custom_connector_type: Connector type ("yaml" or "docker"). Required.
         """
-        definition = self.get_custom_source_definition(definition_id)
-
-        if definition.connector_type == "yaml":
+        if custom_connector_type == "yaml":
             api_util.delete_custom_yaml_source_definition(
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,

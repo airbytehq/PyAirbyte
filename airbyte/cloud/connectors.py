@@ -357,7 +357,10 @@ class CloudCustomSourceDefinition:
 
     def permanently_delete(self) -> None:
         """Permanently delete this custom source definition."""
-        self.workspace.permanently_delete_custom_source_definition(self.definition_id)
+        self.workspace.permanently_delete_custom_source_definition(
+            self.definition_id,
+            custom_connector_type=self.connector_type,
+        )
 
     def __repr__(self) -> str:
         """String representation."""
