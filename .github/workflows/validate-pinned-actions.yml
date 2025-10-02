@@ -1,0 +1,51 @@
+name: Validate Pinned Actions
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '**/action.yml'
+      - '**/action.yaml'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate-pinned-actions:
+    name: Validate Actions are SHA-pinned
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.10'
+
+      - name: Set up Poetry
+        uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
+        with:
+          poetry-version: "2.2.0"
+
+      - name: Install dependencies
+        run: poetry install
+
+      - name: Install pinact CLI
+        run: |
+          go install github.com/suzuki-shunsuke/pinact/cmd/pinact@latest
+
+      - name: Validate all actions are pinned
+        run: |
+          if ! poetry run poe gh-ci-check; then
+            echo "❌ Some GitHub Actions are not pinned to SHA hashes!"
+            echo ""
+            echo "To fix this, use the slash command '/gh-ci-fix' on this PR."
+            echo ""
+            echo "Or run locally:"
+            echo "  poetry run poe gh-ci-fix"
+            exit 1
+          else
+            echo "✅ All GitHub Actions are properly pinned to SHA hashes."
+          fi
