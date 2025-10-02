@@ -41,10 +41,13 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+import yaml
 from airbyte_api import models as api_models  # noqa: TC002
 
+from airbyte import exceptions as exc
 from airbyte._util import api_util
 
 
@@ -362,6 +365,122 @@ class CloudCustomSourceDefinition:
             custom_connector_type=self.connector_type,
         )
 
+    def update_definition(
+        self,
+        *,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        docker_tag: str | None = None,
+        pre_validate: bool = True,
+    ) -> CloudCustomSourceDefinition:
+        """Update this custom source definition.
+
+        You must specify EXACTLY ONE of manifest_yaml (for YAML connectors) OR
+        docker_tag (for Docker connectors), but not both.
+
+        For YAML connectors: updates the manifest
+        For Docker connectors: updates the image tag (name remains unchanged - use
+        rename() to change the name)
+
+        Args:
+            manifest_yaml: New manifest (YAML connectors only)
+            docker_tag: New Docker tag (Docker connectors only)
+            pre_validate: Whether to validate manifest (YAML only)
+
+        Returns:
+            Updated CloudCustomSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If both or neither parameters are provided
+        """
+        is_yaml = manifest_yaml is not None
+        is_docker = docker_tag is not None
+
+        if is_yaml == is_docker:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of manifest_yaml (for YAML) OR "
+                    "docker_tag (for Docker), but not both"
+                ),
+                context={
+                    "manifest_yaml_provided": is_yaml,
+                    "docker_tag_provided": is_docker,
+                },
+            )
+
+        if is_yaml:
+            manifest_dict: dict[str, Any]
+            if isinstance(manifest_yaml, Path):
+                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
+            elif isinstance(manifest_yaml, str):
+                manifest_dict = yaml.safe_load(manifest_yaml)
+            else:
+                manifest_dict = manifest_yaml  # type: ignore[assignment]
+
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+            result = api_util.update_custom_yaml_source_definition(
+                workspace_id=self.workspace.workspace_id,
+                definition_id=self.definition_id,
+                manifest=manifest_dict,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+            return CloudCustomSourceDefinition._from_yaml_response(self.workspace, result)
+
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+
+        result = api_util.update_custom_docker_source_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            name=self._definition_info.name,
+            docker_image_tag=docker_tag,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudCustomSourceDefinition._from_docker_response(self.workspace, result)
+
+    def rename(
+        self,
+        new_name: str,
+    ) -> CloudCustomSourceDefinition:
+        """Rename this custom source definition.
+
+        Note: Only Docker custom sources can be renamed. YAML custom sources
+        cannot be renamed as their names are derived from the manifest.
+
+        Args:
+            new_name: New display name for the connector
+
+        Returns:
+            Updated CloudCustomSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If attempting to rename a YAML connector
+        """
+        if self.connector_type == "yaml":
+            raise exc.PyAirbyteInputError(
+                message="Cannot rename YAML custom source definitions",
+                context={"definition_id": self.definition_id},
+            )
+
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+
+        result = api_util.update_custom_docker_source_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            name=new_name,
+            docker_image_tag=self._definition_info.docker_image_tag,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudCustomSourceDefinition._from_docker_response(self.workspace, result)
+
     def __repr__(self) -> str:
         """String representation."""
         return (
@@ -465,6 +584,32 @@ class CloudCustomDestinationDefinition:
     def permanently_delete(self) -> None:
         """Permanently delete this custom destination definition."""
         self.workspace.permanently_delete_custom_destination_definition(self.definition_id)
+
+    def update_definition(
+        self,
+        *,
+        name: str,
+        docker_tag: str,
+    ) -> CloudCustomDestinationDefinition:
+        """Update this custom destination definition.
+
+        Args:
+            name: New display name
+            docker_tag: New Docker tag
+
+        Returns:
+            Updated CloudCustomDestinationDefinition object
+        """
+        result = api_util.update_custom_docker_destination_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            name=name,
+            docker_image_tag=docker_tag,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudCustomDestinationDefinition._from_docker_response(self.workspace, result)
 
     def __repr__(self) -> str:
         """String representation."""

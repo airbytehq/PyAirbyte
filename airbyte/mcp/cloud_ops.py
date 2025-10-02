@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -630,9 +631,9 @@ def update_custom_source_definition(
     ],
     *,
     manifest_yaml: Annotated[
-        dict | str | None,
+        str | Path | None,
         Field(
-            description="New manifest as dict or YAML string (YAML connectors only).",
+            description="New manifest as YAML string or file path (YAML connectors only).",
             default=None,
         ),
     ] = None,
@@ -643,6 +644,12 @@ def update_custom_source_definition(
             default=None,
         ),
     ] = None,
+    custom_connector_type: Annotated[
+        str,
+        Field(
+            description="Connector type: 'yaml' or 'docker'. Required.",
+        ),
+    ],
     pre_validate: Annotated[
         bool,
         Field(
@@ -660,8 +667,11 @@ def update_custom_source_definition(
     """
     try:
         workspace: CloudWorkspace = _get_cloud_workspace()
-        result = workspace.update_custom_source_definition(
+        definition = workspace.get_custom_source_definition(
             definition_id=definition_id,
+            custom_connector_type=custom_connector_type,  # type: ignore[arg-type]
+        )
+        result = definition.update_definition(
             manifest_yaml=manifest_yaml,
             docker_tag=docker_tag,
             pre_validate=pre_validate,
@@ -705,11 +715,11 @@ def rename_custom_source_definition(
     """
     try:
         workspace: CloudWorkspace = _get_cloud_workspace()
-        result = workspace.rename_custom_source_definition(
+        definition = workspace.get_custom_source_definition(
             definition_id=definition_id,
-            new_name=new_name,
             custom_connector_type=custom_connector_type,  # type: ignore[arg-type]
         )
+        result = definition.rename(new_name=new_name)
     except Exception as ex:
         return f"Failed to rename custom source definition '{definition_id}': {ex}"
     else:
@@ -805,8 +815,8 @@ def update_custom_destination_definition(
     """Update a custom destination definition in Airbyte Cloud."""
     try:
         workspace: CloudWorkspace = _get_cloud_workspace()
-        result = workspace.update_custom_destination_definition(
-            definition_id=definition_id,
+        definition = workspace.get_custom_destination_definition(definition_id=definition_id)
+        result = definition.update_definition(
             name=name,
             docker_tag=docker_tag,
         )

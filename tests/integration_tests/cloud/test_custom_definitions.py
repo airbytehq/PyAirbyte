@@ -74,8 +74,7 @@ def test_publish_custom_yaml_source(
 
         updated_manifest = TEST_YAML_MANIFEST.copy()
         updated_manifest["version"] = "0.2.0"
-        updated = cloud_workspace.update_custom_source_definition(
-            definition_id=definition_id,
+        updated = fetched.update_definition(
             manifest_yaml=updated_manifest,
         )
         assert updated.manifest["version"] == "0.2.0"
@@ -128,8 +127,7 @@ def test_publish_custom_docker_source(
         assert fetched.name == name
         assert fetched.connector_type == "docker"
 
-        updated = cloud_workspace.update_custom_source_definition(
-            definition_id=definition_id,
+        updated = fetched.update_definition(
             docker_tag="2.0.0",
         )
         assert updated.docker_image_tag == "2.0.0"
@@ -173,8 +171,7 @@ def test_publish_custom_docker_destination(
         assert fetched.definition_id == definition_id
         assert fetched.name == name
 
-        updated = cloud_workspace.update_custom_destination_definition(
-            definition_id=definition_id,
+        updated = fetched.update_definition(
             name=name,
             docker_tag="2.0.0",
         )
