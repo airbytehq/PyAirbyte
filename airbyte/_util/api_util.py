@@ -20,8 +20,6 @@ from typing import TYPE_CHECKING, Any, Literal
 import airbyte_api
 import requests
 from airbyte_api import api, models
-from airbyte_api import api as airbyte_api_api
-from airbyte_api import models as airbyte_api_models
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
 from airbyte.exceptions import (
@@ -984,7 +982,7 @@ def create_custom_yaml_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DeclarativeSourceDefinitionResponse:
+) -> models.DeclarativeSourceDefinitionResponse:
     """Create a custom YAML source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -992,11 +990,11 @@ def create_custom_yaml_source_definition(
         client_secret=client_secret,
     )
 
-    request_body = airbyte_api_models.CreateDeclarativeSourceDefinitionRequest(
+    request_body = models.CreateDeclarativeSourceDefinitionRequest(
         name=name,
         manifest=manifest,
     )
-    request = airbyte_api_api.CreateDeclarativeSourceDefinitionRequest(
+    request = api.CreateDeclarativeSourceDefinitionRequest(
         workspace_id=workspace_id,
         create_declarative_source_definition_request=request_body,
     )
@@ -1017,7 +1015,7 @@ def list_custom_yaml_source_definitions(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> list[airbyte_api_models.DeclarativeSourceDefinitionResponse]:
+) -> list[models.DeclarativeSourceDefinitionResponse]:
     """List all custom YAML source definitions in a workspace."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1025,7 +1023,7 @@ def list_custom_yaml_source_definitions(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.ListDeclarativeSourceDefinitionsRequest(
+    request = api.ListDeclarativeSourceDefinitionsRequest(
         workspace_id=workspace_id,
     )
     response = airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
@@ -1046,7 +1044,7 @@ def get_custom_yaml_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DeclarativeSourceDefinitionResponse:
+) -> models.DeclarativeSourceDefinitionResponse:
     """Get a specific custom YAML source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1054,7 +1052,7 @@ def get_custom_yaml_source_definition(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.GetDeclarativeSourceDefinitionRequest(
+    request = api.GetDeclarativeSourceDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
@@ -1077,7 +1075,7 @@ def update_custom_yaml_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DeclarativeSourceDefinitionResponse:
+) -> models.DeclarativeSourceDefinitionResponse:
     """Update a custom YAML source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1085,10 +1083,10 @@ def update_custom_yaml_source_definition(
         client_secret=client_secret,
     )
 
-    request_body = airbyte_api_models.UpdateDeclarativeSourceDefinitionRequest(
+    request_body = models.UpdateDeclarativeSourceDefinitionRequest(
         manifest=manifest,
     )
-    request = airbyte_api_api.UpdateDeclarativeSourceDefinitionRequest(
+    request = api.UpdateDeclarativeSourceDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
         update_declarative_source_definition_request=request_body,
@@ -1119,7 +1117,7 @@ def delete_custom_yaml_source_definition(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.DeleteDeclarativeSourceDefinitionRequest(
+    request = api.DeleteDeclarativeSourceDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
@@ -1136,7 +1134,7 @@ def create_custom_docker_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DefinitionResponse:
+) -> models.DefinitionResponse:
     """Create a custom Docker source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1144,13 +1142,13 @@ def create_custom_docker_source_definition(
         client_secret=client_secret,
     )
 
-    request_body = airbyte_api_models.CreateDefinitionRequest(
+    request_body = models.CreateDefinitionRequest(
         name=name,
         docker_repository=docker_repository,
         docker_image_tag=docker_image_tag,
         documentation_url=documentation_url,
     )
-    request = airbyte_api_api.CreateSourceDefinitionRequest(
+    request = api.CreateSourceDefinitionRequest(
         workspace_id=workspace_id,
         create_definition_request=request_body,
     )
@@ -1169,7 +1167,7 @@ def list_custom_docker_source_definitions(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> list[airbyte_api_models.DefinitionResponse]:
+) -> list[models.DefinitionResponse]:
     """List all custom Docker source definitions in a workspace."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1177,7 +1175,7 @@ def list_custom_docker_source_definitions(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.ListSourceDefinitionsRequest(
+    request = api.ListSourceDefinitionsRequest(
         workspace_id=workspace_id,
     )
     response = airbyte_instance.source_definitions.list_source_definitions(request)
@@ -1196,7 +1194,7 @@ def get_custom_docker_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DefinitionResponse:
+) -> models.DefinitionResponse:
     """Get a specific custom Docker source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1204,7 +1202,7 @@ def get_custom_docker_source_definition(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.GetSourceDefinitionRequest(
+    request = api.GetSourceDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
@@ -1226,7 +1224,7 @@ def update_custom_docker_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DefinitionResponse:
+) -> models.DefinitionResponse:
     """Update a custom Docker source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1234,11 +1232,11 @@ def update_custom_docker_source_definition(
         client_secret=client_secret,
     )
 
-    request_body = airbyte_api_models.UpdateDefinitionRequest(
+    request_body = models.UpdateDefinitionRequest(
         name=name,
         docker_image_tag=docker_image_tag,
     )
-    request = airbyte_api_api.UpdateSourceDefinitionRequest(
+    request = api.UpdateSourceDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
         update_definition_request=request_body,
@@ -1267,7 +1265,7 @@ def delete_custom_docker_source_definition(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.DeleteSourceDefinitionRequest(
+    request = api.DeleteSourceDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
@@ -1284,7 +1282,7 @@ def create_custom_docker_destination_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DefinitionResponse:
+) -> models.DefinitionResponse:
     """Create a custom Docker destination definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1292,13 +1290,13 @@ def create_custom_docker_destination_definition(
         client_secret=client_secret,
     )
 
-    request_body = airbyte_api_models.CreateDefinitionRequest(
+    request_body = models.CreateDefinitionRequest(
         name=name,
         docker_repository=docker_repository,
         docker_image_tag=docker_image_tag,
         documentation_url=documentation_url,
     )
-    request = airbyte_api_api.CreateDestinationDefinitionRequest(
+    request = api.CreateDestinationDefinitionRequest(
         workspace_id=workspace_id,
         create_definition_request=request_body,
     )
@@ -1317,7 +1315,7 @@ def list_custom_docker_destination_definitions(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> list[airbyte_api_models.DefinitionResponse]:
+) -> list[models.DefinitionResponse]:
     """List all custom Docker destination definitions in a workspace."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1325,7 +1323,7 @@ def list_custom_docker_destination_definitions(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.ListDestinationDefinitionsRequest(
+    request = api.ListDestinationDefinitionsRequest(
         workspace_id=workspace_id,
     )
     response = airbyte_instance.destination_definitions.list_destination_definitions(request)
@@ -1344,7 +1342,7 @@ def get_custom_docker_destination_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DefinitionResponse:
+) -> models.DefinitionResponse:
     """Get a specific custom Docker destination definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1352,7 +1350,7 @@ def get_custom_docker_destination_definition(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.GetDestinationDefinitionRequest(
+    request = api.GetDestinationDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
@@ -1374,7 +1372,7 @@ def update_custom_docker_destination_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> airbyte_api_models.DefinitionResponse:
+) -> models.DefinitionResponse:
     """Update a custom Docker destination definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
@@ -1382,11 +1380,11 @@ def update_custom_docker_destination_definition(
         client_secret=client_secret,
     )
 
-    request_body = airbyte_api_models.UpdateDefinitionRequest(
+    request_body = models.UpdateDefinitionRequest(
         name=name,
         docker_image_tag=docker_image_tag,
     )
-    request = airbyte_api_api.UpdateDestinationDefinitionRequest(
+    request = api.UpdateDestinationDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
         update_definition_request=request_body,
@@ -1415,7 +1413,7 @@ def delete_custom_docker_destination_definition(
         client_secret=client_secret,
     )
 
-    request = airbyte_api_api.DeleteDestinationDefinitionRequest(
+    request = api.DeleteDestinationDefinitionRequest(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
