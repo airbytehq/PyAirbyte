@@ -585,9 +585,8 @@ class SqlProcessorBase(abc.ABC):
     ) -> str:
         """Create a new table for loading data."""
         temp_table_name = self._get_temp_table_name(stream_name, batch_id)
-        engine = self.get_sql_engine()
         column_definition_str = ",\n  ".join(
-            f"{self._quote_identifier(column_name)} {sql_type.compile(engine.dialect)}"
+            f"{self._quote_identifier(column_name)} {sql_type}"
             for column_name, sql_type in self._get_sql_column_definitions(stream_name).items()
         )
         self._create_table(temp_table_name, column_definition_str)
@@ -635,10 +634,9 @@ class SqlProcessorBase(abc.ABC):
         """
         table_name = self.get_sql_table_name(stream_name)
         did_exist = self._table_exists(table_name)
-        engine = self.get_sql_engine()
         if not did_exist and create_if_missing:
             column_definition_str = ",\n  ".join(
-                f"{self._quote_identifier(column_name)} {sql_type.compile(engine.dialect)}"
+                f"{self._quote_identifier(column_name)} {sql_type}"
                 for column_name, sql_type in self._get_sql_column_definitions(
                     stream_name,
                 ).items()
