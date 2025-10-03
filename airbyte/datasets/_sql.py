@@ -12,6 +12,7 @@ from sqlalchemy import and_, func, select, text
 from airbyte_protocol.models import ConfiguredAirbyteStream
 
 from airbyte.constants import (
+    AB_DATA_COLUMN,
     AB_EXTRACTED_AT_COLUMN,
     AB_META_COLUMN,
     AB_RAW_ID_COLUMN,
@@ -143,6 +144,16 @@ class SQLDataset(DatasetBase):
     @property
     def column_names(self) -> list[str]:
         """Return the list of top-level column names, including internal Airbyte columns."""
+        if self._cache.processor.sql_config.use_single_json_column:
+            # In single JSON column mode, return only _airbyte_data + internal columns
+            # (PKs are inside _airbyte_data, not separate columns)
+            return [
+                AB_DATA_COLUMN,
+                AB_RAW_ID_COLUMN,
+                AB_EXTRACTED_AT_COLUMN,
+                AB_META_COLUMN,
+            ]
+        # Standard mode: all data columns + internal columns
         return [*super().column_names, AB_RAW_ID_COLUMN, AB_EXTRACTED_AT_COLUMN, AB_META_COLUMN]
 
 
