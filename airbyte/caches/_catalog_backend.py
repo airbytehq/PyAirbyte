@@ -261,13 +261,15 @@ class SqlCatalogBackend(CatalogBackendBase):
         source_name: str,
     ) -> CatalogProvider:
         if source_name not in self._source_catalogs:
-            self._source_catalogs[source_name] = CatalogProvider(
-                configured_catalog=ConfiguredAirbyteCatalog(
-                    streams=self._fetch_streams_info(
-                        source_name=source_name,
-                        table_prefix=self._table_prefix,
+            self._source_catalogs[source_name] = (
+                CatalogProvider(  # pyrefly: ignore[unsupported-operation]
+                    configured_catalog=ConfiguredAirbyteCatalog(
+                        streams=self._fetch_streams_info(
+                            source_name=source_name,
+                            table_prefix=self._table_prefix,
+                        )
                     )
                 )
             )
 
-        return self._source_catalogs[source_name]
+        return self._source_catalogs[source_name]  # pyrefly: ignore[bad-return]

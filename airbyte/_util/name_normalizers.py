@@ -50,7 +50,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
 
     @staticmethod
     @functools.cache
-    def normalize(name: str) -> str:
+    def normalize(name: str) -> str:  # pyrefly: ignore[bad-override]
         """Return the normalized name.
 
         - All non-alphanumeric characters are replaced with underscores.

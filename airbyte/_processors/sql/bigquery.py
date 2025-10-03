@@ -7,8 +7,10 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
 
+import google.auth
 import google.oauth2
 import sqlalchemy
+import sqlalchemy.exc
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.oauth2 import service_account

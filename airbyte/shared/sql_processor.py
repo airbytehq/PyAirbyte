@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast, final
 
 import pandas as pd
 import sqlalchemy
+import sqlalchemy.exc
 import ulid
 from pandas import Index
 from pydantic import BaseModel, Field
@@ -273,7 +274,7 @@ class SqlProcessorBase(abc.ABC):
         This method assumes that the catalog is already registered with the processor.
         """
         if not isinstance(write_strategy, WriteStrategy):
-            raise exc.AirbyteInternalError(
+            raise exc.AirbyteInternalError(  # pyrefly: ignore[missing-attribute]
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )

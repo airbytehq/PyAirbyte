@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -102,7 +102,7 @@ class CloudConnection:
 
             self._source_id = self._connection_info.source_id
 
-        return cast("str", self._source_id)
+        return self._source_id
 
     @property
     def source(self) -> CloudSource:
@@ -125,7 +125,7 @@ class CloudConnection:
 
             self._destination_id = self._connection_info.source_id
 
-        return cast("str", self._destination_id)
+        return self._destination_id
 
     @property
     def destination(self) -> CloudDestination:
