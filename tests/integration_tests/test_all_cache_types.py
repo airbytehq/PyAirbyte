@@ -109,6 +109,7 @@ def source_pokeapi() -> ab.Source:
     return source
 
 
+@pytest.mark.requires_creds
 @pytest.mark.slow
 @pytest.mark.skipif(
     "CI" in os.environ,
