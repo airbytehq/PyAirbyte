@@ -67,7 +67,7 @@ class StateProviderBase(abc.ABC):
         if result is None:
             raise exc.PyAirbyteInternalError(message="No state artifacts were declared.")
 
-        return result
+        return result  # pyrefly: ignore[bad-return]
 
     @property
     def known_stream_names(
@@ -100,11 +100,14 @@ class StateProviderBase(abc.ABC):
     ) -> AirbyteStateMessage:
         """Return the state message for the specified stream name."""
         for state_message in self.state_message_artifacts:
-            if state_message.stream.stream_descriptor.name == stream_name:
-                return state_message
+            if (
+                state_message.stream.stream_descriptor.name  # pyrefly: ignore[missing-attribute]
+                == stream_name
+            ):
+                return state_message  # pyrefly: ignore[bad-return]
 
         if not_found != "raise":
-            return not_found
+            return not_found  # pyrefly: ignore[bad-return]
 
         raise exc.AirbyteStateNotFoundError(
             message="State message not found.",

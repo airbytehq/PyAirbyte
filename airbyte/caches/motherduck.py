@@ -42,7 +42,7 @@ class MotherDuckConfig(DuckDBConfig):
 
     database: str = Field()
     api_key: SecretString = Field()
-    db_path: str = Field(default="md:")
+    db_path: str = Field(default="md:")  # pyrefly: ignore[bad-override]
     _paired_destination_name: str = "destination-motherduck"
 
     @overrides

@@ -109,7 +109,7 @@ def snowflake_cache_to_destination_configuration(
         role=cache.role,
         username=cache.username,
         credentials=UsernameAndPassword(
-            password=cache.password,
+            password=cache.password,  # pyrefly: ignore[bad-argument-type]
         ),
     )
 

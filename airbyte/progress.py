@@ -314,8 +314,11 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         update_period = 1  # Reset the update period to 1 before start.
 
-        for count, message in enumerate(messages, start=1):
-            yield message  # Yield the message immediately.
+        for count, message in enumerate(  # pyrefly: ignore[bad-assignment]
+            messages,  # pyrefly: ignore[bad-argument-type]
+            start=1,
+        ):
+            yield message  # pyrefly: ignore[invalid-yield]
             if isinstance(message, str):
                 # This is a string message, not an AirbyteMessage.
                 # For now at least, we don't need to pay the cost of parsing it.
@@ -529,7 +532,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         perf_metrics["stream_metrics"] = stream_metrics
         log_dict["performance_metrics"] = perf_metrics
 
-        self._file_logger.info(json.dumps(log_dict))
+        self._file_logger.info(json.dumps(log_dict))  # pyrefly: ignore[missing-attribute]
 
         perf_logger: BoundLogger = logs.get_global_stats_logger()
         perf_logger.info(**log_dict)

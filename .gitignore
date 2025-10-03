@@ -118,7 +118,7 @@ venv.bak/
 # mkdocs documentation
 /site
 
-# mypy
+# Type checkers (mypy, pyrefly)
 .mypy_cache/
 .dmypy.json
 dmypy.json

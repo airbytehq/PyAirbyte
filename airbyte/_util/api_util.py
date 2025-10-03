@@ -602,7 +602,7 @@ def create_destination(
     )
     definition_id_override: str | None = None
     if _get_destination_type_str(config) == "dev-null":
-        # TODO: We have to hard-code the definition ID for dev-null destination. (important-comment)
+        # TODO: We have to hard-code the definition ID for dev-null destination.
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
     response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
@@ -656,9 +656,9 @@ def get_destination(
         }
 
         if destination_type in destination_mapping:
-            response.destination_response.configuration = destination_mapping[destination_type](
-                **raw_configuration
-            )
+            response.destination_response.configuration = destination_mapping[
+                destination_type  # pyrefly: ignore[index-error]
+            ](**raw_configuration)
         return response.destination_response
 
     raise AirbyteMissingResourceError(
