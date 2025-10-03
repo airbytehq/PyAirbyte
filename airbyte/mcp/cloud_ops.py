@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -501,6 +502,333 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
     return workspace.list_connections()
 
 
+def publish_custom_source_definition(
+    name: Annotated[
+        str,
+        Field(description="The name for the custom connector definition."),
+    ],
+    *,
+    manifest_yaml: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "The Low-code CDK manifest as a dict or YAML string. "
+                "Required for YAML connectors. Mutually exclusive with docker_image."
+            ),
+            default=None,
+        ),
+    ] = None,
+    docker_image: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Docker repository (e.g., 'airbyte/source-custom'). "
+                "Required for Docker connectors."
+            ),
+            default=None,
+        ),
+    ] = None,
+    docker_tag: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Docker image tag (e.g., '1.0.0'). " "Required when docker_image is specified."
+            ),
+            default=None,
+        ),
+    ] = None,
+    documentation_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL to connector documentation (Docker only).",
+            default=None,
+        ),
+    ] = None,
+    unique: Annotated[
+        bool,
+        Field(
+            description="Whether to require a unique name.",
+            default=True,
+        ),
+    ] = True,
+    pre_validate: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether to validate the manifest client-side " "before publishing (YAML only)."
+            ),
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Publish a custom source connector definition to Airbyte Cloud.
+
+    Supports both YAML (declarative) and Docker-based custom source definitions.
+    You must specify EITHER manifest_yaml OR docker_image + docker_tag, but not both.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        result = workspace.publish_custom_source_definition(
+            name=name,
+            manifest_yaml=manifest_yaml,
+            docker_image=docker_image,
+            docker_tag=docker_tag,
+            documentation_url=documentation_url,
+            unique=unique,
+            pre_validate=pre_validate,
+        )
+    except Exception as ex:
+        return f"Failed to publish custom source definition '{name}': {ex}"
+    else:
+        if result.connector_type == "yaml":
+            return (
+                f"Successfully published custom YAML source definition '{name}' "
+                f"with ID '{result.definition_id}' (version {result.version or 'N/A'})"
+            )
+        return (
+            f"Successfully published custom Docker source definition '{name}' "
+            f"with ID '{result.definition_id}' "
+            f"({result.docker_repository}:{result.docker_image_tag})"
+        )
+
+
+def list_custom_source_definitions(
+    custom_connector_type: Annotated[
+        str,
+        Field(
+            description="Connector type to list: 'yaml' or 'docker'. Required.",
+        ),
+    ],
+) -> list[dict[str, Any]]:
+    """List custom source definitions in the Airbyte Cloud workspace.
+
+    You must specify the connector type to list - either 'yaml' or 'docker'.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    definitions = workspace.list_custom_source_definitions(
+        custom_connector_type=custom_connector_type,  # type: ignore[arg-type]
+    )
+
+    return [
+        {
+            "definition_id": d.definition_id,
+            "name": d.name,
+            "connector_type": d.connector_type,
+            "manifest": d.manifest,
+            "version": d.version,
+            "docker_repository": d.docker_repository,
+            "docker_image_tag": d.docker_image_tag,
+            "documentation_url": d.documentation_url,
+        }
+        for d in definitions
+    ]
+
+
+def update_custom_source_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the definition to update."),
+    ],
+    *,
+    manifest_yaml: Annotated[
+        str | Path | None,
+        Field(
+            description="New manifest as YAML string or file path (YAML connectors only).",
+            default=None,
+        ),
+    ] = None,
+    docker_tag: Annotated[
+        str | None,
+        Field(
+            description="New Docker image tag (Docker connectors only).",
+            default=None,
+        ),
+    ] = None,
+    custom_connector_type: Annotated[
+        str,
+        Field(
+            description="Connector type: 'yaml' or 'docker'. Required.",
+        ),
+    ],
+    pre_validate: Annotated[
+        bool,
+        Field(
+            description="Whether to validate the manifest client-side before updating (YAML only).",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Update a custom source definition in Airbyte Cloud.
+
+    You must specify EXACTLY ONE of manifest_yaml or docker_tag, but not both.
+    For YAML connectors: specify manifest_yaml
+    For Docker connectors: specify docker_tag (updates tag only, not name)
+    To rename a Docker connector, use rename_custom_source_definition instead.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        definition = workspace.get_custom_source_definition(
+            definition_id=definition_id,
+            custom_connector_type=custom_connector_type,  # type: ignore[arg-type]
+        )
+        result = definition.update_definition(
+            manifest_yaml=manifest_yaml,
+            docker_tag=docker_tag,
+            pre_validate=pre_validate,
+        )
+    except Exception as ex:
+        return f"Failed to update custom source definition '{definition_id}': {ex}"
+    else:
+        if result.connector_type == "yaml":
+            return (
+                f"Successfully updated custom YAML source definition. "
+                f"Name: {result.name}, version: {result.version or 'N/A'}"
+            )
+        return (
+            f"Successfully updated custom Docker source definition. "
+            f"Name: {result.name}, tag: {result.docker_image_tag}"
+        )
+
+
+def rename_custom_source_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the definition to rename."),
+    ],
+    new_name: Annotated[
+        str,
+        Field(description="New display name for the connector."),
+    ],
+    custom_connector_type: Annotated[
+        str,
+        Field(
+            description=(
+                "Connector type: 'yaml' or 'docker'. " "Only Docker connectors can be renamed."
+            ),
+        ),
+    ],
+) -> str:
+    """Rename a custom source definition in Airbyte Cloud.
+
+    Note: Only Docker custom sources can be renamed. YAML custom sources
+    cannot be renamed as their names are derived from the manifest.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        definition = workspace.get_custom_source_definition(
+            definition_id=definition_id,
+            custom_connector_type=custom_connector_type,  # type: ignore[arg-type]
+        )
+        result = definition.rename(new_name=new_name)
+    except Exception as ex:
+        return f"Failed to rename custom source definition '{definition_id}': {ex}"
+    else:
+        return (
+            f"Successfully renamed custom Docker source definition to '{result.name}' "
+            f"(ID: {result.definition_id})"
+        )
+
+
+def publish_custom_destination_definition(
+    name: Annotated[
+        str,
+        Field(description="The name for the custom connector definition."),
+    ],
+    docker_image: Annotated[
+        str,
+        Field(description="Docker repository (e.g., 'airbyte/destination-custom')."),
+    ],
+    docker_tag: Annotated[
+        str,
+        Field(description="Docker image tag (e.g., '1.0.0')."),
+    ],
+    *,
+    documentation_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL to connector documentation.",
+            default=None,
+        ),
+    ] = None,
+    unique: Annotated[
+        bool,
+        Field(
+            description="Whether to require a unique name.",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Publish a custom destination connector definition to Airbyte Cloud.
+
+    Currently only Docker-based custom destinations are supported.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        result = workspace.publish_custom_destination_definition(
+            name=name,
+            docker_image=docker_image,
+            docker_tag=docker_tag,
+            documentation_url=documentation_url,
+            unique=unique,
+        )
+    except Exception as ex:
+        return f"Failed to publish custom destination definition '{name}': {ex}"
+    else:
+        return (
+            f"Successfully published custom Docker destination definition '{name}' "
+            f"with ID '{result.definition_id}' "
+            f"({result.docker_repository}:{result.docker_image_tag})"
+        )
+
+
+def list_custom_destination_definitions() -> list[dict[str, Any]]:
+    """List all custom destination definitions in the Airbyte Cloud workspace."""
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    definitions = workspace.list_custom_destination_definitions()
+
+    return [
+        {
+            "definition_id": d.definition_id,
+            "name": d.name,
+            "docker_repository": d.docker_repository,
+            "docker_image_tag": d.docker_image_tag,
+            "documentation_url": d.documentation_url,
+        }
+        for d in definitions
+    ]
+
+
+def update_custom_destination_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the definition to update."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the definition."),
+    ],
+    docker_tag: Annotated[
+        str,
+        Field(description="New Docker image tag."),
+    ],
+) -> str:
+    """Update a custom destination definition in Airbyte Cloud."""
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        definition = workspace.get_custom_destination_definition(definition_id=definition_id)
+        result = definition.update_definition(
+            name=name,
+            docker_tag=docker_tag,
+        )
+    except Exception as ex:
+        return f"Failed to update custom destination definition '{definition_id}': {ex}"
+    else:
+        return (
+            f"Successfully updated custom Docker destination definition. "
+            f"Name: {result.name}, tag: {result.docker_image_tag}"
+        )
+
+
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """@private Register tools with the FastMCP app.
 
@@ -517,3 +845,10 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(list_deployed_cloud_source_connectors)
     app.tool(list_deployed_cloud_destination_connectors)
     app.tool(list_deployed_cloud_connections)
+    app.tool(publish_custom_source_definition)
+    app.tool(list_custom_source_definitions)
+    app.tool(update_custom_source_definition)
+    app.tool(rename_custom_source_definition)
+    app.tool(publish_custom_destination_definition)
+    app.tool(list_custom_destination_definitions)
+    app.tool(update_custom_destination_definition)
