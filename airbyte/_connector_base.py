@@ -405,25 +405,33 @@ class ConnectorBase(abc.ABC):
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
         if message.type == Type.LOG:
-            self._print_info_message(message.log.message)
+            self._print_info_message(message.log.message)  # pyrefly: ignore[missing-attribute]
             return
 
-        if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-            self._print_error_message(message.trace.error.message)
+        if (
+            message.type == Type.TRACE
+            and message.trace.type == TraceType.ERROR  # pyrefly: ignore[missing-attribute]
+        ):
+            self._print_error_message(
+                message.trace.error.message  # pyrefly: ignore[missing-attribute]
+            )
             if raise_on_error:
                 raise exc.AirbyteConnectorFailedError(
                     connector_name=self.name,
-                    message=message.trace.error.message,
+                    message=message.trace.error.message,  # pyrefly: ignore[missing-attribute]
                     log_text=self._last_log_messages,
                 )
             return
 
         if (
             message.type == Type.CONTROL
-            and message.control.type == OrchestratorType.CONNECTOR_CONFIG
+            and message.control.type  # pyrefly: ignore[missing-attribute]
+            == OrchestratorType.CONNECTOR_CONFIG
             and self.config_change_callback is not None
         ):
-            self.config_change_callback(message.control.connectorConfig.config)
+            self.config_change_callback(
+                message.control.connectorConfig.config  # pyrefly: ignore[missing-attribute]
+            )
             return
 
     def _execute(
