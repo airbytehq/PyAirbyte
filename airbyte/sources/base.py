@@ -752,7 +752,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         with as_temp_files(
             [
                 self._hydrated_config,
-                catalog.model_dump_json(),
+                catalog.model_dump_json(exclude_none=True),
                 state.to_state_input_file_text() if state else "[]",
             ]
         ) as [
