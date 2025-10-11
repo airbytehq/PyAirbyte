@@ -70,10 +70,10 @@ def test_publish_custom_yaml_source(
     definition_id = result.definition_id
 
     try:
-        definitions = cloud_workspace.list_custom_source_definitions(
-            name=name,
+        all_definitions = cloud_workspace.list_custom_source_definitions(
             custom_connector_type="yaml",
         )
+        definitions = [d for d in all_definitions if d.name == name]
         assert len(definitions) == 1
         assert definitions[0].definition_id == definition_id
 
