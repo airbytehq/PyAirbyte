@@ -511,10 +511,9 @@ class CloudWorkspace:
 
         if unique:
             existing = self.list_custom_source_definitions(
-                name=name,
                 custom_connector_type="yaml" if is_yaml else "docker",
             )
-            if existing:
+            if any(d.name == name for d in existing):
                 raise exc.AirbyteDuplicateResourcesError(
                     resource_type="custom_source_definition",
                     resource_name=name,
@@ -555,13 +554,11 @@ class CloudWorkspace:
     def list_custom_source_definitions(
         self,
         *,
-        name: str | None = None,
         custom_connector_type: Literal["yaml", "docker"],
     ) -> list[CloudCustomSourceDefinition]:
         """List custom source connector definitions.
 
         Args:
-            name: Filter by exact name match
             custom_connector_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
@@ -577,7 +574,6 @@ class CloudWorkspace:
             return [
                 CloudCustomSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
-                if name is None or d.name == name
             ]
 
         raise NotImplementedError(
