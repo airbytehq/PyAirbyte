@@ -41,10 +41,13 @@ from __future__ import annotations
 
 import abc
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, ClassVar, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
+import yaml
 from airbyte_api import models as api_models  # noqa: TC002
 
+from airbyte import exceptions as exc
 from airbyte._util import api_util
 
 
@@ -252,4 +255,244 @@ class CloudDestination(CloudConnector):
             connector_id=destination_response.destination_id,
         )
         result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
+        return result
+
+
+class CloudCustomSourceDefinition:
+    """A custom source connector definition in Airbyte Cloud.
+
+    This represents either a YAML (declarative) or Docker-based custom source definition.
+    """
+
+    def __init__(
+        self,
+        workspace: CloudWorkspace,
+        definition_id: str,
+        connector_type: Literal["yaml", "docker"],
+    ) -> None:
+        """Initialize a custom source definition object.
+
+        Note: Only YAML connectors are currently supported. Docker connectors
+        will raise NotImplementedError.
+        """
+        self.workspace = workspace
+        self.definition_id = definition_id
+        self.connector_type = connector_type
+        self._definition_info: api_models.DeclarativeSourceDefinitionResponse | None = None
+
+    def _fetch_definition_info(
+        self,
+    ) -> api_models.DeclarativeSourceDefinitionResponse:
+        """Fetch definition info from the API."""
+        if self.connector_type == "yaml":
+            return api_util.get_custom_yaml_source_definition(
+                workspace_id=self.workspace.workspace_id,
+                definition_id=self.definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    @property
+    def name(self) -> str:
+        """Get the display name of the custom connector definition."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.name
+
+    @property
+    def manifest(self) -> dict[str, Any] | None:
+        """Get the Low-code CDK manifest. Only present for YAML connectors."""
+        if self.connector_type != "yaml":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.manifest
+
+    @property
+    def version(self) -> str | None:
+        """Get the manifest version. Only present for YAML connectors."""
+        if self.connector_type != "yaml":
+            return None
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.version
+
+    @property
+    def docker_repository(self) -> str | None:
+        """Get the Docker repository. Only present for Docker connectors.
+
+        Note: Docker connectors are not yet supported and will raise NotImplementedError.
+        """
+        if self.connector_type != "docker":
+            return None
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    @property
+    def docker_image_tag(self) -> str | None:
+        """Get the Docker image tag. Only present for Docker connectors.
+
+        Note: Docker connectors are not yet supported and will raise NotImplementedError.
+        """
+        if self.connector_type != "docker":
+            return None
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    @property
+    def documentation_url(self) -> str | None:
+        """Get the documentation URL. Only present for Docker connectors.
+
+        Note: Docker connectors are not yet supported and will raise NotImplementedError.
+        """
+        if self.connector_type != "docker":
+            return None
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    @property
+    def definition_url(self) -> str:
+        """Get the web URL of the custom source definition."""
+        return (
+            f"{self.workspace.workspace_url}/settings/custom-connectors/"
+            f"sources/{self.definition_id}"
+        )
+
+    def permanently_delete(self) -> None:
+        """Permanently delete this custom source definition."""
+        self.workspace.permanently_delete_custom_source_definition(
+            self.definition_id,
+            custom_connector_type=self.connector_type,
+        )
+
+    def update_definition(
+        self,
+        *,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        docker_tag: str | None = None,
+        pre_validate: bool = True,
+    ) -> CloudCustomSourceDefinition:
+        """Update this custom source definition.
+
+        You must specify EXACTLY ONE of manifest_yaml (for YAML connectors) OR
+        docker_tag (for Docker connectors), but not both.
+
+        For YAML connectors: updates the manifest
+        For Docker connectors: Not yet supported (raises NotImplementedError)
+
+        Args:
+            manifest_yaml: New manifest (YAML connectors only)
+            docker_tag: New Docker tag (Docker connectors only, not yet supported)
+            pre_validate: Whether to validate manifest (YAML only)
+
+        Returns:
+            Updated CloudCustomSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If both or neither parameters are provided
+            NotImplementedError: If docker_tag is provided (Docker not yet supported)
+        """
+        is_yaml = manifest_yaml is not None
+        is_docker = docker_tag is not None
+
+        if is_yaml == is_docker:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of manifest_yaml (for YAML) OR "
+                    "docker_tag (for Docker), but not both"
+                ),
+                context={
+                    "manifest_yaml_provided": is_yaml,
+                    "docker_tag_provided": is_docker,
+                },
+            )
+
+        if is_yaml:
+            manifest_dict: dict[str, Any]
+            if isinstance(manifest_yaml, Path):
+                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
+            elif isinstance(manifest_yaml, str):
+                manifest_dict = yaml.safe_load(manifest_yaml)
+            else:
+                manifest_dict = manifest_yaml  # type: ignore[assignment]
+
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+            result = api_util.update_custom_yaml_source_definition(
+                workspace_id=self.workspace.workspace_id,
+                definition_id=self.definition_id,
+                manifest=manifest_dict,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+            return CloudCustomSourceDefinition._from_yaml_response(self.workspace, result)
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    def rename(
+        self,
+        new_name: str,  # noqa: ARG002
+    ) -> CloudCustomSourceDefinition:
+        """Rename this custom source definition.
+
+        Note: Only Docker custom sources can be renamed. YAML custom sources
+        cannot be renamed as their names are derived from the manifest.
+
+        Args:
+            new_name: New display name for the connector
+
+        Returns:
+            Updated CloudCustomSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If attempting to rename a YAML connector
+            NotImplementedError: If attempting to rename a Docker connector (not yet supported)
+        """
+        if self.connector_type == "yaml":
+            raise exc.PyAirbyteInputError(
+                message="Cannot rename YAML custom source definitions",
+                context={"definition_id": self.definition_id},
+            )
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return (
+            f"CloudCustomSourceDefinition(definition_id={self.definition_id}, "
+            f"name={self.name}, connector_type={self.connector_type})"
+        )
+
+    @classmethod
+    def _from_yaml_response(
+        cls,
+        workspace: CloudWorkspace,
+        response: api_models.DeclarativeSourceDefinitionResponse,
+    ) -> CloudCustomSourceDefinition:
+        """Internal factory method for YAML connectors."""
+        result = cls(
+            workspace=workspace,
+            definition_id=response.id,
+            connector_type="yaml",
+        )
+        result._definition_info = response  # noqa: SLF001
         return result

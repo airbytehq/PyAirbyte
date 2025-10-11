@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
@@ -501,6 +502,126 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
     return workspace.list_connections()
 
 
+def publish_custom_source_definition(
+    name: Annotated[
+        str,
+        Field(description="The name for the custom connector definition."),
+    ],
+    *,
+    manifest_yaml: Annotated[
+        str | Path | None,
+        Field(
+            description=(
+                "The Low-code CDK manifest as a YAML string or file path. "
+                "Required for YAML connectors."
+            ),
+            default=None,
+        ),
+    ] = None,
+    unique: Annotated[
+        bool,
+        Field(
+            description="Whether to require a unique name.",
+            default=True,
+        ),
+    ] = True,
+    pre_validate: Annotated[
+        bool,
+        Field(
+            description="Whether to validate the manifest client-side before publishing.",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Publish a custom YAML source connector definition to Airbyte Cloud.
+
+    Note: Only YAML (declarative) connectors are currently supported.
+    Docker-based custom sources are not yet available.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        result = workspace.publish_custom_source_definition(
+            name=name,
+            manifest_yaml=manifest_yaml,
+            unique=unique,
+            pre_validate=pre_validate,
+        )
+    except Exception as ex:
+        return f"Failed to publish custom source definition '{name}': {ex}"
+    else:
+        return (
+            f"Successfully published custom YAML source definition '{name}' "
+            f"with ID '{result.definition_id}' (version {result.version or 'N/A'})"
+        )
+
+
+def list_custom_source_definitions() -> list[dict[str, Any]]:
+    """List custom YAML source definitions in the Airbyte Cloud workspace.
+
+    Note: Only YAML (declarative) connectors are currently supported.
+    Docker-based custom sources are not yet available.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    definitions = workspace.list_custom_source_definitions(
+        custom_connector_type="yaml",
+    )
+
+    return [
+        {
+            "definition_id": d.definition_id,
+            "name": d.name,
+            "connector_type": d.connector_type,
+            "manifest": d.manifest,
+            "version": d.version,
+        }
+        for d in definitions
+    ]
+
+
+def update_custom_source_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the definition to update."),
+    ],
+    manifest_yaml: Annotated[
+        str | Path,
+        Field(
+            description="New manifest as YAML string or file path.",
+        ),
+    ],
+    *,
+    pre_validate: Annotated[
+        bool,
+        Field(
+            description="Whether to validate the manifest client-side before updating.",
+            default=True,
+        ),
+    ] = True,
+) -> str:
+    """Update a custom YAML source definition in Airbyte Cloud.
+
+    Note: Only YAML (declarative) connectors are currently supported.
+    Docker-based custom sources are not yet available.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        definition = workspace.get_custom_source_definition(
+            definition_id=definition_id,
+            custom_connector_type="yaml",
+        )
+        result = definition.update_definition(
+            manifest_yaml=manifest_yaml,
+            pre_validate=pre_validate,
+        )
+    except Exception as ex:
+        return f"Failed to update custom source definition '{definition_id}': {ex}"
+    else:
+        return (
+            f"Successfully updated custom YAML source definition. "
+            f"Name: {result.name}, version: {result.version or 'N/A'}"
+        )
+
+
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """@private Register tools with the FastMCP app.
 
@@ -517,3 +638,6 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(list_deployed_cloud_source_connectors)
     app.tool(list_deployed_cloud_destination_connectors)
     app.tool(list_deployed_cloud_connections)
+    app.tool(publish_custom_source_definition)
+    app.tool(list_custom_source_definitions)
+    app.tool(update_custom_source_definition)
