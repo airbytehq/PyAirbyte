@@ -539,10 +539,14 @@ def publish_custom_source_definition(
     Docker-based custom sources are not yet available.
     """
     try:
+        processed_manifest = manifest_yaml
+        if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
+            processed_manifest = Path(manifest_yaml)
+
         workspace: CloudWorkspace = _get_cloud_workspace()
         result = workspace.publish_custom_source_definition(
             name=name,
-            manifest_yaml=manifest_yaml,
+            manifest_yaml=processed_manifest,
             unique=unique,
             pre_validate=pre_validate,
         )
@@ -551,7 +555,8 @@ def publish_custom_source_definition(
     else:
         return (
             f"Successfully published custom YAML source definition '{name}' "
-            f"with ID '{result.definition_id}' (version {result.version or 'N/A'})"
+            f"with ID '{result.definition_id}' (version {result.version or 'N/A'})\n"
+            f"URL: {result.url}"
         )
 
 
@@ -604,13 +609,17 @@ def update_custom_source_definition(
     Docker-based custom sources are not yet available.
     """
     try:
+        processed_manifest = manifest_yaml
+        if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
+            processed_manifest = Path(manifest_yaml)
+
         workspace: CloudWorkspace = _get_cloud_workspace()
         definition = workspace.get_custom_source_definition(
             definition_id=definition_id,
             custom_connector_type="yaml",
         )
         result = definition.update_definition(
-            manifest_yaml=manifest_yaml,
+            manifest_yaml=processed_manifest,
             pre_validate=pre_validate,
         )
     except Exception as ex:
@@ -618,7 +627,8 @@ def update_custom_source_definition(
     else:
         return (
             f"Successfully updated custom YAML source definition. "
-            f"Name: {result.name}, version: {result.version or 'N/A'}"
+            f"Name: {result.name}, version: {result.version or 'N/A'}\n"
+            f"URL: {result.url}"
         )
 
 

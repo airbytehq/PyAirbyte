@@ -369,6 +369,17 @@ class CloudCustomSourceDefinition:
             f"sources/{self.definition_id}"
         )
 
+    @property
+    def url(self) -> str:
+        """Get the connector builder URL for this custom source definition.
+
+        For YAML connectors, this is the connector builder edit URL.
+        For Docker connectors, this is the same as definition_url.
+        """
+        if self.connector_type == "yaml":
+            return f"{self.workspace.workspace_url}/connector-builder/edit/" f"{self.definition_id}"
+        return self.definition_url
+
     def permanently_delete(self) -> None:
         """Permanently delete this custom source definition."""
         self.workspace.permanently_delete_custom_source_definition(
