@@ -583,18 +583,18 @@ class CloudWorkspace:
 
     def get_custom_source_definition(
         self,
-        *,
         definition_id: str | None = None,
+        *,
         definition_type: Literal["yaml", "docker"],
         connector_builder_project_id: str | None = None,
     ) -> CustomCloudSourceDefinition:
         """Get a specific custom source definition by ID or builder project ID.
 
         Args:
-            definition_id: The definition ID (optional if connector_builder_project_id is provided)
+            definition_id: The definition ID. Mutually exclusive with `connector_builder_project_id`.
             definition_type: Connector type ("yaml" or "docker"). Required.
-            connector_builder_project_id: The connector builder project ID (optional, only valid
-                for "yaml" definition_type)
+            connector_builder_project_id: The connector builder project ID. Mutually exclusive with
+                `definition_id`.
 
         Returns:
             CustomCloudSourceDefinition object
