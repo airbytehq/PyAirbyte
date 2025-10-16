@@ -511,7 +511,7 @@ class CloudWorkspace:
 
         if unique:
             existing = self.list_custom_source_definitions(
-                custom_connector_type="yaml" if is_yaml else "docker",
+                definition_type="yaml" if is_yaml else "docker",
             )
             if any(d.name == name for d in existing):
                 raise exc.AirbyteDuplicateResourcesError(
@@ -554,17 +554,17 @@ class CloudWorkspace:
     def list_custom_source_definitions(
         self,
         *,
-        custom_connector_type: Literal["yaml", "docker"],
+        definition_type: Literal["yaml", "docker"],
     ) -> list[CloudCustomSourceDefinition]:
         """List custom source connector definitions.
 
         Args:
-            custom_connector_type: Connector type to list ("yaml" or "docker"). Required.
+            definition_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
             List of CloudCustomSourceDefinition objects matching the specified type
         """
-        if custom_connector_type == "yaml":
+        if definition_type == "yaml":
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
                 workspace_id=self.workspace_id,
                 api_root=self.api_root,
@@ -585,18 +585,18 @@ class CloudWorkspace:
         self,
         definition_id: str,
         *,
-        custom_connector_type: Literal["yaml", "docker"],
+        definition_type: Literal["yaml", "docker"],
     ) -> CloudCustomSourceDefinition:
         """Get a specific custom source definition by ID.
 
         Args:
             definition_id: The definition ID
-            custom_connector_type: Connector type ("yaml" or "docker"). Required.
+            definition_type: Connector type ("yaml" or "docker"). Required.
 
         Returns:
             CloudCustomSourceDefinition object
         """
-        if custom_connector_type == "yaml":
+        if definition_type == "yaml":
             result = api_util.get_custom_yaml_source_definition(
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,
@@ -615,15 +615,15 @@ class CloudWorkspace:
         self,
         definition_id: str,
         *,
-        custom_connector_type: Literal["yaml", "docker"],
+        definition_type: Literal["yaml", "docker"],
     ) -> None:
         """Permanently delete a custom source definition.
 
         Args:
             definition_id: The definition ID to delete
-            custom_connector_type: Connector type ("yaml" or "docker"). Required.
+            definition_type: Connector type ("yaml" or "docker"). Required.
         """
-        if custom_connector_type == "yaml":
+        if definition_type == "yaml":
             api_util.delete_custom_yaml_source_definition(
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,

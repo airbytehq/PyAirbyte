@@ -71,7 +71,7 @@ def test_publish_custom_yaml_source(
 
     try:
         all_definitions = cloud_workspace.list_custom_source_definitions(
-            custom_connector_type="yaml",
+            definition_type="yaml",
         )
         definitions = [d for d in all_definitions if d.name == name]
         assert len(definitions) == 1
@@ -79,7 +79,7 @@ def test_publish_custom_yaml_source(
 
         fetched = cloud_workspace.get_custom_source_definition(
             definition_id,
-            custom_connector_type="yaml",
+            definition_type="yaml",
         )
         assert fetched.definition_id == definition_id
         assert fetched.name == name
@@ -95,7 +95,7 @@ def test_publish_custom_yaml_source(
     finally:
         cloud_workspace.permanently_delete_custom_source_definition(
             definition_id,
-            custom_connector_type="yaml",
+            definition_type="yaml",
         )
 
 

@@ -556,7 +556,7 @@ def publish_custom_source_definition(
         return (
             f"Successfully published custom YAML source definition '{name}' "
             f"with ID '{result.definition_id}' (version {result.version or 'N/A'})\n"
-            f"URL: {result.url}"
+            f"URL: {result.definition_url}"
         )
 
 
@@ -568,7 +568,7 @@ def list_custom_source_definitions() -> list[dict[str, Any]]:
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     definitions = workspace.list_custom_source_definitions(
-        custom_connector_type="yaml",
+        definition_type="yaml",
     )
 
     return [
@@ -616,7 +616,7 @@ def update_custom_source_definition(
         workspace: CloudWorkspace = _get_cloud_workspace()
         definition = workspace.get_custom_source_definition(
             definition_id=definition_id,
-            custom_connector_type="yaml",
+            definition_type="yaml",
         )
         result = definition.update_definition(
             manifest_yaml=processed_manifest,
