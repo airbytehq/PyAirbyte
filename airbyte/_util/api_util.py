@@ -1125,7 +1125,15 @@ def delete_custom_yaml_source_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(request)
+    response = airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(request)
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
+        )
 
 
 def get_connector_builder_project_for_definition_id(
