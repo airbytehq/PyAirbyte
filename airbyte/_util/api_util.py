@@ -1150,7 +1150,7 @@ def get_connector_builder_project_for_definition_id(
         The builder project ID if found, None otherwise (can be null in API response)
     """
     json_result = _make_config_api_request(
-        path="/v1/connector_builder_projects/get_for_definition_id",
+        path="/connector_builder_projects/get_for_definition_id",
         json={
             "actorDefinitionId": definition_id,
             "workspaceId": workspace_id,
