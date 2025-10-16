@@ -591,10 +591,11 @@ class CloudWorkspace:
         """Get a specific custom source definition by ID or builder project ID.
 
         Args:
-            definition_id: The definition ID. Mutually exclusive with `connector_builder_project_id`.
+            definition_id: The definition ID. Mutually exclusive with
+                `connector_builder_project_id`.
             definition_type: Connector type ("yaml" or "docker"). Required.
-            connector_builder_project_id: The connector builder project ID. Mutually exclusive with
-                `definition_id`.
+            connector_builder_project_id: The connector builder project ID.
+                Mutually exclusive with `definition_id`
 
         Returns:
             CustomCloudSourceDefinition object
@@ -642,18 +643,6 @@ class CloudWorkspace:
                     client_id=self.client_id,
                     client_secret=self.client_secret,
                 )
-
-                if definition_id is None:
-                    raise exc.AirbyteError(
-                        message=(
-                            "No custom source definition found with the given "
-                            "connector_builder_project_id"
-                        ),
-                        context={
-                            "workspace_id": self.workspace_id,
-                            "connector_builder_project_id": connector_builder_project_id,
-                        },
-                    )
 
                 result = api_util.get_custom_yaml_source_definition(
                     workspace_id=self.workspace_id,
