@@ -1008,15 +1008,11 @@ def create_custom_yaml_source_definition(
         client_secret=client_secret,
     )
 
-    request_body_dict: dict[str, Any] = {
-        "name": name,
-        "manifest": manifest,
-    }
-
-    if hasattr(models.CreateDeclarativeSourceDefinitionRequest, "as_draft"):
-        request_body_dict["as_draft"] = as_draft
-
-    request_body = models.CreateDeclarativeSourceDefinitionRequest(**request_body_dict)
+    request_body = models.CreateDeclarativeSourceDefinitionRequest(
+        name=name,
+        manifest=manifest,
+        as_draft=as_draft,
+    )
     request = api.CreateDeclarativeSourceDefinitionRequest(
         workspace_id=workspace_id,
         create_declarative_source_definition_request=request_body,
