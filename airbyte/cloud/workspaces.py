@@ -467,6 +467,7 @@ class CloudWorkspace:
         docker_tag: str | None = None,
         unique: bool = True,
         pre_validate: bool = True,
+        as_draft: bool = True,
     ) -> CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
@@ -480,6 +481,7 @@ class CloudWorkspace:
             docker_tag: Docker image tag (e.g., '1.0.0')
             unique: Whether to enforce name uniqueness
             pre_validate: Whether to validate manifest client-side (YAML only)
+            as_draft: Whether to create the definition as a draft (default: True)
 
         Returns:
             CustomCloudSourceDefinition object representing the created definition
@@ -543,6 +545,7 @@ class CloudWorkspace:
                 api_root=self.api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
+                as_draft=as_draft,
             )
             return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 

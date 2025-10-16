@@ -546,6 +546,13 @@ def publish_custom_source_definition(
             default=True,
         ),
     ] = True,
+    as_draft: Annotated[
+        bool,
+        Field(
+            description="Whether to create the definition as a draft (default: True).",
+            default=True,
+        ),
+    ] = True,
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -563,6 +570,7 @@ def publish_custom_source_definition(
             manifest_yaml=processed_manifest,
             unique=unique,
             pre_validate=pre_validate,
+            as_draft=as_draft,
         )
     except Exception as ex:
         return f"Failed to publish custom source definition '{name}': {ex}"

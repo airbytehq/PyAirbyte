@@ -986,18 +986,37 @@ def create_custom_yaml_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
+    as_draft: bool = True,
 ) -> models.DeclarativeSourceDefinitionResponse:
-    """Create a custom YAML source definition."""
+    """Create a custom YAML source definition.
+
+    Args:
+        name: Display name for the connector definition
+        workspace_id: Workspace ID where the definition will be created
+        manifest: Low-code CDK manifest dictionary
+        api_root: API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        as_draft: Whether to create the definition as a draft (default: True)
+
+    Returns:
+        DeclarativeSourceDefinitionResponse object
+    """
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
     )
 
-    request_body = models.CreateDeclarativeSourceDefinitionRequest(
-        name=name,
-        manifest=manifest,
-    )
+    request_body_dict: dict[str, Any] = {
+        "name": name,
+        "manifest": manifest,
+    }
+
+    if hasattr(models.CreateDeclarativeSourceDefinitionRequest, "as_draft"):
+        request_body_dict["as_draft"] = as_draft
+
+    request_body = models.CreateDeclarativeSourceDefinitionRequest(**request_body_dict)
     request = api.CreateDeclarativeSourceDefinitionRequest(
         workspace_id=workspace_id,
         create_declarative_source_definition_request=request_body,
