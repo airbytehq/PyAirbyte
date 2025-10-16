@@ -1066,10 +1066,14 @@ def get_custom_yaml_source_definition(
     response = airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
         request
     )
-    if response.declarative_source_definition_response is None:
+    if not status_ok(response.status_code) or response.declarative_source_definition_response is None:
         raise AirbyteError(
             message="Failed to get custom YAML source definition",
-            context={"workspace_id": workspace_id, "definition_id": definition_id},
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
         )
     return response.declarative_source_definition_response
 
