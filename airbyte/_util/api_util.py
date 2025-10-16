@@ -1074,37 +1074,17 @@ def get_custom_yaml_source_definition(
     return response.declarative_source_definition_response
 
 
-def update_custom_yaml_source_definition(
-    workspace_id: str,
-    definition_id: str,
-    *,
-    manifest: dict[str, Any],
-    api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
-) -> models.DeclarativeSourceDefinitionResponse:
-    """Update a custom YAML source definition."""
-    airbyte_instance = get_airbyte_server_instance(
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-
-    request_body = models.UpdateDeclarativeSourceDefinitionRequest(
-        manifest=manifest,
-    )
-    request = api.UpdateDeclarativeSourceDefinitionRequest(
-        workspace_id=workspace_id,
-        definition_id=definition_id,
-        update_declarative_source_definition_request=request_body,
-    )
     response = airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
         request
     )
-    if response.declarative_source_definition_response is None:
+    if not status_ok(response.status_code) or response.declarative_source_definition_response is None:
         raise AirbyteError(
             message="Failed to update custom YAML source definition",
-            context={"workspace_id": workspace_id, "definition_id": definition_id},
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
         )
     return response.declarative_source_definition_response
 
