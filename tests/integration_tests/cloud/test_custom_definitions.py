@@ -121,14 +121,24 @@ def test_yaml_validation_error(
 
 
 @pytest.mark.requires_creds
-def test_safe_mode_prevents_deletion(
+@pytest.mark.parametrize(
+    "name_template,expect_allow",
+    [
+        ("test-yaml-source-{suffix}", False),
+        ("delete:test-yaml-source-{suffix}", True),
+        ("test-delete-me-yaml-source-{suffix}", True),
+    ],
+)
+def test_safe_mode_deletion(
     cloud_workspace: CloudWorkspace,
+    name_template: str,
+    expect_allow: bool,
 ) -> None:
-    """Test that safe_mode prevents deletion of connectors without proper naming."""
+    """Test safe_mode deletion behavior with different connector names."""
     from airbyte._util import text_util
     from airbyte.exceptions import PyAirbyteInputError
 
-    name = f"test-yaml-source-{text_util.generate_random_suffix()}"
+    name = name_template.format(suffix=text_util.generate_random_suffix())
 
     result = cloud_workspace.publish_custom_source_definition(
         name=name,
@@ -139,71 +149,28 @@ def test_safe_mode_prevents_deletion(
 
     definition_id = result.definition_id
 
-    try:
-        with pytest.raises(PyAirbyteInputError) as exc_info:
-            cloud_workspace.permanently_delete_custom_source_definition(
-                definition_id,
-                definition_type="yaml",
-                safe_mode=True,
-            )
-
-        error_message = str(exc_info.value).lower()
-        assert "safe_mode" in error_message
-        assert "delete:" in error_message or "delete-me" in error_message
-
-    finally:
+    if expect_allow:
         cloud_workspace.permanently_delete_custom_source_definition(
             definition_id,
             definition_type="yaml",
-            safe_mode=False,
+            safe_mode=True,
         )
+    else:
+        try:
+            with pytest.raises(PyAirbyteInputError) as exc_info:
+                cloud_workspace.permanently_delete_custom_source_definition(
+                    definition_id,
+                    definition_type="yaml",
+                    safe_mode=True,
+                )
 
+            error_message = str(exc_info.value).lower()
+            assert "safe_mode" in error_message
+            assert "delete:" in error_message or "delete-me" in error_message
 
-@pytest.mark.requires_creds
-def test_safe_mode_allows_deletion_with_delete_prefix(
-    cloud_workspace: CloudWorkspace,
-) -> None:
-    """Test that safe_mode allows deletion when name starts with 'delete:'."""
-    from airbyte._util import text_util
-
-    name = f"delete:test-yaml-source-{text_util.generate_random_suffix()}"
-
-    result = cloud_workspace.publish_custom_source_definition(
-        name=name,
-        manifest_yaml=TEST_YAML_MANIFEST,
-        unique=True,
-        pre_validate=True,
-    )
-
-    definition_id = result.definition_id
-
-    cloud_workspace.permanently_delete_custom_source_definition(
-        definition_id,
-        definition_type="yaml",
-        safe_mode=True,
-    )
-
-
-@pytest.mark.requires_creds
-def test_safe_mode_allows_deletion_with_delete_me(
-    cloud_workspace: CloudWorkspace,
-) -> None:
-    """Test that safe_mode allows deletion when name contains 'delete-me'."""
-    from airbyte._util import text_util
-
-    name = f"test-delete-me-yaml-source-{text_util.generate_random_suffix()}"
-
-    result = cloud_workspace.publish_custom_source_definition(
-        name=name,
-        manifest_yaml=TEST_YAML_MANIFEST,
-        unique=True,
-        pre_validate=True,
-    )
-
-    definition_id = result.definition_id
-
-    cloud_workspace.permanently_delete_custom_source_definition(
-        definition_id,
-        definition_type="yaml",
-        safe_mode=True,
-    )
+        finally:
+            cloud_workspace.permanently_delete_custom_source_definition(
+                definition_id,
+                definition_type="yaml",
+                safe_mode=False,
+            )
