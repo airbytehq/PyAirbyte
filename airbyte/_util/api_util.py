@@ -1427,7 +1427,7 @@ def get_definition_id_for_connector_builder_project(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> str | None:
+) -> str:
     """Get the source definition ID for a connector builder project.
 
     Uses the Config API endpoint:
@@ -1443,7 +1443,10 @@ def get_definition_id_for_connector_builder_project(
         client_secret: OAuth client secret
 
     Returns:
-        The source definition ID if found, None otherwise (can be null in API response)
+        The source definition ID
+
+    Raises:
+        AirbyteError: If no definition is found for the given builder project ID
     """
     json_result = _make_config_api_request(
         path="/connector_builder_projects/get_with_manifest",
@@ -1455,4 +1458,13 @@ def get_definition_id_for_connector_builder_project(
         client_id=client_id,
         client_secret=client_secret,
     )
-    return json_result.get("sourceDefinitionId")
+    definition_id = json_result.get("sourceDefinitionId")
+    if definition_id is None:
+        raise AirbyteError(
+            message="No source definition found for the given connector builder project",
+            context={
+                "workspace_id": workspace_id,
+                "builder_project_id": builder_project_id,
+            },
+        )
+    return definition_id
