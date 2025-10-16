@@ -475,11 +475,15 @@ def create_source(
     *,
     workspace_id: str,
     config: models.SourceConfiguration | dict[str, Any],
+    definition_id: str | None = None,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
 ) -> models.SourceResponse:
-    """Get a connection."""
+    """Create a source connector instance.
+
+    Either `definition_id` or `config[sourceType]` must be provided.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -490,7 +494,7 @@ def create_source(
             name=name,
             workspace_id=workspace_id,
             configuration=config,  # Speakeasy API wants a dataclass, not a dict
-            definition_id=None,  # Not used alternative to config.sourceType.
+            definition_id=definition_id or None,  # Only used for custom sources
             secret_id=None,  # For OAuth, not yet supported
         ),
     )
