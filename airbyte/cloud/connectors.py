@@ -407,7 +407,7 @@ class CloudCustomSourceDefinition:
         """
         return (
             self.connector_builder_project_url
-            or f"{self.workspace.workspace_url}/settings/{self.definition_type}"
+            or f"{self.workspace.workspace_url}/settings/{self.connector_type}"
         )
 
     def permanently_delete(self) -> None:
