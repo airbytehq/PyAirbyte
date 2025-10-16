@@ -649,13 +649,13 @@ def update_custom_source_definition(
         )
 
 
-def delete_custom_source_definition(
+def permanently_delete_custom_source_definition(
     definition_id: Annotated[
         str,
         Field(description="The ID of the custom source definition to delete."),
     ],
 ) -> str:
-    """Delete a custom YAML source definition from Airbyte Cloud.
+    """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
     IMPORTANT: This operation requires the connector name to either:
     1. Start with "delete:" (case insensitive), OR
@@ -705,4 +705,4 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(publish_custom_source_definition)
     app.tool(list_custom_source_definitions)
     app.tool(update_custom_source_definition)
-    app.tool(delete_custom_source_definition)
+    app.tool(permanently_delete_custom_source_definition)
