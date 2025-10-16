@@ -93,10 +93,11 @@ def test_publish_custom_yaml_source(
         assert updated.manifest["version"] == "0.2.0"
 
     finally:
-        cloud_workspace.permanently_delete_custom_source_definition(
+        fetched = cloud_workspace.get_custom_source_definition(
             definition_id,
             definition_type="yaml",
         )
+        fetched.permanently_delete(safe_mode=False)
 
 
 @pytest.mark.requires_creds
@@ -149,28 +150,21 @@ def test_safe_mode_deletion(
 
     definition_id = result.definition_id
 
+    definition = cloud_workspace.get_custom_source_definition(
+        definition_id,
+        definition_type="yaml",
+    )
+
     if expect_allow:
-        cloud_workspace.permanently_delete_custom_source_definition(
-            definition_id,
-            definition_type="yaml",
-            safe_mode=True,
-        )
+        definition.permanently_delete(safe_mode=True)
     else:
         try:
             with pytest.raises(PyAirbyteInputError) as exc_info:
-                cloud_workspace.permanently_delete_custom_source_definition(
-                    definition_id,
-                    definition_type="yaml",
-                    safe_mode=True,
-                )
+                definition.permanently_delete(safe_mode=True)
 
             error_message = str(exc_info.value).lower()
             assert "safe_mode" in error_message
             assert "delete:" in error_message or "delete-me" in error_message
 
         finally:
-            cloud_workspace.permanently_delete_custom_source_definition(
-                definition_id,
-                definition_type="yaml",
-                safe_mode=False,
-            )
+            definition.permanently_delete(safe_mode=False)
