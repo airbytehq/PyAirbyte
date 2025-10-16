@@ -628,7 +628,7 @@ def update_custom_source_definition(
         return (
             f"Successfully updated custom YAML source definition. "
             f"Name: {result.name}, version: {result.version or 'N/A'}\n"
-            f"URL: {result.url}"
+            f"URL: {result.definition_url}"
         )
 
 
