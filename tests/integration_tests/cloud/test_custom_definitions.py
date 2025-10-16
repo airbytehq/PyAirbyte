@@ -2,9 +2,7 @@
 """Tests for custom connector definition publishing."""
 
 import pytest
-
 from airbyte.cloud.workspaces import CloudWorkspace
-
 
 TEST_YAML_MANIFEST = {
     "version": "0.1.0",
@@ -65,7 +63,8 @@ def test_publish_custom_yaml_source(
     assert result.name == name
     assert result.manifest is not None
     assert result.version is not None
-    assert result.connector_type == "yaml"
+    assert result.definition_type == "yaml"
+    assert result.connector_type == "source"
 
     definition_id = result.definition_id
 
@@ -83,7 +82,8 @@ def test_publish_custom_yaml_source(
         )
         assert fetched.definition_id == definition_id
         assert fetched.name == name
-        assert fetched.connector_type == "yaml"
+        assert fetched.definition_type == "yaml"
+        assert fetched.connector_type == "source"
 
         updated_manifest = TEST_YAML_MANIFEST.copy()
         updated_manifest["version"] = "0.2.0"
