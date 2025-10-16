@@ -80,7 +80,7 @@ class SQLDataset(DatasetBase):
         # Coalesce False to None
         stream_configuration = stream_configuration or None
 
-        super().__init__(stream_metadata=stream_configuration)
+        super().__init__(stream_metadata=stream_configuration)  # pyrefly: ignore[bad-argument-type]
 
     @property
     def stream_name(self) -> str:

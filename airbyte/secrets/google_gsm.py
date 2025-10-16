@@ -58,7 +58,7 @@ class GSMSecretHandle(SecretHandle):
     labels.
     """
 
-    parent: GoogleGSMSecretManager
+    parent: GoogleGSMSecretManager  # pyrefly: ignore[bad-override]
 
     def _get_gsm_secret_object(self) -> secretmanager.Secret:
         """Get the `Secret` object from GSM."""

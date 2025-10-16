@@ -47,7 +47,9 @@ class CatalogProvider:
         Since the catalog is passed by reference, the catalog manager may be updated with new
         streams as they are discovered.
         """
-        self._catalog: ConfiguredAirbyteCatalog = self.validate_catalog(configured_catalog)
+        self._catalog: ConfiguredAirbyteCatalog = self.validate_catalog(
+            configured_catalog
+        )  # pyrefly: ignore[bad-assignment]
 
     @staticmethod
     def validate_catalog(catalog: ConfiguredAirbyteCatalog) -> None:
@@ -64,7 +66,7 @@ class CatalogProvider:
             if stream.sync_id is None:
                 stream.sync_id = 1  # This should ideally increment monotonically with each sync.
 
-        return catalog
+        return catalog  # pyrefly: ignore[bad-return]
 
     @property
     def configured_catalog(self) -> ConfiguredAirbyteCatalog:
@@ -174,7 +176,9 @@ class CatalogProvider:
         stream_name: str,
     ) -> str | None:
         """Return the cursor key for the given stream."""
-        return self.get_configured_stream_info(stream_name).cursor_field
+        return self.get_configured_stream_info(
+            stream_name
+        ).cursor_field  # pyrefly: ignore[bad-return]
 
     def resolve_write_method(
         self,

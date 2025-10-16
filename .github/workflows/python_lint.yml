@@ -58,8 +58,8 @@ jobs:
     - name: Check code format
       run: poetry run ruff format --diff .
 
-  mypy-check:
-    name: MyPy Check
+  pyrefly-check:
+    name: Pyrefly Check
     runs-on: ubuntu-latest
     steps:
     # Common steps:
@@ -81,5 +81,5 @@ jobs:
       run: poetry install
 
     # Job-specifc step(s):
-    - name: Check MyPy typing
-      run: poetry run mypy .
+    - name: Check Pyrefly typing
+      run: poetry run pyrefly check
