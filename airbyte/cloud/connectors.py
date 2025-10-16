@@ -48,7 +48,7 @@ import yaml
 from airbyte_api import models as api_models  # noqa: TC002
 
 from airbyte import exceptions as exc
-from airbyte._util import api_util
+from airbyte._util import api_util, text_util
 
 
 if TYPE_CHECKING:
@@ -258,7 +258,7 @@ class CloudDestination(CloudConnector):
         return result
 
 
-class CloudCustomSourceDefinition:
+class CustomCloudSourceDefinition:
     """A custom source connector definition in Airbyte Cloud.
 
     This represents either a YAML (declarative) or Docker-based custom source definition.
@@ -423,7 +423,7 @@ class CloudCustomSourceDefinition:
         manifest_yaml: dict[str, Any] | Path | str | None = None,
         docker_tag: str | None = None,
         pre_validate: bool = True,
-    ) -> CloudCustomSourceDefinition:
+    ) -> CustomCloudSourceDefinition:
         """Update this custom source definition.
 
         You must specify EXACTLY ONE of manifest_yaml (for YAML connectors) OR
@@ -438,7 +438,7 @@ class CloudCustomSourceDefinition:
             pre_validate: Whether to validate manifest (YAML only)
 
         Returns:
-            Updated CloudCustomSourceDefinition object
+            Updated CustomCloudSourceDefinition object
 
         Raises:
             PyAirbyteInputError: If both or neither parameters are provided
@@ -479,7 +479,7 @@ class CloudCustomSourceDefinition:
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
             )
-            return CloudCustomSourceDefinition._from_yaml_response(self.workspace, result)
+            return CustomCloudSourceDefinition._from_yaml_response(self.workspace, result)
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -489,7 +489,7 @@ class CloudCustomSourceDefinition:
     def rename(
         self,
         new_name: str,  # noqa: ARG002
-    ) -> CloudCustomSourceDefinition:
+    ) -> CustomCloudSourceDefinition:
         """Rename this custom source definition.
 
         Note: Only Docker custom sources can be renamed. YAML custom sources
@@ -499,7 +499,7 @@ class CloudCustomSourceDefinition:
             new_name: New display name for the connector
 
         Returns:
-            Updated CloudCustomSourceDefinition object
+            Updated CustomCloudSourceDefinition object
 
         Raises:
             PyAirbyteInputError: If attempting to rename a YAML connector
@@ -519,7 +519,7 @@ class CloudCustomSourceDefinition:
     def __repr__(self) -> str:
         """String representation."""
         return (
-            f"CloudCustomSourceDefinition(definition_id={self.definition_id}, "
+            f"CustomCloudSourceDefinition(definition_id={self.definition_id}, "
             f"name={self.name}, definition_type={self.definition_type})"
         )
 
@@ -528,7 +528,7 @@ class CloudCustomSourceDefinition:
         cls,
         workspace: CloudWorkspace,
         response: api_models.DeclarativeSourceDefinitionResponse,
-    ) -> CloudCustomSourceDefinition:
+    ) -> CustomCloudSourceDefinition:
         """Internal factory method for YAML connectors."""
         result = cls(
             workspace=workspace,
@@ -537,3 +537,55 @@ class CloudCustomSourceDefinition:
         )
         result._definition_info = response  # noqa: SLF001
         return result
+
+    def deploy_source(
+        self,
+        name: str,
+        config: dict[str, Any],
+        *,
+        unique: bool = True,
+        random_name_suffix: bool = False,
+    ) -> CloudSource:
+        """Deploy a new cloud source using this custom source definition.
+
+        Args:
+            name: The name for the new source.
+            config: A dictionary containing the connection configuration for the new source.
+            unique: If True, raises an error if a source with the same name already exists
+                in the workspace. Default is True.
+            random_name_suffix: If True, appends a random suffix to the name to ensure uniqueness.
+                Default is False.
+
+        Returns:
+            A `CloudSource` object representing the newly created source.
+        """
+        if self.definition_type != "yaml":
+            raise NotImplementedError(
+                "Only YAML custom source definitions can be used to deploy new sources. "
+                "Docker custom sources are not yet supported."
+            )
+
+        if random_name_suffix:
+            name += f" (ID: {text_util.generate_random_suffix()})"
+
+        if unique:
+            existing = self.workspace.list_sources(name=name)
+            if existing:
+                raise exc.AirbyteDuplicateResourcesError(
+                    resource_type="source",
+                    resource_name=name,
+                )
+
+        result = api_util.create_source(
+            name=name,
+            definition_id=self.definition_id,
+            workspace_id=self.workspace.workspace_id,
+            config=config,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudSource._from_source_response(  # noqa: SLF001  # Accessing Non-Public API
+            workspace=self.workspace,
+            source_response=result,
+        )

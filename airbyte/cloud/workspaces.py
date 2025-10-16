@@ -46,9 +46,9 @@ from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
-    CloudCustomSourceDefinition,
     CloudDestination,
     CloudSource,
+    CustomCloudSourceDefinition,
 )
 from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
@@ -467,7 +467,7 @@ class CloudWorkspace:
         docker_tag: str | None = None,
         unique: bool = True,
         pre_validate: bool = True,
-    ) -> CloudCustomSourceDefinition:
+    ) -> CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
         You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
@@ -482,7 +482,7 @@ class CloudWorkspace:
             pre_validate: Whether to validate manifest client-side (YAML only)
 
         Returns:
-            CloudCustomSourceDefinition object representing the created definition
+            CustomCloudSourceDefinition object representing the created definition
 
         Raises:
             PyAirbyteInputError: If both or neither of manifest_yaml and docker_image provided
@@ -544,7 +544,7 @@ class CloudWorkspace:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
-            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -555,14 +555,14 @@ class CloudWorkspace:
         self,
         *,
         definition_type: Literal["yaml", "docker"],
-    ) -> list[CloudCustomSourceDefinition]:
+    ) -> list[CustomCloudSourceDefinition]:
         """List custom source connector definitions.
 
         Args:
             definition_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
-            List of CloudCustomSourceDefinition objects matching the specified type
+            List of CustomCloudSourceDefinition objects matching the specified type
         """
         if definition_type == "yaml":
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
@@ -572,7 +572,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
             )
             return [
-                CloudCustomSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
+                CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
             ]
 
@@ -586,7 +586,7 @@ class CloudWorkspace:
         definition_id: str,
         *,
         definition_type: Literal["yaml", "docker"],
-    ) -> CloudCustomSourceDefinition:
+    ) -> CustomCloudSourceDefinition:
         """Get a specific custom source definition by ID.
 
         Args:
@@ -594,7 +594,7 @@ class CloudWorkspace:
             definition_type: Connector type ("yaml" or "docker"). Required.
 
         Returns:
-            CloudCustomSourceDefinition object
+            CustomCloudSourceDefinition object
         """
         if definition_type == "yaml":
             result = api_util.get_custom_yaml_source_definition(
@@ -604,7 +604,7 @@ class CloudWorkspace:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
-            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

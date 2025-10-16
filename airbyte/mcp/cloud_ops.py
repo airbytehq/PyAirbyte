@@ -15,7 +15,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_workspace_id,
 )
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
@@ -502,6 +502,18 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
     return workspace.list_connections()
 
 
+def _get_custom_source_definition_description(
+    custom_source: CustomCloudSourceDefinition,
+) -> str:
+    return "\n".join([
+        f" - Custom Source Name: {custom_source.name}",
+        f" - Definition ID: {custom_source.definition_id}",
+        f" - Definition Version: {custom_source.version}",
+        f" - Connector Builder Project ID: {custom_source.connector_builder_project_id}",
+        f" - Connector Builder Project URL: {custom_source.connector_builder_project_url}",
+    ])
+
+
 def publish_custom_source_definition(
     name: Annotated[
         str,
@@ -544,7 +556,7 @@ def publish_custom_source_definition(
             processed_manifest = Path(manifest_yaml)
 
         workspace: CloudWorkspace = _get_cloud_workspace()
-        result = workspace.publish_custom_source_definition(
+        custom_source = workspace.publish_custom_source_definition(
             name=name,
             manifest_yaml=processed_manifest,
             unique=unique,
@@ -554,9 +566,10 @@ def publish_custom_source_definition(
         return f"Failed to publish custom source definition '{name}': {ex}"
     else:
         return (
-            f"Successfully published custom YAML source definition '{name}' "
-            f"with ID '{result.definition_id}' (version {result.version or 'N/A'})\n"
-            f"URL: {result.definition_url}"
+            "Successfully published custom YAML source definition:\n" +
+            _get_custom_source_definition_description(
+                custom_source=custom_source,
+            ) + "\n"
         )
 
 
@@ -618,7 +631,7 @@ def update_custom_source_definition(
             definition_id=definition_id,
             definition_type="yaml",
         )
-        result = definition.update_definition(
+        custom_source: CustomCloudSourceDefinition = definition.update_definition(
             manifest_yaml=processed_manifest,
             pre_validate=pre_validate,
         )
@@ -626,9 +639,10 @@ def update_custom_source_definition(
         return f"Failed to update custom source definition '{definition_id}': {ex}"
     else:
         return (
-            f"Successfully updated custom YAML source definition. "
-            f"Name: {result.name}, version: {result.version or 'N/A'}\n"
-            f"URL: {result.definition_url}"
+            "Successfully updated custom YAML source definition:\n"
+            + _get_custom_source_definition_description(
+                custom_source=custom_source,
+            )
         )
 
 
