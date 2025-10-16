@@ -583,28 +583,73 @@ class CloudWorkspace:
 
     def get_custom_source_definition(
         self,
-        definition_id: str,
         *,
+        definition_id: str | None = None,
         definition_type: Literal["yaml", "docker"],
+        connector_builder_project_id: str | None = None,
     ) -> CustomCloudSourceDefinition:
-        """Get a specific custom source definition by ID.
+        """Get a specific custom source definition by ID or builder project ID.
 
         Args:
-            definition_id: The definition ID
+            definition_id: The definition ID (optional if connector_builder_project_id is provided)
             definition_type: Connector type ("yaml" or "docker"). Required.
+            connector_builder_project_id: The connector builder project ID (optional, only valid
+                for "yaml" definition_type)
 
         Returns:
             CustomCloudSourceDefinition object
+
+        Raises:
+            PyAirbyteInputError: If both or neither parameters are provided, or if
+                connector_builder_project_id is used with non-yaml definition_type
         """
-        if definition_type == "yaml":
-            result = api_util.get_custom_yaml_source_definition(
-                workspace_id=self.workspace_id,
-                definition_id=definition_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
+        if (definition_id is None) == (connector_builder_project_id is None):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of definition_id or connector_builder_project_id"
+                ),
+                context={
+                    "definition_id": definition_id,
+                    "connector_builder_project_id": connector_builder_project_id,
+                },
             )
-            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+
+        if connector_builder_project_id is not None and definition_type != "yaml":
+            raise exc.PyAirbyteInputError(
+                message="connector_builder_project_id is only valid for yaml definition_type",
+                context={
+                    "definition_type": definition_type,
+                    "connector_builder_project_id": connector_builder_project_id,
+                },
+            )
+
+        if definition_type == "yaml":
+            if definition_id is not None:
+                result = api_util.get_custom_yaml_source_definition(
+                    workspace_id=self.workspace_id,
+                    definition_id=definition_id,
+                    api_root=self.api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                )
+                return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+
+            if connector_builder_project_id is not None:
+                definitions = self.list_custom_source_definitions(definition_type="yaml")
+                for definition in definitions:
+                    if definition.connector_builder_project_id == connector_builder_project_id:
+                        return definition
+
+                raise exc.AirbyteError(
+                    message=(
+                        "No custom source definition found with the given "
+                        "connector_builder_project_id"
+                    ),
+                    context={
+                        "workspace_id": self.workspace_id,
+                        "connector_builder_project_id": connector_builder_project_id,
+                    },
+                )
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
