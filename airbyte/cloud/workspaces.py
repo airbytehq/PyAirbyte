@@ -635,21 +635,34 @@ class CloudWorkspace:
                 return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
             if connector_builder_project_id is not None:
-                definitions = self.list_custom_source_definitions(definition_type="yaml")
-                for definition in definitions:
-                    if definition.connector_builder_project_id == connector_builder_project_id:
-                        return definition
-
-                raise exc.AirbyteError(
-                    message=(
-                        "No custom source definition found with the given "
-                        "connector_builder_project_id"
-                    ),
-                    context={
-                        "workspace_id": self.workspace_id,
-                        "connector_builder_project_id": connector_builder_project_id,
-                    },
+                definition_id = api_util.get_definition_id_for_connector_builder_project(
+                    workspace_id=self.workspace_id,
+                    builder_project_id=connector_builder_project_id,
+                    api_root=self.api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
                 )
+
+                if definition_id is None:
+                    raise exc.AirbyteError(
+                        message=(
+                            "No custom source definition found with the given "
+                            "connector_builder_project_id"
+                        ),
+                        context={
+                            "workspace_id": self.workspace_id,
+                            "connector_builder_project_id": connector_builder_project_id,
+                        },
+                    )
+
+                result = api_util.get_custom_yaml_source_definition(
+                    workspace_id=self.workspace_id,
+                    definition_id=definition_id,
+                    api_root=self.api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                )
+                return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

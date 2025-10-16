@@ -1418,3 +1418,41 @@ def get_connector_builder_project_for_definition_id(
         client_secret=client_secret,
     )
     return json_result.get("builderProjectId")
+
+
+def get_definition_id_for_connector_builder_project(
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Get the source definition ID for a connector builder project.
+
+    Uses the Config API endpoint:
+    /v1/connector_builder_projects/get_with_manifest
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L11900
+
+    Args:
+        workspace_id: The workspace ID
+        builder_project_id: The connector builder project ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The source definition ID if found, None otherwise (can be null in API response)
+    """
+    json_result = _make_config_api_request(
+        path="/connector_builder_projects/get_with_manifest",
+        json={
+            "builderProjectId": builder_project_id,
+            "workspaceId": workspace_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    return json_result.get("sourceDefinitionId")
