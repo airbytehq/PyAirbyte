@@ -616,12 +616,16 @@ class CloudWorkspace:
         definition_id: str,
         *,
         definition_type: Literal["yaml", "docker"],
+        safety_mode: bool = True,
     ) -> None:
         """Permanently delete a custom source definition.
 
         Args:
             definition_id: The definition ID to delete
             definition_type: Connector type ("yaml" or "docker"). Required.
+            safety_mode: If True, requires the connector name to either start with "delete:"
+                or contain "delete-me" (case insensitive) to prevent accidental deletion.
+                Defaults to True.
         """
         if definition_type == "yaml":
             api_util.delete_custom_yaml_source_definition(
@@ -630,6 +634,7 @@ class CloudWorkspace:
                 api_root=self.api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
+                safety_mode=safety_mode,
             )
         else:
             raise NotImplementedError(

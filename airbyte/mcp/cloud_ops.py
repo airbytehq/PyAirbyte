@@ -649,6 +649,43 @@ def update_custom_source_definition(
         )
 
 
+def delete_custom_source_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the custom source definition to delete."),
+    ],
+) -> str:
+    """Delete a custom YAML source definition from Airbyte Cloud.
+
+    IMPORTANT: This operation uses safety_mode which requires the connector name to either:
+    1. Start with "delete:" (case insensitive), OR
+    2. Contain "delete-me" (case insensitive)
+
+    If the connector does not meet these requirements, the deletion will be rejected with a
+    helpful error message. Instruct the user to rename the connector appropriately to authorize
+    the deletion.
+
+    Note: Only YAML (declarative) connectors are currently supported.
+    Docker-based custom sources are not yet available.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        definition = workspace.get_custom_source_definition(
+            definition_id=definition_id,
+            definition_type="yaml",
+        )
+
+        definition.permanently_delete(safety_mode=True)
+
+    except Exception as ex:
+        return f"Failed to delete custom source definition '{definition_id}': {ex}"
+    else:
+        return (
+            f"Successfully deleted custom source definition '{definition.name}' "
+            f"(ID: {definition_id})"
+        )
+
+
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """@private Register tools with the FastMCP app.
 
@@ -668,3 +705,4 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(publish_custom_source_definition)
     app.tool(list_custom_source_definitions)
     app.tool(update_custom_source_definition)
+    app.tool(delete_custom_source_definition)
