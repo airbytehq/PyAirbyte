@@ -282,6 +282,7 @@ class CloudCustomSourceDefinition:
         self.definition_id = definition_id
         self.definition_type: Literal["yaml", "docker"] = definition_type
         self._definition_info: api_models.DeclarativeSourceDefinitionResponse | None = None
+        self._connector_builder_project_id: str | None = None
 
     def _fetch_definition_info(
         self,
@@ -365,17 +366,43 @@ class CloudCustomSourceDefinition:
         )
 
     @property
+    def connector_builder_project_id(self) -> str | None:
+        """Get the connector builder project ID. Only present for YAML connectors."""
+        if self.definition_type != "yaml":
+            return None
+
+        if self._connector_builder_project_id is not None:
+            return self._connector_builder_project_id
+
+        # TODO: Call '/v1/connector_builder_projects/get_for_definition_id' config API
+        #       to get and cache the project ID. This is needed in the 'edit' URL below.
+        #       This function needs to be built in the api_util module first.
+        self._connector_builder_project_id = ...
+
+        return self._connector_builder_project_id
+
+    @property
+    def connector_builder_project_url(self) -> str | None:
+        """Get the connector builder project URL. Only present for YAML connectors."""
+        if self.definition_type != "yaml":
+            return None
+
+        if not self._connector_builder_project_id:
+            return None
+
+        return f"{self.workspace.workspace_url}/connector-builder/edit/{self._connector_builder_project_id}"
+
+    @property
     def definition_url(self) -> str:
         """Get the web URL of the custom source definition.
 
         For YAML connectors, this is the connector builder 'edit' URL.
         For Docker connectors, this is the custom connectors page.
         """
-        if self.definition_type == "yaml":
-            return f"{self.workspace.workspace_url}/connector-builder/edit/" f"{self.definition_id}"
-
-        # Else, we'll return the custom 'sources' or 'destinations' page for Docker
-        return f"{self.workspace.workspace_url}/settings/{self.connector_type}"
+        return (
+            self.connector_builder_project_id
+            or f"{self.workspace.workspace_url}/settings/{self.connector_type}"
+        )
 
     def permanently_delete(self) -> None:
         """Permanently delete this custom source definition."""
