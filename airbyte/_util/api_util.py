@@ -1122,3 +1122,41 @@ def delete_custom_yaml_source_definition(
         definition_id=definition_id,
     )
     airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(request)
+
+
+def get_connector_builder_project_for_definition_id(
+    *,
+    workspace_id: str,
+    definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Get the connector builder project ID for a declarative source definition.
+
+    Uses the Config API endpoint:
+    /v1/connector_builder_projects/get_for_definition_id
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1268
+
+    Args:
+        workspace_id: The workspace ID
+        definition_id: The declarative source definition ID (actorDefinitionId)
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The builder project ID if found, None otherwise (can be null in API response)
+    """
+    json_result = _make_config_api_request(
+        path="/v1/connector_builder_projects/get_for_definition_id",
+        json={
+            "actorDefinitionId": definition_id,
+            "workspaceId": workspace_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    return json_result.get("builderProjectId")

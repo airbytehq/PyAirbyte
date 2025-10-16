@@ -374,10 +374,15 @@ class CloudCustomSourceDefinition:
         if self._connector_builder_project_id is not None:
             return self._connector_builder_project_id
 
-        # TODO: Call '/v1/connector_builder_projects/get_for_definition_id' config API
-        #       to get and cache the project ID. This is needed in the 'edit' URL below.
-        #       This function needs to be built in the api_util module first.
-        self._connector_builder_project_id = ...
+        self._connector_builder_project_id = (
+            api_util.get_connector_builder_project_for_definition_id(
+                workspace_id=self.workspace.workspace_id,
+                definition_id=self.definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+        )
 
         return self._connector_builder_project_id
 
@@ -387,10 +392,11 @@ class CloudCustomSourceDefinition:
         if self.definition_type != "yaml":
             return None
 
-        if not self._connector_builder_project_id:
+        project_id = self.connector_builder_project_id
+        if not project_id:
             return None
 
-        return f"{self.workspace.workspace_url}/connector-builder/edit/{self._connector_builder_project_id}"
+        return f"{self.workspace.workspace_url}/connector-builder/edit/{project_id}"
 
     @property
     def definition_url(self) -> str:
@@ -400,8 +406,8 @@ class CloudCustomSourceDefinition:
         For Docker connectors, this is the custom connectors page.
         """
         return (
-            self.connector_builder_project_id
-            or f"{self.workspace.workspace_url}/settings/{self.connector_type}"
+            self.connector_builder_project_url
+            or f"{self.workspace.workspace_url}/settings/{self.definition_type}"
         )
 
     def permanently_delete(self) -> None:
@@ -499,7 +505,7 @@ class CloudCustomSourceDefinition:
             PyAirbyteInputError: If attempting to rename a YAML connector
             NotImplementedError: If attempting to rename a Docker connector (not yet supported)
         """
-        if self.connector_type == "yaml":
+        if self.definition_type == "yaml":
             raise exc.PyAirbyteInputError(
                 message="Cannot rename YAML custom source definitions",
                 context={"definition_id": self.definition_id},
@@ -514,7 +520,7 @@ class CloudCustomSourceDefinition:
         """String representation."""
         return (
             f"CloudCustomSourceDefinition(definition_id={self.definition_id}, "
-            f"name={self.name}, connector_type={self.connector_type})"
+            f"name={self.name}, definition_type={self.definition_type})"
         )
 
     @classmethod
