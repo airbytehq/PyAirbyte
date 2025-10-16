@@ -413,19 +413,19 @@ class CustomCloudSourceDefinition:
     def permanently_delete(
         self,
         *,
-        safety_mode: bool = True,
+        safe_mode: bool = True,
     ) -> None:
         """Permanently delete this custom source definition.
 
         Args:
-            safety_mode: If True, requires the connector name to either start with "delete:"
+            safe_mode: If True, requires the connector name to either start with "delete:"
                 or contain "delete-me" (case insensitive) to prevent accidental deletion.
                 Defaults to True.
         """
         self.workspace.permanently_delete_custom_source_definition(
             self.definition_id,
             definition_type=self.definition_type,
-            safety_mode=safety_mode,
+            safe_mode=safe_mode,
         )
 
     def update_definition(

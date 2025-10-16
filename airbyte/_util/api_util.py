@@ -1133,7 +1133,7 @@ def delete_custom_yaml_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-    safety_mode: bool = True,
+    safe_mode: bool = True,
 ) -> None:
     """Delete a custom YAML source definition.
 
@@ -1143,15 +1143,15 @@ def delete_custom_yaml_source_definition(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
-        safety_mode: If True, requires the connector name to either start with "delete:"
+        safe_mode: If True, requires the connector name to either start with "delete:"
             or contain "delete-me" (case insensitive) to prevent accidental deletion.
             Defaults to True.
 
     Raises:
-        PyAirbyteInputError: If safety_mode is True and the connector name does not meet
+        PyAirbyteInputError: If safe_mode is True and the connector name does not meet
             the safety requirements.
     """
-    if safety_mode:
+    if safe_mode:
         definition_info = get_custom_yaml_source_definition(
             workspace_id=workspace_id,
             definition_id=definition_id,
@@ -1159,17 +1159,17 @@ def delete_custom_yaml_source_definition(
             client_id=client_id,
             client_secret=client_secret,
         )
-
         connector_name = definition_info.name
-        name_lower = connector_name.lower()
 
-        is_safe_to_delete = name_lower.startswith("delete:") or "delete-me" in name_lower
+        def is_safe_to_delete(name: str) -> bool:
+            name_lower = name.lower()
+            return name_lower.startswith("delete:") or "delete-me" in name_lower
 
-        if not is_safe_to_delete:
+        if not is_safe_to_delete(definition_info.name):
             raise PyAirbyteInputError(
                 message=(
                     f"Cannot delete custom connector definition '{connector_name}' "
-                    "with safety_mode enabled. "
+                    "with safe_mode enabled. "
                     "To authorize deletion, the connector name must either:\n"
                     "  1. Start with 'delete:' (case insensitive), OR\n"
                     "  2. Contain 'delete-me' (case insensitive)\n\n"
@@ -1179,9 +1179,11 @@ def delete_custom_yaml_source_definition(
                 context={
                     "definition_id": definition_id,
                     "connector_name": connector_name,
-                    "safety_mode": True,
+                    "safe_mode": True,
                 },
             )
+
+    # Else proceed with deletion
 
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,

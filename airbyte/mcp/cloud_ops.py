@@ -657,7 +657,7 @@ def delete_custom_source_definition(
 ) -> str:
     """Delete a custom YAML source definition from Airbyte Cloud.
 
-    IMPORTANT: This operation uses safety_mode which requires the connector name to either:
+    IMPORTANT: This operation requires the connector name to either:
     1. Start with "delete:" (case insensitive), OR
     2. Contain "delete-me" (case insensitive)
 
@@ -675,7 +675,7 @@ def delete_custom_source_definition(
             definition_type="yaml",
         )
 
-        definition.permanently_delete(safety_mode=True)
+        definition.permanently_delete(safe_mode=True)
 
     except Exception as ex:
         return f"Failed to delete custom source definition '{definition_id}': {ex}"
