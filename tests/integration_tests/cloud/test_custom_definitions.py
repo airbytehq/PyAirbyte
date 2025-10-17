@@ -129,6 +129,47 @@ def test_yaml_validation_error(
     assert "type" in str(exc_info.value).lower()
 
 
+@pytest.mark.requires_creds
+def test_get_by_connector_builder_project_id(
+    cloud_workspace: CloudWorkspace,
+) -> None:
+    """Test retrieving a custom source definition by connector_builder_project_id."""
+    from airbyte._util import text_util
+
+    name = f"test-builder-project-{text_util.generate_random_suffix()}"
+
+    result = cloud_workspace.publish_custom_source_definition(
+        name=name,
+        manifest_yaml=TEST_YAML_MANIFEST,
+        unique=True,
+        pre_validate=True,
+    )
+
+    assert result.definition_id
+    assert result.connector_builder_project_id
+    definition_id = result.definition_id
+    builder_project_id = result.connector_builder_project_id
+
+    try:
+        # Fetch by connector_builder_project_id
+        fetched = cloud_workspace.get_custom_source_definition(
+            connector_builder_project_id=builder_project_id,
+            definition_type="yaml",
+        )
+
+        assert fetched.definition_id == definition_id
+        assert fetched.name == name
+        assert fetched.connector_builder_project_id == builder_project_id
+        assert fetched.definition_type == "yaml"
+        assert fetched.connector_type == "source"
+
+    finally:
+        cloud_workspace.permanently_delete_custom_source_definition(
+            definition_id,
+            definition_type="yaml",
+        )
+
+
 def test_get_custom_source_definition_validation() -> None:
     """Test that get_custom_source_definition validates input parameters correctly."""
     from airbyte.exceptions import PyAirbyteInputError
