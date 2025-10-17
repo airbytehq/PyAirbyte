@@ -604,6 +604,12 @@ class CloudWorkspace:
             PyAirbyteInputError: If both or neither parameters are provided, or if
                 connector_builder_project_id is used with non-yaml definition_type
         """
+        if definition_type != "yaml":
+            raise NotImplementedError(
+                "Docker custom source definitions are not yet supported. "
+                "Only YAML manifest-based custom sources are currently available."
+            )
+
         if (definition_id is None) == (connector_builder_project_id is None):
             raise exc.PyAirbyteInputError(
                 message=(
@@ -615,45 +621,56 @@ class CloudWorkspace:
                 },
             )
 
-        if connector_builder_project_id is not None and definition_type != "yaml":
-            raise exc.PyAirbyteInputError(
-                message="connector_builder_project_id is only valid for yaml definition_type",
-                context={
-                    "definition_type": definition_type,
-                    "connector_builder_project_id": connector_builder_project_id,
-                },
+        if connector_builder_project_id:
+            if definition_type != "yaml":
+                raise exc.PyAirbyteInputError(
+                    message="connector_builder_project_id is only valid for yaml definition_type",
+                    context={
+                        "definition_type": definition_type,
+                        "connector_builder_project_id": connector_builder_project_id,
+                    },
+                )
+            definition_id = api_util.get_definition_id_for_connector_builder_project(
+                workspace_id=self.workspace_id,
+                builder_project_id=connector_builder_project_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
             )
 
-        if definition_type == "yaml":
-            if definition_id is not None:
-                result = api_util.get_custom_yaml_source_definition(
-                    workspace_id=self.workspace_id,
-                    definition_id=definition_id,
-                    api_root=self.api_root,
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                )
-                return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-
-            if connector_builder_project_id is not None:
-                definition_id = api_util.get_definition_id_for_connector_builder_project(
-                    workspace_id=self.workspace_id,
-                    builder_project_id=connector_builder_project_id,
-                    api_root=self.api_root,
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                )
-
-                result = api_util.get_custom_yaml_source_definition(
-                    workspace_id=self.workspace_id,
-                    definition_id=definition_id,
-                    api_root=self.api_root,
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                )
-                return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-
-        raise NotImplementedError(
-            "Docker custom source definitions are not yet supported. "
-            "Only YAML manifest-based custom sources are currently available."
+        # Definition ID is guaranteed to be set by here
+        result = api_util.get_custom_yaml_source_definition(
+            workspace_id=self.workspace_id,
+            definition_id=definition_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
+        return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+
+
+    def permanently_delete_custom_source_definition(
+        self,
+        definition_id: str,
+        *,
+        definition_type: Literal["yaml", "docker"],
+    ) -> None:
+        """Permanently delete a custom source definition.
+
+        Args:
+            definition_id: The definition ID to delete
+            definition_type: Connector type ("yaml" or "docker"). Required.
+        """
+        if definition_type == "yaml":
+            api_util.delete_custom_yaml_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+        else:
+            raise NotImplementedError(
+                "Docker custom source definitions are not yet supported. "
+                "Only YAML manifest-based custom sources are currently available."
+            )
