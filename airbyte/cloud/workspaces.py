@@ -639,6 +639,7 @@ class CloudWorkspace:
             )
 
         # Definition ID is guaranteed to be set by here
+        assert definition_id is not None
         result = api_util.get_custom_yaml_source_definition(
             workspace_id=self.workspace_id,
             definition_id=definition_id,
@@ -647,7 +648,6 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
         return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-
 
     def permanently_delete_custom_source_definition(
         self,
