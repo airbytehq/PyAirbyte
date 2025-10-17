@@ -1133,8 +1133,58 @@ def delete_custom_yaml_source_definition(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
+    safe_mode: bool = True,
 ) -> None:
-    """Delete a custom YAML source definition."""
+    """Delete a custom YAML source definition.
+
+    Args:
+        workspace_id: The workspace ID
+        definition_id: The definition ID to delete
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        safe_mode: If True, requires the connector name to either start with "delete:"
+            or contain "delete-me" (case insensitive) to prevent accidental deletion.
+            Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the connector name does not meet
+            the safety requirements.
+    """
+    if safe_mode:
+        definition_info = get_custom_yaml_source_definition(
+            workspace_id=workspace_id,
+            definition_id=definition_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+        connector_name = definition_info.name
+
+        def is_safe_to_delete(name: str) -> bool:
+            name_lower = name.lower()
+            return name_lower.startswith("delete:") or "delete-me" in name_lower
+
+        if not is_safe_to_delete(definition_info.name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete custom connector definition '{connector_name}' "
+                    "with safe_mode enabled. "
+                    "To authorize deletion, the connector name must either:\n"
+                    "  1. Start with 'delete:' (case insensitive), OR\n"
+                    "  2. Contain 'delete-me' (case insensitive)\n\n"
+                    "Please rename the connector to meet one of these requirements "
+                    "before attempting deletion."
+                ),
+                context={
+                    "definition_id": definition_id,
+                    "connector_name": connector_name,
+                    "safe_mode": True,
+                },
+            )
+
+    # Else proceed with deletion
+
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
