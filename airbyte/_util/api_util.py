@@ -1151,23 +1151,14 @@ def delete_custom_yaml_source_definition(
         PyAirbyteInputError: If safe_mode is True and the connector name does not meet
             the safety requirements.
     """
-    definition_info = get_custom_yaml_source_definition(
-        workspace_id=workspace_id,
-        definition_id=definition_id,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-    if definition_info.workspace_id != workspace_id:
-        raise AirbyteInvalidWorkspaceError(
-            expected_workspace_id=workspace_id,
-            observed_workspace_id=definition_info.workspace_id,
-            context={
-                "custom_yaml_source_definition_id": definitions_id,
-            },
-        )                
-
     if safe_mode:
+        definition_info = get_custom_yaml_source_definition(
+            workspace_id=workspace_id,
+            definition_id=definition_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
         connector_name = definition_info.name
 
         def is_safe_to_delete(name: str) -> bool:
