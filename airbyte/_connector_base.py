@@ -283,10 +283,10 @@ class ConnectorBase(abc.ABC):
             content = json.dumps(self.config_spec, indent=2)
 
         if output_file:
-            output_file.write_text(content)
+            output_file.write_text(content)  # pyrefly: ignore[unbound-name]
             return
 
-        syntax_highlighted = Syntax(content, format)
+        syntax_highlighted = Syntax(content, format)  # pyrefly: ignore[unbound-name]
         rich.print(syntax_highlighted, file=sys.stderr if stderr else None)
 
     @property
@@ -300,7 +300,7 @@ class ConnectorBase(abc.ABC):
         for each connector.
         """
         spec_obj: ConnectorSpecification = self._get_spec()
-        spec_dict = spec_obj.dict(exclude_unset=True)
+        spec_dict = spec_obj.model_dump(exclude_unset=True)
         # convert to a yaml string
         return yaml.dump(spec_dict)
 
