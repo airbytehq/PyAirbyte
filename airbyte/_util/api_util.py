@@ -475,11 +475,15 @@ def create_source(
     *,
     workspace_id: str,
     config: models.SourceConfiguration | dict[str, Any],
+    definition_id: str | None = None,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
 ) -> models.SourceResponse:
-    """Get a connection."""
+    """Create a source connector instance.
+
+    Either `definition_id` or `config[sourceType]` must be provided.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -490,7 +494,7 @@ def create_source(
             name=name,
             workspace_id=workspace_id,
             configuration=config,  # Speakeasy API wants a dataclass, not a dict
-            definition_id=None,  # Not used alternative to config.sourceType.
+            definition_id=definition_id or None,  # Only used for custom sources
             secret_id=None,  # For OAuth, not yet supported
         ),
     )
@@ -933,3 +937,310 @@ def check_connector(
             "response": json_result,
         },
     )
+
+
+def validate_yaml_manifest(
+    manifest: Any,  # noqa: ANN401
+    *,
+    raise_on_error: bool = True,
+) -> tuple[bool, str | None]:
+    """Validate a YAML connector manifest structure.
+
+    Performs basic client-side validation before sending to API.
+
+    Args:
+        manifest: The manifest to validate (should be a dictionary).
+        raise_on_error: Whether to raise an exception on validation failure.
+
+    Returns:
+        Tuple of (is_valid, error_message)
+    """
+    if not isinstance(manifest, dict):
+        error = "Manifest must be a dictionary"
+        if raise_on_error:
+            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+        return False, error
+
+    required_fields = ["version", "type"]
+    missing = [f for f in required_fields if f not in manifest]
+    if missing:
+        error = f"Manifest missing required fields: {', '.join(missing)}"
+        if raise_on_error:
+            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+        return False, error
+
+    if manifest.get("type") != "DeclarativeSource":
+        error = f"Manifest type must be 'DeclarativeSource', got '{manifest.get('type')}'"
+        if raise_on_error:
+            raise PyAirbyteInputError(message=error, context={"manifest": manifest})
+        return False, error
+
+    return True, None
+
+
+def create_custom_yaml_source_definition(
+    name: str,
+    *,
+    workspace_id: str,
+    manifest: dict[str, Any],
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> models.DeclarativeSourceDefinitionResponse:
+    """Create a custom YAML source definition."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    request_body = models.CreateDeclarativeSourceDefinitionRequest(
+        name=name,
+        manifest=manifest,
+    )
+    request = api.CreateDeclarativeSourceDefinitionRequest(
+        workspace_id=workspace_id,
+        create_declarative_source_definition_request=request_body,
+    )
+    response = airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
+        request
+    )
+    if response.declarative_source_definition_response is None:
+        raise AirbyteError(
+            message="Failed to create custom YAML source definition",
+            context={"name": name, "workspace_id": workspace_id},
+        )
+    return response.declarative_source_definition_response
+
+
+def list_custom_yaml_source_definitions(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> list[models.DeclarativeSourceDefinitionResponse]:
+    """List all custom YAML source definitions in a workspace."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    request = api.ListDeclarativeSourceDefinitionsRequest(
+        workspace_id=workspace_id,
+    )
+    response = airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
+        request
+    )
+    if (
+        not status_ok(response.status_code)
+        or response.declarative_source_definitions_response is None
+    ):
+        raise AirbyteError(
+            message="Failed to list custom YAML source definitions",
+            context={
+                "workspace_id": workspace_id,
+                "response": response,
+            },
+        )
+    return response.declarative_source_definitions_response.data
+
+
+def get_custom_yaml_source_definition(
+    workspace_id: str,
+    definition_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> models.DeclarativeSourceDefinitionResponse:
+    """Get a specific custom YAML source definition."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    request = api.GetDeclarativeSourceDefinitionRequest(
+        workspace_id=workspace_id,
+        definition_id=definition_id,
+    )
+    response = airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
+        request
+    )
+    if (
+        not status_ok(response.status_code)
+        or response.declarative_source_definition_response is None
+    ):
+        raise AirbyteError(
+            message="Failed to get custom YAML source definition",
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
+        )
+    return response.declarative_source_definition_response
+
+
+def update_custom_yaml_source_definition(
+    workspace_id: str,
+    definition_id: str,
+    *,
+    manifest: dict[str, Any],
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> models.DeclarativeSourceDefinitionResponse:
+    """Update a custom YAML source definition."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    request_body = models.UpdateDeclarativeSourceDefinitionRequest(
+        manifest=manifest,
+    )
+    request = api.UpdateDeclarativeSourceDefinitionRequest(
+        workspace_id=workspace_id,
+        definition_id=definition_id,
+        update_declarative_source_definition_request=request_body,
+    )
+    response = airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
+        request
+    )
+    if (
+        not status_ok(response.status_code)
+        or response.declarative_source_definition_response is None
+    ):
+        raise AirbyteError(
+            message="Failed to update custom YAML source definition",
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
+        )
+    return response.declarative_source_definition_response
+
+
+def delete_custom_yaml_source_definition(
+    workspace_id: str,
+    definition_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    safe_mode: bool = True,
+) -> None:
+    """Delete a custom YAML source definition.
+
+    Args:
+        workspace_id: The workspace ID
+        definition_id: The definition ID to delete
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        safe_mode: If True, requires the connector name to either start with "delete:"
+            or contain "delete-me" (case insensitive) to prevent accidental deletion.
+            Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the connector name does not meet
+            the safety requirements.
+    """
+    if safe_mode:
+        definition_info = get_custom_yaml_source_definition(
+            workspace_id=workspace_id,
+            definition_id=definition_id,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+        connector_name = definition_info.name
+
+        def is_safe_to_delete(name: str) -> bool:
+            name_lower = name.lower()
+            return name_lower.startswith("delete:") or "delete-me" in name_lower
+
+        if not is_safe_to_delete(definition_info.name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete custom connector definition '{connector_name}' "
+                    "with safe_mode enabled. "
+                    "To authorize deletion, the connector name must either:\n"
+                    "  1. Start with 'delete:' (case insensitive), OR\n"
+                    "  2. Contain 'delete-me' (case insensitive)\n\n"
+                    "Please rename the connector to meet one of these requirements "
+                    "before attempting deletion."
+                ),
+                context={
+                    "definition_id": definition_id,
+                    "connector_name": connector_name,
+                    "safe_mode": True,
+                },
+            )
+
+    # Else proceed with deletion
+
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    request = api.DeleteDeclarativeSourceDefinitionRequest(
+        workspace_id=workspace_id,
+        definition_id=definition_id,
+    )
+    response = airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
+        request
+    )
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
+        )
+
+
+def get_connector_builder_project_for_definition_id(
+    *,
+    workspace_id: str,
+    definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Get the connector builder project ID for a declarative source definition.
+
+    Uses the Config API endpoint:
+    /v1/connector_builder_projects/get_for_definition_id
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1268
+
+    Args:
+        workspace_id: The workspace ID
+        definition_id: The declarative source definition ID (actorDefinitionId)
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The builder project ID if found, None otherwise (can be null in API response)
+    """
+    json_result = _make_config_api_request(
+        path="/connector_builder_projects/get_for_definition_id",
+        json={
+            "actorDefinitionId": definition_id,
+            "workspaceId": workspace_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    return json_result.get("builderProjectId")
