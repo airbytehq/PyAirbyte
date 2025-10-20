@@ -1,0 +1,22 @@
+/* pdoc color scheme - Airbyte branded version */
+:root {
+    --pdoc-background: #fff;
+}
+
+.pdoc {
+    /* Airbyte purple color scheme */
+    --text: hsl(240, 19%, 18%);
+    --muted: #6c757d;
+    --link: #615eff;
+    --link-hover: #3f3bff;
+    --code: hsl(240, 100%, 98%);
+    --active: #fff598;
+
+    --accent: hsl(240, 25%, 98%);
+    --accent2: #c1c1c1;
+
+    --nav-hover: rgba(97, 94, 255, 0.1);
+    --name: #615eff;
+    --def: #3f3bff;
+    --annotation: #007020;
+}

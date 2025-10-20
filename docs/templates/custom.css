@@ -1,0 +1,260 @@
+/*
+ * PyAirbyte Documentation - Custom Styling
+ * 
+ * This file applies Airbyte branding and design elements to the PyAirbyte API documentation.
+ * 
+ * METHODOLOGY:
+ * - Colors and design tokens are sourced from the main Airbyte documentation site
+ * - Primary source: https://github.com/airbytehq/airbyte/blob/main/docusaurus/src/css/custom.css
+ * - The Airbyte design system uses a purple primary color (#615eff) and Inter font family
+ * - This CSS overrides pdoc's default theme variables to match Airbyte branding
+ * 
+ * UPDATING STYLES:
+ * When Airbyte brand styles are updated, check the following upstream sources:
+ * 1. Main docs CSS: https://github.com/airbytehq/airbyte/blob/main/docusaurus/src/css/custom.css
+ * 2. Docusaurus config: https://github.com/airbytehq/airbyte/blob/main/docusaurus/docusaurus.config.js
+ * 3. Live site: https://docs.airbyte.com (inspect styles in browser dev tools)
+ * 
+ * Key variables to sync:
+ * - --ifm-color-primary and variants (primary brand color)
+ * - --ifm-font-family-base (typography)
+ * - Color palette variables (grey, green, blue scales)
+ * 
+ * PDOC INTEGRATION:
+ * pdoc uses specific CSS variables that we override here:
+ * - --link: Link color (set to Airbyte primary)
+ * - --link-hover: Link hover color (set to Airbyte primary-dark)
+ * - --code: Code background color
+ * - --accent: Accent/highlight color
+ * - --text: Main text color
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap");
+
+:root {
+  /* Airbyte Primary Colors - from docusaurus/src/css/custom.css */
+  --airbyte-primary: #615eff;
+  --airbyte-primary-dark: #3f3bff;
+  --airbyte-primary-darker: #2e2aff;
+  --airbyte-primary-darkest: #0500f4;
+  --airbyte-primary-light: #8381ff;
+  --airbyte-primary-lighter: #9492ff;
+  --airbyte-primary-lightest: #c8c7ff;
+  
+  /* Airbyte Color Palette - from docusaurus/src/css/custom.css */
+  --color-white: hsl(0, 0%, 100%);
+  --color-grey-40: hsl(240, 25%, 98%);
+  --color-grey-100: hsl(240, 12%, 92%);
+  --color-grey-400: hsl(239, 10%, 59%);
+  --color-grey-500: hsl(240, 10%, 49%);
+  --color-grey-900: hsl(240, 19%, 18%);
+  --color-green-40: hsl(185, 76%, 97%);
+  --color-green-50: hsl(184, 67%, 92%);
+  --color-green-600: hsl(185, 100%, 35%);
+  --color-green-800: hsl(184, 100%, 26%);
+  --color-blue-30: hsl(240, 100%, 98%);
+  --color-dark-blue-40: hsl(230, 23%, 95%);
+  --color-dark-blue-700: hsl(236, 43%, 31%);
+}
+
+/* Override pdoc's default theme variables - must be in .pdoc selector for specificity */
+.pdoc {
+  --link: #615eff;
+  --link-hover: #3f3bff;
+  --code: hsl(240, 100%, 98%);
+  --accent: hsl(240, 25%, 98%);
+  --text: hsl(240, 19%, 18%);
+  --name: #615eff;
+  --def: #3f3bff;
+}
+
+/* Dark mode colors - from docusaurus/src/css/custom.css */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --airbyte-primary: #7976ff;
+    --airbyte-primary-dark: #3f3bff;
+    --airbyte-primary-darker: #2e2aff;
+    --airbyte-primary-light: #8381ff;
+    --airbyte-primary-lighter: #9492ff;
+    --airbyte-primary-lightest: #c8c7ff;
+    
+    --color-grey-40: hsl(240, 14%, 14%);
+    --color-grey-100: hsl(240, 15%, 15%);
+    --color-grey-400: hsl(240, 13%, 72%);
+    --color-grey-500: hsl(240, 10%, 70%);
+    --color-grey-900: hsl(240, 10%, 90%);
+    --color-green-50: hsl(184, 100%, 12%);
+    --color-blue-30: hsl(252, 25%, 18%);
+    --color-dark-blue-700: hsl(240, 100%, 98%);
+    --color-white: hsl(0, 0%, 16%);
+  }
+  
+  /* Override pdoc's default theme variables for dark mode - must be in .pdoc selector */
+  .pdoc {
+    --link: #9492ff;
+    --link-hover: #c8c7ff;
+    --code: hsl(252, 25%, 18%);
+    --accent: hsl(240, 14%, 14%);
+    --text: hsl(240, 10%, 90%);
+    --name: #9492ff;
+    --def: #8381ff;
+  }
+}
+
+/* Apply Inter font family - Airbyte's brand font */
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Enhanced heading styles */
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 600;
+}
+
+/* Enhanced code block styling */
+pre code {
+  border-radius: 8px;
+}
+
+/* Style tables with Airbyte theme */
+table {
+  border-spacing: 0;
+  border-collapse: separate;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+table th {
+  background-color: var(--airbyte-primary);
+  color: var(--color-white);
+  font-weight: 600;
+  padding: 12px;
+}
+
+table th:first-child {
+  border-top-left-radius: 10px;
+}
+
+table th:last-child {
+  border-top-right-radius: 10px;
+}
+
+table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-grey-100);
+}
+
+table tr:hover {
+  background-color: var(--color-grey-40);
+  transition: background-color 0.2s ease;
+}
+
+table tr:last-child td:first-child {
+  border-bottom-left-radius: 10px;
+}
+
+table tr:last-child td:last-child {
+  border-bottom-right-radius: 10px;
+}
+
+/* Style navigation with Airbyte colors - use !important to override pdoc's default nav styles */
+nav a {
+  color: var(--link) !important;
+}
+
+nav a:hover {
+  color: var(--link-hover) !important;
+}
+
+/* Style badges and labels */
+.badge {
+  background-color: var(--color-green-40);
+  border: 1px solid var(--color-green-800);
+  color: var(--color-green-800);
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 0.85em;
+}
+
+/* Add rounded corners to images */
+img {
+  max-width: 100%;
+  border-radius: 10px;
+}
+
+/* Style the header/logo area */
+header {
+  border-bottom: 2px solid var(--airbyte-primary-lightest);
+}
+
+/* Style buttons and interactive elements */
+button, .button {
+  background-color: var(--airbyte-primary);
+  color: var(--color-white);
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+button:hover, .button:hover {
+  background-color: var(--airbyte-primary-dark);
+}
+
+/* Improve code syntax highlighting */
+.pdoc-code {
+  border-radius: 8px;
+  border: 1px solid var(--color-grey-100);
+}
+
+/* Style docstring sections */
+.docstring {
+  line-height: 1.6;
+}
+
+/* Add subtle shadow to main content area */
+main {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Style search box if present */
+input[type="search"], input[type="text"] {
+  border: 1px solid var(--color-grey-100);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: inherit;
+}
+
+input[type="search"]:focus, input[type="text"]:focus {
+  outline: none;
+  border-color: var(--airbyte-primary);
+  box-shadow: 0 0 0 3px var(--airbyte-primary-lightest);
+}
+
+/* Improve spacing and readability */
+.pdoc-module-list {
+  line-height: 1.8;
+}
+
+/* Style admonitions/notes */
+.admonition {
+  border-left: 4px solid var(--airbyte-primary);
+  background-color: var(--color-blue-30);
+  padding: 12px 16px;
+  border-radius: 4px;
+  margin: 16px 0;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+  
+  table {
+    font-size: 0.9em;
+  }
+}
