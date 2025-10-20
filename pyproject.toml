@@ -130,6 +130,10 @@ untyped-def-behavior = "skip-and-infer-return-any"
 # Respect mypy-style ignore comments
 permissive-ignores = true
 
+[tool.mypy]
+# Disable all mypy checks for this project since we use pyrefly instead
+ignore_errors = true
+
 [tool.pyright]
 pythonVersion = "3.10"
 venvPath = "./"       # Assuming .venv is at the root of your project
