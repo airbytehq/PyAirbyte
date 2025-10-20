@@ -134,7 +134,7 @@ def get_notebook_name() -> str | None:
 @lru_cache
 def get_vscode_notebook_name() -> str | None:
     with suppress(Exception):
-        import IPython  # noqa: PLC0415  # pyrefly: ignore[import-error]
+        import IPython  # noqa: PLC0415  # pyrefly: ignore[missing-import]
 
         return Path(
             IPython.extract_module_locals()[1]["__vsc_ipynb_file__"],
