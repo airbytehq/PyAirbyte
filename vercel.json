@@ -1,0 +1,7 @@
+{
+  "buildCommand": "poetry install && poetry run poe docs-generate",
+  "outputDirectory": "docs/generated",
+  "installCommand": "pip install poetry && poetry config virtualenvs.create false",
+  "framework": null,
+  "trailingSlash": false
+}
