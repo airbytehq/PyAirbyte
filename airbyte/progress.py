@@ -488,7 +488,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         mb_read: float,
     ) -> dict[str, float]:
         """Calculate adjusted performance metrics when time_to_first_record exceeds threshold."""
-        adjusted_metrics = {}
+        adjusted_metrics: dict[str, float] = {}
         if (
             time_to_first_record > TIME_TO_FIRST_RECORD_THRESHOLD_SECONDS
             and stream_name in self.stream_first_record_times
@@ -570,6 +570,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                         ),
                         4,
                     )
+                    mb_read = 0.0
                     if self.bytes_tracking_enabled:
                         mb_read = self.stream_bytes_read[stream_name] / 1_000_000
                         stream_metrics[stream_name]["mb_read"] = mb_read
