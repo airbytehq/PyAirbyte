@@ -505,15 +505,13 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
 def _get_custom_source_definition_description(
     custom_source: CustomCloudSourceDefinition,
 ) -> str:
-    return "\n".join(
-        [
-            f" - Custom Source Name: {custom_source.name}",
-            f" - Definition ID: {custom_source.definition_id}",
-            f" - Definition Version: {custom_source.version}",
-            f" - Connector Builder Project ID: {custom_source.connector_builder_project_id}",
-            f" - Connector Builder Project URL: {custom_source.connector_builder_project_url}",
-        ]
-    )
+    return "\n".join([
+        f" - Custom Source Name: {custom_source.name}",
+        f" - Definition ID: {custom_source.definition_id}",
+        f" - Definition Version: {custom_source.version}",
+        f" - Connector Builder Project ID: {custom_source.connector_builder_project_id}",
+        f" - Connector Builder Project URL: {custom_source.connector_builder_project_url}",
+    ])
 
 
 def publish_custom_source_definition(
@@ -668,22 +666,18 @@ def permanently_delete_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        definition = workspace.get_custom_source_definition(
-            definition_id=definition_id,
-            definition_type="yaml",
-        )
-
-        definition.permanently_delete(safe_mode=True)
-
-    except Exception as ex:
-        return f"Failed to delete custom source definition '{definition_id}': {ex}"
-    else:
-        return (
-            f"Successfully deleted custom source definition '{definition.name}' "
-            f"(ID: {definition_id})"
-        )
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    definition = workspace.get_custom_source_definition(
+        definition_id=definition_id,
+        definition_type="yaml",
+    )
+    definition_name: str = definition.name  # Capture name before deletion
+    definition.permanently_delete(
+        safe_mode=True,  # Hard-coded safe mode for extra protection when running in LLM agents.
+    )
+    return (
+        f"Successfully deleted custom source definition '{definition_name}' (ID: {definition_id})"
+    )
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
