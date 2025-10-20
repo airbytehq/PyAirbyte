@@ -116,19 +116,8 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
 
-[tool.pyrefly]
-python-version = "3.10"
-project-includes = ["airbyte"]
-project-excludes = [
-    "tests/integration_tests/fixtures/source-broken/**",
-    "tests/integration_tests/fixtures/source-test/**",
-    "docs/**",
-    "tests/**",
-]
-# Match mypy's default behavior of not checking unannotated function bodies
-untyped-def-behavior = "skip-and-infer-return-any"
-# Respect mypy-style ignore comments
-permissive-ignores = true
+# [tool.pyrefly]
+# Pyrefly moved to dedicated config file: `pyrefly.toml`
 
 [tool.mypy]
 # Disable all mypy checks for this project since we use pyrefly instead
