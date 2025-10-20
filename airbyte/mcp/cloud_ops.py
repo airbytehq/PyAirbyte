@@ -591,7 +591,6 @@ def list_custom_source_definitions() -> list[dict[str, Any]]:
         {
             "definition_id": d.definition_id,
             "name": d.name,
-            "definition_type": d.connector_type,  # 'yaml'
             "version": d.version,
             "connector_builder_project_url": d.connector_builder_project_url,
         }
