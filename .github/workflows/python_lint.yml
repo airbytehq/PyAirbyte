@@ -9,6 +9,8 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
 jobs:
   ruff-lint-check:
     name: Ruff Lint Check
