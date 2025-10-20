@@ -410,12 +410,32 @@ class CustomCloudSourceDefinition:
             or f"{self.workspace.workspace_url}/settings/{self.connector_type}"
         )
 
-    def permanently_delete(self) -> None:
-        """Permanently delete this custom source definition."""
-        self.workspace.permanently_delete_custom_source_definition(
-            self.definition_id,
-            definition_type=self.definition_type,
-        )
+    def permanently_delete(
+        self,
+        *,
+        safe_mode: bool = True,
+    ) -> None:
+        """Permanently delete this custom source definition.
+
+        Args:
+            safe_mode: If True, requires the connector name to either start with "delete:"
+                or contain "delete-me" (case insensitive) to prevent accidental deletion.
+                Defaults to True.
+        """
+        if self.definition_type == "yaml":
+            api_util.delete_custom_yaml_source_definition(
+                workspace_id=self.workspace.workspace_id,
+                definition_id=self.definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                safe_mode=safe_mode,
+            )
+        else:
+            raise NotImplementedError(
+                "Docker custom source definitions are not yet supported. "
+                "Only YAML manifest-based custom sources are currently available."
+            )
 
     def update_definition(
         self,

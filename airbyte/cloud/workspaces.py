@@ -610,29 +610,3 @@ class CloudWorkspace:
             "Docker custom source definitions are not yet supported. "
             "Only YAML manifest-based custom sources are currently available."
         )
-
-    def permanently_delete_custom_source_definition(
-        self,
-        definition_id: str,
-        *,
-        definition_type: Literal["yaml", "docker"],
-    ) -> None:
-        """Permanently delete a custom source definition.
-
-        Args:
-            definition_id: The definition ID to delete
-            definition_type: Connector type ("yaml" or "docker"). Required.
-        """
-        if definition_type == "yaml":
-            api_util.delete_custom_yaml_source_definition(
-                workspace_id=self.workspace_id,
-                definition_id=definition_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-            )
-        else:
-            raise NotImplementedError(
-                "Docker custom source definitions are not yet supported. "
-                "Only YAML manifest-based custom sources are currently available."
-            )

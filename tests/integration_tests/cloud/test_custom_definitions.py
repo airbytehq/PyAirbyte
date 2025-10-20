@@ -93,10 +93,11 @@ def test_publish_custom_yaml_source(
         assert updated.manifest["version"] == "0.2.0"
 
     finally:
-        cloud_workspace.permanently_delete_custom_source_definition(
+        fetched = cloud_workspace.get_custom_source_definition(
             definition_id,
             definition_type="yaml",
         )
+        fetched.permanently_delete(safe_mode=False)
 
 
 @pytest.mark.requires_creds
@@ -118,3 +119,52 @@ def test_yaml_validation_error(
         )
 
     assert "type" in str(exc_info.value).lower()
+
+
+@pytest.mark.requires_creds
+@pytest.mark.parametrize(
+    "name_template,expect_allow",
+    [
+        ("test-yaml-source-{suffix}", False),
+        ("delete:test-yaml-source-{suffix}", True),
+        ("test-delete-me-yaml-source-{suffix}", True),
+    ],
+)
+def test_safe_mode_deletion(
+    cloud_workspace: CloudWorkspace,
+    name_template: str,
+    expect_allow: bool,
+) -> None:
+    """Test safe_mode deletion behavior with different connector names."""
+    from airbyte._util import text_util
+    from airbyte.exceptions import PyAirbyteInputError
+
+    name = name_template.format(suffix=text_util.generate_random_suffix())
+
+    result = cloud_workspace.publish_custom_source_definition(
+        name=name,
+        manifest_yaml=TEST_YAML_MANIFEST,
+        unique=True,
+        pre_validate=True,
+    )
+
+    definition_id = result.definition_id
+
+    definition = cloud_workspace.get_custom_source_definition(
+        definition_id,
+        definition_type="yaml",
+    )
+
+    if expect_allow:
+        definition.permanently_delete(safe_mode=True)
+    else:
+        try:
+            with pytest.raises(PyAirbyteInputError) as exc_info:
+                definition.permanently_delete(safe_mode=True)
+
+            error_message = str(exc_info.value).lower()
+            assert "safe_mode" in error_message
+            assert "delete:" in error_message or "delete-me" in error_message
+
+        finally:
+            definition.permanently_delete(safe_mode=False)
