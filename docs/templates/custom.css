@@ -1,12 +1,38 @@
 /*
  * PyAirbyte Documentation - Custom Styling
- * Incorporates Airbyte branding and design elements
+ * 
+ * This file applies Airbyte branding and design elements to the PyAirbyte API documentation.
+ * 
+ * METHODOLOGY:
+ * - Colors and design tokens are sourced from the main Airbyte documentation site
+ * - Primary source: https://github.com/airbytehq/airbyte/blob/main/docusaurus/src/css/custom.css
+ * - The Airbyte design system uses a purple primary color (#615eff) and Inter font family
+ * - This CSS overrides pdoc's default theme variables to match Airbyte branding
+ * 
+ * UPDATING STYLES:
+ * When Airbyte brand styles are updated, check the following upstream sources:
+ * 1. Main docs CSS: https://github.com/airbytehq/airbyte/blob/main/docusaurus/src/css/custom.css
+ * 2. Docusaurus config: https://github.com/airbytehq/airbyte/blob/main/docusaurus/docusaurus.config.js
+ * 3. Live site: https://docs.airbyte.com (inspect styles in browser dev tools)
+ * 
+ * Key variables to sync:
+ * - --ifm-color-primary and variants (primary brand color)
+ * - --ifm-font-family-base (typography)
+ * - Color palette variables (grey, green, blue scales)
+ * 
+ * PDOC INTEGRATION:
+ * pdoc uses specific CSS variables that we override here:
+ * - --link: Link color (set to Airbyte primary)
+ * - --link-hover: Link hover color (set to Airbyte primary-dark)
+ * - --code: Code background color
+ * - --accent: Accent/highlight color
+ * - --text: Main text color
  */
 
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600;700&display=swap");
 
 :root {
-  /* Airbyte Primary Colors */
+  /* Airbyte Primary Colors - from docusaurus/src/css/custom.css */
   --airbyte-primary: #615eff;
   --airbyte-primary-dark: #3f3bff;
   --airbyte-primary-darker: #2e2aff;
@@ -15,7 +41,7 @@
   --airbyte-primary-lighter: #9492ff;
   --airbyte-primary-lightest: #c8c7ff;
   
-  /* Airbyte Color Palette */
+  /* Airbyte Color Palette - from docusaurus/src/css/custom.css */
   --color-white: hsl(0, 0%, 100%);
   --color-grey-40: hsl(240, 25%, 98%);
   --color-grey-100: hsl(240, 12%, 92%);
@@ -30,14 +56,15 @@
   --color-dark-blue-40: hsl(230, 23%, 95%);
   --color-dark-blue-700: hsl(236, 43%, 31%);
   
-  /* Override pdoc defaults with Airbyte colors */
-  --pdoc-link-color: var(--airbyte-primary);
-  --pdoc-link-hover-color: var(--airbyte-primary-dark);
-  --pdoc-code-background: var(--color-blue-30);
-  --pdoc-heading-color: var(--color-grey-900);
+  /* Override pdoc's default theme variables */
+  --link: var(--airbyte-primary);
+  --link-hover: var(--airbyte-primary-dark);
+  --code: var(--color-blue-30);
+  --accent: var(--color-grey-40);
+  --text: var(--color-grey-900);
 }
 
-/* Dark mode colors */
+/* Dark mode colors - from docusaurus/src/css/custom.css */
 @media (prefers-color-scheme: dark) {
   :root {
     --airbyte-primary: #7976ff;
@@ -57,47 +84,27 @@
     --color-dark-blue-700: hsl(240, 100%, 98%);
     --color-white: hsl(0, 0%, 16%);
     
-    --pdoc-link-color: var(--airbyte-primary-lighter);
-    --pdoc-link-hover-color: var(--airbyte-primary-lightest);
-    --pdoc-code-background: var(--color-blue-30);
-    --pdoc-heading-color: var(--color-grey-900);
+    /* Override pdoc's default theme variables for dark mode */
+    --link: var(--airbyte-primary-lighter);
+    --link-hover: var(--airbyte-primary-lightest);
+    --code: var(--color-blue-30);
+    --accent: var(--color-grey-40);
+    --text: var(--color-grey-900);
   }
 }
 
-/* Apply Inter font family */
+/* Apply Inter font family - Airbyte's brand font */
 body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Style links with Airbyte colors */
-a {
-  color: var(--pdoc-link-color);
-  text-decoration: none;
-}
-
-a:hover {
-  color: var(--pdoc-link-hover-color);
-  text-decoration: underline;
-}
-
-/* Style headings */
+/* Enhanced heading styles */
 h1, h2, h3, h4, h5, h6 {
-  color: var(--pdoc-heading-color);
   font-weight: 600;
 }
 
-/* Style code blocks */
-code {
-  background-color: var(--pdoc-code-background);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 0.9em;
-}
-
+/* Enhanced code block styling */
 pre code {
-  padding: 1em;
-  display: block;
-  overflow-x: auto;
   border-radius: 8px;
 }
 
