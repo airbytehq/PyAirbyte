@@ -505,13 +505,15 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
 def _get_custom_source_definition_description(
     custom_source: CustomCloudSourceDefinition,
 ) -> str:
-    return "\n".join([
-        f" - Custom Source Name: {custom_source.name}",
-        f" - Definition ID: {custom_source.definition_id}",
-        f" - Definition Version: {custom_source.version}",
-        f" - Connector Builder Project ID: {custom_source.connector_builder_project_id}",
-        f" - Connector Builder Project URL: {custom_source.connector_builder_project_url}",
-    ])
+    return "\n".join(
+        [
+            f" - Custom Source Name: {custom_source.name}",
+            f" - Definition ID: {custom_source.definition_id}",
+            f" - Definition Version: {custom_source.version}",
+            f" - Connector Builder Project ID: {custom_source.connector_builder_project_id}",
+            f" - Connector Builder Project URL: {custom_source.connector_builder_project_url}",
+        ]
+    )
 
 
 def publish_custom_source_definition(
