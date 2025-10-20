@@ -1,0 +1,16 @@
+# Pyrefly Type Checker Configuration
+# https://pyrefly.org/en/docs/configuration/
+
+python-version = "3.10"
+project-includes = ["airbyte"]
+project-excludes = [
+    "tests/integration_tests/fixtures/source-broken/**",
+    "tests/integration_tests/fixtures/source-test/**",
+    "docs/**",
+    "tests/**",
+]
+ignore-missing-imports = [
+    "airbyte_protocol",
+    "airbyte_protocol.models",
+    "*",
+]

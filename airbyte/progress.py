@@ -321,8 +321,11 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         update_period = 1  # Reset the update period to 1 before start.
 
-        for count, message in enumerate(messages, start=1):
-            yield message  # Yield the message immediately.
+        for count, message in enumerate(  # pyrefly: ignore[bad-assignment]
+            messages,  # pyrefly: ignore[bad-argument-type]
+            start=1,
+        ):
+            yield message  # pyrefly: ignore[invalid-yield]
             if isinstance(message, str):
                 # This is a string message, not an AirbyteMessage.
                 # For now at least, we don't need to pay the cost of parsing it.
@@ -485,7 +488,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         mb_read: float,
     ) -> dict[str, float]:
         """Calculate adjusted performance metrics when time_to_first_record exceeds threshold."""
-        adjusted_metrics = {}
+        adjusted_metrics: dict[str, float] = {}
         if (
             time_to_first_record > TIME_TO_FIRST_RECORD_THRESHOLD_SECONDS
             and stream_name in self.stream_first_record_times
@@ -567,6 +570,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                         ),
                         4,
                     )
+                    mb_read = 0.0
                     if self.bytes_tracking_enabled:
                         mb_read = self.stream_bytes_read[stream_name] / 1_000_000
                         stream_metrics[stream_name]["mb_read"] = mb_read
@@ -581,7 +585,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         perf_metrics["stream_metrics"] = stream_metrics
         log_dict["performance_metrics"] = perf_metrics
 
-        self._file_logger.info(json.dumps(log_dict))
+        self._file_logger.info(json.dumps(log_dict))  # pyrefly: ignore[missing-attribute]
 
         perf_logger: BoundLogger = logs.get_global_stats_logger()
         perf_logger.info(**log_dict)

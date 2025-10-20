@@ -283,10 +283,10 @@ class ConnectorBase(abc.ABC):
             content = json.dumps(self.config_spec, indent=2)
 
         if output_file:
-            output_file.write_text(content)
+            output_file.write_text(content)  # pyrefly: ignore[unbound-name]
             return
 
-        syntax_highlighted = Syntax(content, format)
+        syntax_highlighted = Syntax(content, format)  # pyrefly: ignore[unbound-name]
         rich.print(syntax_highlighted, file=sys.stderr if stderr else None)
 
     @property
@@ -300,7 +300,7 @@ class ConnectorBase(abc.ABC):
         for each connector.
         """
         spec_obj: ConnectorSpecification = self._get_spec()
-        spec_dict = spec_obj.dict(exclude_unset=True)
+        spec_dict = spec_obj.model_dump(exclude_unset=True)
         # convert to a yaml string
         return yaml.dump(spec_dict)
 
@@ -405,25 +405,33 @@ class ConnectorBase(abc.ABC):
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
         if message.type == Type.LOG:
-            self._print_info_message(message.log.message)
+            self._print_info_message(message.log.message)  # pyrefly: ignore[missing-attribute]
             return
 
-        if message.type == Type.TRACE and message.trace.type == TraceType.ERROR:
-            self._print_error_message(message.trace.error.message)
+        if (
+            message.type == Type.TRACE
+            and message.trace.type == TraceType.ERROR  # pyrefly: ignore[missing-attribute]
+        ):
+            self._print_error_message(
+                message.trace.error.message  # pyrefly: ignore[missing-attribute]
+            )
             if raise_on_error:
                 raise exc.AirbyteConnectorFailedError(
                     connector_name=self.name,
-                    message=message.trace.error.message,
+                    message=message.trace.error.message,  # pyrefly: ignore[missing-attribute]
                     log_text=self._last_log_messages,
                 )
             return
 
         if (
             message.type == Type.CONTROL
-            and message.control.type == OrchestratorType.CONNECTOR_CONFIG
+            and message.control.type  # pyrefly: ignore[missing-attribute]
+            == OrchestratorType.CONNECTOR_CONFIG
             and self.config_change_callback is not None
         ):
-            self.config_change_callback(message.control.connectorConfig.config)
+            self.config_change_callback(
+                message.control.connectorConfig.config  # pyrefly: ignore[missing-attribute]
+            )
             return
 
     def _execute(
