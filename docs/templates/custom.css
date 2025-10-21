@@ -106,15 +106,11 @@ body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-/* Logo styling - invert colors in dark mode for better visibility */
-.logo {
-  transition: filter 0.2s ease;
-}
-
+/* Logo styling - swap to light logo in dark mode for better visibility */
 @media (prefers-color-scheme: dark) {
   .logo {
-    /* Invert the logo colors and increase brightness for dark mode */
-    filter: invert(1) brightness(1.2);
+    /* Replace the dark logo with the light logo in dark mode */
+    content: url("https://docs.airbyte.com/img/logo-light.png");
   }
 }
 
