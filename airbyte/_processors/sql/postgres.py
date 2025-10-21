@@ -6,11 +6,13 @@ from __future__ import annotations
 import functools
 
 from overrides import overrides
+from sqlalchemy.dialects.postgresql import JSONB
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte._writers.jsonl import JsonlWriter
 from airbyte.secrets.base import SecretString
 from airbyte.shared.sql_processor import SqlConfig, SqlProcessorBase
+from airbyte.types import SQLTypeConverter
 
 
 class PostgresConfig(SqlConfig):
@@ -36,6 +38,15 @@ class PostgresConfig(SqlConfig):
     def get_database_name(self) -> str:
         """Return the name of the database."""
         return self.database
+
+
+class PostgresTypeConverter(SQLTypeConverter):
+    """A Postgres-specific type converter that uses JSONB for JSON data."""
+
+    @classmethod
+    def get_json_type(cls) -> JSONB:
+        """Return JSONB type for Postgres instead of generic JSON."""
+        return JSONB()
 
 
 class PostgresNormalizer(LowerCaseNormalizer):
@@ -73,3 +84,6 @@ class PostgresSqlProcessor(SqlProcessorBase):
 
     normalizer = PostgresNormalizer  # pyrefly: ignore[bad-override]
     """A Postgres-specific name normalizer for table and column name normalization."""
+
+    type_converter_class = PostgresTypeConverter
+    """A Postgres-specific type converter that uses JSONB for JSON data."""
