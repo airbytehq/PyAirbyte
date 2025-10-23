@@ -24,6 +24,7 @@ from airbyte.mcp._annotations import (
     READ_ONLY_HINT,
 )
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.mcp.safe_mode import enforce_cloud_safe_mode
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -691,115 +692,135 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
+    check_workspace_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    deploy_source_annotations = {
+        DESTRUCTIVE_HINT: False,
+    }
+    deploy_destination_annotations = {
+        DESTRUCTIVE_HINT: False,
+    }
+    deploy_noop_annotations = {
+        DESTRUCTIVE_HINT: False,
+    }
+    create_connection_annotations = {
+        DESTRUCTIVE_HINT: False,
+    }
+    run_sync_annotations = {
+        DESTRUCTIVE_HINT: False,
+    }
+    get_sync_status_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    get_sync_logs_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    list_sources_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    list_destinations_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    list_connections_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    publish_custom_annotations = {
+        DESTRUCTIVE_HINT: False,
+    }
+    list_custom_annotations = {
+        READ_ONLY_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+    update_custom_annotations = {
+        DESTRUCTIVE_HINT: True,
+    }
+    delete_custom_annotations = {
+        DESTRUCTIVE_HINT: True,
+        IDEMPOTENT_HINT: True,
+    }
+
     app.tool(
-        check_airbyte_cloud_workspace,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(check_workspace_annotations)(check_airbyte_cloud_workspace),
+        annotations=check_workspace_annotations,
     )
 
     app.tool(
-        deploy_source_to_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
+        enforce_cloud_safe_mode(deploy_source_annotations)(deploy_source_to_cloud),
+        annotations=deploy_source_annotations,
     )
 
     app.tool(
-        deploy_destination_to_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
+        enforce_cloud_safe_mode(deploy_destination_annotations)(deploy_destination_to_cloud),
+        annotations=deploy_destination_annotations,
     )
 
     app.tool(
-        deploy_noop_destination_to_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
+        enforce_cloud_safe_mode(deploy_noop_annotations)(deploy_noop_destination_to_cloud),
+        annotations=deploy_noop_annotations,
     )
 
     app.tool(
-        create_connection_on_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
+        enforce_cloud_safe_mode(create_connection_annotations)(create_connection_on_cloud),
+        annotations=create_connection_annotations,
     )
 
     app.tool(
-        run_cloud_sync,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
+        enforce_cloud_safe_mode(run_sync_annotations)(run_cloud_sync),
+        annotations=run_sync_annotations,
     )
 
     app.tool(
-        get_cloud_sync_status,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(get_sync_status_annotations)(get_cloud_sync_status),
+        annotations=get_sync_status_annotations,
     )
 
     app.tool(
-        get_cloud_sync_logs,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(get_sync_logs_annotations)(get_cloud_sync_logs),
+        annotations=get_sync_logs_annotations,
     )
 
     app.tool(
-        list_deployed_cloud_source_connectors,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(list_sources_annotations)(list_deployed_cloud_source_connectors),
+        annotations=list_sources_annotations,
     )
 
     app.tool(
-        list_deployed_cloud_destination_connectors,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(list_destinations_annotations)(
+            list_deployed_cloud_destination_connectors
+        ),
+        annotations=list_destinations_annotations,
     )
 
     app.tool(
-        list_deployed_cloud_connections,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(list_connections_annotations)(list_deployed_cloud_connections),
+        annotations=list_connections_annotations,
     )
 
     app.tool(
-        publish_custom_source_definition,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
+        enforce_cloud_safe_mode(publish_custom_annotations)(publish_custom_source_definition),
+        annotations=publish_custom_annotations,
     )
 
     app.tool(
-        list_custom_source_definitions,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(list_custom_annotations)(list_custom_source_definitions),
+        annotations=list_custom_annotations,
     )
 
     app.tool(
-        update_custom_source_definition,
-        annotations={
-            DESTRUCTIVE_HINT: True,
-        },
+        enforce_cloud_safe_mode(update_custom_annotations)(update_custom_source_definition),
+        annotations=update_custom_annotations,
     )
 
     app.tool(
-        permanently_delete_custom_source_definition,
-        annotations={
-            DESTRUCTIVE_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
+        enforce_cloud_safe_mode(delete_custom_annotations)(
+            permanently_delete_custom_source_definition
+        ),
+        annotations=delete_custom_annotations,
     )
