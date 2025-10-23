@@ -696,12 +696,9 @@ def get_cloud_source_connector_version(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        source = workspace.get_source(source_id=source_id)
-        return source.get_connector_version()
-    except Exception as ex:
-        return {"error": f"Failed to get version for source '{source_id}': {ex}"}
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+    return source.get_connector_version()
 
 
 def get_cloud_destination_connector_version(
@@ -719,12 +716,9 @@ def get_cloud_destination_connector_version(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        destination = workspace.get_destination(destination_id=destination_id)
-        return destination.get_connector_version()
-    except Exception as ex:
-        return {"error": f"Failed to get version for destination '{destination_id}': {ex}"}
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+    return destination.get_connector_version()
 
 
 def set_cloud_source_connector_version_override(
@@ -758,22 +752,18 @@ def set_cloud_source_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        source = workspace.get_source(source_id=source_id)
-        result = source.set_connector_version_override(
-            version=version,
-            clear_override=clear_override,
-        )
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+    result = source.set_connector_version_override(
+        version=version,
+        clear_override=clear_override,
+    )
 
-        if clear_override:
-            if result:
-                return f"Successfully cleared version override for source '{source_id}'"
-            return f"No version override was set for source '{source_id}'"
-        return f"Successfully set version override to '{version}' for source '{source_id}'"
-
-    except Exception as ex:
-        return f"Failed to set version override for source '{source_id}': {ex}"
+    if clear_override:
+        if result:
+            return f"Successfully cleared version override for source '{source_id}'"
+        return f"No version override was set for source '{source_id}'"
+    return f"Successfully set version override to '{version}' for source '{source_id}'"
 
 
 def set_cloud_destination_connector_version_override(
@@ -807,25 +797,21 @@ def set_cloud_destination_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        destination = workspace.get_destination(destination_id=destination_id)
-        result = destination.set_connector_version_override(
-            version=version,
-            clear_override=clear_override,
-        )
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+    result = destination.set_connector_version_override(
+        version=version,
+        clear_override=clear_override,
+    )
 
-        if clear_override:
-            if result:
-                return f"Successfully cleared version override for destination '{destination_id}'"
-            return f"No version override was set for destination '{destination_id}'"
-        return (
-            f"Successfully set version override to '{version}' "
-            f"for destination '{destination_id}'"
-        )
-
-    except Exception as ex:
-        return f"Failed to set version override for destination '{destination_id}': {ex}"
+    if clear_override:
+        if result:
+            return f"Successfully cleared version override for destination '{destination_id}'"
+        return f"No version override was set for destination '{destination_id}'"
+    return (
+        f"Successfully set version override to '{version}' "
+        f"for destination '{destination_id}'"
+    )
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
