@@ -276,28 +276,6 @@ class CloudConnection:
         self._connection_info = updated_response
         return self
 
-    def update_schedule(
-        self,
-        schedule: api_models.AirbyteAPIConnectionSchedule,
-    ) -> CloudConnection:
-        """Update the connection's sync schedule.
-
-        Args:
-            schedule: New sync schedule
-
-        Returns:
-            Updated CloudConnection object with refreshed info
-        """
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            schedule=schedule,
-        )
-        self._connection_info = updated_response
-        return self
-
     def update_config(
         self,
         *,
