@@ -1440,6 +1440,7 @@ def clear_connector_version_override(
 def set_connector_version_override(
     *,
     connector_id: str,
+    connector_type: Literal["source", "destination"],
     actor_definition_id: str,
     actor_definition_version_id: str,
     api_root: str,
@@ -1468,6 +1469,7 @@ def set_connector_version_override(
     Returns:
         The created scoped configuration response
     """
+    _ = connector_type  # not used currently
     return _make_config_api_request(
         path="/scoped_configuration/create",
         json={

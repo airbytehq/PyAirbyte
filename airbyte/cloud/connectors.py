@@ -313,6 +313,7 @@ class CloudSource(CloudConnector):
 
         return api_util.set_connector_version_override(
             connector_id=self.connector_id,
+            connector_type=self.connector_type,
             actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
             api_root=self.workspace.api_root,
@@ -447,6 +448,7 @@ class CloudDestination(CloudConnector):
 
         return api_util.set_connector_version_override(
             connector_id=self.connector_id,
+            connector_type=self.connector_type,
             actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
             api_root=self.workspace.api_root,
