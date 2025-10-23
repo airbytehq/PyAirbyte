@@ -11,6 +11,7 @@ from airbyte.cloud.sync_results import SyncResult
 
 
 if TYPE_CHECKING:
+    from airbyte_api import models as api_models
     from airbyte_api.models import ConnectionResponse, JobResponse
 
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -257,6 +258,44 @@ class CloudConnection:
         )
 
     # Deletions
+
+    def update_config(
+        self,
+        *,
+        name: str | None = None,
+        configurations: api_models.StreamConfigurationsInput | None = None,
+        schedule: api_models.AirbyteAPIConnectionSchedule | None = None,
+        prefix: str | None = None,
+        status: api_models.ConnectionStatusEnum | None = None,
+    ) -> CloudConnection:
+        """Update the connection configuration.
+
+        This is a destructive operation that can break existing connections if the
+        configuration is changed incorrectly. Use with caution.
+
+        Args:
+            name: Optional new name for the connection
+            configurations: Optional new stream configurations
+            schedule: Optional new sync schedule
+            prefix: Optional new table prefix
+            status: Optional new connection status
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            name=name,
+            configurations=configurations,
+            schedule=schedule,
+            prefix=prefix,
+            status=status,
+        )
+        self._connection_info = updated_response  # Accessing Non-Public API
+        return self
 
     def permanently_delete(
         self,

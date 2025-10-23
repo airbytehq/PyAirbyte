@@ -564,6 +564,57 @@ def delete_source(
         )
 
 
+def patch_source(
+    source_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name: str | None = None,
+    config: models.SourceConfiguration | dict[str, Any] | None = None,
+) -> models.SourceResponse:
+    """Update/patch a source configuration.
+
+    This is a destructive operation that can break existing connections if the
+    configuration is changed incorrectly.
+
+    Args:
+        source_id: The ID of the source to update
+        api_root: The API root URL
+        client_id: Client ID for authentication
+        client_secret: Client secret for authentication
+        name: Optional new name for the source
+        config: Optional new configuration for the source
+
+    Returns:
+        Updated SourceResponse object
+    """
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    response = airbyte_instance.sources.patch_source(
+        api.PatchSourceRequest(
+            source_id=source_id,
+            source_patch_request=models.SourcePatchRequest(
+                name=name,
+                configuration=config,
+            ),
+        ),
+    )
+    if status_ok(response.status_code) and response.source_response:
+        return response.source_response
+
+    raise AirbyteError(
+        message="Could not update source.",
+        context={
+            "source_id": source_id,
+        },
+        response=response,
+    )
+
+
 # Utility function
 
 
@@ -701,6 +752,57 @@ def delete_destination(
         )
 
 
+def patch_destination(
+    destination_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name: str | None = None,
+    config: DestinationConfiguration | dict[str, Any] | None = None,
+) -> models.DestinationResponse:
+    """Update/patch a destination configuration.
+
+    This is a destructive operation that can break existing connections if the
+    configuration is changed incorrectly.
+
+    Args:
+        destination_id: The ID of the destination to update
+        api_root: The API root URL
+        client_id: Client ID for authentication
+        client_secret: Client secret for authentication
+        name: Optional new name for the destination
+        config: Optional new configuration for the destination
+
+    Returns:
+        Updated DestinationResponse object
+    """
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    response = airbyte_instance.destinations.patch_destination(
+        api.PatchDestinationRequest(
+            destination_id=destination_id,
+            destination_patch_request=models.DestinationPatchRequest(
+                name=name,
+                configuration=config,
+            ),
+        ),
+    )
+    if status_ok(response.status_code) and response.destination_response:
+        return response.destination_response
+
+    raise AirbyteError(
+        message="Could not update destination.",
+        context={
+            "destination_id": destination_id,
+        },
+        response=response,
+    )
+
+
 # Create and delete connections
 
 
@@ -813,6 +915,66 @@ def delete_connection(
                 "response": response,
             },
         )
+
+
+def patch_connection(  # noqa: PLR0913  # Too many arguments
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name: str | None = None,
+    configurations: models.StreamConfigurationsInput | None = None,
+    schedule: models.AirbyteAPIConnectionSchedule | None = None,
+    prefix: str | None = None,
+    status: models.ConnectionStatusEnum | None = None,
+) -> models.ConnectionResponse:
+    """Update/patch a connection configuration.
+
+    This is a destructive operation that can break existing connections if the
+    configuration is changed incorrectly.
+
+    Args:
+        connection_id: The ID of the connection to update
+        api_root: The API root URL
+        client_id: Client ID for authentication
+        client_secret: Client secret for authentication
+        name: Optional new name for the connection
+        configurations: Optional new stream configurations
+        schedule: Optional new sync schedule
+        prefix: Optional new table prefix
+        status: Optional new connection status
+
+    Returns:
+        Updated ConnectionResponse object
+    """
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        api_root=api_root,
+    )
+    response = airbyte_instance.connections.patch_connection(
+        api.PatchConnectionRequest(
+            connection_id=connection_id,
+            connection_patch_request=models.ConnectionPatchRequest(
+                name=name,
+                configurations=configurations,
+                schedule=schedule,
+                prefix=prefix,
+                status=status,
+            ),
+        ),
+    )
+    if status_ok(response.status_code) and response.connection_response:
+        return response.connection_response
+
+    raise AirbyteError(
+        message="Could not update connection.",
+        context={
+            "connection_id": connection_id,
+        },
+        response=response,
+    )
 
 
 # Functions for leveraging the Airbyte Config API (may not be supported or stable)
