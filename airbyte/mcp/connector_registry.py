@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
+from airbyte.mcp._annotations import (
+    IDEMPOTENT_HINT,
+    OPEN_WORLD_HINT,
+    READ_ONLY_HINT,
+)
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.sources import get_available_connectors
 from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
@@ -156,5 +161,19 @@ def register_connector_registry_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(list_connectors)
-    app.tool(get_connector_info)
+    app.tool(
+        list_connectors,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Reads from local registry cache
+        },
+    )
+
+    app.tool(
+        get_connector_info,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )

@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
+from airbyte.mcp._annotations import (
+    DESTRUCTIVE_HINT,
+    IDEMPOTENT_HINT,
+    OPEN_WORLD_HINT,
+    READ_ONLY_HINT,
+)
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -767,21 +773,101 @@ def register_local_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(list_connector_config_secrets)
-    for tool in (
+    app.tool(
+        list_connector_config_secrets,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
         describe_default_cache,
+        description=(describe_default_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local cache only
+        },
+    )
+
+    app.tool(
         get_source_stream_json_schema,
+        description=(get_source_stream_json_schema.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
         get_stream_previews,
+        description=(get_stream_previews.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+        },
+    )
+
+    app.tool(
         list_cached_streams,
+        description=(list_cached_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local cache only
+        },
+    )
+
+    app.tool(
         list_dotenv_secrets,
+        description=(list_dotenv_secrets.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local .env files only
+        },
+    )
+
+    app.tool(
         list_source_streams,
+        description=(list_source_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
         read_source_stream_records,
+        description=(read_source_stream_records.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+        },
+    )
+
+    app.tool(
         run_sql_query,
+        description=(run_sql_query.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local cache only
+        },
+    )
+
+    app.tool(
         sync_source_to_cache,
+        description=(sync_source_to_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            DESTRUCTIVE_HINT: False,  # Syncs are additive/merge operations
+        },
+    )
+
+    app.tool(
         validate_connector_config,
-    ):
-        # Register each tool with the FastMCP app.
-        app.tool(
-            tool,
-            description=(tool.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        )
+        description=(validate_connector_config.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )

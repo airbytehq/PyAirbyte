@@ -18,6 +18,11 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
+from airbyte.mcp._annotations import (
+    DESTRUCTIVE_HINT,
+    IDEMPOTENT_HINT,
+    READ_ONLY_HINT,
+)
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
@@ -686,18 +691,115 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(check_airbyte_cloud_workspace)
-    app.tool(deploy_source_to_cloud)
-    app.tool(deploy_destination_to_cloud)
-    app.tool(deploy_noop_destination_to_cloud)
-    app.tool(create_connection_on_cloud)
-    app.tool(run_cloud_sync)
-    app.tool(get_cloud_sync_status)
-    app.tool(get_cloud_sync_logs)
-    app.tool(list_deployed_cloud_source_connectors)
-    app.tool(list_deployed_cloud_destination_connectors)
-    app.tool(list_deployed_cloud_connections)
-    app.tool(publish_custom_source_definition)
-    app.tool(list_custom_source_definitions)
-    app.tool(update_custom_source_definition)
-    app.tool(permanently_delete_custom_source_definition)
+    app.tool(
+        check_airbyte_cloud_workspace,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        deploy_source_to_cloud,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
+        deploy_destination_to_cloud,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
+        deploy_noop_destination_to_cloud,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
+        create_connection_on_cloud,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
+        run_cloud_sync,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
+        get_cloud_sync_status,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        get_cloud_sync_logs,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        list_deployed_cloud_source_connectors,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        list_deployed_cloud_destination_connectors,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        list_deployed_cloud_connections,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        publish_custom_source_definition,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
+        list_custom_source_definitions,
+        annotations={
+            READ_ONLY_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
+
+    app.tool(
+        update_custom_source_definition,
+        annotations={
+            DESTRUCTIVE_HINT: True,
+        },
+    )
+
+    app.tool(
+        permanently_delete_custom_source_definition,
+        annotations={
+            DESTRUCTIVE_HINT: True,
+            IDEMPOTENT_HINT: True,
+        },
+    )
