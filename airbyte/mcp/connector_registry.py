@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._annotations import (
-    DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
@@ -166,7 +165,6 @@ def register_connector_registry_tools(app: FastMCP) -> None:
         list_connectors,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
             OPEN_WORLD_HINT: False,  # Reads from local registry cache
         },
@@ -176,8 +174,6 @@ def register_connector_registry_tools(app: FastMCP) -> None:
         get_connector_info,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: True,  # May download connector or manifest from CDN
         },
     )

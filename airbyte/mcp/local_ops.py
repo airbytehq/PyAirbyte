@@ -777,9 +777,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         list_connector_config_secrets,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: True,  # Accesses Google Secret Manager
         },
     )
 
@@ -788,7 +786,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(describe_default_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
             OPEN_WORLD_HINT: False,  # Local cache only
         },
@@ -799,9 +796,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(get_source_stream_json_schema.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
@@ -810,9 +805,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(get_stream_previews.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
-            IDEMPOTENT_HINT: False,  # May return different samples each time
-            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
@@ -821,7 +813,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(list_cached_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
             OPEN_WORLD_HINT: False,  # Local cache only
         },
@@ -832,7 +823,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(list_dotenv_secrets.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
             OPEN_WORLD_HINT: False,  # Local .env files only
         },
@@ -843,9 +833,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(list_source_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
@@ -854,9 +842,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(read_source_stream_records.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
-            IDEMPOTENT_HINT: False,  # May return different records each time
-            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
@@ -865,7 +850,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(run_sql_query.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
             OPEN_WORLD_HINT: False,  # Local cache only
         },
@@ -875,10 +859,7 @@ def register_local_ops_tools(app: FastMCP) -> None:
         sync_source_to_cache,
         description=(sync_source_to_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            READ_ONLY_HINT: False,
             DESTRUCTIVE_HINT: False,  # Syncs are additive/merge operations
-            IDEMPOTENT_HINT: False,  # Each sync may pull new data
-            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
@@ -887,8 +868,6 @@ def register_local_ops_tools(app: FastMCP) -> None:
         description=(validate_connector_config.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
             READ_ONLY_HINT: True,
-            DESTRUCTIVE_HINT: False,
             IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
