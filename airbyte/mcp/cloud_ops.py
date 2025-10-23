@@ -686,7 +686,7 @@ def get_cloud_source_connector_version(
         str,
         Field(description="The ID of the deployed source connector."),
     ],
-) -> dict[str, str | bool]:
+) -> str:
     """Get the current version information for a deployed source connector.
 
     Returns version details including the current version string and whether an override
@@ -699,10 +699,7 @@ def get_cloud_source_connector_version(
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
     version_info = source.get_connector_version()
-    return {
-        "version": version_info.version,
-        "is_version_pinned": version_info.is_version_pinned,
-    }
+    return str(version_info)
 
 
 def get_cloud_destination_connector_version(
@@ -710,7 +707,7 @@ def get_cloud_destination_connector_version(
         str,
         Field(description="The ID of the deployed destination connector."),
     ],
-) -> dict[str, str | bool]:
+) -> str:
     """Get the current version information for a deployed destination connector.
 
     Returns version details including the current version string and whether an override
@@ -723,10 +720,7 @@ def get_cloud_destination_connector_version(
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
     version_info = destination.get_connector_version()
-    return {
-        "version": version_info.version,
-        "is_version_pinned": version_info.is_version_pinned,
-    }
+    return str(version_info)
 
 
 def set_cloud_source_connector_version_override(
