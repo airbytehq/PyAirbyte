@@ -216,6 +216,100 @@ class CloudSource(CloudConnector):
         result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
         return result
 
+    def get_connector_version(self) -> dict[str, Any]:
+        """Get the current version information for this source.
+
+        Returns:
+            A dictionary containing version information including:
+            - dockerImageTag: The version string (e.g., "0.1.0")
+            - actorDefinitionId: The connector definition ID
+            - actorDefinitionVersionId: The specific version ID
+            - isOverrideApplied: Whether a version override is active
+        """
+        return api_util.get_connector_version(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    def set_connector_version_override(
+        self,
+        version: str | None = None,
+        *,
+        clear_override: bool = False,
+    ) -> dict[str, Any] | bool:
+        """Set or clear a version override for this source.
+
+        You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+
+        Args:
+            version: The semver version string to pin to (e.g., "0.1.0")
+            clear_override: If True, removes any existing version override
+
+        Returns:
+            If setting a version: The created scoped configuration response
+            If clearing: True if an override was removed, False if none existed
+
+        Raises:
+            exc.PyAirbyteInputError: If both or neither parameters are provided
+        """
+        if (version is None) == (not clear_override):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of version (to set) OR "
+                    "clear_override=True (to clear), but not both"
+                ),
+                context={
+                    "version_provided": version is not None,
+                    "clear_override": clear_override,
+                },
+            )
+
+        if clear_override:
+            version_info = self.get_connector_version()
+            actor_definition_id = version_info.get("actorDefinitionId")
+            if not actor_definition_id:
+                raise exc.AirbyteError(
+                    message="Could not determine actor_definition_id for source",
+                    context={"source_id": self.connector_id, "version_info": version_info},
+                )
+
+            return api_util.clear_connector_version_override(
+                connector_id=self.connector_id,
+                actor_definition_id=actor_definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        version_info = self.get_connector_version()
+        actor_definition_id = version_info.get("actorDefinitionId")
+        if not actor_definition_id:
+            raise exc.AirbyteError(
+                message="Could not determine actor_definition_id for source",
+                context={"source_id": self.connector_id, "version_info": version_info},
+            )
+
+        actor_definition_version_id = api_util.resolve_connector_version(
+            actor_definition_id=actor_definition_id,
+            connector_type=self.connector_type,
+            version=version,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        return api_util.set_connector_version_override(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            actor_definition_version_id=actor_definition_version_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
 
 class CloudDestination(CloudConnector):
     """A cloud destination is a destination that is deployed on Airbyte Cloud."""
@@ -256,6 +350,100 @@ class CloudDestination(CloudConnector):
         )
         result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
         return result
+
+    def get_connector_version(self) -> dict[str, Any]:
+        """Get the current version information for this destination.
+
+        Returns:
+            A dictionary containing version information including:
+            - dockerImageTag: The version string (e.g., "0.1.0")
+            - actorDefinitionId: The connector definition ID
+            - actorDefinitionVersionId: The specific version ID
+            - isOverrideApplied: Whether a version override is active
+        """
+        return api_util.get_connector_version(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    def set_connector_version_override(
+        self,
+        version: str | None = None,
+        *,
+        clear_override: bool = False,
+    ) -> dict[str, Any] | bool:
+        """Set or clear a version override for this destination.
+
+        You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+
+        Args:
+            version: The semver version string to pin to (e.g., "0.1.0")
+            clear_override: If True, removes any existing version override
+
+        Returns:
+            If setting a version: The created scoped configuration response
+            If clearing: True if an override was removed, False if none existed
+
+        Raises:
+            exc.PyAirbyteInputError: If both or neither parameters are provided
+        """
+        if (version is None) == (not clear_override):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of version (to set) OR "
+                    "clear_override=True (to clear), but not both"
+                ),
+                context={
+                    "version_provided": version is not None,
+                    "clear_override": clear_override,
+                },
+            )
+
+        if clear_override:
+            version_info = self.get_connector_version()
+            actor_definition_id = version_info.get("actorDefinitionId")
+            if not actor_definition_id:
+                raise exc.AirbyteError(
+                    message="Could not determine actor_definition_id for destination",
+                    context={"destination_id": self.connector_id, "version_info": version_info},
+                )
+
+            return api_util.clear_connector_version_override(
+                connector_id=self.connector_id,
+                actor_definition_id=actor_definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        version_info = self.get_connector_version()
+        actor_definition_id = version_info.get("actorDefinitionId")
+        if not actor_definition_id:
+            raise exc.AirbyteError(
+                message="Could not determine actor_definition_id for destination",
+                context={"destination_id": self.connector_id, "version_info": version_info},
+            )
+
+        actor_definition_version_id = api_util.resolve_connector_version(
+            actor_definition_id=actor_definition_id,
+            connector_type=self.connector_type,
+            version=version,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        return api_util.set_connector_version_override(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            actor_definition_version_id=actor_definition_version_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
 
 
 class CustomCloudSourceDefinition:

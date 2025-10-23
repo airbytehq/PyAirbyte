@@ -392,7 +392,7 @@ def get_cloud_sync_status(
                 for attempt in attempts
             ]
 
-        return result  # noqa: TRY300
+        return result
 
     except Exception as ex:
         return {
@@ -484,7 +484,7 @@ def get_cloud_sync_logs(
                 f"attempt {target_attempt.attempt_number}"
             )
 
-        return logs  # noqa: TRY300
+        return logs
 
     except Exception as ex:
         return f"Failed to get logs for connection '{connection_id}': {ex}"
@@ -681,6 +681,153 @@ def permanently_delete_custom_source_definition(
     )
 
 
+def get_cloud_source_connector_version(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector."),
+    ],
+) -> dict[str, Any]:
+    """Get the current version information for a deployed source connector.
+
+    Returns version details including the current version string, whether an override
+    is applied, and the actor definition IDs.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        source = workspace.get_source(source_id=source_id)
+        return source.get_connector_version()
+    except Exception as ex:
+        return {"error": f"Failed to get version for source '{source_id}': {ex}"}
+
+
+def get_cloud_destination_connector_version(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination connector."),
+    ],
+) -> dict[str, Any]:
+    """Get the current version information for a deployed destination connector.
+
+    Returns version details including the current version string, whether an override
+    is applied, and the actor definition IDs.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        destination = workspace.get_destination(destination_id=destination_id)
+        return destination.get_connector_version()
+    except Exception as ex:
+        return {"error": f"Failed to get version for destination '{destination_id}': {ex}"}
+
+
+def set_cloud_source_connector_version_override(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector."),
+    ],
+    version: Annotated[
+        str | None,
+        Field(
+            description="The semver version string to pin to (e.g., '0.1.0'). "
+            "Must be None if clear_override is True.",
+            default=None,
+        ),
+    ] = None,
+    *,
+    clear_override: Annotated[
+        bool,
+        Field(
+            description="If True, removes any existing version override. "
+            "Cannot be True if version is provided.",
+            default=False,
+        ),
+    ] = False,
+) -> str:
+    """Set or clear a version override for a deployed source connector.
+
+    You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        source = workspace.get_source(source_id=source_id)
+        result = source.set_connector_version_override(
+            version=version,
+            clear_override=clear_override,
+        )
+
+        if clear_override:
+            if result:
+                return f"Successfully cleared version override for source '{source_id}'"
+            return f"No version override was set for source '{source_id}'"
+        return f"Successfully set version override to '{version}' for source '{source_id}'"
+
+    except Exception as ex:
+        return f"Failed to set version override for source '{source_id}': {ex}"
+
+
+def set_cloud_destination_connector_version_override(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination connector."),
+    ],
+    version: Annotated[
+        str | None,
+        Field(
+            description="The semver version string to pin to (e.g., '0.1.0'). "
+            "Must be None if clear_override is True.",
+            default=None,
+        ),
+    ] = None,
+    *,
+    clear_override: Annotated[
+        bool,
+        Field(
+            description="If True, removes any existing version override. "
+            "Cannot be True if version is provided.",
+            default=False,
+        ),
+    ] = False,
+) -> str:
+    """Set or clear a version override for a deployed destination connector.
+
+    You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace()
+        destination = workspace.get_destination(destination_id=destination_id)
+        result = destination.set_connector_version_override(
+            version=version,
+            clear_override=clear_override,
+        )
+
+        if clear_override:
+            if result:
+                return f"Successfully cleared version override for destination '{destination_id}'"
+            return f"No version override was set for destination '{destination_id}'"
+        return (
+            f"Successfully set version override to '{version}' "
+            f"for destination '{destination_id}'"
+        )
+
+    except Exception as ex:
+        return f"Failed to set version override for destination '{destination_id}': {ex}"
+
+
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """@private Register tools with the FastMCP app.
 
@@ -701,3 +848,7 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(list_custom_source_definitions)
     app.tool(update_custom_source_definition)
     app.tool(permanently_delete_custom_source_definition)
+    app.tool(get_cloud_source_connector_version)
+    app.tool(get_cloud_destination_connector_version)
+    app.tool(set_cloud_source_connector_version_override)
+    app.tool(set_cloud_destination_connector_version_override)

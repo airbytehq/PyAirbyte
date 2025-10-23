@@ -1244,3 +1244,243 @@ def get_connector_builder_project_for_definition_id(
         client_secret=client_secret,
     )
     return json_result.get("builderProjectId")
+
+
+def get_connector_version(
+    *,
+    connector_id: str,
+    connector_type: Literal["source", "destination"],
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get the current version for a source or destination connector.
+
+    Uses the Config API endpoint:
+    - /v1/actor_definition_versions/get_for_source
+    - /v1/actor_definition_versions/get_for_destination
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        connector_id: The source or destination ID
+        connector_type: Either "source" or "destination"
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        A dictionary containing version information including:
+        - dockerImageTag: The version string (e.g., "0.1.0")
+        - actorDefinitionId: The connector definition ID
+        - actorDefinitionVersionId: The specific version ID
+        - isOverrideApplied: Whether a version override is active
+    """
+    endpoint = f"/actor_definition_versions/get_for_{connector_type}"
+    return _make_config_api_request(
+        path=endpoint,
+        json={
+            f"{connector_type}Id": connector_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+def resolve_connector_version(
+    *,
+    actor_definition_id: str,
+    connector_type: Literal["source", "destination"],
+    version: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str:
+    """Resolve a semver version string to an actor_definition_version_id.
+
+    Uses the Config API endpoint:
+    /v1/actor_definition_versions/resolve
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        actor_definition_id: The connector definition ID
+        connector_type: Either "source" or "destination"
+        version: The semver version string (e.g., "0.1.0")
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The actor_definition_version_id (UUID as string)
+
+    Raises:
+        AirbyteError: If the version cannot be resolved
+    """
+    json_result = _make_config_api_request(
+        path="/actor_definition_versions/resolve",
+        json={
+            "actorDefinitionId": actor_definition_id,
+            "actorType": connector_type,
+            "dockerImageTag": version,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    version_id = json_result.get("actorDefinitionVersionId")
+    if not version_id:
+        raise AirbyteError(
+            message=f"Could not resolve version '{version}' for connector",
+            context={
+                "actor_definition_id": actor_definition_id,
+                "connector_type": connector_type,
+                "version": version,
+                "response": json_result,
+            },
+        )
+    return version_id
+
+
+def _find_connector_version_override_id(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Find the scoped configuration ID for a connector version override.
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The scoped configuration ID if found, None otherwise
+    """
+    json_result = _make_config_api_request(
+        path="/scoped_configuration/list",
+        json={
+            "config_key": "connector_version",
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    scoped_configs = json_result.get("scopedConfigurations", [])
+    for config in scoped_configs:
+        if (
+            config.get("resource_id") == actor_definition_id
+            and config.get("scope_id") == connector_id
+            and config.get("scope_type") == "actor"
+        ):
+            return config.get("id")
+
+    return None
+
+
+def clear_connector_version_override(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> bool:
+    """Clear a version override for a source or destination connector.
+
+    Deletes the scoped configuration that pins the connector to a specific version.
+
+    Uses the Config API endpoints:
+    - /v1/scoped_configuration/list (to find the override)
+    - /v1/scoped_configuration/delete (to remove it)
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        True if an override was found and deleted, False if no override existed
+    """
+    config_id = _find_connector_version_override_id(
+        connector_id=connector_id,
+        actor_definition_id=actor_definition_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    if not config_id:
+        return False
+
+    _make_config_api_request(
+        path="/scoped_configuration/delete",
+        json={
+            "scopedConfigurationId": config_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    return True
+
+
+def set_connector_version_override(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    actor_definition_version_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Set a version override for a source or destination connector.
+
+    Creates a scoped configuration at the ACTOR level to pin the connector
+    to a specific version.
+
+    Uses the Config API endpoint:
+    /v1/scoped_configuration/create
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        connector_id: The source or destination ID
+        connector_type: Either "source" or "destination"
+        actor_definition_id: The connector definition ID
+        actor_definition_version_id: The version ID to pin to
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The created scoped configuration response
+    """
+    return _make_config_api_request(
+        path="/scoped_configuration/create",
+        json={
+            "config_key": "connector_version",
+            "value": actor_definition_version_id,
+            "resource_type": "actor_definition",
+            "resource_id": actor_definition_id,
+            "scope_type": "actor",
+            "scope_id": connector_id,
+            "origin": "user",
+            "origin_type": "user",
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
