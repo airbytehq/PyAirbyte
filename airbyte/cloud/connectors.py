@@ -253,15 +253,15 @@ class CloudSource(CloudConnector):
     ) -> dict[str, Any] | bool:
         """Set or clear a version override for this source.
 
-        You must specify EXACTLY ONE of version OR unset=True, but not both.
+        You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
 
         Args:
-            version: The semver version string to pin to (e.g., "0.1.0")
-            unset: If True, removes any existing version override
+            version: The semver version string to pin to (e.g., `"0.1.0"`)
+            unset: If `True`, removes any existing version override
 
         Returns:
             If setting a version: The created scoped configuration response
-            If clearing: True if an override was removed, False if none existed
+            If clearing: `True` if an override was removed, `False` if none existed
 
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided
@@ -388,15 +388,15 @@ class CloudDestination(CloudConnector):
     ) -> dict[str, Any] | bool:
         """Set or clear a version override for this destination.
 
-        You must specify EXACTLY ONE of version OR unset=True, but not both.
+        You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
 
         Args:
-            version: The semver version string to pin to (e.g., "0.1.0")
-            unset: If True, removes any existing version override
+            version: The semver version string to pin to (e.g., `"0.1.0"`)
+            unset: If `True`, removes any existing version override
 
         Returns:
             If setting a version: The created scoped configuration response
-            If clearing: True if an override was removed, False if none existed
+            If clearing: `True` if an override was removed, `False` if none existed
 
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided
