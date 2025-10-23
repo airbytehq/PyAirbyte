@@ -809,8 +809,7 @@ def set_cloud_destination_connector_version_override(
             return f"Successfully cleared version override for destination '{destination_id}'"
         return f"No version override was set for destination '{destination_id}'"
     return (
-        f"Successfully set version override to '{version}' "
-        f"for destination '{destination_id}'"
+        f"Successfully set version override to '{version}' " f"for destination '{destination_id}'"
     )
 
 
