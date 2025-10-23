@@ -85,14 +85,20 @@ class CheckResult:
         )
 
 
-class ConnectorVersionInfo(BaseModel):
-    """Information about a connector's version."""
+class CloudConnectorVersionInfo(BaseModel):
+    """Information about a cloud connector's version."""
 
     version: str
     """The version string (e.g., '0.1.0')."""
 
     is_version_pinned: bool
     """Whether a version override is active for this connector."""
+
+    def __str__(self) -> str:
+        """Return a string representation of the version."""
+        if self.is_version_pinned:
+            return f"{self.version} (pinned)"
+        return self.version
 
 
 class CloudConnector(abc.ABC):
@@ -227,11 +233,11 @@ class CloudSource(CloudConnector):
         result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
         return result
 
-    def get_connector_version(self) -> ConnectorVersionInfo:
+    def get_connector_version(self) -> CloudConnectorVersionInfo:
         """Get the current version information for this source.
 
         Returns:
-            ConnectorVersionInfo with version string and pinned status
+            CloudConnectorVersionInfo with version string and pinned status
         """
         version_data = api_util.get_connector_version(
             connector_id=self.connector_id,
@@ -240,7 +246,7 @@ class CloudSource(CloudConnector):
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
         )
-        return ConnectorVersionInfo(
+        return CloudConnectorVersionInfo(
             version=version_data["dockerImageTag"],
             is_version_pinned=version_data.get("isOverrideApplied", False),
         )
@@ -362,11 +368,11 @@ class CloudDestination(CloudConnector):
         result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
         return result
 
-    def get_connector_version(self) -> ConnectorVersionInfo:
+    def get_connector_version(self) -> CloudConnectorVersionInfo:
         """Get the current version information for this destination.
 
         Returns:
-            ConnectorVersionInfo with version string and pinned status
+            CloudConnectorVersionInfo with version string and pinned status
         """
         version_data = api_util.get_connector_version(
             connector_id=self.connector_id,
@@ -375,7 +381,7 @@ class CloudDestination(CloudConnector):
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
         )
-        return ConnectorVersionInfo(
+        return CloudConnectorVersionInfo(
             version=version_data["dockerImageTag"],
             is_version_pinned=version_data.get("isOverrideApplied", False),
         )
