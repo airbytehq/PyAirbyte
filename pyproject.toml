@@ -3,7 +3,7 @@ name = "airbyte"
 description = "PyAirbyte"
 authors = ["Airbyte <contact@airbyte.io>"]
 readme = "README.md"
-packages = [{ include = "airbyte" }, { include = "bin" }]
+packages = [{ include = "airbyte" }]
 
 # This project uses dynamic versioning
 # https://github.com/mtkennerly/poetry-dynamic-versioning
@@ -132,13 +132,12 @@ venv = ".venv"
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
 airbyte-mcp = "airbyte.mcp.server:main"
-tune-slow-markers = "bin.tune_slow_markers:main"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }
 test-fast = { shell = "pytest --durations=5 --exitfirst -m 'not slow'" }
 test-unit-tests = { shell = "pytest tests/unit_tests/" }
-tune-slow-markers = { cmd = "python bin/tune_slow_markers.py", help = "Automatically tune pytest slow markers based on test execution time" }
+tune-slow-markers = { cmd = "uv run bin/tune_slow_markers.py", help = "Automatically tune pytest slow markers based on test execution time" }
 
 coverage = { shell = "coverage run -m pytest && coverage report" }
 coverage-report = { shell = "coverage report" }

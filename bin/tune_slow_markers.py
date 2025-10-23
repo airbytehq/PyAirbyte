@@ -1,4 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "pytest>=8.2.0",
+# ]
+# ///
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
 """Automated pytest slow marker tuner for PyAirbyte.
 
@@ -6,19 +12,38 @@ This tool runs all tests with a timeout throttle and automatically adds or remov
 the @pytest.mark.slow decorator based on test execution time.
 
 Usage:
-    python bin/tune_slow_markers.py [--timeout SECONDS] [--dry-run] [--remove-slow]
-    pipx run airbyte tune-slow-markers [--timeout SECONDS] [--dry-run] [--remove-slow]
+    uv run bin/tune_slow_markers.py [--timeout SECONDS] [--dry-run] [--remove-slow]
+    ./bin/tune_slow_markers.py [--timeout SECONDS] [--dry-run] [--remove-slow]
 """
 
 import argparse
 import ast
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 
+def get_pytest_command() -> list[str]:
+    """Determine the appropriate pytest command to use.
+    
+    Returns:
+        List of command parts to run pytest
+    """
+    if Path("pyproject.toml").exists() and shutil.which("poetry"):
+        return ["poetry", "run", "pytest"]
+    elif shutil.which("pytest"):
+        return ["pytest"]
+    else:
+        raise RuntimeError(
+            "pytest not found. Please ensure pytest is installed "
+            "or run from a poetry project."
+        )
+
+
 def parse_args() -> argparse.Namespace:
+    """Parse command line arguments."""
     parser = argparse.ArgumentParser(
         description="Automatically tune pytest slow markers based on test execution time"
     )
@@ -53,10 +78,10 @@ def run_pytest_with_durations(test_path: str) -> tuple[list[dict[str, any]], int
     Returns:
         Tuple of (list of test results with timing, return code)
     """
+    pytest_cmd = get_pytest_command()
+    
     cmd = [
-        "poetry",
-        "run",
-        "pytest",
+        *pytest_cmd,
         test_path,
         "--durations=0",
         "--tb=no",
@@ -68,13 +93,11 @@ def run_pytest_with_durations(test_path: str) -> tuple[list[dict[str, any]], int
     print(f"Collecting tests from {test_path}...")
     result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
-    if result.returncode not in (0, 5):
+    if result.returncode not in {0, 5}:
         print(f"Warning: Test collection returned code {result.returncode}")
 
     cmd = [
-        "poetry",
-        "run",
-        "pytest",
+        *pytest_cmd,
         test_path,
         "--durations=0",
         "--tb=line",
@@ -103,7 +126,9 @@ def run_pytest_with_durations(test_path: str) -> tuple[list[dict[str, any]], int
 def parse_test_name(test_name: str) -> tuple[str, str]:
     """Parse pytest test name to extract file path and test function name.
 
-    Example: 'tests/unit_tests/test_foo.py::test_bar' -> ('tests/unit_tests/test_foo.py', 'test_bar')
+    Example:
+        'tests/unit_tests/test_foo.py::test_bar' ->
+        ('tests/unit_tests/test_foo.py', 'test_bar')
     """
     if "::" in test_name:
         parts = test_name.split("::")
@@ -115,7 +140,9 @@ def parse_test_name(test_name: str) -> tuple[str, str]:
     return "", ""
 
 
-def find_slow_tests(test_timings: list[dict[str, any]], threshold: float) -> set[tuple[str, str]]:
+def find_slow_tests(
+    test_timings: list[dict[str, any]], threshold: float
+) -> set[tuple[str, str]]:
     """Identify tests that exceed the timeout threshold.
 
     Returns:
@@ -128,12 +155,17 @@ def find_slow_tests(test_timings: list[dict[str, any]], threshold: float) -> set
             file_path, test_func = parse_test_name(timing["test"])
             if file_path and test_func:
                 slow_tests.add((file_path, test_func))
-                print(f"  Slow test found: {test_func} in {file_path} ({timing['duration']:.2f}s)")
+                print(
+                    f"  Slow test found: {test_func} in {file_path} "
+                    f"({timing['duration']:.2f}s)"
+                )
 
     return slow_tests
 
 
-def find_fast_tests(test_timings: list[dict[str, any]], threshold: float) -> set[tuple[str, str]]:
+def find_fast_tests(
+    test_timings: list[dict[str, any]], threshold: float
+) -> set[tuple[str, str]]:
     """Identify tests that finish within the timeout threshold.
 
     Returns:
@@ -153,29 +185,31 @@ def find_fast_tests(test_timings: list[dict[str, any]], threshold: float) -> set
 def has_slow_marker(test_node: ast.FunctionDef) -> bool:
     """Check if a test function has @pytest.mark.slow decorator."""
     for decorator in test_node.decorator_list:
-        if isinstance(decorator, ast.Attribute):
+        if isinstance(decorator, ast.Attribute) and (
+            isinstance(decorator.value, ast.Attribute)
+            and isinstance(decorator.value.value, ast.Name)
+            and decorator.value.value.id == "pytest"
+            and decorator.value.attr == "mark"
+            and decorator.attr == "slow"
+        ):
+            return True
+        elif isinstance(decorator, ast.Call) and isinstance(
+            decorator.func, ast.Attribute
+        ):
             if (
-                isinstance(decorator.value, ast.Attribute)
-                and isinstance(decorator.value.value, ast.Name)
-                and decorator.value.value.id == "pytest"
-                and decorator.value.attr == "mark"
-                and decorator.attr == "slow"
+                isinstance(decorator.func.value, ast.Attribute)
+                and isinstance(decorator.func.value.value, ast.Name)
+                and decorator.func.value.value.id == "pytest"
+                and decorator.func.value.attr == "mark"
+                and decorator.func.attr == "slow"
             ):
                 return True
-        elif isinstance(decorator, ast.Call):
-            if isinstance(decorator.func, ast.Attribute):
-                if (
-                    isinstance(decorator.func.value, ast.Attribute)
-                    and isinstance(decorator.func.value.value, ast.Name)
-                    and decorator.func.value.value.id == "pytest"
-                    and decorator.func.value.attr == "mark"
-                    and decorator.func.attr == "slow"
-                ):
-                    return True
     return False
 
 
-def add_slow_marker_to_file(file_path: str, test_functions: set[str], dry_run: bool = False) -> int:
+def add_slow_marker_to_file(
+    file_path: str, test_functions: set[str], *, dry_run: bool = False
+) -> int:
     """Add @pytest.mark.slow decorator to specified test functions in a file.
 
     Returns:
@@ -199,21 +233,25 @@ def add_slow_marker_to_file(file_path: str, test_functions: set[str], dry_run: b
     modifications = []
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name in test_functions:
-            if not has_slow_marker(node):
-                lineno = node.lineno - 1
-                indent = len(lines[lineno]) - len(lines[lineno].lstrip())
-                marker_line = " " * indent + "@pytest.mark.slow"
+        if (
+            isinstance(node, ast.FunctionDef)
+            and node.name in test_functions
+            and not has_slow_marker(node)
+        ):
+            lineno = node.lineno - 1
+            indent = len(lines[lineno]) - len(lines[lineno].lstrip())
+            marker_line = " " * indent + "@pytest.mark.slow"
 
-                modifications.append((lineno, marker_line))
-                markers_added += 1
+            modifications.append((lineno, marker_line))
+            markers_added += 1
 
-                if dry_run:
-                    print(
-                        f"  [DRY RUN] Would add @pytest.mark.slow to {node.name} at line {lineno + 1}"
-                    )
-                else:
-                    print(f"  Adding @pytest.mark.slow to {node.name} at line {lineno + 1}")
+            if dry_run:
+                print(
+                    f"  [DRY RUN] Would add @pytest.mark.slow to "
+                    f"{node.name} at line {lineno + 1}"
+                )
+            else:
+                print(f"  Adding @pytest.mark.slow to {node.name} at line {lineno + 1}")
 
     if not dry_run and modifications:
         for lineno, marker_line in sorted(modifications, reverse=True):
@@ -225,7 +263,7 @@ def add_slow_marker_to_file(file_path: str, test_functions: set[str], dry_run: b
 
 
 def remove_slow_marker_from_file(
-    file_path: str, test_functions: set[str], dry_run: bool = False
+    file_path: str, test_functions: set[str], *, dry_run: bool = False
 ) -> int:
     """Remove @pytest.mark.slow decorator from specified test functions in a file.
 
@@ -250,21 +288,28 @@ def remove_slow_marker_from_file(
     lines_to_remove = []
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name in test_functions:
-            if has_slow_marker(node):
-                for i in range(max(0, node.lineno - 10), node.lineno):
-                    line = lines[i].strip()
-                    if line == "@pytest.mark.slow":
-                        lines_to_remove.append(i)
-                        markers_removed += 1
+        if (
+            isinstance(node, ast.FunctionDef)
+            and node.name in test_functions
+            and has_slow_marker(node)
+        ):
+            for i in range(max(0, node.lineno - 10), node.lineno):
+                line = lines[i].strip()
+                if line == "@pytest.mark.slow":
+                    lines_to_remove.append(i)
+                    markers_removed += 1
 
-                        if dry_run:
-                            print(
-                                f"  [DRY RUN] Would remove @pytest.mark.slow from {node.name} at line {i + 1}"
-                            )
-                        else:
-                            print(f"  Removing @pytest.mark.slow from {node.name} at line {i + 1}")
-                        break
+                    if dry_run:
+                        print(
+                            f"  [DRY RUN] Would remove @pytest.mark.slow from "
+                            f"{node.name} at line {i + 1}"
+                        )
+                    else:
+                        print(
+                            f"  Removing @pytest.mark.slow from "
+                            f"{node.name} at line {i + 1}"
+                        )
+                    break
 
     if not dry_run and lines_to_remove:
         for lineno in sorted(lines_to_remove, reverse=True):
@@ -313,7 +358,7 @@ def main() -> int:
     total_added = 0
     for file_path, test_funcs in tests_by_file.items():
         print(f"Processing {file_path}...")
-        added = add_slow_marker_to_file(file_path, test_funcs, args.dry_run)
+        added = add_slow_marker_to_file(file_path, test_funcs, dry_run=args.dry_run)
         total_added += added
 
     print()
@@ -336,7 +381,9 @@ def main() -> int:
         total_removed = 0
         for file_path, test_funcs in fast_tests_by_file.items():
             print(f"Processing {file_path}...")
-            removed = remove_slow_marker_from_file(file_path, test_funcs, args.dry_run)
+            removed = remove_slow_marker_from_file(
+                file_path, test_funcs, dry_run=args.dry_run
+            )
             total_removed += removed
 
         print()
