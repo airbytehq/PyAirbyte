@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import yaml
 from airbyte_api import models as api_models  # noqa: TC002
+from pydantic import BaseModel
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
@@ -82,6 +83,16 @@ class CheckResult:
             f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
+
+
+class ConnectorVersionInfo(BaseModel):
+    """Information about a connector's version."""
+
+    version: str
+    """The version string (e.g., '0.1.0')."""
+
+    is_version_pinned: bool
+    """Whether a version override is active for this connector."""
 
 
 class CloudConnector(abc.ABC):
@@ -216,22 +227,22 @@ class CloudSource(CloudConnector):
         result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
         return result
 
-    def get_connector_version(self) -> dict[str, Any]:
+    def get_connector_version(self) -> ConnectorVersionInfo:
         """Get the current version information for this source.
 
         Returns:
-            A dictionary containing version information including:
-            - dockerImageTag: The version string (e.g., "0.1.0")
-            - actorDefinitionId: The connector definition ID
-            - actorDefinitionVersionId: The specific version ID
-            - isOverrideApplied: Whether a version override is active
+            ConnectorVersionInfo with version string and pinned status
         """
-        return api_util.get_connector_version(
+        version_data = api_util.get_connector_version(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+        )
+        return ConnectorVersionInfo(
+            version=version_data["dockerImageTag"],
+            is_version_pinned=version_data.get("isOverrideApplied", False),
         )
 
     def set_connector_version_override(
@@ -267,29 +278,28 @@ class CloudSource(CloudConnector):
                 },
             )
 
-        if clear_override:
-            version_info = self.get_connector_version()
-            actor_definition_id = version_info.get("actorDefinitionId")
-            if not actor_definition_id:
-                raise exc.AirbyteError(
-                    message="Could not determine actor_definition_id for source",
-                    context={"source_id": self.connector_id, "version_info": version_info},
-                )
+        # Get raw version data from API to extract actor_definition_id
+        version_data = api_util.get_connector_version(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        actor_definition_id = version_data.get("actorDefinitionId")
+        if not actor_definition_id:
+            raise exc.AirbyteError(
+                message="Could not determine actor_definition_id for source",
+                context={"source_id": self.connector_id, "version_data": version_data},
+            )
 
+        if clear_override:
             return api_util.clear_connector_version_override(
                 connector_id=self.connector_id,
                 actor_definition_id=actor_definition_id,
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
-            )
-
-        version_info = self.get_connector_version()
-        actor_definition_id = version_info.get("actorDefinitionId")
-        if not actor_definition_id:
-            raise exc.AirbyteError(
-                message="Could not determine actor_definition_id for source",
-                context={"source_id": self.connector_id, "version_info": version_info},
             )
 
         actor_definition_version_id = api_util.resolve_connector_version(
@@ -351,22 +361,22 @@ class CloudDestination(CloudConnector):
         result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
         return result
 
-    def get_connector_version(self) -> dict[str, Any]:
+    def get_connector_version(self) -> ConnectorVersionInfo:
         """Get the current version information for this destination.
 
         Returns:
-            A dictionary containing version information including:
-            - dockerImageTag: The version string (e.g., "0.1.0")
-            - actorDefinitionId: The connector definition ID
-            - actorDefinitionVersionId: The specific version ID
-            - isOverrideApplied: Whether a version override is active
+            ConnectorVersionInfo with version string and pinned status
         """
-        return api_util.get_connector_version(
+        version_data = api_util.get_connector_version(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+        )
+        return ConnectorVersionInfo(
+            version=version_data["dockerImageTag"],
+            is_version_pinned=version_data.get("isOverrideApplied", False),
         )
 
     def set_connector_version_override(
@@ -402,29 +412,28 @@ class CloudDestination(CloudConnector):
                 },
             )
 
-        if clear_override:
-            version_info = self.get_connector_version()
-            actor_definition_id = version_info.get("actorDefinitionId")
-            if not actor_definition_id:
-                raise exc.AirbyteError(
-                    message="Could not determine actor_definition_id for destination",
-                    context={"destination_id": self.connector_id, "version_info": version_info},
-                )
+        # Get raw version data from API to extract actor_definition_id
+        version_data = api_util.get_connector_version(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        actor_definition_id = version_data.get("actorDefinitionId")
+        if not actor_definition_id:
+            raise exc.AirbyteError(
+                message="Could not determine actor_definition_id for destination",
+                context={"destination_id": self.connector_id, "version_data": version_data},
+            )
 
+        if clear_override:
             return api_util.clear_connector_version_override(
                 connector_id=self.connector_id,
                 actor_definition_id=actor_definition_id,
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
-            )
-
-        version_info = self.get_connector_version()
-        actor_definition_id = version_info.get("actorDefinitionId")
-        if not actor_definition_id:
-            raise exc.AirbyteError(
-                message="Could not determine actor_definition_id for destination",
-                context={"destination_id": self.connector_id, "version_info": version_info},
             )
 
         actor_definition_version_id = api_util.resolve_connector_version(

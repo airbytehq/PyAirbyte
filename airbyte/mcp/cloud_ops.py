@@ -686,11 +686,11 @@ def get_cloud_source_connector_version(
         str,
         Field(description="The ID of the deployed source connector."),
     ],
-) -> dict[str, Any]:
+) -> dict[str, str | bool]:
     """Get the current version information for a deployed source connector.
 
-    Returns version details including the current version string, whether an override
-    is applied, and the actor definition IDs.
+    Returns version details including the current version string and whether an override
+    is applied.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -698,7 +698,11 @@ def get_cloud_source_connector_version(
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
-    return source.get_connector_version()
+    version_info = source.get_connector_version()
+    return {
+        "version": version_info.version,
+        "is_version_pinned": version_info.is_version_pinned,
+    }
 
 
 def get_cloud_destination_connector_version(
@@ -706,11 +710,11 @@ def get_cloud_destination_connector_version(
         str,
         Field(description="The ID of the deployed destination connector."),
     ],
-) -> dict[str, Any]:
+) -> dict[str, str | bool]:
     """Get the current version information for a deployed destination connector.
 
-    Returns version details including the current version string, whether an override
-    is applied, and the actor definition IDs.
+    Returns version details including the current version string and whether an override
+    is applied.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -718,7 +722,11 @@ def get_cloud_destination_connector_version(
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
-    return destination.get_connector_version()
+    version_info = destination.get_connector_version()
+    return {
+        "version": version_info.version,
+        "is_version_pinned": version_info.is_version_pinned,
+    }
 
 
 def set_cloud_source_connector_version_override(
