@@ -96,9 +96,7 @@ class CloudConnectorVersionInfo(BaseModel):
 
     def __str__(self) -> str:
         """Return a string representation of the version."""
-        if self.is_version_pinned:
-            return f"{self.version} (pinned)"
-        return self.version
+        return self.version if not self.is_version_pinned else f"{self.version} (pinned)"
 
 
 class CloudConnector(abc.ABC):
