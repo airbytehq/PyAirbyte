@@ -738,12 +738,12 @@ def set_cloud_source_connector_version_override(
         str | None,
         Field(
             description="The semver version string to pin to (e.g., '0.1.0'). "
-            "Must be None if clear_override is True.",
+            "Must be None if unset is True.",
             default=None,
         ),
     ] = None,
     *,
-    clear_override: Annotated[
+    unset: Annotated[
         bool,
         Field(
             description="If True, removes any existing version override. "
@@ -754,7 +754,7 @@ def set_cloud_source_connector_version_override(
 ) -> str:
     """Set or clear a version override for a deployed source connector.
 
-    You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+    You must specify EXACTLY ONE of version OR unset=True, but not both.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -764,10 +764,10 @@ def set_cloud_source_connector_version_override(
     source = workspace.get_source(source_id=source_id)
     result = source.set_connector_version_override(
         version=version,
-        clear_override=clear_override,
+        unset=unset,
     )
 
-    if clear_override:
+    if unset:
         if result:
             return f"Successfully cleared version override for source '{source_id}'"
         return f"No version override was set for source '{source_id}'"
@@ -783,12 +783,12 @@ def set_cloud_destination_connector_version_override(
         str | None,
         Field(
             description="The semver version string to pin to (e.g., '0.1.0'). "
-            "Must be None if clear_override is True.",
+            "Must be None if unset is True.",
             default=None,
         ),
     ] = None,
     *,
-    clear_override: Annotated[
+    unset: Annotated[
         bool,
         Field(
             description="If True, removes any existing version override. "
@@ -799,7 +799,7 @@ def set_cloud_destination_connector_version_override(
 ) -> str:
     """Set or clear a version override for a deployed destination connector.
 
-    You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+    You must specify EXACTLY ONE of version OR unset=True, but not both.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -809,10 +809,10 @@ def set_cloud_destination_connector_version_override(
     destination = workspace.get_destination(destination_id=destination_id)
     result = destination.set_connector_version_override(
         version=version,
-        clear_override=clear_override,
+        unset=unset,
     )
 
-    if clear_override:
+    if unset:
         if result:
             return f"Successfully cleared version override for destination '{destination_id}'"
         return f"No version override was set for destination '{destination_id}'"

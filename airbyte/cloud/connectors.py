@@ -249,15 +249,15 @@ class CloudSource(CloudConnector):
         self,
         version: str | None = None,
         *,
-        clear_override: bool = False,
+        unset: bool = False,
     ) -> dict[str, Any] | bool:
         """Set or clear a version override for this source.
 
-        You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+        You must specify EXACTLY ONE of version OR unset=True, but not both.
 
         Args:
             version: The semver version string to pin to (e.g., "0.1.0")
-            clear_override: If True, removes any existing version override
+            unset: If True, removes any existing version override
 
         Returns:
             If setting a version: The created scoped configuration response
@@ -266,15 +266,15 @@ class CloudSource(CloudConnector):
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided
         """
-        if (version is None) == (not clear_override):
+        if (version is None) == (not unset):
             raise exc.PyAirbyteInputError(
                 message=(
                     "Must specify EXACTLY ONE of version (to set) OR "
-                    "clear_override=True (to clear), but not both"
+                    "unset=True (to clear), but not both"
                 ),
                 context={
                     "version_provided": version is not None,
-                    "clear_override": clear_override,
+                    "unset": unset,
                 },
             )
 
@@ -293,7 +293,7 @@ class CloudSource(CloudConnector):
                 context={"source_id": self.connector_id, "version_data": version_data},
             )
 
-        if clear_override:
+        if unset:
             return api_util.clear_connector_version_override(
                 connector_id=self.connector_id,
                 actor_definition_id=actor_definition_id,
@@ -384,15 +384,15 @@ class CloudDestination(CloudConnector):
         self,
         version: str | None = None,
         *,
-        clear_override: bool = False,
+        unset: bool = False,
     ) -> dict[str, Any] | bool:
         """Set or clear a version override for this destination.
 
-        You must specify EXACTLY ONE of version OR clear_override=True, but not both.
+        You must specify EXACTLY ONE of version OR unset=True, but not both.
 
         Args:
             version: The semver version string to pin to (e.g., "0.1.0")
-            clear_override: If True, removes any existing version override
+            unset: If True, removes any existing version override
 
         Returns:
             If setting a version: The created scoped configuration response
@@ -401,15 +401,15 @@ class CloudDestination(CloudConnector):
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided
         """
-        if (version is None) == (not clear_override):
+        if (version is None) == (not unset):
             raise exc.PyAirbyteInputError(
                 message=(
                     "Must specify EXACTLY ONE of version (to set) OR "
-                    "clear_override=True (to clear), but not both"
+                    "unset=True (to clear), but not both"
                 ),
                 context={
                     "version_provided": version is not None,
-                    "clear_override": clear_override,
+                    "unset": unset,
                 },
             )
 
@@ -428,7 +428,7 @@ class CloudDestination(CloudConnector):
                 context={"destination_id": self.connector_id, "version_data": version_data},
             )
 
-        if clear_override:
+        if unset:
             return api_util.clear_connector_version_override(
                 connector_id=self.connector_id,
                 actor_definition_id=actor_definition_id,
