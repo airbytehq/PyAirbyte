@@ -1488,6 +1488,10 @@ def set_connector_version_override(  # noqa: PLR0913
     if override_reason_reference_url:
         request_body["referenceUrl"] = override_reason_reference_url
 
+    # Note: The ScopedConfiguration API also supports an optional "expiresAt" field
+    # (ISO 8601 datetime string) to automatically expire the override after a certain date.
+    # This could be added in the future if there are business cases for time-limited overrides.
+
     return _make_config_api_request(
         path="/scoped_configuration/create",
         json=request_body,
