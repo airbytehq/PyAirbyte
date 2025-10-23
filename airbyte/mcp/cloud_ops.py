@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+import os
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -8,6 +9,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from airbyte import cloud, get_destination, get_source
+from airbyte import exceptions as exc
 from airbyte.cloud.auth import (
     resolve_cloud_api_url,
     resolve_cloud_client_id,
@@ -19,6 +21,37 @@ from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudS
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+
+
+def _check_admin_access() -> str:
+    """Check if admin access is enabled and return the admin user email.
+
+    Returns:
+        The admin user email from AIRBYTE_INTERNAL_ADMIN_USER
+
+    Raises:
+        PyAirbyteInputError: If admin access is not properly configured
+    """
+    admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
+    admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+
+    if admin_flag != "airbyte.io":
+        raise exc.PyAirbyteInputError(
+            message="Admin access not enabled. Set AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io",
+            context={
+                "AIRBYTE_INTERNAL_ADMIN_FLAG": admin_flag,
+            },
+        )
+
+    if not admin_user:
+        raise exc.PyAirbyteInputError(
+            message="Admin user not configured. Set AIRBYTE_INTERNAL_ADMIN_USER to your email",
+            context={
+                "AIRBYTE_INTERNAL_ADMIN_USER": admin_user,
+            },
+        )
+
+    return admin_user
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -762,27 +795,22 @@ def set_cloud_source_connector_version_override(
             default=None,
         ),
     ] = None,
-    user_email: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Required when setting a version. "
-                "Email of the user creating the override."
-            ),
-            default=None,
-        ),
-    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed source connector.
 
     You must specify EXACTLY ONE of version OR unset=True, but not both.
-    When setting a version, override_reason and user_email are required.
-    override_reason must be at least 10 characters.
+    When setting a version, override_reason is required and must be at least 10 characters.
+
+    This is an admin-only operation. Requires environment variables:
+    - AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io
+    - AIRBYTE_INTERNAL_ADMIN_USER=<your_email>
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    admin_user_email = _check_admin_access()
+
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
     result = source.set_connector_version_override(
@@ -790,7 +818,7 @@ def set_cloud_source_connector_version_override(
         unset=unset,
         override_reason=override_reason,
         override_reason_reference_url=override_reason_reference_url,
-        user_email=user_email,
+        user_email=admin_user_email,
     )
 
     if unset:
@@ -839,27 +867,22 @@ def set_cloud_destination_connector_version_override(
             default=None,
         ),
     ] = None,
-    user_email: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Required when setting a version. "
-                "Email of the user creating the override."
-            ),
-            default=None,
-        ),
-    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed destination connector.
 
     You must specify EXACTLY ONE of version OR unset=True, but not both.
-    When setting a version, override_reason and user_email are required.
-    override_reason must be at least 10 characters.
+    When setting a version, override_reason is required and must be at least 10 characters.
+
+    This is an admin-only operation. Requires environment variables:
+    - AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io
+    - AIRBYTE_INTERNAL_ADMIN_USER=<your_email>
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    admin_user_email = _check_admin_access()
+
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
     result = destination.set_connector_version_override(
@@ -867,7 +890,7 @@ def set_cloud_destination_connector_version_override(
         unset=unset,
         override_reason=override_reason,
         override_reason_reference_url=override_reason_reference_url,
-        user_email=user_email,
+        user_email=admin_user_email,
     )
 
     if unset:
@@ -901,5 +924,10 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(permanently_delete_custom_source_definition)
     app.tool(get_cloud_source_connector_version)
     app.tool(get_cloud_destination_connector_version)
-    app.tool(set_cloud_source_connector_version_override)
-    app.tool(set_cloud_destination_connector_version_override)
+
+    # Only register version override tools if admin access is configured
+    admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
+    admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+    if admin_flag == "airbyte.io" and admin_user:
+        app.tool(set_cloud_source_connector_version_override)
+        app.tool(set_cloud_destination_connector_version_override)
