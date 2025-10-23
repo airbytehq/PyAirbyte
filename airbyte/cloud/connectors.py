@@ -199,20 +199,11 @@ class CloudSource(CloudConnector):
             client_secret=self.workspace.client_secret,
         )
 
-    def update_config(
-        self,
-        *,
-        name: str | None = None,
-        config: dict[str, Any] | None = None,
-    ) -> CloudSource:
-        """Update the source configuration.
-
-        This is a destructive operation that can break existing connections if the
-        configuration is changed incorrectly. Use with caution.
+    def rename(self, name: str) -> CloudSource:
+        """Rename the source.
 
         Args:
-            name: Optional new name for the source
-            config: Optional new configuration for the source
+            name: New name for the source
 
         Returns:
             Updated CloudSource object with refreshed info
@@ -223,9 +214,30 @@ class CloudSource(CloudConnector):
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             name=name,
+        )
+        self._connector_info = updated_response
+        return self
+
+    def update_config(self, config: dict[str, Any]) -> CloudSource:
+        """Update the source configuration.
+
+        This is a destructive operation that can break existing connections if the
+        configuration is changed incorrectly. Use with caution.
+
+        Args:
+            config: New configuration for the source
+
+        Returns:
+            Updated CloudSource object with refreshed info
+        """
+        updated_response = api_util.patch_source(
+            source_id=self.connector_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             config=config,
         )
-        self._connector_info = updated_response  # Accessing Non-Public API
+        self._connector_info = updated_response
         return self
 
     @classmethod
@@ -269,20 +281,11 @@ class CloudDestination(CloudConnector):
             client_secret=self.workspace.client_secret,
         )
 
-    def update_config(
-        self,
-        *,
-        name: str | None = None,
-        config: dict[str, Any] | None = None,
-    ) -> CloudDestination:
-        """Update the destination configuration.
-
-        This is a destructive operation that can break existing connections if the
-        configuration is changed incorrectly. Use with caution.
+    def rename(self, name: str) -> CloudDestination:
+        """Rename the destination.
 
         Args:
-            name: Optional new name for the destination
-            config: Optional new configuration for the destination
+            name: New name for the destination
 
         Returns:
             Updated CloudDestination object with refreshed info
@@ -293,9 +296,30 @@ class CloudDestination(CloudConnector):
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             name=name,
+        )
+        self._connector_info = updated_response
+        return self
+
+    def update_config(self, config: dict[str, Any]) -> CloudDestination:
+        """Update the destination configuration.
+
+        This is a destructive operation that can break existing connections if the
+        configuration is changed incorrectly. Use with caution.
+
+        Args:
+            config: New configuration for the destination
+
+        Returns:
+            Updated CloudDestination object with refreshed info
+        """
+        updated_response = api_util.patch_destination(
+            destination_id=self.connector_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             config=config,
         )
-        self._connector_info = updated_response  # Accessing Non-Public API
+        self._connector_info = updated_response
         return self
 
     @classmethod

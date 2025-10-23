@@ -257,28 +257,11 @@ class CloudConnection:
             job_id=job_id,
         )
 
-    # Deletions
-
-    def update_config(
-        self,
-        *,
-        name: str | None = None,
-        configurations: api_models.StreamConfigurationsInput | None = None,
-        schedule: api_models.AirbyteAPIConnectionSchedule | None = None,
-        prefix: str | None = None,
-        status: api_models.ConnectionStatusEnum | None = None,
-    ) -> CloudConnection:
-        """Update the connection configuration.
-
-        This is a destructive operation that can break existing connections if the
-        configuration is changed incorrectly. Use with caution.
+    def rename(self, name: str) -> CloudConnection:
+        """Rename the connection.
 
         Args:
-            name: Optional new name for the connection
-            configurations: Optional new stream configurations
-            schedule: Optional new sync schedule
-            prefix: Optional new table prefix
-            status: Optional new connection status
+            name: New name for the connection
 
         Returns:
             Updated CloudConnection object with refreshed info
@@ -289,13 +272,62 @@ class CloudConnection:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             name=name,
-            configurations=configurations,
-            schedule=schedule,
-            prefix=prefix,
-            status=status,
         )
-        self._connection_info = updated_response  # Accessing Non-Public API
+        self._connection_info = updated_response
         return self
+
+    def update_schedule(
+        self,
+        schedule: api_models.AirbyteAPIConnectionSchedule,
+    ) -> CloudConnection:
+        """Update the connection's sync schedule.
+
+        Args:
+            schedule: New sync schedule
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            schedule=schedule,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def update_config(
+        self,
+        *,
+        configurations: api_models.StreamConfigurationsInput | None = None,
+        prefix: str | None = None,
+    ) -> CloudConnection:
+        """Update the connection configuration.
+
+        This is a destructive operation that can break existing connections if the
+        configuration is changed incorrectly. Use with caution.
+
+        Args:
+            configurations: Optional new stream configurations
+            prefix: Optional new table prefix
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            configurations=configurations,
+            prefix=prefix,
+        )
+        self._connection_info = updated_response
+        return self
+
+    # Deletions
 
     def permanently_delete(
         self,

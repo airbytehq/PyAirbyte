@@ -4,7 +4,6 @@
 from pathlib import Path
 from typing import Annotated, Any
 
-from airbyte_api import models as api_models
 from fastmcp import FastMCP
 from pydantic import Field
 
@@ -687,26 +686,39 @@ def permanently_delete_custom_source_definition(
     )
 
 
+def rename_cloud_source(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source to rename."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the source."),
+    ],
+) -> str:
+    """Rename a deployed source connector on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+    source.rename(name=name)
+    return f"Successfully renamed source '{source_id}' to '{name}'. URL: {source.connector_url}"
+
+
 def update_cloud_source_config(
     source_id: Annotated[
         str,
         Field(description="The ID of the deployed source to update."),
     ],
-    *,
-    name: Annotated[
-        str | None,
-        Field(
-            description="Optional new name for the source.",
-            default=None,
-        ),
-    ] = None,
     config: Annotated[
-        dict | str | None,
+        dict | str,
         Field(
-            description="Optional new configuration for the source connector.",
-            default=None,
+            description="New configuration for the source connector.",
         ),
-    ] = None,
+    ],
     config_secret_name: Annotated[
         str | None,
         Field(
@@ -724,24 +736,42 @@ def update_cloud_source_config(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        source = workspace.get_source(source_id=source_id)
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
 
-        config_dict = None
-        if config is not None or config_secret_name is not None:
-            config_dict = resolve_config(
-                config=config,
-                config_secret_name=config_secret_name,
-                config_spec_jsonschema=None,  # We don't have the spec here
-            )
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=None,  # We don't have the spec here
+    )
 
-        source.update_config(name=name, config=config_dict)
+    source.update_config(config=config_dict)
+    return f"Successfully updated source '{source_id}'. URL: {source.connector_url}"
 
-    except Exception as ex:
-        return f"Failed to update source '{source_id}': {ex}"
-    else:
-        return f"Successfully updated source '{source_id}'. " f"URL: {source.connector_url}"
+
+def rename_cloud_destination(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination to rename."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the destination."),
+    ],
+) -> str:
+    """Rename a deployed destination connector on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+    destination.rename(name=name)
+    return (
+        f"Successfully renamed destination '{destination_id}' to '{name}'. "
+        f"URL: {destination.connector_url}"
+    )
 
 
 def update_cloud_destination_config(
@@ -749,21 +779,12 @@ def update_cloud_destination_config(
         str,
         Field(description="The ID of the deployed destination to update."),
     ],
-    *,
-    name: Annotated[
-        str | None,
-        Field(
-            description="Optional new name for the destination.",
-            default=None,
-        ),
-    ] = None,
     config: Annotated[
-        dict | str | None,
+        dict | str,
         Field(
-            description="Optional new configuration for the destination connector.",
-            default=None,
+            description="New configuration for the destination connector.",
         ),
-    ] = None,
+    ],
     config_secret_name: Annotated[
         str | None,
         Field(
@@ -781,27 +802,44 @@ def update_cloud_destination_config(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        destination = workspace.get_destination(destination_id=destination_id)
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
 
-        config_dict = None
-        if config is not None or config_secret_name is not None:
-            config_dict = resolve_config(
-                config=config,
-                config_secret_name=config_secret_name,
-                config_spec_jsonschema=None,  # We don't have the spec here
-            )
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=None,  # We don't have the spec here
+    )
 
-        destination.update_config(name=name, config=config_dict)
+    destination.update_config(config=config_dict)
+    return (
+        f"Successfully updated destination '{destination_id}'. " f"URL: {destination.connector_url}"
+    )
 
-    except Exception as ex:
-        return f"Failed to update destination '{destination_id}': {ex}"
-    else:
-        return (
-            f"Successfully updated destination '{destination_id}'. "
-            f"URL: {destination.connector_url}"
-        )
+
+def rename_cloud_connection(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to rename."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the connection."),
+    ],
+) -> str:
+    """Rename a connection on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    connection = workspace.get_connection(connection_id=connection_id)
+    connection.rename(name=name)
+    return (
+        f"Successfully renamed connection '{connection_id}' to '{name}'. "
+        f"URL: {connection.connection_url}"
+    )
 
 
 def update_cloud_connection_config(
@@ -810,10 +848,10 @@ def update_cloud_connection_config(
         Field(description="The ID of the connection to update."),
     ],
     *,
-    name: Annotated[
-        str | None,
+    configurations: Annotated[
+        dict | None,
         Field(
-            description="Optional new name for the connection.",
+            description="Optional new stream configurations.",
             default=None,
         ),
     ] = None,
@@ -824,50 +862,22 @@ def update_cloud_connection_config(
             default=None,
         ),
     ] = None,
-    status: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Optional new connection status " "(e.g., 'active', 'inactive', 'deprecated')."
-            ),
-            default=None,
-        ),
-    ] = None,
 ) -> str:
     """Update a connection's configuration on Airbyte Cloud.
 
     This is a destructive operation that can break existing connections if the
     configuration is changed incorrectly. Use with caution.
 
-    Note: This tool currently supports updating name, prefix, and status.
-    Stream configurations and schedules require more complex data structures
-    and should be updated through the Airbyte UI.
-
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    try:
-        workspace: CloudWorkspace = _get_cloud_workspace()
-        connection = workspace.get_connection(connection_id=connection_id)
-
-        status_enum = None
-        if status is not None:
-            status_enum = api_models.ConnectionStatusEnum(status)
-
-        connection.update_config(
-            name=name,
-            prefix=prefix,
-            status=status_enum,
-        )
-
-    except Exception as ex:
-        return f"Failed to update connection '{connection_id}': {ex}"
-    else:
-        return (
-            f"Successfully updated connection '{connection_id}'. "
-            f"URL: {connection.connection_url}"
-        )
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    connection = workspace.get_connection(connection_id=connection_id)
+    connection.update_config(configurations=configurations, prefix=prefix)
+    return (
+        f"Successfully updated connection '{connection_id}'. " f"URL: {connection.connection_url}"
+    )
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
@@ -989,6 +999,13 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     )
 
     app.tool(
+        rename_cloud_source,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
         update_cloud_source_config,
         annotations={
             DESTRUCTIVE_HINT: True,
@@ -996,9 +1013,23 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     )
 
     app.tool(
+        rename_cloud_destination,
+        annotations={
+            DESTRUCTIVE_HINT: False,
+        },
+    )
+
+    app.tool(
         update_cloud_destination_config,
         annotations={
             DESTRUCTIVE_HINT: True,
+        },
+    )
+
+    app.tool(
+        rename_cloud_connection,
+        annotations={
+            DESTRUCTIVE_HINT: False,
         },
     )
 
