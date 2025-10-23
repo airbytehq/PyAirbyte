@@ -767,21 +767,132 @@ def register_local_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(list_connector_config_secrets)
-    for tool in (
+    app.tool(
+        list_connector_config_secrets,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    # describe_default_cache - read-only, describes cache configuration
+    app.tool(
         describe_default_cache,
+        description=(describe_default_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+
+    # get_source_stream_json_schema - read-only, retrieves schema information
+    app.tool(
         get_source_stream_json_schema,
+        description=(get_source_stream_json_schema.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    # get_stream_previews - read-only, retrieves sample records
+    app.tool(
         get_stream_previews,
+        description=(get_stream_previews.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": False,  # May return different samples each time
+            "openWorldHint": True,
+        },
+    )
+
+    # list_cached_streams - read-only, lists streams in cache
+    app.tool(
         list_cached_streams,
+        description=(list_cached_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+
+    # list_dotenv_secrets - read-only, lists environment variables
+    app.tool(
         list_dotenv_secrets,
+        description=(list_dotenv_secrets.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+
+    # list_source_streams - read-only, lists available streams
+    app.tool(
         list_source_streams,
+        description=(list_source_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    # read_source_stream_records - read-only, retrieves records from source
+    app.tool(
         read_source_stream_records,
+        description=(read_source_stream_records.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": False,  # May return different records each time
+            "openWorldHint": True,
+        },
+    )
+
+    # run_sql_query - read-only, executes SELECT queries only
+    app.tool(
         run_sql_query,
+        description=(run_sql_query.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+
+    # sync_source_to_cache - writes data, non-destructive (append/merge)
+    app.tool(
         sync_source_to_cache,
+        description=(sync_source_to_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,  # Syncs are additive/merge operations
+            "idempotentHint": False,  # Each sync may pull new data
+            "openWorldHint": True,
+        },
+    )
+
+    # validate_connector_config - read-only, validates configuration
+    app.tool(
         validate_connector_config,
-    ):
-        # Register each tool with the FastMCP app.
-        app.tool(
-            tool,
-            description=(tool.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        )
+        description=(validate_connector_config.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )

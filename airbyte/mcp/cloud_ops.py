@@ -686,18 +686,153 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(check_airbyte_cloud_workspace)
-    app.tool(deploy_source_to_cloud)
-    app.tool(deploy_destination_to_cloud)
-    app.tool(deploy_noop_destination_to_cloud)
-    app.tool(create_connection_on_cloud)
-    app.tool(run_cloud_sync)
-    app.tool(get_cloud_sync_status)
-    app.tool(get_cloud_sync_logs)
-    app.tool(list_deployed_cloud_source_connectors)
-    app.tool(list_deployed_cloud_destination_connectors)
-    app.tool(list_deployed_cloud_connections)
-    app.tool(publish_custom_source_definition)
-    app.tool(list_custom_source_definitions)
-    app.tool(update_custom_source_definition)
-    app.tool(permanently_delete_custom_source_definition)
+    app.tool(
+        check_airbyte_cloud_workspace,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        deploy_source_to_cloud,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        deploy_destination_to_cloud,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        deploy_noop_destination_to_cloud,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        create_connection_on_cloud,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        run_cloud_sync,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        get_cloud_sync_status,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        get_cloud_sync_logs,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        list_deployed_cloud_source_connectors,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        list_deployed_cloud_destination_connectors,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        list_deployed_cloud_connections,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        publish_custom_source_definition,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    # list_custom_source_definitions - read-only, lists custom definitions
+    app.tool(
+        list_custom_source_definitions,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        update_custom_source_definition,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": False,
+            "openWorldHint": True,
+        },
+    )
+
+    app.tool(
+        permanently_delete_custom_source_definition,
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": True,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )

@@ -156,5 +156,23 @@ def register_connector_registry_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(list_connectors)
-    app.tool(get_connector_info)
+    # list_connectors - read-only, lists available connectors
+    app.tool(
+        list_connectors,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
+    )
+
+    app.tool(
+        get_connector_info,
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": True,
+        },
+    )
