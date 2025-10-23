@@ -282,20 +282,8 @@ class CloudSource(CloudConnector):
                 },
             )
 
-        # Get raw version data from API to extract actor_definition_id
-        version_data = api_util.get_connector_version(
-            connector_id=self.connector_id,
-            connector_type=self.connector_type,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-        )
-        actor_definition_id = version_data.get("actorDefinitionId")
-        if not actor_definition_id:
-            raise exc.AirbyteError(
-                message="Could not determine actor_definition_id for source",
-                context={"source_id": self.connector_id, "version_data": version_data},
-            )
+        connector_info = self._fetch_connector_info()
+        actor_definition_id = connector_info.definition_id
 
         if unset:
             return api_util.clear_connector_version_override(
@@ -417,20 +405,8 @@ class CloudDestination(CloudConnector):
                 },
             )
 
-        # Get raw version data from API to extract actor_definition_id
-        version_data = api_util.get_connector_version(
-            connector_id=self.connector_id,
-            connector_type=self.connector_type,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-        )
-        actor_definition_id = version_data.get("actorDefinitionId")
-        if not actor_definition_id:
-            raise exc.AirbyteError(
-                message="Could not determine actor_definition_id for destination",
-                context={"destination_id": self.connector_id, "version_data": version_data},
-            )
+        connector_info = self._fetch_connector_info()
+        actor_definition_id = connector_info.definition_id
 
         if unset:
             return api_util.clear_connector_version_override(

@@ -1329,7 +1329,7 @@ def resolve_connector_version(
         client_id=client_id,
         client_secret=client_secret,
     )
-    version_id = json_result.get("actorDefinitionVersionId")
+    version_id = json_result.get("versionId")
     if not version_id:
         raise AirbyteError(
             message=f"Could not resolve version '{version}' for connector",
