@@ -1437,15 +1437,17 @@ def clear_connector_version_override(
     return True
 
 
-def set_connector_version_override(
+def set_connector_version_override(  # noqa: PLR0913
     *,
     connector_id: str,
     connector_type: Literal["source", "destination"],
     actor_definition_id: str,
     actor_definition_version_id: str,
+    override_reason: str,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
+    override_reason_reference_url: str | None = None,
 ) -> dict[str, Any]:
     """Set a version override for a source or destination connector.
 
@@ -1462,26 +1464,33 @@ def set_connector_version_override(
         connector_type: Either "source" or "destination"
         actor_definition_id: The connector definition ID
         actor_definition_version_id: The version ID to pin to
+        override_reason: Explanation for why the version override is being set
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        override_reason_reference_url: Optional URL with more context (e.g., issue link)
 
     Returns:
         The created scoped configuration response
     """
     _ = connector_type  # not used currently
+    request_body: dict[str, Any] = {
+        "config_key": "connector_version",
+        "value": actor_definition_version_id,
+        "resource_type": "actor_definition",
+        "resource_id": actor_definition_id,
+        "scope_type": "actor",
+        "scope_id": connector_id,
+        "origin": "user",
+        "origin_type": "user",
+        "description": override_reason,
+    }
+    if override_reason_reference_url:
+        request_body["referenceUrl"] = override_reason_reference_url
+
     return _make_config_api_request(
         path="/scoped_configuration/create",
-        json={
-            "config_key": "connector_version",
-            "value": actor_definition_version_id,
-            "resource_type": "actor_definition",
-            "resource_id": actor_definition_id,
-            "scope_type": "actor",
-            "scope_id": connector_id,
-            "origin": "user",
-            "origin_type": "user",
-        },
+        json=request_body,
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,

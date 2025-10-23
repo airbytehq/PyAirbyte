@@ -52,6 +52,8 @@ from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 
 
+MIN_OVERRIDE_REASON_LENGTH = 10
+
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -254,21 +256,27 @@ class CloudSource(CloudConnector):
         version: str | None = None,
         *,
         unset: bool = False,
+        override_reason: str | None = None,
+        override_reason_reference_url: str | None = None,
     ) -> dict[str, Any] | bool:
         """Set or clear a version override for this source.
 
         You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+        When setting a version, `override_reason` is required.
 
         Args:
             version: The semver version string to pin to (e.g., `"0.1.0"`)
             unset: If `True`, removes any existing version override
+            override_reason: Required when setting a version. Explanation for the override.
+            override_reason_reference_url: Optional URL with more context (e.g., issue link)
 
         Returns:
             If setting a version: The created scoped configuration response
             If clearing: `True` if an override was removed, `False` if none existed
 
         Raises:
-            exc.PyAirbyteInputError: If both or neither parameters are provided
+            exc.PyAirbyteInputError: If both or neither parameters are provided, or if
+                override_reason is missing when setting a version
         """
         if (version is None) == (not unset):
             raise exc.PyAirbyteInputError(
@@ -279,6 +287,27 @@ class CloudSource(CloudConnector):
                 context={
                     "version_provided": version is not None,
                     "unset": unset,
+                },
+            )
+
+        if version is not None and not override_reason:
+            raise exc.PyAirbyteInputError(
+                message="override_reason is required when setting a version override",
+                context={
+                    "version": version,
+                    "override_reason": override_reason,
+                },
+            )
+
+        if override_reason is not None and len(override_reason) < MIN_OVERRIDE_REASON_LENGTH:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"override_reason must be at least {MIN_OVERRIDE_REASON_LENGTH} "
+                    "characters long"
+                ),
+                context={
+                    "override_reason": override_reason,
+                    "length": len(override_reason),
                 },
             )
 
@@ -308,9 +337,11 @@ class CloudSource(CloudConnector):
             connector_type=self.connector_type,
             actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
+            override_reason=override_reason,  # type: ignore[arg-type]
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            override_reason_reference_url=override_reason_reference_url,
         )
 
 
@@ -377,21 +408,27 @@ class CloudDestination(CloudConnector):
         version: str | None = None,
         *,
         unset: bool = False,
+        override_reason: str | None = None,
+        override_reason_reference_url: str | None = None,
     ) -> dict[str, Any] | bool:
         """Set or clear a version override for this destination.
 
         You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+        When setting a version, `override_reason` is required.
 
         Args:
             version: The semver version string to pin to (e.g., `"0.1.0"`)
             unset: If `True`, removes any existing version override
+            override_reason: Required when setting a version. Explanation for the override.
+            override_reason_reference_url: Optional URL with more context (e.g., issue link)
 
         Returns:
             If setting a version: The created scoped configuration response
             If clearing: `True` if an override was removed, `False` if none existed
 
         Raises:
-            exc.PyAirbyteInputError: If both or neither parameters are provided
+            exc.PyAirbyteInputError: If both or neither parameters are provided, or if
+                override_reason is missing when setting a version
         """
         if (version is None) == (not unset):
             raise exc.PyAirbyteInputError(
@@ -402,6 +439,27 @@ class CloudDestination(CloudConnector):
                 context={
                     "version_provided": version is not None,
                     "unset": unset,
+                },
+            )
+
+        if version is not None and not override_reason:
+            raise exc.PyAirbyteInputError(
+                message="override_reason is required when setting a version override",
+                context={
+                    "version": version,
+                    "override_reason": override_reason,
+                },
+            )
+
+        if override_reason is not None and len(override_reason) < MIN_OVERRIDE_REASON_LENGTH:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"override_reason must be at least {MIN_OVERRIDE_REASON_LENGTH} "
+                    "characters long"
+                ),
+                context={
+                    "override_reason": override_reason,
+                    "length": len(override_reason),
                 },
             )
 
@@ -431,9 +489,11 @@ class CloudDestination(CloudConnector):
             connector_type=self.connector_type,
             actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
+            override_reason=override_reason,  # type: ignore[arg-type]
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            override_reason_reference_url=override_reason_reference_url,
         )
 
 

@@ -745,10 +745,28 @@ def set_cloud_source_connector_version_override(
             default=False,
         ),
     ] = False,
+    override_reason: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Required when setting a version. "
+                "Explanation for the override (min 10 characters)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    override_reason_reference_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL with more context (e.g., issue link).",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed source connector.
 
     You must specify EXACTLY ONE of version OR unset=True, but not both.
+    When setting a version, override_reason is required and must be at least 10 characters.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -759,6 +777,8 @@ def set_cloud_source_connector_version_override(
     result = source.set_connector_version_override(
         version=version,
         unset=unset,
+        override_reason=override_reason,
+        override_reason_reference_url=override_reason_reference_url,
     )
 
     if unset:
@@ -790,10 +810,28 @@ def set_cloud_destination_connector_version_override(
             default=False,
         ),
     ] = False,
+    override_reason: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Required when setting a version. "
+                "Explanation for the override (min 10 characters)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    override_reason_reference_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL with more context (e.g., issue link).",
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed destination connector.
 
     You must specify EXACTLY ONE of version OR unset=True, but not both.
+    When setting a version, override_reason is required and must be at least 10 characters.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -804,6 +842,8 @@ def set_cloud_destination_connector_version_override(
     result = destination.set_connector_version_override(
         version=version,
         unset=unset,
+        override_reason=override_reason,
+        override_reason_reference_url=override_reason_reference_url,
     )
 
     if unset:
