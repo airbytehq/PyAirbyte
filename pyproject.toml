@@ -17,7 +17,7 @@ enable = true
 python = ">=3.10,<3.13"
 
 airbyte-api = "^0.53.0"
-airbyte-cdk = ">=6.61.6,<7.0.0"
+airbyte-cdk = ">=7.3.9,<8.0.0"
 airbyte-protocol-models-pdv2 = "^0.13.0"
 click = "^8.1.7"
 cryptography = ">=44.0.0,<45.0.0"
