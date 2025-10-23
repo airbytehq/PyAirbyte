@@ -1437,6 +1437,46 @@ def clear_connector_version_override(
     return True
 
 
+def get_user_id_by_email(
+    *,
+    email: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str:
+    """Get a user's UUID by their email address.
+
+    Uses the Config API endpoint:
+    /v1/users/list_instance_admin
+
+    Args:
+        email: The user's email address
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The user's UUID as a string
+
+    Raises:
+        ValueError: If no user with the given email is found
+    """
+    response = _make_config_api_request(
+        path="/users/list_instance_admin",
+        json={},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    users = response.get("users", [])
+    for user in users:
+        if user.get("email") == email:
+            return user["userId"]
+
+    raise ValueError(f"No user found with email: {email}")
+
+
 def set_connector_version_override(  # noqa: PLR0913
     *,
     connector_id: str,
@@ -1444,6 +1484,7 @@ def set_connector_version_override(  # noqa: PLR0913
     actor_definition_id: str,
     actor_definition_version_id: str,
     override_reason: str,
+    user_email: str,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
@@ -1465,6 +1506,7 @@ def set_connector_version_override(  # noqa: PLR0913
         actor_definition_id: The connector definition ID
         actor_definition_version_id: The version ID to pin to
         override_reason: Explanation for why the version override is being set
+        user_email: Email address of the user creating the override
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
@@ -1474,6 +1516,14 @@ def set_connector_version_override(  # noqa: PLR0913
         The created scoped configuration response
     """
     _ = connector_type  # not used currently
+
+    user_id = get_user_id_by_email(
+        email=user_email,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
     request_body: dict[str, Any] = {
         "config_key": "connector_version",
         "value": actor_definition_version_id,
@@ -1481,12 +1531,12 @@ def set_connector_version_override(  # noqa: PLR0913
         "resource_id": actor_definition_id,
         "scope_type": "actor",
         "scope_id": connector_id,
-        "origin": "user",
+        "origin": user_id,
         "origin_type": "user",
         "description": override_reason,
     }
     if override_reason_reference_url:
-        request_body["referenceUrl"] = override_reason_reference_url
+        request_body["reference_url"] = override_reason_reference_url
 
     # Note: The ScopedConfiguration API also supports an optional "expiresAt" field
     # (ISO 8601 datetime string) to automatically expire the override after a certain date.

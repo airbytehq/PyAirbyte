@@ -762,11 +762,22 @@ def set_cloud_source_connector_version_override(
             default=None,
         ),
     ] = None,
+    user_email: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Required when setting a version. "
+                "Email of the user creating the override."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed source connector.
 
     You must specify EXACTLY ONE of version OR unset=True, but not both.
-    When setting a version, override_reason is required and must be at least 10 characters.
+    When setting a version, override_reason and user_email are required.
+    override_reason must be at least 10 characters.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -779,6 +790,7 @@ def set_cloud_source_connector_version_override(
         unset=unset,
         override_reason=override_reason,
         override_reason_reference_url=override_reason_reference_url,
+        user_email=user_email,
     )
 
     if unset:
@@ -827,11 +839,22 @@ def set_cloud_destination_connector_version_override(
             default=None,
         ),
     ] = None,
+    user_email: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Required when setting a version. "
+                "Email of the user creating the override."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed destination connector.
 
     You must specify EXACTLY ONE of version OR unset=True, but not both.
-    When setting a version, override_reason is required and must be at least 10 characters.
+    When setting a version, override_reason and user_email are required.
+    override_reason must be at least 10 characters.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -844,6 +867,7 @@ def set_cloud_destination_connector_version_override(
         unset=unset,
         override_reason=override_reason,
         override_reason_reference_url=override_reason_reference_url,
+        user_email=user_email,
     )
 
     if unset:
