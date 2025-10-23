@@ -13,6 +13,12 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
+from airbyte.mcp._annotations import (
+    DESTRUCTIVE_HINT,
+    IDEMPOTENT_HINT,
+    OPEN_WORLD_HINT,
+    READ_ONLY_HINT,
+)
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -770,129 +776,119 @@ def register_local_ops_tools(app: FastMCP) -> None:
     app.tool(
         list_connector_config_secrets,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Accesses Google Secret Manager
         },
     )
 
-    # describe_default_cache - read-only, describes cache configuration
     app.tool(
         describe_default_cache,
         description=(describe_default_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": False,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local cache only
         },
     )
 
-    # get_source_stream_json_schema - read-only, retrieves schema information
     app.tool(
         get_source_stream_json_schema,
         description=(get_source_stream_json_schema.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
-    # get_stream_previews - read-only, retrieves sample records
     app.tool(
         get_stream_previews,
         description=(get_stream_previews.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": False,  # May return different samples each time
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,  # May return different samples each time
+            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
-    # list_cached_streams - read-only, lists streams in cache
     app.tool(
         list_cached_streams,
         description=(list_cached_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": False,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local cache only
         },
     )
 
-    # list_dotenv_secrets - read-only, lists environment variables
     app.tool(
         list_dotenv_secrets,
         description=(list_dotenv_secrets.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": False,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local .env files only
         },
     )
 
-    # list_source_streams - read-only, lists available streams
     app.tool(
         list_source_streams,
         description=(list_source_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
-    # read_source_stream_records - read-only, retrieves records from source
     app.tool(
         read_source_stream_records,
         description=(read_source_stream_records.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": False,  # May return different records each time
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,  # May return different records each time
+            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
-    # run_sql_query - read-only, executes SELECT queries only
     app.tool(
         run_sql_query,
         description=(run_sql_query.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": False,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: False,  # Local cache only
         },
     )
 
-    # sync_source_to_cache - writes data, non-destructive (append/merge)
     app.tool(
         sync_source_to_cache,
         description=(sync_source_to_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,  # Syncs are additive/merge operations
-            "idempotentHint": False,  # Each sync may pull new data
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,  # Syncs are additive/merge operations
+            IDEMPOTENT_HINT: False,  # Each sync may pull new data
+            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )
 
-    # validate_connector_config - read-only, validates configuration
     app.tool(
         validate_connector_config,
         description=(validate_connector_config.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Connects to source connector
         },
     )

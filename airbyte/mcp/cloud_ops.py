@@ -18,6 +18,12 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
+from airbyte.mcp._annotations import (
+    DESTRUCTIVE_HINT,
+    IDEMPOTENT_HINT,
+    OPEN_WORLD_HINT,
+    READ_ONLY_HINT,
+)
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
@@ -689,120 +695,120 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(
         check_airbyte_cloud_workspace,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         deploy_source_to_cloud,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         deploy_destination_to_cloud,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         deploy_noop_destination_to_cloud,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         create_connection_on_cloud,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         run_cloud_sync,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         get_cloud_sync_status,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         get_cloud_sync_logs,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         list_deployed_cloud_source_connectors,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         list_deployed_cloud_destination_connectors,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         list_deployed_cloud_connections,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         publish_custom_source_definition,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
@@ -810,29 +816,29 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     app.tool(
         list_custom_source_definitions,
         annotations={
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: True,
+            DESTRUCTIVE_HINT: False,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         update_custom_source_definition,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": True,
-            "idempotentHint": False,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: True,
+            IDEMPOTENT_HINT: False,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
 
     app.tool(
         permanently_delete_custom_source_definition,
         annotations={
-            "readOnlyHint": False,
-            "destructiveHint": True,
-            "idempotentHint": True,
-            "openWorldHint": True,
+            READ_ONLY_HINT: False,
+            DESTRUCTIVE_HINT: True,
+            IDEMPOTENT_HINT: True,
+            OPEN_WORLD_HINT: True,  # Requires Cloud auth
         },
     )
