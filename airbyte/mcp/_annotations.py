@@ -51,7 +51,7 @@ When False, the tool only operates on local state or resources.
 FastMCP default if not specified: True
 """
 
-AIRBYTE_INTERNAL_HINT = "airbyte_internal"
+AIRBYTE_INTERNAL = "airbyte_internal"
 """Custom Airbyte annotation indicating the tool is for internal admin use only.
 
 This is not a standard MCP annotation. When True, the tool requires both
