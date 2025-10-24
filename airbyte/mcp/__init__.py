@@ -100,7 +100,8 @@ Note:
 - The `AIRBYTE_CLOUD_MCP_READONLY_MODE` and `AIRBYTE_CLOUD_MCP_SAFE_MODE` environment variables
   control safe mode filtering for Airbyte Cloud operations:
   - `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: Only read-only Cloud tools are available. Write and
-    destructive operations are disabled.
+    destructive operations are disabled. Note: This mode does allow running syncs on existing
+    connectors.
   - `AIRBYTE_CLOUD_MCP_SAFE_MODE=1`: Write operations are allowed, but destructive operations
     (update, delete) are disabled.
   - Both default to `0` (disabled), which means no restrictions are applied.
