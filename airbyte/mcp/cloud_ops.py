@@ -818,7 +818,7 @@ def set_cloud_source_connector_version_override(
 ) -> str:
     """Set or clear a version override for a deployed source connector.
 
-    You must specify EXACTLY ONE of version OR unset=True, but not both.
+    You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
     When setting a version, override_reason is required and must be at least 10 characters.
 
     This is an admin-only operation. Requires environment variables:
