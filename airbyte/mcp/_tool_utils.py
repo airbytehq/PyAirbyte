@@ -63,7 +63,7 @@ def check_guid_created_in_session(guid: str) -> None:
 
 
 def should_register_tool(annotations: dict[str, Any]) -> bool:
-    """Check if a tool should be registered based on safe mode settings.
+    """Check if a tool should be registered based on mode settings.
 
     Args:
         annotations: Tool annotations dict containing domain, readOnlyHint, and destructiveHint
@@ -74,17 +74,9 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     if annotations.get("domain") != "cloud":
         return True
 
-    if not AIRBYTE_CLOUD_MCP_READONLY_MODE and not AIRBYTE_CLOUD_MCP_SAFE_MODE:
-        return True
-
     if AIRBYTE_CLOUD_MCP_READONLY_MODE:
         is_readonly = annotations.get(READ_ONLY_HINT, False)
         if not is_readonly:
-            return False
-
-    if AIRBYTE_CLOUD_MCP_SAFE_MODE:
-        is_destructive = annotations.get(DESTRUCTIVE_HINT, True)  # Default is True per FastMCP
-        if is_destructive:
             return False
 
     return True
