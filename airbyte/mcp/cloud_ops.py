@@ -941,6 +941,7 @@ def rename_cloud_connection(
 
 @mcp_tool(
     domain="cloud",
+    destructive=True,
     open_world=True,
 )
 def set_cloud_connection_table_prefix(
@@ -955,10 +956,14 @@ def set_cloud_connection_table_prefix(
 ) -> str:
     """Set the table prefix for a connection on Airbyte Cloud.
 
+    This is a destructive operation that can break downstream dependencies if the
+    table prefix is changed incorrectly. Use with caution.
+
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
     connection = workspace.get_connection(connection_id=connection_id)
     connection.set_table_prefix(prefix=prefix)
