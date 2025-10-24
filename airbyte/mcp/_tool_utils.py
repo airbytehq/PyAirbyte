@@ -87,6 +87,7 @@ def mcp_tool(
     destructive: bool = False,
     idempotent: bool = False,
     open_world: bool = True,
+    extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
 
@@ -99,6 +100,8 @@ def mcp_tool(
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
         open_world: If True, tool interacts with external systems (default: True)
+        extra_help_text: Optional text to append to the function's docstring
+            with a newline delimiter
 
     Returns:
         Decorator function that tags the tool with annotations
@@ -119,6 +122,7 @@ def mcp_tool(
     def decorator(func: F) -> F:
         func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
         func._mcp_domain = domain  # type: ignore[attr-defined]  # noqa: SLF001
+        func._mcp_extra_help_text = extra_help_text  # type: ignore[attr-defined]  # noqa: SLF001
         _REGISTERED_TOOLS.append((func, annotations))
         return func
 
@@ -134,4 +138,9 @@ def register_tools(app: Any, domain: Literal["cloud", "local", "registry"]) -> N
     """
     for func, tool_annotations in get_registered_tools(domain):
         if should_register_tool(tool_annotations):
-            app.tool(func, annotations=tool_annotations)
+            extra_help_text = getattr(func, "_mcp_extra_help_text", None)
+            if extra_help_text:
+                description = (func.__doc__ or "").rstrip() + "\n" + extra_help_text
+                app.tool(func, annotations=tool_annotations, description=description)
+            else:
+                app.tool(func, annotations=tool_annotations)

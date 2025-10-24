@@ -111,6 +111,7 @@ def _get_mcp_source(
     domain="local",
     read_only=True,
     idempotent=True,
+    extra_help_text=_CONFIG_HELP,
 )
 def validate_connector_config(
     connector_name: Annotated[
@@ -221,6 +222,7 @@ def list_connector_config_secrets(
     read_only=True,
     idempotent=True,
     open_world=False,
+    extra_help_text=_CONFIG_HELP,
 )
 def list_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
@@ -240,6 +242,7 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     domain="local",
     read_only=True,
     idempotent=True,
+    extra_help_text=_CONFIG_HELP,
 )
 def list_source_streams(
     source_connector_name: Annotated[
@@ -306,6 +309,7 @@ def list_source_streams(
     domain="local",
     read_only=True,
     idempotent=True,
+    extra_help_text=_CONFIG_HELP,
 )
 def get_source_stream_json_schema(
     source_connector_name: Annotated[
@@ -372,6 +376,7 @@ def get_source_stream_json_schema(
 @mcp_tool(
     domain="local",
     read_only=True,
+    extra_help_text=_CONFIG_HELP,
 )
 def read_source_stream_records(
     source_connector_name: Annotated[
@@ -462,6 +467,7 @@ def read_source_stream_records(
 @mcp_tool(
     domain="local",
     read_only=True,
+    extra_help_text=_CONFIG_HELP,
 )
 def get_stream_previews(
     source_name: Annotated[
@@ -574,6 +580,7 @@ def get_stream_previews(
 @mcp_tool(
     domain="local",
     destructive=False,
+    extra_help_text=_CONFIG_HELP,
 )
 def sync_source_to_cache(
     source_connector_name: Annotated[
@@ -684,6 +691,7 @@ class CachedDatasetInfo(BaseModel):
     read_only=True,
     idempotent=True,
     open_world=False,
+    extra_help_text=_CONFIG_HELP,
 )
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
@@ -705,6 +713,7 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     read_only=True,
     idempotent=True,
     open_world=False,
+    extra_help_text=_CONFIG_HELP,
 )
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
@@ -757,6 +766,7 @@ def _is_safe_sql(sql_query: str) -> bool:
     read_only=True,
     idempotent=True,
     open_world=False,
+    extra_help_text=_CONFIG_HELP,
 )
 def run_sql_query(
     sql_query: Annotated[
