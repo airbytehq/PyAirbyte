@@ -892,8 +892,7 @@ def update_cloud_destination_config(
 
     destination.update_config(config=config_dict)
     return (
-        f"Successfully updated destination '{destination_id}'. "
-        f"URL: {destination.connector_url}"
+        f"Successfully updated destination '{destination_id}'. " f"URL: {destination.connector_url}"
     )
 
 
@@ -965,8 +964,7 @@ def update_cloud_connection_config(
     connection = workspace.get_connection(connection_id=connection_id)
     connection.update_config(configurations=configurations, prefix=prefix)
     return (
-        f"Successfully updated connection '{connection_id}'. "
-        f"URL: {connection.connection_url}"
+        f"Successfully updated connection '{connection_id}'. " f"URL: {connection.connection_url}"
     )
 
 
