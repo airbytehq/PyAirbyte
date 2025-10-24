@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from airbyte_api import models as api_models
+
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
@@ -306,7 +308,10 @@ class CloudConnection:
         Returns:
             Updated CloudConnection object with refreshed info
         """
-        configurations = {"streams": [{"name": stream_name} for stream_name in stream_names]}
+        stream_configurations = [
+            api_models.StreamConfiguration(name=stream_name) for stream_name in stream_names
+        ]
+        configurations = api_models.StreamConfigurationsInput(streams=stream_configurations)
 
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
