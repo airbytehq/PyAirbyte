@@ -669,7 +669,7 @@ def update_custom_source_definition(
         )
 
 
-@cloud_tool({DESTRUCTIVE_HINT: True, IDEMPOTENT_HINT: True})
+@cloud_tool({DESTRUCTIVE_HINT: True})
 def permanently_delete_custom_source_definition(
     definition_id: Annotated[
         str,
