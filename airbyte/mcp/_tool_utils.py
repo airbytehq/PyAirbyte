@@ -83,10 +83,10 @@ def get_registered_tools(
 def mcp_tool(
     domain: Literal["cloud", "local", "registry"],
     *,
-    read_only: bool | None = None,
-    destructive: bool | None = None,
-    idempotent: bool | None = None,
-    open_world: bool | None = None,
+    read_only: bool = False,
+    destructive: bool = False,
+    idempotent: bool = False,
+    open_world: bool = True,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
 
@@ -96,7 +96,7 @@ def mcp_tool(
     Args:
         domain: The domain this tool belongs to (e.g., "cloud", "local", "registry")
         read_only: If True, tool only reads without making changes (default: False)
-        destructive: If True, tool modifies/deletes existing data (default: True)
+        destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
         open_world: If True, tool interacts with external systems (default: True)
 
@@ -108,15 +108,13 @@ def mcp_tool(
         def list_sources():
             ...
     """
-    annotations: dict[str, Any] = {"domain": domain}
-    if read_only is not None:
-        annotations[READ_ONLY_HINT] = read_only
-    if destructive is not None:
-        annotations[DESTRUCTIVE_HINT] = destructive
-    if idempotent is not None:
-        annotations[IDEMPOTENT_HINT] = idempotent
-    if open_world is not None:
-        annotations[OPEN_WORLD_HINT] = open_world
+    annotations: dict[str, Any] = {
+        "domain": domain,
+        READ_ONLY_HINT: read_only,
+        DESTRUCTIVE_HINT: destructive,
+        IDEMPOTENT_HINT: idempotent,
+        OPEN_WORLD_HINT: open_world,
+    }
 
     def decorator(func: F) -> F:
         func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
