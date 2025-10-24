@@ -843,7 +843,7 @@ def get_cloud_destination_connector_version(
 @mcp_tool(
     domain="cloud",
     destructive=True,
-    idempotent=True,
+    idempotent=False,
     open_world=True,
     airbyte_internal=True,
 )
@@ -924,7 +924,7 @@ def set_cloud_source_connector_version_override(
 @mcp_tool(
     domain="cloud",
     destructive=True,
-    idempotent=True,
+    idempotent=False,
     open_world=True,
     airbyte_internal=True,
 )
