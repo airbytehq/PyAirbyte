@@ -26,9 +26,7 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
 )
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
 
-_REGISTERED_TOOLS: dict[str, list[tuple[Callable[..., Any], dict[str, Any]]]] = {
-    "cloud": [],
-}
+_REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 
 
 class SafeModeError(Exception):
@@ -63,17 +61,19 @@ def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
 
 
 def get_registered_tools(
-    domain: Literal["cloud"],
+    domain: Literal["cloud"] | None = None,
 ) -> list[tuple[Callable[..., Any], dict[str, Any]]]:
-    """Get all registered tools for a specific domain with their annotations.
+    """Get all registered tools, optionally filtered by domain.
 
     Args:
-        domain: The domain to retrieve tools for (currently only "cloud" is supported)
+        domain: The domain to filter by (e.g., "cloud"). If None, returns all tools.
 
     Returns:
-        List of tuples containing (function, annotations) for each registered tool in the domain
+        List of tuples containing (function, annotations) for each registered tool
     """
-    return _REGISTERED_TOOLS.get(domain, []).copy()
+    if domain is None:
+        return _REGISTERED_TOOLS.copy()
+    return [(func, ann) for func, ann in _REGISTERED_TOOLS if ann.get("domain") == domain]
 
 
 def get_registered_cloud_tools() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
@@ -115,7 +115,7 @@ def mcp_tool(
         def list_sources():
             ...
     """
-    annotations: dict[str, Any] = {}
+    annotations: dict[str, Any] = {"domain": domain}
     if read_only is not None:
         annotations[READ_ONLY_HINT] = read_only
     if destructive is not None:
@@ -128,9 +128,7 @@ def mcp_tool(
     def decorator(func: F) -> F:
         func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
         func._mcp_domain = domain  # type: ignore[attr-defined]  # noqa: SLF001
-        if domain not in _REGISTERED_TOOLS:
-            _REGISTERED_TOOLS[domain] = []
-        _REGISTERED_TOOLS[domain].append((func, annotations))
+        _REGISTERED_TOOLS.append((func, annotations))
         return func
 
     return decorator
