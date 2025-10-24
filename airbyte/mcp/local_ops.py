@@ -107,7 +107,6 @@ def _get_mcp_source(
     return source
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -187,7 +186,6 @@ def validate_connector_config(
     return True, f"Configuration for {connector_name} is valid!"
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -238,7 +236,6 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     return result
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -305,7 +302,6 @@ def list_source_streams(
     return source.get_available_streams()
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -373,7 +369,6 @@ def get_source_stream_json_schema(
     return source.get_stream_json_schema(stream_name=stream_name)
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -464,7 +459,6 @@ def read_source_stream_records(
         return records
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -577,7 +571,6 @@ def get_stream_previews(
     return result
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     destructive=False,
@@ -686,7 +679,6 @@ class CachedDatasetInfo(BaseModel):
     schema_name: str | None = None
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -708,7 +700,6 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     return result
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
@@ -761,7 +752,6 @@ def _is_safe_sql(sql_query: str) -> bool:
     return any(normalized_query.startswith(prefix) for prefix in allowed_prefixes)
 
 
-# @app.tool()  # << deferred
 @mcp_tool(
     domain="local",
     read_only=True,
