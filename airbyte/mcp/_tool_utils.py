@@ -24,7 +24,7 @@ F = TypeVar("F", bound=Callable[..., Any])
 AIRBYTE_CLOUD_MCP_READONLY_MODE = (
     os.environ.get("AIRBYTE_CLOUD_MCP_READONLY_MODE", "").strip() == "1"
 )
-AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
+AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
