@@ -27,12 +27,40 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+_GUIDS_CREATED_IN_SESSION: set[str] = set()
 
 
 class SafeModeError(Exception):
     """Raised when a tool is blocked by safe mode restrictions."""
 
     pass
+
+
+def register_guid_created_in_session(guid: str) -> None:
+    """Register a GUID as created in this session.
+
+    Args:
+        guid: The GUID to register
+    """
+    _GUIDS_CREATED_IN_SESSION.add(guid)
+
+
+def check_guid_created_in_session(guid: str) -> None:
+    """Check if a GUID was created in this session.
+
+    Raises SafeModeError if the GUID was not created in this session and
+    AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "session".
+
+    Args:
+        guid: The GUID to check
+    """
+    safe_mode_value = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip().lower()
+    if safe_mode_value == "session" and guid not in _GUIDS_CREATED_IN_SESSION:
+        raise SafeModeError(
+            f"Cannot perform destructive operation on '{guid}': "
+            f"Object was not created in this session. "
+            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 'session'."
+        )
 
 
 def should_register_tool(annotations: dict[str, Any]) -> bool:
