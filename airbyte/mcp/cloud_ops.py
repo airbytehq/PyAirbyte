@@ -28,14 +28,14 @@ from airbyte.mcp._annotations import (
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
-def _check_admin_access() -> str:
-    """Check if admin access is enabled and return the admin user email.
+def _check_internal_admin_flag() -> str:
+    """Check if internal admin flag is set and return the admin user email.
 
     Returns:
         The admin user email from AIRBYTE_INTERNAL_ADMIN_USER
 
     Raises:
-        PyAirbyteInputError: If admin access is not properly configured
+        PyAirbyteInputError: If admin flag is not properly configured
     """
     admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
     admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
@@ -814,7 +814,7 @@ def set_cloud_source_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    admin_user_email = _check_admin_access()
+    admin_user_email = _check_internal_admin_flag()
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
@@ -886,7 +886,7 @@ def set_cloud_destination_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    admin_user_email = _check_admin_access()
+    admin_user_email = _check_internal_admin_flag()
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
