@@ -49,7 +49,7 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     if annotations.get(AIRBYTE_INTERNAL):
         admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
         admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
-        if admin_flag != "airbyte.io" or not admin_user or admin_flag not in admin_user:
+        if admin_flag != "airbyte.io" or not admin_user or not admin_user.endswith("@airbyte.io"):
             return False
 
     if annotations.get("domain") != "cloud":
