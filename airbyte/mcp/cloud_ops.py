@@ -34,6 +34,7 @@ def _get_cloud_workspace() -> CloudWorkspace:
 
 @mcp_tool(
     domain="cloud",
+    open_world=True,
 )
 def deploy_source_to_cloud(
     source_name: Annotated[
@@ -103,6 +104,7 @@ def deploy_source_to_cloud(
 
 @mcp_tool(
     domain="cloud",
+    open_world=True,
 )
 def deploy_destination_to_cloud(
     destination_name: Annotated[
@@ -172,6 +174,7 @@ def deploy_destination_to_cloud(
 
 @mcp_tool(
     domain="cloud",
+    open_world=True,
 )
 def create_connection_on_cloud(
     connection_name: Annotated[
@@ -233,6 +236,7 @@ def create_connection_on_cloud(
 
 @mcp_tool(
     domain="cloud",
+    open_world=True,
 )
 def run_cloud_sync(
     connection_id: Annotated[
@@ -287,6 +291,7 @@ def run_cloud_sync(
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def check_airbyte_cloud_workspace() -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
@@ -313,6 +318,7 @@ def check_airbyte_cloud_workspace() -> str:
 
 @mcp_tool(
     domain="cloud",
+    open_world=True,
 )
 def deploy_noop_destination_to_cloud(
     name: str = "No-op Destination",
@@ -347,6 +353,7 @@ def deploy_noop_destination_to_cloud(
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def get_cloud_sync_status(
     connection_id: Annotated[
@@ -426,6 +433,7 @@ def get_cloud_sync_status(
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
@@ -442,6 +450,7 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
@@ -458,6 +467,7 @@ def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def get_cloud_sync_logs(
     connection_id: Annotated[
@@ -525,6 +535,7 @@ def get_cloud_sync_logs(
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def list_deployed_cloud_connections() -> list[CloudConnection]:
     """List all deployed connections in the Airbyte Cloud workspace.
@@ -553,6 +564,7 @@ def _get_custom_source_definition_description(
 
 @mcp_tool(
     domain="cloud",
+    open_world=True,
 )
 def publish_custom_source_definition(
     name: Annotated[
@@ -618,6 +630,7 @@ def publish_custom_source_definition(
     domain="cloud",
     read_only=True,
     idempotent=True,
+    open_world=True,
 )
 def list_custom_source_definitions() -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
@@ -644,6 +657,7 @@ def list_custom_source_definitions() -> list[dict[str, Any]]:
 @mcp_tool(
     domain="cloud",
     destructive=True,
+    open_world=True,
 )
 def update_custom_source_definition(
     definition_id: Annotated[
@@ -698,6 +712,7 @@ def update_custom_source_definition(
 @mcp_tool(
     domain="cloud",
     destructive=True,
+    open_world=True,
 )
 def permanently_delete_custom_source_definition(
     definition_id: Annotated[

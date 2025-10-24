@@ -221,7 +221,6 @@ def list_connector_config_secrets(
     domain="local",
     read_only=True,
     idempotent=True,
-    open_world=False,
     extra_help_text=_CONFIG_HELP,
 )
 def list_dotenv_secrets() -> dict[str, list[str]]:
@@ -690,7 +689,6 @@ class CachedDatasetInfo(BaseModel):
     domain="local",
     read_only=True,
     idempotent=True,
-    open_world=False,
     extra_help_text=_CONFIG_HELP,
 )
 def list_cached_streams() -> list[CachedDatasetInfo]:
@@ -712,7 +710,6 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     domain="local",
     read_only=True,
     idempotent=True,
-    open_world=False,
     extra_help_text=_CONFIG_HELP,
 )
 def describe_default_cache() -> dict[str, Any]:
@@ -765,7 +762,6 @@ def _is_safe_sql(sql_query: str) -> bool:
     domain="local",
     read_only=True,
     idempotent=True,
-    open_world=False,
     extra_help_text=_CONFIG_HELP,
 )
 def run_sql_query(

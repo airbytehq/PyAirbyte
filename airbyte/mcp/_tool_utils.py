@@ -86,7 +86,7 @@ def mcp_tool(
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
-    open_world: bool = True,
+    open_world: bool = False,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -99,7 +99,7 @@ def mcp_tool(
         read_only: If True, tool only reads without making changes (default: False)
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
-        open_world: If True, tool interacts with external systems (default: True)
+        open_world: If True, tool interacts with external systems (default: False)
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 

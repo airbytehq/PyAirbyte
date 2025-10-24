@@ -22,7 +22,6 @@ from airbyte.sources.util import get_source
     domain="registry",
     read_only=True,
     idempotent=True,
-    open_world=False,
 )
 def list_connectors(
     keyword_filter: Annotated[
