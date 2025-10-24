@@ -18,11 +18,7 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
-from airbyte.mcp._annotations import (
-    DESTRUCTIVE_HINT,
-    IDEMPOTENT_HINT,
-    READ_ONLY_HINT,
-)
+from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
@@ -36,7 +32,10 @@ def _get_cloud_workspace() -> CloudWorkspace:
     )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
 def deploy_source_to_cloud(
     source_name: Annotated[
         str,
@@ -103,7 +102,10 @@ def deploy_source_to_cloud(
         )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
 def deploy_destination_to_cloud(
     destination_name: Annotated[
         str,
@@ -170,7 +172,10 @@ def deploy_destination_to_cloud(
         )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
 def create_connection_on_cloud(
     connection_name: Annotated[
         str,
@@ -229,7 +234,10 @@ def create_connection_on_cloud(
         )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
 def run_cloud_sync(
     connection_id: Annotated[
         str,
@@ -279,7 +287,12 @@ def run_cloud_sync(
         )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def check_airbyte_cloud_workspace() -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
@@ -303,7 +316,10 @@ def check_airbyte_cloud_workspace() -> str:
         )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
 def deploy_noop_destination_to_cloud(
     name: str = "No-op Destination",
     *,
@@ -333,7 +349,12 @@ def deploy_noop_destination_to_cloud(
         )
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def get_cloud_sync_status(
     connection_id: Annotated[
         str,
@@ -408,7 +429,12 @@ def get_cloud_sync_status(
         }
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
@@ -420,7 +446,12 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     return workspace.list_sources()
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
@@ -432,7 +463,12 @@ def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     return workspace.list_destinations()
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def get_cloud_sync_logs(
     connection_id: Annotated[
         str,
@@ -495,7 +531,12 @@ def get_cloud_sync_logs(
         return f"Failed to get logs for connection '{connection_id}': {ex}"
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def list_deployed_cloud_connections() -> list[CloudConnection]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
@@ -521,6 +562,10 @@ def _get_custom_source_definition_description(
     )
 
 
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
 def publish_custom_source_definition(
     name: Annotated[
         str,
@@ -581,6 +626,12 @@ def publish_custom_source_definition(
         )
 
 
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
 def list_custom_source_definitions() -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
@@ -603,6 +654,11 @@ def list_custom_source_definitions() -> list[dict[str, Any]]:
     ]
 
 
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
 def update_custom_source_definition(
     definition_id: Annotated[
         str,
@@ -653,6 +709,11 @@ def update_custom_source_definition(
         )
 
 
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
 def permanently_delete_custom_source_definition(
     definition_id: Annotated[
         str,
@@ -690,116 +751,9 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     """@private Register tools with the FastMCP app.
 
     This is an internal function and should not be called directly.
+
+    Tools are filtered based on safe mode settings:
+    - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
+    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: Destructive tools are not registered
     """
-    app.tool(
-        check_airbyte_cloud_workspace,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        deploy_source_to_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
-    )
-
-    app.tool(
-        deploy_destination_to_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
-    )
-
-    app.tool(
-        deploy_noop_destination_to_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
-    )
-
-    app.tool(
-        create_connection_on_cloud,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
-    )
-
-    app.tool(
-        run_cloud_sync,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
-    )
-
-    app.tool(
-        get_cloud_sync_status,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        get_cloud_sync_logs,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        list_deployed_cloud_source_connectors,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        list_deployed_cloud_destination_connectors,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        list_deployed_cloud_connections,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        publish_custom_source_definition,
-        annotations={
-            DESTRUCTIVE_HINT: False,
-        },
-    )
-
-    app.tool(
-        list_custom_source_definitions,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        update_custom_source_definition,
-        annotations={
-            DESTRUCTIVE_HINT: True,
-        },
-    )
-
-    app.tool(
-        permanently_delete_custom_source_definition,
-        annotations={
-            DESTRUCTIVE_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
+    register_tools(app, domain="cloud")
