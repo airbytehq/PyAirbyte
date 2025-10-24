@@ -256,6 +256,68 @@ class CloudConnection:
             job_id=job_id,
         )
 
+    def rename(self, name: str) -> CloudConnection:
+        """Rename the connection.
+
+        Args:
+            name: New name for the connection
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            name=name,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def set_table_prefix(self, prefix: str) -> CloudConnection:
+        """Set the table prefix for the connection.
+
+        Args:
+            prefix: New table prefix to use when syncing to the destination
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            prefix=prefix,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
+        """Set the selected streams for the connection.
+
+        This is a destructive operation that can break existing connections if the
+        stream selection is changed incorrectly. Use with caution.
+
+        Args:
+            stream_names: List of stream names to sync
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        configurations = api_util.build_stream_configurations(stream_names)
+
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            configurations=configurations,
+        )
+        self._connection_info = updated_response
+        return self
+
     # Deletions
 
     def permanently_delete(

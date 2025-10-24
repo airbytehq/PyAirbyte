@@ -1002,6 +1002,254 @@ def set_cloud_destination_connector_version_override(
     return f"Successfully set version override to '{version}' for destination '{destination_id}'"
 
 
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
+def rename_cloud_source(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source to rename."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the source."),
+    ],
+) -> str:
+    """Rename a deployed source connector on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+    source.rename(name=name)
+    return f"Successfully renamed source '{source_id}' to '{name}'. URL: {source.connector_url}"
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def update_cloud_source_config(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source to update."),
+    ],
+    config: Annotated[
+        dict | str,
+        Field(
+            description="New configuration for the source connector.",
+        ),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """Update a deployed source connector's configuration on Airbyte Cloud.
+
+    This is a destructive operation that can break existing connections if the
+    configuration is changed incorrectly. Use with caution.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=None,  # We don't have the spec here
+    )
+
+    source.update_config(config=config_dict)
+    return f"Successfully updated source '{source_id}'. URL: {source.connector_url}"
+
+
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
+def rename_cloud_destination(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination to rename."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the destination."),
+    ],
+) -> str:
+    """Rename a deployed destination connector on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+    destination.rename(name=name)
+    return (
+        f"Successfully renamed destination '{destination_id}' to '{name}'. "
+        f"URL: {destination.connector_url}"
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def update_cloud_destination_config(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination to update."),
+    ],
+    config: Annotated[
+        dict | str,
+        Field(
+            description="New configuration for the destination connector.",
+        ),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """Update a deployed destination connector's configuration on Airbyte Cloud.
+
+    This is a destructive operation that can break existing connections if the
+    configuration is changed incorrectly. Use with caution.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+
+    config_dict = resolve_config(
+        config=config,
+        config_secret_name=config_secret_name,
+        config_spec_jsonschema=None,  # We don't have the spec here
+    )
+
+    destination.update_config(config=config_dict)
+    return (
+        f"Successfully updated destination '{destination_id}'. " f"URL: {destination.connector_url}"
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
+def rename_cloud_connection(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to rename."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="New name for the connection."),
+    ],
+) -> str:
+    """Rename a connection on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    connection = workspace.get_connection(connection_id=connection_id)
+    connection.rename(name=name)
+    return (
+        f"Successfully renamed connection '{connection_id}' to '{name}'. "
+        f"URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
+def set_cloud_connection_table_prefix(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to update."),
+    ],
+    prefix: Annotated[
+        str,
+        Field(description="New table prefix to use when syncing to the destination."),
+    ],
+) -> str:
+    """Set the table prefix for a connection on Airbyte Cloud.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    connection = workspace.get_connection(connection_id=connection_id)
+    connection.set_table_prefix(prefix=prefix)
+    return (
+        f"Successfully set table prefix for connection '{connection_id}' to '{prefix}'. "
+        f"URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def set_cloud_connection_selected_streams(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to update."),
+    ],
+    stream_names: Annotated[
+        str | list[str],
+        Field(
+            description=(
+                "The selected stream names to sync within the connection. "
+                "Must be an explicit stream name or list of streams."
+            )
+        ),
+    ],
+) -> str:
+    """Set the selected streams for a connection on Airbyte Cloud.
+
+    This is a destructive operation that can break existing connections if the
+    stream selection is changed incorrectly. Use with caution.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
+    connection.set_selected_streams(stream_names=resolved_streams_list)
+
+    return (
+        f"Successfully set selected streams for connection '{connection_id}' "
+        f"to {resolved_streams_list}. URL: {connection.connection_url}"
+    )
+
+
 def register_cloud_ops_tools(app: FastMCP) -> None:
     """@private Register tools with the FastMCP app.
 
