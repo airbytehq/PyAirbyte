@@ -927,34 +927,19 @@ def rename_cloud_connection(
 
 @mcp_tool(
     domain="cloud",
-    destructive=True,
     open_world=True,
 )
-def update_cloud_connection_config(
+def set_cloud_connection_table_prefix(
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to update."),
     ],
-    *,
-    configurations: Annotated[
-        dict | None,
-        Field(
-            description="Optional new stream configurations.",
-            default=None,
-        ),
-    ] = None,
     prefix: Annotated[
-        str | None,
-        Field(
-            description="Optional new table prefix.",
-            default=None,
-        ),
-    ] = None,
+        str,
+        Field(description="New table prefix to use when syncing to the destination."),
+    ],
 ) -> str:
-    """Update a connection's configuration on Airbyte Cloud.
-
-    This is a destructive operation that can break existing connections if the
-    configuration is changed incorrectly. Use with caution.
+    """Set the table prefix for a connection on Airbyte Cloud.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
@@ -962,9 +947,51 @@ def update_cloud_connection_config(
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     connection = workspace.get_connection(connection_id=connection_id)
-    connection.update_config(configurations=configurations, prefix=prefix)
+    connection.set_table_prefix(prefix=prefix)
     return (
-        f"Successfully updated connection '{connection_id}'. " f"URL: {connection.connection_url}"
+        f"Successfully set table prefix for connection '{connection_id}' to '{prefix}'. "
+        f"URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def set_cloud_connection_selected_streams(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to update."),
+    ],
+    stream_names: Annotated[
+        str | list[str],
+        Field(
+            description=(
+                "The selected stream names to sync within the connection. "
+                "Must be an explicit stream name or list of streams."
+            )
+        ),
+    ],
+) -> str:
+    """Set the selected streams for a connection on Airbyte Cloud.
+
+    This is a destructive operation that can break existing connections if the
+    stream selection is changed incorrectly. Use with caution.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
+    connection.set_selected_streams(stream_names=resolved_streams_list)
+
+    return (
+        f"Successfully set selected streams for connection '{connection_id}' "
+        f"to {resolved_streams_list}. URL: {connection.connection_url}"
     )
 
 

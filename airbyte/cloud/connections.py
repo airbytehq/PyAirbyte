@@ -275,20 +275,11 @@ class CloudConnection:
         self._connection_info = updated_response
         return self
 
-    def update_config(
-        self,
-        *,
-        configurations: dict | None = None,
-        prefix: str | None = None,
-    ) -> CloudConnection:
-        """Update the connection configuration.
-
-        This is a destructive operation that can break existing connections if the
-        configuration is changed incorrectly. Use with caution.
+    def set_table_prefix(self, prefix: str) -> CloudConnection:
+        """Set the table prefix for the connection.
 
         Args:
-            configurations: Optional new stream configurations
-            prefix: Optional new table prefix
+            prefix: New table prefix to use when syncing to the destination
 
         Returns:
             Updated CloudConnection object with refreshed info
@@ -298,8 +289,31 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
-            configurations=configurations,
             prefix=prefix,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
+        """Set the selected streams for the connection.
+
+        This is a destructive operation that can break existing connections if the
+        stream selection is changed incorrectly. Use with caution.
+
+        Args:
+            stream_names: List of stream names to sync
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        configurations = {"streams": [{"name": stream_name} for stream_name in stream_names]}
+
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            configurations=configurations,
         )
         self._connection_info = updated_response
         return self
