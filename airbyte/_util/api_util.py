@@ -806,6 +806,26 @@ def patch_destination(
 # Create and delete connections
 
 
+def build_stream_configurations(
+    stream_names: list[str],
+) -> models.StreamConfigurations:
+    """Build a StreamConfigurations object from a list of stream names.
+
+    This helper creates the proper API model structure for stream configurations.
+    Used by both connection creation and updates.
+
+    Args:
+        stream_names: List of stream names to include in the configuration
+
+    Returns:
+        StreamConfigurations object ready for API submission
+    """
+    stream_configurations = [
+        models.StreamConfiguration(name=stream_name) for stream_name in stream_names
+    ]
+    return models.StreamConfigurations(streams=stream_configurations)
+
+
 def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
@@ -824,15 +844,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
         client_secret=client_secret,
         api_root=api_root,
     )
-    stream_configurations: list[models.StreamConfiguration] = []
-    if selected_stream_names:
-        for stream_name in selected_stream_names:
-            stream_configuration = models.StreamConfiguration(
-                name=stream_name,
-            )
-            stream_configurations.append(stream_configuration)
-
-    stream_configurations_obj = models.StreamConfigurations(stream_configurations)
+    stream_configurations_obj = build_stream_configurations(selected_stream_names)
     response = airbyte_instance.connections.create_connection(
         models.ConnectionCreateRequest(
             name=name,
