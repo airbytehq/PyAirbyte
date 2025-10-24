@@ -124,25 +124,25 @@ Safe mode is enabled by default and is controlled by the `AIRBYTE_CLOUD_MCP_SAFE
 variable.
 
 When enabled, write operations are allowed but destructive operations (updates, deletions) are
-only allowd for objects created within the same session. For example, you can create a new connector
-and then delete it, but you cannot delete an existing connector that was not created in the current
-session. Modifications to configuratioins are likewise treated as potentially destructive and are
-only allowed for objects created in the current session.
+only allowed for objects created within the same session. For example, you can create a new
+connector and then delete it, but you cannot delete an existing connector that was not created in
+the current session. Modifications to configurations are likewise treated as potentially destructive
+and are only allowed for objects created in the current session.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
 
 ### Airbyte Cloud Read-Only Mode
 
-Read-only mode is not enabled by default and is controlled by the `AIRBYTE_CLOUD_MCP_READONLY_MODE` environment
-variable.
+Read-only mode is not enabled by default and is controlled by the
+`AIRBYTE_CLOUD_MCP_READONLY_MODE` environment variable.
 
 When enabled, only read-only Cloud tools are available. Write and destructive operations are
 disabled.
 
 This mode does allow running syncs on existing connectors, since sync operations
-are not conssidered to be modifications of the Airbyte Cloud workspace.
+are not considered to be modifications of the Airbyte Cloud workspace.
 
-Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` enable read-only mode.
+Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
 
 ## Contributing to the Airbyte MCP Server
 
