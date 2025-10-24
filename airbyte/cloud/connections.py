@@ -11,7 +11,6 @@ from airbyte.cloud.sync_results import SyncResult
 
 
 if TYPE_CHECKING:
-    from airbyte_api import models as api_models
     from airbyte_api.models import ConnectionResponse, JobResponse
 
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -279,7 +278,7 @@ class CloudConnection:
     def update_config(
         self,
         *,
-        configurations: api_models.StreamConfigurationsInput | None = None,
+        configurations: dict | None = None,
         prefix: str | None = None,
     ) -> CloudConnection:
         """Update the connection configuration.
