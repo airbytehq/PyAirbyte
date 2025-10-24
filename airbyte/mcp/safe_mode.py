@@ -63,20 +63,6 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     return True
 
 
-def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
-    """Check if a Cloud ops tool should be registered based on safe mode settings.
-
-    Deprecated: Use should_register_tool() instead.
-
-    Args:
-        annotations: Tool annotations dict containing readOnlyHint and destructiveHint
-
-    Returns:
-        True if the tool should be registered, False if it should be filtered out
-    """
-    return should_register_tool(annotations)
-
-
 def get_registered_tools(
     domain: Literal["cloud"] | None = None,
 ) -> list[tuple[Callable[..., Any], dict[str, Any]]]:
@@ -91,17 +77,6 @@ def get_registered_tools(
     if domain is None:
         return _REGISTERED_TOOLS.copy()
     return [(func, ann) for func, ann in _REGISTERED_TOOLS if ann.get("domain") == domain]
-
-
-def get_registered_cloud_tools() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
-    """Get all registered cloud tools with their annotations.
-
-    Deprecated: Use get_registered_tools("cloud") instead.
-
-    Returns:
-        List of tuples containing (function, annotations) for each registered cloud tool
-    """
-    return get_registered_tools("cloud")
 
 
 def mcp_tool(
@@ -149,40 +124,3 @@ def mcp_tool(
         return func
 
     return decorator
-
-
-def cloud_tool(
-    *,
-    read_only: bool | None = None,
-    destructive: bool | None = None,
-    idempotent: bool | None = None,
-    open_world: bool | None = None,
-) -> Callable[[F], F]:
-    """Decorator to tag a Cloud ops tool function with MCP annotations.
-
-    Deprecated: Use mcp_tool("cloud", ...) instead.
-
-    This decorator stores the annotations on the function for later use during
-    deferred registration. It does not register the tool immediately.
-
-    Args:
-        read_only: If True, tool only reads without making changes (default: False)
-        destructive: If True, tool modifies/deletes existing data (default: True)
-        idempotent: If True, repeated calls have same effect (default: False)
-        open_world: If True, tool interacts with external systems (default: True)
-
-    Returns:
-        Decorator function that tags the tool with annotations
-
-    Example:
-        @cloud_tool(read_only=True, idempotent=True)
-        def list_sources():
-            ...
-    """
-    return mcp_tool(
-        "cloud",
-        read_only=read_only,
-        destructive=destructive,
-        idempotent=idempotent,
-        open_world=open_world,
-    )
