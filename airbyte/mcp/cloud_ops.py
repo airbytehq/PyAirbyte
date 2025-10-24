@@ -18,8 +18,8 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
+from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
-from airbyte.mcp.safe_mode import mcp_tool, register_tools
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
