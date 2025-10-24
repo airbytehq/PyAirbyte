@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Safe mode filtering for MCP tools.
+"""MCP tool utility functions.
 
 This module provides a decorator to tag tool functions with MCP annotations
 for deferred registration with safe mode filtering.
