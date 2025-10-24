@@ -845,6 +845,7 @@ def get_cloud_destination_connector_version(
     destructive=True,
     idempotent=True,
     open_world=True,
+    airbyte_internal=True,
 )
 def set_cloud_source_connector_version_override(
     source_id: Annotated[
@@ -899,12 +900,9 @@ def set_cloud_source_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    if not _check_internal_admin_flag():
-        return "Admin access not enabled. Cannot set version override."
-
-    admin_user_email = _get_admin_user_email()
+    admin_user_email = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
     if not admin_user_email:
-        return "Admin user email not configured. Cannot set version override."
+        raise ValueError("AIRBYTE_INTERNAL_ADMIN_USER environment variable is required")
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
@@ -928,6 +926,7 @@ def set_cloud_source_connector_version_override(
     destructive=True,
     idempotent=True,
     open_world=True,
+    airbyte_internal=True,
 )
 def set_cloud_destination_connector_version_override(
     destination_id: Annotated[
@@ -982,12 +981,9 @@ def set_cloud_destination_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    if not _check_internal_admin_flag():
-        return "Admin access not enabled. Cannot set version override."
-
-    admin_user_email = _get_admin_user_email()
+    admin_user_email = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
     if not admin_user_email:
-        return "Admin user email not configured. Cannot set version override."
+        raise ValueError("AIRBYTE_INTERNAL_ADMIN_USER environment variable is required")
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
