@@ -19,7 +19,7 @@ from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudS
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
-from airbyte.mcp.safe_mode import cloud_tool, get_registered_tools, should_register_tool
+from airbyte.mcp.safe_mode import get_registered_tools, mcp_tool, should_register_tool
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -32,8 +32,10 @@ def _get_cloud_workspace() -> CloudWorkspace:
     )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(destructive=False)
+@mcp_tool(
+    domain="cloud",
+    destructive=False,
+)
 def deploy_source_to_cloud(
     source_name: Annotated[
         str,
@@ -100,8 +102,10 @@ def deploy_source_to_cloud(
         )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(destructive=False)
+@mcp_tool(
+    domain="cloud",
+    destructive=False,
+)
 def deploy_destination_to_cloud(
     destination_name: Annotated[
         str,
@@ -168,8 +172,10 @@ def deploy_destination_to_cloud(
         )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(destructive=False)
+@mcp_tool(
+    domain="cloud",
+    destructive=False,
+)
 def create_connection_on_cloud(
     connection_name: Annotated[
         str,
@@ -228,8 +234,10 @@ def create_connection_on_cloud(
         )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(destructive=False)
+@mcp_tool(
+    domain="cloud",
+    destructive=False,
+)
 def run_cloud_sync(
     connection_id: Annotated[
         str,
@@ -279,8 +287,11 @@ def run_cloud_sync(
         )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def check_airbyte_cloud_workspace() -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
@@ -304,8 +315,10 @@ def check_airbyte_cloud_workspace() -> str:
         )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(destructive=False)
+@mcp_tool(
+    domain="cloud",
+    destructive=False,
+)
 def deploy_noop_destination_to_cloud(
     name: str = "No-op Destination",
     *,
@@ -335,8 +348,11 @@ def deploy_noop_destination_to_cloud(
         )
 
 
-# @app.tool()  # << deferred
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def get_cloud_sync_status(
     connection_id: Annotated[
         str,
@@ -411,8 +427,11 @@ def get_cloud_sync_status(
         }
 
 
-# @app.tool()  # << deferred
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
@@ -424,8 +443,11 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     return workspace.list_sources()
 
 
-# @app.tool()  # << deferred
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
@@ -437,8 +459,11 @@ def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     return workspace.list_destinations()
 
 
-# @app.tool()  # << deferred
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def get_cloud_sync_logs(
     connection_id: Annotated[
         str,
@@ -501,8 +526,11 @@ def get_cloud_sync_logs(
         return f"Failed to get logs for connection '{connection_id}': {ex}"
 
 
-# @app.tool()  # << deferred
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def list_deployed_cloud_connections() -> list[CloudConnection]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
@@ -528,7 +556,10 @@ def _get_custom_source_definition_description(
     )
 
 
-@cloud_tool(destructive=False)
+@mcp_tool(
+    domain="cloud",
+    destructive=False,
+)
 def publish_custom_source_definition(
     name: Annotated[
         str,
@@ -589,7 +620,11 @@ def publish_custom_source_definition(
         )
 
 
-@cloud_tool(read_only=True, idempotent=True)
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+)
 def list_custom_source_definitions() -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
@@ -612,7 +647,10 @@ def list_custom_source_definitions() -> list[dict[str, Any]]:
     ]
 
 
-@cloud_tool(destructive=True)
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+)
 def update_custom_source_definition(
     definition_id: Annotated[
         str,
@@ -663,7 +701,10 @@ def update_custom_source_definition(
         )
 
 
-@cloud_tool(destructive=True)
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+)
 def permanently_delete_custom_source_definition(
     definition_id: Annotated[
         str,
