@@ -819,7 +819,7 @@ def set_cloud_source_connector_version_override(
     """Set or clear a version override for a deployed source connector.
 
     You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
-    When setting a version, override_reason is required and must be at least 10 characters.
+    When setting a version, `override_reason` is required and must be at least 10 characters.
 
     This is an admin-only operation. Requires environment variables:
     - AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io
@@ -893,8 +893,8 @@ def set_cloud_destination_connector_version_override(
 ) -> str:
     """Set or clear a version override for a deployed destination connector.
 
-    You must specify EXACTLY ONE of version OR unset=True, but not both.
-    When setting a version, override_reason is required and must be at least 10 characters.
+    You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+    When setting a version, `override_reason` is required and must be at least 10 characters.
 
     This is an admin-only operation. Requires environment variables:
     - AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io
