@@ -19,7 +19,7 @@ from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudS
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
-from airbyte.mcp.safe_mode import cloud_tool, get_registered_cloud_tools, should_register_cloud_tool
+from airbyte.mcp.safe_mode import cloud_tool, get_registered_tools, should_register_tool
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -706,6 +706,6 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
     - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: Destructive tools are not registered
     """
-    for func, annotations in get_registered_cloud_tools():
-        if should_register_cloud_tool(annotations):
+    for func, annotations in get_registered_tools("cloud"):
+        if should_register_tool(annotations):
             app.tool(func, annotations=annotations)

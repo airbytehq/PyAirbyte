@@ -35,15 +35,18 @@ class SafeModeError(Exception):
     pass
 
 
-def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
-    """Check if a Cloud ops tool should be registered based on safe mode settings.
+def should_register_tool(annotations: dict[str, Any]) -> bool:
+    """Check if a tool should be registered based on safe mode settings.
 
     Args:
-        annotations: Tool annotations dict containing readOnlyHint and destructiveHint
+        annotations: Tool annotations dict containing domain, readOnlyHint, and destructiveHint
 
     Returns:
         True if the tool should be registered, False if it should be filtered out
     """
+    if annotations.get("domain") != "cloud":
+        return True
+
     if not AIRBYTE_CLOUD_MCP_READONLY_MODE and not AIRBYTE_CLOUD_MCP_SAFE_MODE:
         return True
 
@@ -58,6 +61,20 @@ def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
             return False
 
     return True
+
+
+def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
+    """Check if a Cloud ops tool should be registered based on safe mode settings.
+
+    Deprecated: Use should_register_tool() instead.
+
+    Args:
+        annotations: Tool annotations dict containing readOnlyHint and destructiveHint
+
+    Returns:
+        True if the tool should be registered, False if it should be filtered out
+    """
+    return should_register_tool(annotations)
 
 
 def get_registered_tools(
