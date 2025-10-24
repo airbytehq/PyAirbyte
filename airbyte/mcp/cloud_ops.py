@@ -34,15 +34,15 @@ def _check_internal_admin_flag() -> bool:
 
     if admin_flag != "airbyte.io":
         print(
-            "Warning: Admin access not enabled. "
-            "Set AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io to enable version override tools."
+            "Warning: Invalid AIRBYTE_INTERNAL_ADMIN_FLAG configuration. "
+            "Remove or correct the environment variable."
         )
         return False
 
     if not admin_user:
         print(
-            "Warning: Admin user not configured. "
-            "Set AIRBYTE_INTERNAL_ADMIN_USER to your email to enable version override tools."
+            "Warning: Invalid AIRBYTE_INTERNAL_ADMIN_USER configuration. "
+            "Remove or correct the environment variable."
         )
         return False
 
