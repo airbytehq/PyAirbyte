@@ -259,8 +259,7 @@ class CloudSource(CloudConnector):
         override_reason: str | None = None,
         override_reason_reference_url: str | None = None,
         user_email: str | None = None,
-        scoped_configuration_id: str | None = None,
-    ) -> str | bool:
+    ) -> bool:
         """Set or clear a version override for this source.
 
         You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
@@ -272,12 +271,9 @@ class CloudSource(CloudConnector):
             override_reason: Required when setting a version. Explanation for the override.
             override_reason_reference_url: Optional URL with more context (e.g., issue link)
             user_email: Required when setting a version. Email of the user creating the override.
-            scoped_configuration_id: Optional ID of the scoped configuration to delete
-                when unset=True. If provided, skips the list operation.
 
         Returns:
-            If setting a version: The scoped configuration ID (str)
-            If clearing: `True` if an override was removed, `False` if none existed
+            `True` if the operation succeeded, `False` if no override existed (unset only)
 
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided, or if
@@ -335,7 +331,6 @@ class CloudSource(CloudConnector):
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
-                scoped_configuration_id=scoped_configuration_id,
             )
 
         actor_definition_version_id = api_util.resolve_connector_version(
@@ -347,7 +342,7 @@ class CloudSource(CloudConnector):
             client_secret=self.workspace.client_secret,
         )
 
-        response = api_util.set_connector_version_override(
+        api_util.set_connector_version_override(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
             actor_definition_version_id=actor_definition_version_id,
@@ -359,7 +354,7 @@ class CloudSource(CloudConnector):
             override_reason_reference_url=override_reason_reference_url,
         )
 
-        return response["data"]["id"]
+        return True
 
 
 class CloudDestination(CloudConnector):
@@ -428,8 +423,7 @@ class CloudDestination(CloudConnector):
         override_reason: str | None = None,
         override_reason_reference_url: str | None = None,
         user_email: str | None = None,
-        scoped_configuration_id: str | None = None,
-    ) -> str | bool:
+    ) -> bool:
         """Set or clear a version override for this destination.
 
         You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
@@ -441,12 +435,9 @@ class CloudDestination(CloudConnector):
             override_reason: Required when setting a version. Explanation for the override.
             override_reason_reference_url: Optional URL with more context (e.g., issue link)
             user_email: Required when setting a version. Email of the user creating the override.
-            scoped_configuration_id: Optional ID of the scoped configuration to delete
-                when unset=True. If provided, skips the list operation.
 
         Returns:
-            If setting a version: The scoped configuration ID (str)
-            If clearing: `True` if an override was removed, `False` if none existed
+            `True` if the operation succeeded, `False` if no override existed (unset only)
 
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided, or if
@@ -504,7 +495,6 @@ class CloudDestination(CloudConnector):
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
-                scoped_configuration_id=scoped_configuration_id,
             )
 
         actor_definition_version_id = api_util.resolve_connector_version(
@@ -516,7 +506,7 @@ class CloudDestination(CloudConnector):
             client_secret=self.workspace.client_secret,
         )
 
-        response = api_util.set_connector_version_override(
+        api_util.set_connector_version_override(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
             actor_definition_version_id=actor_definition_version_id,
@@ -528,7 +518,7 @@ class CloudDestination(CloudConnector):
             override_reason_reference_url=override_reason_reference_url,
         )
 
-        return response["data"]["id"]
+        return True
 
 
 class CustomCloudSourceDefinition:

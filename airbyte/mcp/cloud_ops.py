@@ -800,14 +800,6 @@ def set_cloud_source_connector_version_override(
             default=None,
         ),
     ] = None,
-    scoped_configuration_id: Annotated[
-        str | None,
-        Field(
-            description="Optional ID of the scoped configuration to delete when unset=True. "
-            "If provided, skips the list operation for better performance.",
-            default=None,
-        ),
-    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed source connector.
 
@@ -832,18 +824,13 @@ def set_cloud_source_connector_version_override(
         override_reason=override_reason,
         override_reason_reference_url=override_reason_reference_url,
         user_email=admin_user_email,
-        scoped_configuration_id=scoped_configuration_id,
     )
 
     if unset:
         if result:
             return f"Successfully cleared version override for source '{source_id}'"
         return f"No version override was set for source '{source_id}'"
-    # When setting, result is the scoped configuration ID
-    return (
-        f"Successfully set version override to '{version}' for source '{source_id}'. "
-        f"Scoped configuration ID: {result}"
-    )
+    return f"Successfully set version override to '{version}' for source '{source_id}'"
 
 
 def set_cloud_destination_connector_version_override(
@@ -885,14 +872,6 @@ def set_cloud_destination_connector_version_override(
             default=None,
         ),
     ] = None,
-    scoped_configuration_id: Annotated[
-        str | None,
-        Field(
-            description="Optional ID of the scoped configuration to delete when unset=True. "
-            "If provided, skips the list operation for better performance.",
-            default=None,
-        ),
-    ] = None,
 ) -> str:
     """Set or clear a version override for a deployed destination connector.
 
@@ -917,18 +896,13 @@ def set_cloud_destination_connector_version_override(
         override_reason=override_reason,
         override_reason_reference_url=override_reason_reference_url,
         user_email=admin_user_email,
-        scoped_configuration_id=scoped_configuration_id,
     )
 
     if unset:
         if result:
             return f"Successfully cleared version override for destination '{destination_id}'"
         return f"No version override was set for destination '{destination_id}'"
-    # When setting, result is the scoped configuration ID
-    return (
-        f"Successfully set version override to '{version}' for destination '{destination_id}'. "
-        f"Scoped configuration ID: {result}"
-    )
+    return f"Successfully set version override to '{version}' for destination '{destination_id}'"
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:

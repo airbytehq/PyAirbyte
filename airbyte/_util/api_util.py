@@ -1353,6 +1353,9 @@ def _find_connector_version_override_id(
 ) -> str | None:
     """Find the scoped configuration ID for a connector version override.
 
+    Uses the /v1/scoped_configuration/get_context endpoint to retrieve the active
+    configuration for the given scope without needing to list all configurations.
+
     Args:
         connector_id: The source or destination ID
         actor_definition_id: The connector definition ID
@@ -1364,23 +1367,22 @@ def _find_connector_version_override_id(
         The scoped configuration ID if found, None otherwise
     """
     json_result = _make_config_api_request(
-        path="/scoped_configuration/list",
+        path="/scoped_configuration/get_context",
         json={
             "config_key": "connector_version",
+            "scope_type": "actor",
+            "scope_id": connector_id,
+            "resource_type": "actor_definition",
+            "resource_id": actor_definition_id,
         },
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
     )
 
-    scoped_configs = json_result.get("scopedConfigurations", [])
-    for config in scoped_configs:
-        if (
-            config.get("resource_id") == actor_definition_id
-            and config.get("scope_id") == connector_id
-            and config.get("scope_type") == "actor"
-        ):
-            return config.get("id")
+    active_config = json_result.get("activeConfiguration")
+    if active_config:
+        return active_config.get("id")
 
     return None
 
@@ -1392,14 +1394,13 @@ def clear_connector_version_override(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-    scoped_configuration_id: str | None = None,
 ) -> bool:
     """Clear a version override for a source or destination connector.
 
     Deletes the scoped configuration that pins the connector to a specific version.
 
     Uses the Config API endpoints:
-    - /v1/scoped_configuration/list (to find the override, if ID not provided)
+    - /v1/scoped_configuration/get_context (to find the override)
     - /v1/scoped_configuration/delete (to remove it)
 
     See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
@@ -1410,25 +1411,20 @@ def clear_connector_version_override(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
-        scoped_configuration_id: Optional ID of the scoped configuration to delete.
-            If provided, skips the list operation and deletes directly.
 
     Returns:
         True if an override was found and deleted, False if no override existed
     """
-    if scoped_configuration_id:
-        config_id = scoped_configuration_id
-    else:
-        config_id = _find_connector_version_override_id(
-            connector_id=connector_id,
-            actor_definition_id=actor_definition_id,
-            api_root=api_root,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
+    config_id = _find_connector_version_override_id(
+        connector_id=connector_id,
+        actor_definition_id=actor_definition_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
 
-        if not config_id:
-            return False
+    if not config_id:
+        return False
 
     _make_config_api_request(
         path="/scoped_configuration/delete",
