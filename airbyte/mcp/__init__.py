@@ -87,7 +87,7 @@ requirements.
       "env": {
         "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env",
         "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0",
-        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "0"
+        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "1"
       }
     }
   }
@@ -99,12 +99,11 @@ Note:
   Step 1.
 - The `AIRBYTE_CLOUD_MCP_READONLY_MODE` and `AIRBYTE_CLOUD_MCP_SAFE_MODE` environment variables
   control safe mode filtering for Airbyte Cloud operations:
-  - `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: Only read-only Cloud tools are available. Write and
-    destructive operations are disabled. Note: This mode does allow running syncs on existing
-    connectors.
-  - `AIRBYTE_CLOUD_MCP_SAFE_MODE=1`: Write operations are allowed, but destructive operations
-    (update, delete) are disabled.
-  - Both default to `0` (disabled), which means no restrictions are applied.
+  - `AIRBYTE_CLOUD_MCP_READONLY_MODE` defaults to `0` (disabled). Set to `1` to enable read-only
+    mode, where only read-only Cloud tools are available. Write and destructive operations are
+    disabled. Note: This mode does allow running syncs on existing connectors.
+  - `AIRBYTE_CLOUD_MCP_SAFE_MODE` defaults to `1` (enabled). Write operations are allowed, but
+    destructive operations (update, delete) are disabled. Set to `0` to allow all operations.
   - These settings only affect Cloud operations; local operations are never restricted.
 
 ### Step 3: Testing the MCP Server Connection
