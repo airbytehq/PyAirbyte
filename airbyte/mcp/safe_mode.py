@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from airbyte.mcp._annotations import (
     DESTRUCTIVE_HINT,
@@ -26,7 +26,9 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
 )
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
 
-_CLOUD_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+_REGISTERED_TOOLS: dict[str, list[tuple[Callable[..., Any], dict[str, Any]]]] = {
+    "cloud": [],
+}
 
 
 class SafeModeError(Exception):
@@ -60,13 +62,78 @@ def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
     return True
 
 
+def get_registered_tools(
+    domain: Literal["cloud"],
+) -> list[tuple[Callable[..., Any], dict[str, Any]]]:
+    """Get all registered tools for a specific domain with their annotations.
+
+    Args:
+        domain: The domain to retrieve tools for (currently only "cloud" is supported)
+
+    Returns:
+        List of tuples containing (function, annotations) for each registered tool in the domain
+    """
+    return _REGISTERED_TOOLS.get(domain, []).copy()
+
+
 def get_registered_cloud_tools() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
     """Get all registered cloud tools with their annotations.
+
+    Deprecated: Use get_registered_tools("cloud") instead.
 
     Returns:
         List of tuples containing (function, annotations) for each registered cloud tool
     """
-    return _CLOUD_TOOLS.copy()
+    return get_registered_tools("cloud")
+
+
+def mcp_tool(
+    domain: Literal["cloud"],
+    *,
+    read_only: bool | None = None,
+    destructive: bool | None = None,
+    idempotent: bool | None = None,
+    open_world: bool | None = None,
+) -> Callable[[F], F]:
+    """Decorator to tag an MCP tool function with annotations for deferred registration.
+
+    This decorator stores the annotations on the function for later use during
+    deferred registration. It does not register the tool immediately.
+
+    Args:
+        domain: The domain this tool belongs to (e.g., "cloud", "local")
+        read_only: If True, tool only reads without making changes (default: False)
+        destructive: If True, tool modifies/deletes existing data (default: True)
+        idempotent: If True, repeated calls have same effect (default: False)
+        open_world: If True, tool interacts with external systems (default: True)
+
+    Returns:
+        Decorator function that tags the tool with annotations
+
+    Example:
+        @mcp_tool("cloud", read_only=True, idempotent=True)
+        def list_sources():
+            ...
+    """
+    annotations: dict[str, Any] = {}
+    if read_only is not None:
+        annotations[READ_ONLY_HINT] = read_only
+    if destructive is not None:
+        annotations[DESTRUCTIVE_HINT] = destructive
+    if idempotent is not None:
+        annotations[IDEMPOTENT_HINT] = idempotent
+    if open_world is not None:
+        annotations[OPEN_WORLD_HINT] = open_world
+
+    def decorator(func: F) -> F:
+        func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
+        func._mcp_domain = domain  # type: ignore[attr-defined]  # noqa: SLF001
+        if domain not in _REGISTERED_TOOLS:
+            _REGISTERED_TOOLS[domain] = []
+        _REGISTERED_TOOLS[domain].append((func, annotations))
+        return func
+
+    return decorator
 
 
 def cloud_tool(
@@ -77,6 +144,8 @@ def cloud_tool(
     open_world: bool | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag a Cloud ops tool function with MCP annotations.
+
+    Deprecated: Use mcp_tool("cloud", ...) instead.
 
     This decorator stores the annotations on the function for later use during
     deferred registration. It does not register the tool immediately.
@@ -95,20 +164,10 @@ def cloud_tool(
         def list_sources():
             ...
     """
-    annotations: dict[str, Any] = {}
-    if read_only is not None:
-        annotations[READ_ONLY_HINT] = read_only
-    if destructive is not None:
-        annotations[DESTRUCTIVE_HINT] = destructive
-    if idempotent is not None:
-        annotations[IDEMPOTENT_HINT] = idempotent
-    if open_world is not None:
-        annotations[OPEN_WORLD_HINT] = open_world
-
-    def decorator(func: F) -> F:
-        func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
-        func._is_cloud_tool = True  # type: ignore[attr-defined]  # noqa: SLF001
-        _CLOUD_TOOLS.append((func, annotations))
-        return func
-
-    return decorator
+    return mcp_tool(
+        "cloud",
+        read_only=read_only,
+        destructive=destructive,
+        idempotent=idempotent,
+        open_world=open_world,
+    )
