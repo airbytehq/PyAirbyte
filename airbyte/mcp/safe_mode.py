@@ -124,3 +124,15 @@ def mcp_tool(
         return func
 
     return decorator
+
+
+def register_tools(app: Any, domain: Literal["cloud"]) -> None:  # noqa: ANN401
+    """Register tools with the FastMCP app, filtered by domain and safe mode settings.
+
+    Args:
+        app: The FastMCP app instance
+        domain: The domain to register tools for (e.g., "cloud")
+    """
+    for func, tool_annotations in get_registered_tools(domain):
+        if should_register_tool(tool_annotations):
+            app.tool(func, annotations=tool_annotations)
