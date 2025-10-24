@@ -109,8 +109,7 @@ def mcp_tool(
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
         open_world: If True, tool interacts with external systems (default: False)
-        airbyte_internal: If True, tool is only for internal Airbyte admin use and requires
-            AIRBYTE_INTERNAL_ADMIN_FLAG and AIRBYTE_INTERNAL_ADMIN_USER env vars (default: False)
+        airbyte_internal: If True, tool is only for internal Airbyte admin use.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
