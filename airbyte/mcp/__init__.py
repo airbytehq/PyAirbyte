@@ -85,7 +85,9 @@ requirements.
         "airbyte-mcp"
       ],
       "env": {
-        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
+        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env",
+        "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0",
+        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "0"
       }
     }
   }
@@ -95,6 +97,14 @@ requirements.
 Note:
 - Replace `/path/to/my/.mcp/airbyte_mcp.env` with the absolute path to your dotenv file created in
   Step 1.
+- The `AIRBYTE_CLOUD_MCP_READONLY_MODE` and `AIRBYTE_CLOUD_MCP_SAFE_MODE` environment variables
+  control safe mode filtering for Airbyte Cloud operations:
+  - `AIRBYTE_CLOUD_MCP_READONLY_MODE=1`: Only read-only Cloud tools are available. Write and
+    destructive operations are disabled.
+  - `AIRBYTE_CLOUD_MCP_SAFE_MODE=1`: Write operations are allowed, but destructive operations
+    (update, delete) are disabled.
+  - Both default to `0` (disabled), which means no restrictions are applied.
+  - These settings only affect Cloud operations; local operations are never restricted.
 
 ### Step 3: Testing the MCP Server Connection
 
