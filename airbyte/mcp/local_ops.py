@@ -13,12 +13,9 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
-from airbyte.mcp._annotations import (
-    DESTRUCTIVE_HINT,
-    IDEMPOTENT_HINT,
-    OPEN_WORLD_HINT,
-    READ_ONLY_HINT,
-)
+from airbyte.mcp._tool_utils import mcp_tool, register_tools
+
+# Remove duplicate import block
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -111,6 +108,11 @@ def _get_mcp_source(
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+)
 def validate_connector_config(
     connector_name: Annotated[
         str,
@@ -186,6 +188,11 @@ def validate_connector_config(
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+)
 def list_connector_config_secrets(
     connector_name: Annotated[
         str,
@@ -211,6 +218,12 @@ def list_connector_config_secrets(
     return secrets_names
 
 
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    open_world=False,
+)
 def list_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
 
@@ -226,6 +239,11 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+)
 def list_source_streams(
     source_connector_name: Annotated[
         str,
@@ -288,6 +306,11 @@ def list_source_streams(
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+)
 def get_source_stream_json_schema(
     source_connector_name: Annotated[
         str,
@@ -351,6 +374,10 @@ def get_source_stream_json_schema(
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+)
 def read_source_stream_records(
     source_connector_name: Annotated[
         str,
@@ -438,6 +465,10 @@ def read_source_stream_records(
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+)
 def get_stream_previews(
     source_name: Annotated[
         str,
@@ -547,6 +578,10 @@ def get_stream_previews(
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    destructive=False,
+)
 def sync_source_to_cache(
     source_connector_name: Annotated[
         str,
@@ -652,6 +687,12 @@ class CachedDatasetInfo(BaseModel):
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    open_world=False,
+)
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
     cache: DuckDBCache = get_default_cache()
@@ -668,6 +709,12 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    open_world=False,
+)
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
     cache = get_default_cache()
@@ -715,6 +762,12 @@ def _is_safe_sql(sql_query: str) -> bool:
 
 
 # @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    open_world=False,
+)
 def run_sql_query(
     sql_query: Annotated[
         str,
@@ -773,101 +826,4 @@ def register_local_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(
-        list_connector_config_secrets,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        describe_default_cache,
-        description=(describe_default_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: False,  # Local cache only
-        },
-    )
-
-    app.tool(
-        get_source_stream_json_schema,
-        description=(get_source_stream_json_schema.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        get_stream_previews,
-        description=(get_stream_previews.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-        },
-    )
-
-    app.tool(
-        list_cached_streams,
-        description=(list_cached_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: False,  # Local cache only
-        },
-    )
-
-    app.tool(
-        list_dotenv_secrets,
-        description=(list_dotenv_secrets.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: False,  # Local .env files only
-        },
-    )
-
-    app.tool(
-        list_source_streams,
-        description=(list_source_streams.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
-
-    app.tool(
-        read_source_stream_records,
-        description=(read_source_stream_records.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-        },
-    )
-
-    app.tool(
-        run_sql_query,
-        description=(run_sql_query.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-            OPEN_WORLD_HINT: False,  # Local cache only
-        },
-    )
-
-    app.tool(
-        sync_source_to_cache,
-        description=(sync_source_to_cache.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            DESTRUCTIVE_HINT: False,  # Syncs are additive/merge operations
-        },
-    )
-
-    app.tool(
-        validate_connector_config,
-        description=(validate_connector_config.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        annotations={
-            READ_ONLY_HINT: True,
-            IDEMPOTENT_HINT: True,
-        },
-    )
+    register_tools(app, domain="local")

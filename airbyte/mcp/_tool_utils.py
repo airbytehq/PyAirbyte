@@ -64,12 +64,13 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
 
 
 def get_registered_tools(
-    domain: Literal["cloud"] | None = None,
+    domain: Literal["cloud", "local", "registry"] | None = None,
 ) -> list[tuple[Callable[..., Any], dict[str, Any]]]:
     """Get all registered tools, optionally filtered by domain.
 
     Args:
-        domain: The domain to filter by (e.g., "cloud"). If None, returns all tools.
+        domain: The domain to filter by (e.g., "cloud", "local", "registry").
+            If None, returns all tools.
 
     Returns:
         List of tuples containing (function, annotations) for each registered tool
@@ -80,7 +81,7 @@ def get_registered_tools(
 
 
 def mcp_tool(
-    domain: Literal["cloud"],
+    domain: Literal["cloud", "local", "registry"],
     *,
     read_only: bool | None = None,
     destructive: bool | None = None,
@@ -93,7 +94,7 @@ def mcp_tool(
     deferred registration. It does not register the tool immediately.
 
     Args:
-        domain: The domain this tool belongs to (e.g., "cloud", "local")
+        domain: The domain this tool belongs to (e.g., "cloud", "local", "registry")
         read_only: If True, tool only reads without making changes (default: False)
         destructive: If True, tool modifies/deletes existing data (default: True)
         idempotent: If True, repeated calls have same effect (default: False)
@@ -126,12 +127,12 @@ def mcp_tool(
     return decorator
 
 
-def register_tools(app: Any, domain: Literal["cloud"]) -> None:  # noqa: ANN401
+def register_tools(app: Any, domain: Literal["cloud", "local", "registry"]) -> None:  # noqa: ANN401
     """Register tools with the FastMCP app, filtered by domain and safe mode settings.
 
     Args:
         app: The FastMCP app instance
-        domain: The domain to register tools for (e.g., "cloud")
+        domain: The domain to register tools for (e.g., "cloud", "local", "registry")
     """
     for func, tool_annotations in get_registered_tools(domain):
         if should_register_tool(tool_annotations):
