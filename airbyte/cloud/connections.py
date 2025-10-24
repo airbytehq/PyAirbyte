@@ -296,6 +296,26 @@ class CloudConnection:
         self._connection_info = updated_response
         return self
 
+    @staticmethod
+    def _build_stream_configurations(
+        stream_names: list[str],
+    ) -> api_models.StreamConfigurationsInput:
+        """Build a StreamConfigurationsInput object from a list of stream names.
+
+        This helper creates the proper API model structure for stream configurations,
+        matching the pattern used in connection creation.
+
+        Args:
+            stream_names: List of stream names to include in the configuration
+
+        Returns:
+            StreamConfigurationsInput object ready for API submission
+        """
+        stream_configurations = [
+            api_models.StreamConfiguration(name=stream_name) for stream_name in stream_names
+        ]
+        return api_models.StreamConfigurationsInput(streams=stream_configurations)
+
     def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
         """Set the selected streams for the connection.
 
@@ -308,10 +328,7 @@ class CloudConnection:
         Returns:
             Updated CloudConnection object with refreshed info
         """
-        stream_configurations = [
-            api_models.StreamConfiguration(name=stream_name) for stream_name in stream_names
-        ]
-        configurations = api_models.StreamConfigurationsInput(streams=stream_configurations)
+        configurations = self._build_stream_configurations(stream_names)
 
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
