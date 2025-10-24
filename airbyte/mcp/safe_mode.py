@@ -11,10 +11,20 @@ import os
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from airbyte.mcp._annotations import DESTRUCTIVE_HINT, READ_ONLY_HINT
+from airbyte.mcp._annotations import (
+    DESTRUCTIVE_HINT,
+    IDEMPOTENT_HINT,
+    OPEN_WORLD_HINT,
+    READ_ONLY_HINT,
+)
 
 
 F = TypeVar("F", bound=Callable[..., Any])
+
+AIRBYTE_CLOUD_MCP_READONLY_MODE = (
+    os.environ.get("AIRBYTE_CLOUD_MCP_READONLY_MODE", "").strip() == "1"
+)
+AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
 
 _CLOUD_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 
@@ -23,24 +33,6 @@ class SafeModeError(Exception):
     """Raised when a tool is blocked by safe mode restrictions."""
 
     pass
-
-
-def is_readonly_mode_enabled() -> bool:
-    """Check if read-only mode is enabled via environment variable.
-
-    Returns:
-        True if AIRBYTE_CLOUD_MCP_READONLY_MODE is set to "1", False otherwise.
-    """
-    return os.environ.get("AIRBYTE_CLOUD_MCP_READONLY_MODE", "").strip() == "1"
-
-
-def is_safe_mode_enabled() -> bool:
-    """Check if safe mode is enabled via environment variable.
-
-    Returns:
-        True if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "1", False otherwise.
-    """
-    return os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
 
 
 def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
@@ -52,18 +44,15 @@ def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
     Returns:
         True if the tool should be registered, False if it should be filtered out
     """
-    readonly_mode = is_readonly_mode_enabled()
-    safe_mode = is_safe_mode_enabled()
-
-    if not readonly_mode and not safe_mode:
+    if not AIRBYTE_CLOUD_MCP_READONLY_MODE and not AIRBYTE_CLOUD_MCP_SAFE_MODE:
         return True
 
-    if readonly_mode:
+    if AIRBYTE_CLOUD_MCP_READONLY_MODE:
         is_readonly = annotations.get(READ_ONLY_HINT, False)
         if not is_readonly:
             return False
 
-    if safe_mode:
+    if AIRBYTE_CLOUD_MCP_SAFE_MODE:
         is_destructive = annotations.get(DESTRUCTIVE_HINT, True)  # Default is True per FastMCP
         if is_destructive:
             return False
@@ -80,23 +69,41 @@ def get_registered_cloud_tools() -> list[tuple[Callable[..., Any], dict[str, Any
     return _CLOUD_TOOLS.copy()
 
 
-def cloud_tool(annotations: dict[str, Any]) -> Callable[[F], F]:
+def cloud_tool(
+    *,
+    read_only: bool | None = None,
+    destructive: bool | None = None,
+    idempotent: bool | None = None,
+    open_world: bool | None = None,
+) -> Callable[[F], F]:
     """Decorator to tag a Cloud ops tool function with MCP annotations.
 
     This decorator stores the annotations on the function for later use during
     deferred registration. It does not register the tool immediately.
 
     Args:
-        annotations: Tool annotations dict containing readOnlyHint, destructiveHint, etc.
+        read_only: If True, tool only reads without making changes (default: False)
+        destructive: If True, tool modifies/deletes existing data (default: True)
+        idempotent: If True, repeated calls have same effect (default: False)
+        open_world: If True, tool interacts with external systems (default: True)
 
     Returns:
         Decorator function that tags the tool with annotations
 
     Example:
-        @cloud_tool({READ_ONLY_HINT: True, IDEMPOTENT_HINT: True})
+        @cloud_tool(read_only=True, idempotent=True)
         def list_sources():
             ...
     """
+    annotations: dict[str, Any] = {}
+    if read_only is not None:
+        annotations[READ_ONLY_HINT] = read_only
+    if destructive is not None:
+        annotations[DESTRUCTIVE_HINT] = destructive
+    if idempotent is not None:
+        annotations[IDEMPOTENT_HINT] = idempotent
+    if open_world is not None:
+        annotations[OPEN_WORLD_HINT] = open_world
 
     def decorator(func: F) -> F:
         func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
