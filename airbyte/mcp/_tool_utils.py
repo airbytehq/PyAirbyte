@@ -49,17 +49,16 @@ def check_guid_created_in_session(guid: str) -> None:
     """Check if a GUID was created in this session.
 
     Raises SafeModeError if the GUID was not created in this session and
-    AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "session".
+    AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
 
     Args:
         guid: The GUID to check
     """
-    safe_mode_value = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip().lower()
-    if safe_mode_value == "session" and guid not in _GUIDS_CREATED_IN_SESSION:
+    if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
         raise SafeModeError(
             f"Cannot perform destructive operation on '{guid}': "
             f"Object was not created in this session. "
-            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 'session'."
+            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
         )
 
 
