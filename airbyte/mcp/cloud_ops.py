@@ -1015,8 +1015,9 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
 
-    Tools are filtered based on safe mode settings:
+    Tools are filtered based on mode settings:
     - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
-    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: Destructive tools are not registered
+    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: All tools are registered, but destructive
+      operations are protected by runtime session checks
     """
     register_tools(app, domain="cloud")
