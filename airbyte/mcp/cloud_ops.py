@@ -34,7 +34,6 @@ def _get_cloud_workspace() -> CloudWorkspace:
 
 @mcp_tool(
     domain="cloud",
-    destructive=False,
 )
 def deploy_source_to_cloud(
     source_name: Annotated[
@@ -104,7 +103,6 @@ def deploy_source_to_cloud(
 
 @mcp_tool(
     domain="cloud",
-    destructive=False,
 )
 def deploy_destination_to_cloud(
     destination_name: Annotated[
@@ -174,7 +172,6 @@ def deploy_destination_to_cloud(
 
 @mcp_tool(
     domain="cloud",
-    destructive=False,
 )
 def create_connection_on_cloud(
     connection_name: Annotated[
@@ -236,7 +233,6 @@ def create_connection_on_cloud(
 
 @mcp_tool(
     domain="cloud",
-    destructive=False,
 )
 def run_cloud_sync(
     connection_id: Annotated[
@@ -317,7 +313,6 @@ def check_airbyte_cloud_workspace() -> str:
 
 @mcp_tool(
     domain="cloud",
-    destructive=False,
 )
 def deploy_noop_destination_to_cloud(
     name: str = "No-op Destination",
@@ -558,7 +553,6 @@ def _get_custom_source_definition_description(
 
 @mcp_tool(
     domain="cloud",
-    destructive=False,
 )
 def publish_custom_source_definition(
     name: Annotated[
