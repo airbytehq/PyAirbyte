@@ -53,25 +53,16 @@ def _check_internal_admin_flag() -> bool:
     return True
 
 
-def _get_admin_user_email() -> str:
+def _get_admin_user_email() -> str | None:
     """Get the admin user email from environment variable.
 
-    This function should only be called after _check_internal_admin_flag() returns True.
-
     Returns:
-        The admin user email from AIRBYTE_INTERNAL_ADMIN_USER.
-
-    Raises:
-        ValueError: If AIRBYTE_INTERNAL_ADMIN_USER is not set.
+        The admin user email from AIRBYTE_INTERNAL_ADMIN_USER, or None if not configured.
     """
     if not _check_internal_admin_flag():
-        raise ValueError("Admin flag not properly configured")
+        return None
 
-    admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
-    if not admin_user:
-        raise ValueError("AIRBYTE_INTERNAL_ADMIN_USER environment variable is not set")
-
-    return admin_user
+    return os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -833,6 +824,8 @@ def set_cloud_source_connector_version_override(
         return "Admin access not enabled. Cannot set version override."
 
     admin_user_email = _get_admin_user_email()
+    if not admin_user_email:
+        return "Admin user email not configured. Cannot set version override."
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
@@ -908,6 +901,8 @@ def set_cloud_destination_connector_version_override(
         return "Admin access not enabled. Cannot set version override."
 
     admin_user_email = _get_admin_user_email()
+    if not admin_user_email:
+        return "Admin user email not configured. Cannot set version override."
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
