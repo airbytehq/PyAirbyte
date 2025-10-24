@@ -251,33 +251,36 @@ class CloudSource(CloudConnector):
             is_version_pinned=version_data.get("isVersionOverrideApplied", False),
         )
 
-    def set_connector_version_override(
+    def _set_connector_version_override(
         self,
         version: str | None = None,
         *,
         unset: bool = False,
         override_reason: str | None = None,
         override_reason_reference_url: str | None = None,
-        user_email: str | None = None,
+        user_email: str,
     ) -> bool:
         """Set or clear a version override for this source.
 
+        **Internal use only.** This method is only for internal Airbyte admin use.
+        Endpoints are not enabled for end user access.
+
         You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
-        When setting a version, `override_reason` and `user_email` are required.
+        When setting a version, `override_reason` is required.
 
         Args:
             version: The semver version string to pin to (e.g., `"0.1.0"`)
             unset: If `True`, removes any existing version override
             override_reason: Required when setting a version. Explanation for the override.
             override_reason_reference_url: Optional URL with more context (e.g., issue link)
-            user_email: Required when setting a version. Email of the user creating the override.
+            user_email: Email of the user creating the override (from AIRBYTE_INTERNAL_ADMIN_USER).
 
         Returns:
             `True` if the operation succeeded, `False` if no override existed (unset only)
 
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided, or if
-                override_reason or user_email is missing when setting a version
+                override_reason is missing when setting a version
         """
         if (version is None) == (not unset):
             raise exc.PyAirbyteInputError(
@@ -297,15 +300,6 @@ class CloudSource(CloudConnector):
                 context={
                     "version": version,
                     "override_reason": override_reason,
-                },
-            )
-
-        if version is not None and not user_email:
-            raise exc.PyAirbyteInputError(
-                message="user_email is required when setting a version override",
-                context={
-                    "version": version,
-                    "user_email": user_email,
                 },
             )
 
@@ -415,33 +409,36 @@ class CloudDestination(CloudConnector):
             is_version_pinned=version_data.get("isVersionOverrideApplied", False),
         )
 
-    def set_connector_version_override(
+    def _set_connector_version_override(
         self,
         version: str | None = None,
         *,
         unset: bool = False,
         override_reason: str | None = None,
         override_reason_reference_url: str | None = None,
-        user_email: str | None = None,
+        user_email: str,
     ) -> bool:
         """Set or clear a version override for this destination.
 
+        **Internal use only.** This method is only for internal Airbyte admin use.
+        Endpoints are not enabled for end user access.
+
         You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
-        When setting a version, `override_reason` and `user_email` are required.
+        When setting a version, `override_reason` is required.
 
         Args:
             version: The semver version string to pin to (e.g., `"0.1.0"`)
             unset: If `True`, removes any existing version override
             override_reason: Required when setting a version. Explanation for the override.
             override_reason_reference_url: Optional URL with more context (e.g., issue link)
-            user_email: Required when setting a version. Email of the user creating the override.
+            user_email: Email of the user creating the override (from AIRBYTE_INTERNAL_ADMIN_USER).
 
         Returns:
             `True` if the operation succeeded, `False` if no override existed (unset only)
 
         Raises:
             exc.PyAirbyteInputError: If both or neither parameters are provided, or if
-                override_reason or user_email is missing when setting a version
+                override_reason is missing when setting a version
         """
         if (version is None) == (not unset):
             raise exc.PyAirbyteInputError(
@@ -461,15 +458,6 @@ class CloudDestination(CloudConnector):
                 context={
                     "version": version,
                     "override_reason": override_reason,
-                },
-            )
-
-        if version is not None and not user_email:
-            raise exc.PyAirbyteInputError(
-                message="user_email is required when setting a version override",
-                context={
-                    "version": version,
-                    "user_email": user_email,
                 },
             )
 

@@ -829,7 +829,7 @@ def set_cloud_source_connector_version_override(
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
-    result = source.set_connector_version_override(
+    result = source._set_connector_version_override(  # noqa: SLF001  # Accessing Non-Public API
         version=version,
         unset=unset,
         override_reason=override_reason,
@@ -906,7 +906,7 @@ def set_cloud_destination_connector_version_override(
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
-    result = destination.set_connector_version_override(
+    result = destination._set_connector_version_override(  # noqa: SLF001  # Accessing Non-Public API
         version=version,
         unset=unset,
         override_reason=override_reason,
