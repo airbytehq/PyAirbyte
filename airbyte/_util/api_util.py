@@ -1482,7 +1482,6 @@ def get_user_id_by_email(
 def set_connector_version_override(  # noqa: PLR0913
     *,
     connector_id: str,
-    connector_type: Literal["source", "destination"],
     actor_definition_id: str,
     actor_definition_version_id: str,
     override_reason: str,
@@ -1504,7 +1503,6 @@ def set_connector_version_override(  # noqa: PLR0913
 
     Args:
         connector_id: The source or destination ID
-        connector_type: Either "source" or "destination"
         actor_definition_id: The connector definition ID
         actor_definition_version_id: The version ID to pin to
         override_reason: Explanation for why the version override is being set

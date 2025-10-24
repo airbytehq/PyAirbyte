@@ -344,7 +344,6 @@ class CloudSource(CloudConnector):
 
         api_util.set_connector_version_override(
             connector_id=self.connector_id,
-            connector_type=self.connector_type,
             actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
             override_reason=override_reason,  # type: ignore[arg-type]
@@ -509,7 +508,6 @@ class CloudDestination(CloudConnector):
 
         api_util.set_connector_version_override(
             connector_id=self.connector_id,
-            connector_type=self.connector_type,
             actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
             override_reason=override_reason,  # type: ignore[arg-type]
