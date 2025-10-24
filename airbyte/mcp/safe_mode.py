@@ -16,6 +16,8 @@ from airbyte.mcp._annotations import DESTRUCTIVE_HINT, READ_ONLY_HINT
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+_CLOUD_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+
 
 class SafeModeError(Exception):
     """Raised when a tool is blocked by safe mode restrictions."""
@@ -69,6 +71,15 @@ def should_register_cloud_tool(annotations: dict[str, Any]) -> bool:
     return True
 
 
+def get_registered_cloud_tools() -> list[tuple[Callable[..., Any], dict[str, Any]]]:
+    """Get all registered cloud tools with their annotations.
+
+    Returns:
+        List of tuples containing (function, annotations) for each registered cloud tool
+    """
+    return _CLOUD_TOOLS.copy()
+
+
 def cloud_tool(annotations: dict[str, Any]) -> Callable[[F], F]:
     """Decorator to tag a Cloud ops tool function with MCP annotations.
 
@@ -90,6 +101,7 @@ def cloud_tool(annotations: dict[str, Any]) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
         func._is_cloud_tool = True  # type: ignore[attr-defined]  # noqa: SLF001
+        _CLOUD_TOOLS.append((func, annotations))
         return func
 
     return decorator

@@ -1,7 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
-import sys
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -25,7 +24,7 @@ from airbyte.mcp._annotations import (
     READ_ONLY_HINT,
 )
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
-from airbyte.mcp.safe_mode import cloud_tool, should_register_cloud_tool
+from airbyte.mcp.safe_mode import cloud_tool, get_registered_cloud_tools, should_register_cloud_tool
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -712,13 +711,6 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
     - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
     - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: Destructive tools are not registered
     """
-    current_module = sys.modules[__name__]
-
-    for name in dir(current_module):
-        obj = getattr(current_module, name)
-
-        if callable(obj) and hasattr(obj, "_is_cloud_tool"):
-            annotations = getattr(obj, "_mcp_annotations", {})
-
-            if should_register_cloud_tool(annotations):
-                app.tool(obj, annotations=annotations)
+    for func, annotations in get_registered_cloud_tools():
+        if should_register_cloud_tool(annotations):
+            app.tool(func, annotations=annotations)
