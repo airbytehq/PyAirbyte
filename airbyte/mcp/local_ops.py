@@ -14,8 +14,6 @@ from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
-
-# Remove duplicate import block
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
