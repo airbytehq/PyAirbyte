@@ -9,7 +9,6 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from airbyte import cloud, get_destination, get_source
-from airbyte import exceptions as exc
 from airbyte.cloud.auth import (
     resolve_cloud_api_url,
     resolve_cloud_client_id,
@@ -28,33 +27,49 @@ from airbyte.mcp._annotations import (
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
-def _check_internal_admin_flag() -> str:
-    """Check if internal admin flag is set and return the admin user email.
+def _check_internal_admin_flag() -> bool:
+    """Check if internal admin flag is properly configured.
 
     Returns:
-        The admin user email from AIRBYTE_INTERNAL_ADMIN_USER
-
-    Raises:
-        PyAirbyteInputError: If admin flag is not properly configured
+        True if both AIRBYTE_INTERNAL_ADMIN_FLAG and AIRBYTE_INTERNAL_ADMIN_USER are set correctly.
     """
     admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
     admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
 
     if admin_flag != "airbyte.io":
-        raise exc.PyAirbyteInputError(
-            message="Admin access not enabled. Set AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io",
-            context={
-                "AIRBYTE_INTERNAL_ADMIN_FLAG": admin_flag,
-            },
+        print(
+            "Warning: Admin access not enabled. "
+            "Set AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io to enable version override tools."
         )
+        return False
 
     if not admin_user:
-        raise exc.PyAirbyteInputError(
-            message="Admin user not configured. Set AIRBYTE_INTERNAL_ADMIN_USER to your email",
-            context={
-                "AIRBYTE_INTERNAL_ADMIN_USER": admin_user,
-            },
+        print(
+            "Warning: Admin user not configured. "
+            "Set AIRBYTE_INTERNAL_ADMIN_USER to your email to enable version override tools."
         )
+        return False
+
+    return True
+
+
+def _get_admin_user_email() -> str:
+    """Get the admin user email from environment variable.
+
+    This function should only be called after _check_internal_admin_flag() returns True.
+
+    Returns:
+        The admin user email from AIRBYTE_INTERNAL_ADMIN_USER.
+
+    Raises:
+        ValueError: If AIRBYTE_INTERNAL_ADMIN_USER is not set.
+    """
+    if not _check_internal_admin_flag():
+        raise ValueError("Admin flag not properly configured")
+
+    admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+    if not admin_user:
+        raise ValueError("AIRBYTE_INTERNAL_ADMIN_USER environment variable is not set")
 
     return admin_user
 
@@ -814,7 +829,10 @@ def set_cloud_source_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    admin_user_email = _check_internal_admin_flag()
+    if not _check_internal_admin_flag():
+        return "Admin access not enabled. Cannot set version override."
+
+    admin_user_email = _get_admin_user_email()
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
@@ -886,7 +904,10 @@ def set_cloud_destination_connector_version_override(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    admin_user_email = _check_internal_admin_flag()
+    if not _check_internal_admin_flag():
+        return "Admin access not enabled. Cannot set version override."
+
+    admin_user_email = _get_admin_user_email()
 
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
