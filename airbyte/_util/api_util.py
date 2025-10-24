@@ -836,8 +836,8 @@ def get_bearer_token(
             "accept": "application/json",
         },
         json={
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": str(client_id),
+            "client_secret": str(client_secret),
         },
     )
     if not status_ok(response.status_code):
@@ -1483,6 +1483,7 @@ def set_connector_version_override(  # noqa: PLR0913
     *,
     connector_id: str,
     connector_type: Literal["source", "destination"],
+    actor_definition_id: str,
     actor_definition_version_id: str,
     override_reason: str,
     user_email: str,
@@ -1504,6 +1505,7 @@ def set_connector_version_override(  # noqa: PLR0913
     Args:
         connector_id: The source or destination ID
         connector_type: Either "source" or "destination"
+        actor_definition_id: The connector definition ID
         actor_definition_version_id: The version ID to pin to
         override_reason: Explanation for why the version override is being set
         user_email: Email address of the user creating the override
@@ -1525,8 +1527,8 @@ def set_connector_version_override(  # noqa: PLR0913
     request_body: dict[str, Any] = {
         "config_key": "connector_version",
         "value": actor_definition_version_id,
-        "resource_type": connector_type,  # "source" or "destination"
-        "resource_id": connector_id,  # The actor (source/destination) ID
+        "resource_type": "actor_definition",
+        "resource_id": actor_definition_id,
         "scope_type": "actor",
         "scope_id": connector_id,
         "origin": user_id,

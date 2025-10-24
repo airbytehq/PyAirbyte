@@ -248,7 +248,7 @@ class CloudSource(CloudConnector):
         )
         return CloudConnectorVersionInfo(
             version=version_data["dockerImageTag"],
-            is_version_pinned=version_data.get("isOverrideApplied", False),
+            is_version_pinned=version_data.get("isVersionOverrideApplied", False),
         )
 
     def set_connector_version_override(
@@ -345,6 +345,7 @@ class CloudSource(CloudConnector):
         api_util.set_connector_version_override(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
+            actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
             override_reason=override_reason,  # type: ignore[arg-type]
             user_email=user_email,  # type: ignore[arg-type]
@@ -412,7 +413,7 @@ class CloudDestination(CloudConnector):
         )
         return CloudConnectorVersionInfo(
             version=version_data["dockerImageTag"],
-            is_version_pinned=version_data.get("isOverrideApplied", False),
+            is_version_pinned=version_data.get("isVersionOverrideApplied", False),
         )
 
     def set_connector_version_override(
@@ -509,6 +510,7 @@ class CloudDestination(CloudConnector):
         api_util.set_connector_version_override(
             connector_id=self.connector_id,
             connector_type=self.connector_type,
+            actor_definition_id=actor_definition_id,
             actor_definition_version_id=actor_definition_version_id,
             override_reason=override_reason,  # type: ignore[arg-type]
             user_email=user_email,  # type: ignore[arg-type]
