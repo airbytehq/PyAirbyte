@@ -696,6 +696,48 @@ class CloudDestination(CloudConnector):
         connector_info = self._fetch_connector_info()
         actor_definition_id = connector_info.definition_id
 
+        current_version_info = self.get_connector_version()
+        current_version = current_version_info.version
+
+        existing_override_info = api_util.get_connector_version_override_info(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        existing_override_creator_email = None
+        if existing_override_info and existing_override_info.get("origin"):
+            creator_user_id = existing_override_info["origin"]
+            existing_override_creator_email = api_util.get_user_email_by_id(
+                user_id=creator_user_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        is_permitted, denial_reason = _validate_version_override_permission(
+            current_version=current_version,
+            new_version=version,
+            is_setting_override=not unset,
+            override_reason=override_reason or "",
+            user_email=user_email,
+            existing_override_creator_email=existing_override_creator_email,
+        )
+
+        if not is_permitted:
+            raise exc.PyAirbyteInputError(
+                message=f"Version override operation not permitted: {denial_reason}",
+                context={
+                    "current_version": current_version,
+                    "new_version": version,
+                    "is_setting_override": not unset,
+                    "user_email": user_email,
+                    "existing_override_creator_email": existing_override_creator_email,
+                },
+            )
+
         if unset:
             return api_util.clear_connector_version_override(
                 connector_id=self.connector_id,
