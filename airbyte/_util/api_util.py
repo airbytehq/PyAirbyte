@@ -1561,6 +1561,47 @@ def _find_connector_version_override_id(
     return None
 
 
+def get_connector_version_override_info(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any] | None:
+    """Get full information about a connector version override if one exists.
+
+    Uses the /v1/scoped_configuration/get_context endpoint to retrieve the active
+    configuration for the given scope.
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary with override info including 'id', 'origin' (user UUID), 'description', etc.
+        Returns None if no override exists.
+    """
+    json_result = _make_config_api_request(
+        path="/scoped_configuration/get_context",
+        json={
+            "config_key": "connector_version",
+            "scope_type": "actor",
+            "scope_id": connector_id,
+            "resource_type": "actor_definition",
+            "resource_id": actor_definition_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    return json_result.get("activeConfiguration")
+
+
 def clear_connector_version_override(
     *,
     connector_id: str,
@@ -1651,6 +1692,43 @@ def get_user_id_by_email(
             return user["userId"]
 
     raise ValueError(f"No user found with email: {email}")
+
+
+def get_user_email_by_id(
+    *,
+    user_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Get a user's email address by their UUID.
+
+    Uses the Config API endpoint:
+    /v1/users/list_instance_admin
+
+    Args:
+        user_id: The user's UUID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The user's email address, or None if not found
+    """
+    response = _make_config_api_request(
+        path="/users/list_instance_admin",
+        json={},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    users = response.get("users", [])
+    for user in users:
+        if user.get("userId") == user_id:
+            return user.get("email")
+
+    return None
 
 
 def set_connector_version_override(  # noqa: PLR0913
