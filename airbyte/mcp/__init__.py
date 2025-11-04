@@ -150,14 +150,18 @@ Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-
 
 
 
-The MCP server uses PyAirbyte under the hood to manage Airbyte connectors. PyAirbyte supports both Python-native connectors (installed via pip/uv) and Docker-based connectors (run in containers). Understanding this architecture helps when diagnosing issues.
+The MCP server uses PyAirbyte under the hood to manage Airbyte connectors. PyAirbyte
+supports both Python-native connectors (installed via pip/uv) and Docker-based connectors
+(run in containers). Understanding this architecture helps when diagnosing issues.
 
 
 ### Path Requirements
 
-**Always use absolute paths in your environment files.** Relative paths, tilde (`~`), or environment variables like `$HOME` will not work correctly.
+**Always use absolute paths in your environment files.** Relative paths, tilde (`~`), or
+environment variables like `$HOME` will not work correctly.
 
-The `AIRBYTE_PROJECT_DIR` environment variable is critical - it specifies where PyAirbyte stores connector artifacts, cache files, and temporary data. Ensure this directory:
+The `AIRBYTE_PROJECT_DIR` environment variable is critical - it specifies where PyAirbyte
+stores connector artifacts, cache files, and temporary data. Ensure this directory:
 - Uses an absolute path (e.g., `/Users/username/airbyte-projects`)
 - Is writable by the user running the MCP server
 - Has sufficient disk space for connector operations
@@ -177,10 +181,13 @@ AIRBYTE_PROJECT_DIR=$HOME/airbyte-projects
 ### Security Model
 
 The MCP server implements a security model that protects your credentials:
-- **LLM sees only environment variable names** - The AI assistant can see which variables are available (e.g., `POSTGRES_PASSWORD`) but never their actual values
-- **MCP server reads actual values** - Only the MCP server process accesses the secret values when executing operations
+- **LLM sees only environment variable names** - The AI assistant can see which variables
+  are available (e.g., `POSTGRES_PASSWORD`) but never their actual values
+- **MCP server reads actual values** - Only the MCP server process accesses the secret
+  values when executing operations
 - **Credentials never exposed to LLM** - Your API keys, passwords, and other secrets remain secure
-- **Safe Mode protects existing resources** - When enabled (default), destructive operations are only allowed on resources created in the current session
+- **Safe Mode protects existing resources** - When enabled (default), destructive
+  operations are only allowed on resources created in the current session
 
 This design allows AI assistants to help configure connectors without compromising security.
 
@@ -189,7 +196,8 @@ This design allows AI assistants to help configure connectors without compromisi
 
 Before using the MCP server, verify these prerequisites:
 
-1. **Docker Desktop is running** - Many connectors require Docker. Ensure Docker Desktop is started and healthy.
+1. **Docker Desktop is running** - Many connectors require Docker. Ensure Docker Desktop
+   is started and healthy.
 2. **Docker CLI is in PATH** - Verify by running `docker --version` in your terminal.
 3. **Absolute paths in env file** - Double-check that all paths use absolute notation.
 4. **Valid Airbyte Cloud API credentials** - Ensure you have:
@@ -205,10 +213,12 @@ Before using the MCP server, verify these prerequisites:
 - Solution: Start Docker Desktop and ensure it's running. Verify with `docker ps`.
 
 **Issue: "Permission denied" when accessing AIRBYTE_PROJECT_DIR**
-- Solution: Ensure the directory exists and is writable. Create it with `mkdir -p /path/to/dir` if needed.
+- Solution: Ensure the directory exists and is writable. Create it with
+  `mkdir -p /path/to/dir` if needed.
 
 **Issue: "Invalid credentials" when connecting to Airbyte Cloud**
-- Solution: Verify your Client ID and Client Secret are correct and not swapped. These are different values.
+- Solution: Verify your Client ID and Client Secret are correct and not swapped. These are
+  different values.
 
 **Issue: Connector fails with "path not found"**
 - Solution: Check that all paths in your env file are absolute, not relative or using `~`.
