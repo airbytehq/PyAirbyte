@@ -70,7 +70,8 @@ def list_connectors(
     Returns:
         List of connector names.
     """
-    connectors: list[str] = get_available_connectors()
+    # Start with the full list of known connectors (all support Docker):
+    connectors: list[str] = get_available_connectors(install_type=InstalledType.DOCKER)
 
     install_types_list: list[str] | None = resolve_list_of_strings(
         install_types,  # type: ignore[arg-type]  # Type check doesn't understand literal is str
