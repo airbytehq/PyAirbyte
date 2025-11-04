@@ -112,8 +112,8 @@ class NoOpExecutor(Executor):
                 "NoOpExecutor only supports the 'spec' command for configuration validation. "
                 "To run connector operations (check, discover, read), "
                 "use a Docker or Python executor. "
-                "For MCP cloud deployments, set pre_validate_config=False "
-                "to skip local validation."
+                "For MCP cloud deployments, don't use no_executor=True "
+                "if you need to run connector operations locally."
             ),
         )
 

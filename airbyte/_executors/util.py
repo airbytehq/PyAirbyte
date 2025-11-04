@@ -167,11 +167,24 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     install_if_missing: bool = True,
     install_root: Path | None = None,
     use_python: bool | Path | str | None = None,
+    no_executor: bool = False,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
     """
+    if no_executor:
+        from airbyte._executors.noop import (  # noqa: PLC0415 # Local import to avoid cycles
+            NoOpExecutor,
+        )
+
+        metadata = get_connector_metadata(name)
+        return NoOpExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+        )
+
     install_method_count = sum(
         [
             bool(local_executable),
