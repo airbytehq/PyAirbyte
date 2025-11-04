@@ -14,7 +14,7 @@ from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.sources import get_available_connectors
-from airbyte.sources.registry import ConnectorMetadata, get_connector_metadata
+from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.sources.util import get_source
 
 
@@ -71,7 +71,7 @@ def list_connectors(
         List of connector names.
     """
     # Start with the full list of known connectors (all support Docker):
-    connectors: list[str] = get_available_connectors(install_type=InstalledType.DOCKER)
+    connectors: list[str] = get_available_connectors(install_type=InstallType.DOCKER)
 
     install_types_list: list[str] | None = resolve_list_of_strings(
         install_types,  # type: ignore[arg-type]  # Type check doesn't understand literal is str

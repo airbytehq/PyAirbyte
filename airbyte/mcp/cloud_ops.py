@@ -82,14 +82,14 @@ def deploy_source_to_cloud(
     try:
         source = get_source(
             source_connector_name,
-            install_if_missing=False,
+            no_executor=True,
         )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
-            config_spec_jsonschema=None,  # Skip local validation to avoid requiring installation
+            config_spec_jsonschema=source.config_spec,
         )
-        source.set_config(config_dict, validate=False)  # Skip validation to avoid local execution
+        source.set_config(config_dict, validate=True)
 
         workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_source = workspace.deploy_source(
@@ -153,16 +153,14 @@ def deploy_destination_to_cloud(
     try:
         destination = get_destination(
             destination_connector_name,
-            install_if_missing=False,
+            no_executor=True,
         )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
-            config_spec_jsonschema=None,  # Skip local validation to avoid requiring installation
+            config_spec_jsonschema=destination.config_spec,
         )
-        destination.set_config(
-            config_dict, validate=False
-        )  # Skip validation to avoid local execution
+        destination.set_config(config_dict, validate=True)
 
         workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_destination = workspace.deploy_destination(

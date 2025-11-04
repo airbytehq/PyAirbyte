@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from airbyte._executors.noop import NoOpExecutor
 from airbyte._executors.util import get_connector_executor
 from airbyte.destinations.base import Destination
+from airbyte.sources.registry import get_connector_metadata
 
 
 if TYPE_CHECKING:
@@ -31,6 +33,7 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
     use_host_network: bool = False,
     install_if_missing: bool = True,
     install_root: Path | None = None,
+    no_executor: bool = False,
 ) -> Destination:
     """Get a connector by name and version.
 
@@ -69,12 +72,19 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             parameter is ignored when local_executable is set.
         install_root: (Optional.) The root directory where the virtual environment will be
             created. If not provided, the current working directory will be used.
+        no_executor: If True, use NoOpExecutor which fetches specs from the registry without
+            local installation. This is useful for scenarios where you need to validate
+            configurations but don't need to run the connector locally (e.g., deploying to Cloud).
     """
-    return Destination(
-        name=name,
-        config=config,
-        config_change_callback=config_change_callback,
-        executor=get_connector_executor(
+    if no_executor:
+        metadata = get_connector_metadata(name)
+        executor = NoOpExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+        )
+    else:
+        executor = get_connector_executor(
             name=name,
             version=version,
             use_python=use_python,
@@ -84,7 +94,13 @@ def get_destination(  # noqa: PLR0913 # Too many arguments
             use_host_network=use_host_network,
             install_if_missing=install_if_missing,
             install_root=install_root,
-        ),
+        )
+
+    return Destination(
+        name=name,
+        config=config,
+        config_change_callback=config_change_callback,
+        executor=executor,
     )
 
 
