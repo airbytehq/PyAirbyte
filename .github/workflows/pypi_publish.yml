@@ -19,9 +19,8 @@ jobs:
       env:
         # Temporary workaround: PyO3 v0.24.1 (used by pydantic-core) only supports Python up to 3.13,
         # but the hynek action internally uses Python 3.x which resolves to 3.14 on GitHub runners.
-        # These flags allow PyO3 to proceed with forward compatibility mode.
+        # This flag allows PyO3 to proceed with forward compatibility mode.
         PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
-        PYO3_PRINT_CONFIG: "1"
 
   publish:
     name: Publish to PyPI
