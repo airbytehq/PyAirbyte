@@ -19,7 +19,12 @@ from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
-from airbyte.mcp._tool_utils import mcp_tool, register_tools
+from airbyte.mcp._tool_utils import (
+    check_guid_created_in_session,
+    mcp_tool,
+    register_guid_created_in_session,
+    register_tools,
+)
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
@@ -116,14 +121,14 @@ def deploy_source_to_cloud(
     try:
         source = get_source(
             source_connector_name,
-            install_if_missing=False,
+            no_executor=True,
         )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
             config_spec_jsonschema=source.config_spec,
         )
-        source.set_config(config_dict)
+        source.set_config(config_dict, validate=True)
 
         workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_source = workspace.deploy_source(
@@ -135,6 +140,7 @@ def deploy_source_to_cloud(
     except Exception as ex:
         return f"Failed to deploy source '{source_name}': {ex}"
     else:
+        register_guid_created_in_session(deployed_source.connector_id)
         return (
             f"Successfully deployed source '{source_name}' with ID '{deployed_source.connector_id}'"
             f" and URL: {deployed_source.connector_url}"
@@ -186,14 +192,14 @@ def deploy_destination_to_cloud(
     try:
         destination = get_destination(
             destination_connector_name,
-            install_if_missing=False,
+            no_executor=True,
         )
         config_dict = resolve_config(
             config=config,
             config_secret_name=config_secret_name,
             config_spec_jsonschema=destination.config_spec,
         )
-        destination.set_config(config_dict)
+        destination.set_config(config_dict, validate=True)
 
         workspace: CloudWorkspace = _get_cloud_workspace()
         deployed_destination = workspace.deploy_destination(
@@ -205,6 +211,7 @@ def deploy_destination_to_cloud(
     except Exception as ex:
         return f"Failed to deploy destination '{destination_name}': {ex}"
     else:
+        register_guid_created_in_session(deployed_destination.connector_id)
         return (
             f"Successfully deployed destination '{destination_name}' "
             f"with ID: {deployed_destination.connector_id}"
@@ -266,6 +273,7 @@ def create_connection_on_cloud(
     except Exception as ex:
         return f"Failed to create connection '{connection_name}': {ex}"
     else:
+        register_guid_created_in_session(deployed_connection.connection_id)
         return (
             f"Successfully created connection '{connection_name}' "
             f"with ID '{deployed_connection.connection_id}' and "
@@ -381,6 +389,7 @@ def deploy_noop_destination_to_cloud(
     except Exception as ex:
         return f"Failed to deploy No-op Destination: {ex}"
     else:
+        register_guid_created_in_session(deployed_destination.connector_id)
         return (
             f"Successfully deployed No-op Destination "
             f"with ID '{deployed_destination.connector_id}' and "
@@ -656,6 +665,7 @@ def publish_custom_source_definition(
     except Exception as ex:
         return f"Failed to publish custom source definition '{name}': {ex}"
     else:
+        register_guid_created_in_session(custom_source.definition_id)
         return (
             "Successfully published custom YAML source definition:\n"
             + _get_custom_source_definition_description(
@@ -723,6 +733,7 @@ def update_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
+    check_guid_created_in_session(definition_id)
     try:
         processed_manifest = manifest_yaml
         if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
@@ -772,6 +783,7 @@ def permanently_delete_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
+    check_guid_created_in_session(definition_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
@@ -1061,6 +1073,7 @@ def update_cloud_source_config(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    check_guid_created_in_session(source_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
     source = workspace.get_source(source_id=source_id)
 
@@ -1136,6 +1149,7 @@ def update_cloud_destination_config(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    check_guid_created_in_session(destination_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
     destination = workspace.get_destination(destination_id=destination_id)
 
@@ -1182,6 +1196,7 @@ def rename_cloud_connection(
 
 @mcp_tool(
     domain="cloud",
+    destructive=True,
     open_world=True,
 )
 def set_cloud_connection_table_prefix(
@@ -1196,10 +1211,14 @@ def set_cloud_connection_table_prefix(
 ) -> str:
     """Set the table prefix for a connection on Airbyte Cloud.
 
+    This is a destructive operation that can break downstream dependencies if the
+    table prefix is changed incorrectly. Use with caution.
+
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
     connection = workspace.get_connection(connection_id=connection_id)
     connection.set_table_prefix(prefix=prefix)
@@ -1238,6 +1257,7 @@ def set_cloud_connection_selected_streams(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
+    check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -1255,8 +1275,9 @@ def register_cloud_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
 
-    Tools are filtered based on safe mode settings:
+    Tools are filtered based on mode settings:
     - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
-    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: Destructive tools are not registered
+    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: All tools are registered, but destructive
+      operations are protected by runtime session checks
     """
     register_tools(app, domain="cloud")

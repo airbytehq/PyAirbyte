@@ -25,9 +25,10 @@ F = TypeVar("F", bound=Callable[..., Any])
 AIRBYTE_CLOUD_MCP_READONLY_MODE = (
     os.environ.get("AIRBYTE_CLOUD_MCP_READONLY_MODE", "").strip() == "1"
 )
-AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "").strip() == "1"
+AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
+_GUIDS_CREATED_IN_SESSION: set[str] = set()
 
 
 class SafeModeError(Exception):
@@ -36,8 +37,34 @@ class SafeModeError(Exception):
     pass
 
 
+def register_guid_created_in_session(guid: str) -> None:
+    """Register a GUID as created in this session.
+
+    Args:
+        guid: The GUID to register
+    """
+    _GUIDS_CREATED_IN_SESSION.add(guid)
+
+
+def check_guid_created_in_session(guid: str) -> None:
+    """Check if a GUID was created in this session.
+
+    Raises SafeModeError if the GUID was not created in this session and
+    AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
+
+    Args:
+        guid: The GUID to check
+    """
+    if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
+        raise SafeModeError(
+            f"Cannot perform destructive operation on '{guid}': "
+            f"Object was not created in this session. "
+            f"AIRBYTE_CLOUD_MCP_SAFE_MODE is set to '1'."
+        )
+
+
 def should_register_tool(annotations: dict[str, Any]) -> bool:
-    """Check if a tool should be registered based on safe mode settings.
+    """Check if a tool should be registered based on mode settings.
 
     Args:
         annotations: Tool annotations dict containing domain, readOnlyHint, destructiveHint,
@@ -55,17 +82,9 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     if annotations.get("domain") != "cloud":
         return True
 
-    if not AIRBYTE_CLOUD_MCP_READONLY_MODE and not AIRBYTE_CLOUD_MCP_SAFE_MODE:
-        return True
-
     if AIRBYTE_CLOUD_MCP_READONLY_MODE:
         is_readonly = annotations.get(READ_ONLY_HINT, False)
         if not is_readonly:
-            return False
-
-    if AIRBYTE_CLOUD_MCP_SAFE_MODE:
-        is_destructive = annotations.get(DESTRUCTIVE_HINT, True)  # Default is True per FastMCP
-        if is_destructive:
             return False
 
     return True
