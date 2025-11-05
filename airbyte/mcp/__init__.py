@@ -173,7 +173,6 @@ stores connector artifacts, cache files, and temporary data. Ensure this directo
 - Is writable by the user account running the MCP server.
 
 Note:
-
 - In rare cases, your agent may not be able to find `uv` or `uvx` if they are not in the system
   `PATH` or if the agent has a stale `PATH` value. In these cases, you can use `which uvx` from
   your own terminal to discover the full path to the `uvx` binary, and then provide the full path
