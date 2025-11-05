@@ -15,6 +15,7 @@ from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._executors.docker import DEFAULT_AIRBYTE_CONTAINER_TEMP_DIR, DockerExecutor
 from airbyte._executors.local import PathExecutor
+from airbyte._executors.noop import NoOpExecutor
 from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
@@ -173,24 +174,13 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
     """
-    if no_executor:
-        from airbyte._executors.noop import (  # noqa: PLC0415 # Local import to avoid cycles
-            NoOpExecutor,
-        )
-
-        metadata = get_connector_metadata(name)
-        return NoOpExecutor(
-            name=name,
-            metadata=metadata,
-            target_version=version,
-        )
-
     install_method_count = sum(
         [
             bool(local_executable),
             bool(docker_image),
             bool(pip_url) or bool(use_python),
             bool(source_manifest),
+            bool(no_executor),
         ]
     )
 
@@ -217,13 +207,14 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
         raise exc.PyAirbyteInputError(
             message=(
                 "You can only specify one of the settings: 'local_executable', 'docker_image', "
-                "'source_manifest', or 'pip_url'."
+                "'source_manifest', 'pip_url', or 'no_executor'."
             ),
             context={
                 "local_executable": local_executable,
                 "docker_image": docker_image,
                 "pip_url": pip_url,
                 "source_manifest": source_manifest,
+                "no_executor": no_executor,
             },
         )
     metadata: ConnectorMetadata | None = None
@@ -361,6 +352,13 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 components_py=components_py,
                 components_py_checksum=components_py_checksum,
             )
+
+    if no_executor:
+        return NoOpExecutor(
+            name=name,
+            metadata=metadata,
+            target_version=version,
+        )
 
     # else: we are installing a connector in a Python virtual environment:
 
