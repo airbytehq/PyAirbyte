@@ -15,12 +15,7 @@ jobs:
     - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
       with:
         fetch-depth: 0
-    - uses: hynek/build-and-inspect-python-package@c52c3a4710070b50470d903818a7b25115dcd076 # v2.13.0
-      env:
-        # Temporary workaround: PyO3 v0.24.1 (used by pydantic-core) only supports Python up to 3.13,
-        # but the hynek action internally uses Python 3.x which resolves to 3.14 on GitHub runners.
-        # This flag allows PyO3 to proceed with forward compatibility mode.
-        PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+    - uses: hynek/build-and-inspect-python-package@7fbee3f4115ea35380497636f86ee440d12d2f40 # v2.14.0
 
   publish:
     name: Publish to PyPI
