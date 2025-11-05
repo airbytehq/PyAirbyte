@@ -47,7 +47,14 @@ def test_get_connector_spec_from_registry(connector_name: str, platform: str) ->
         (
             "source-faker",
             {
-                "invalid_field": "value",
+                "count": "not_a_number",
+            },
+            False,
+        ),
+        (
+            "source-faker",
+            {
+                "count": 0,
             },
             False,
         ),
