@@ -12,18 +12,25 @@ from airbyte._util.registry_spec import (
 
 
 @pytest.mark.parametrize(
-    "connector_name,platform",
+    "connector_name,platform,version",
     [
-        ("source-faker", "oss"),
-        ("source-faker", "cloud"),
-        ("destination-duckdb", "oss"),
+        ("source-faker", "oss", None),
+        ("source-faker", "cloud", None),
+        ("destination-duckdb", "oss", None),
+        ("source-faker", "oss", "6.2.0"),
+        ("source-faker", "cloud", "6.2.0"),
     ],
 )
-def test_get_connector_spec_from_registry(connector_name: str, platform: str) -> None:
+def test_get_connector_spec_from_registry(
+    connector_name: str,
+    platform: str,
+    version: str | None,
+) -> None:
     """Test fetching connector specs from the registry."""
     spec = get_connector_spec_from_registry(
         connector_name,
         platform=platform,
+        version=version,
     )
 
     assert spec is not None
