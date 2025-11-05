@@ -143,85 +143,58 @@ This mode does allow running syncs on existing connectors, since sync operations
 are not considered to be modifications of the Airbyte Cloud workspace.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+
 ## Troubleshooting
 
-### Architecture Overview
-
-
-
+### Troubleshooting Local Connector Installation Issues
 
 The MCP server uses PyAirbyte under the hood to manage Airbyte connectors. PyAirbyte
 supports both Python-native connectors (installed via pip/uv) and Docker-based connectors
-(run in containers). Understanding this architecture helps when diagnosing issues.
+(run in containers).
 
+To ensure docker connectors run correctly, please make sure `which docker` returns a valid
+path and that Docker Desktop (or an alternative container runtime) is running.
 
-### Path Requirements
+To ensure Python connectors run correctly, please make sure the Python version used to run the
+MCP server is compatible with the connector requirements. See the MCP server conifiguration
+section above for details on how to specify the Python version used by the MCP server.
+
+### Using Abolute Paths
 
 **Always use absolute paths in your environment files.** Relative paths, tilde (`~`), or
-environment variables like `$HOME` will not work correctly.
+environment variables like `$HOME` will not work correctly, due to the way MCP servers
+are loaded and executed.
 
 The `AIRBYTE_PROJECT_DIR` environment variable is critical - it specifies where PyAirbyte
 stores connector artifacts, cache files, and temporary data. Ensure this directory:
-- Uses an absolute path (e.g., `/Users/username/airbyte-projects`)
-- Is writable by the user running the MCP server
-- Has sufficient disk space for connector operations
 
-Example of correct path configuration:
-```ini
-AIRBYTE_PROJECT_DIR=/Users/username/airbyte-projects
+- Uses an absolute path. (For example: `/Users/username/airbyte-projects`.)
+- Exists on the filesystem. (Use `mkdir -p /path/to/dir` to create it if needed.)
+- Is writable by the user account running the MCP server.
 
-AIRBYTE_PROJECT_DIR=./airbyte-projects
+Note:
 
-AIRBYTE_PROJECT_DIR=~/airbyte-projects
+- In rare cases, your agent may not be able to find `uv` or `uvx` if they are not in the system
+  `PATH` or if the agent has a stale `PATH` value. In these cases, you can use `which uvx` from
+  your own terminal to discover the full path to the `uvx` binary, and then provide the full path
+  in your MCP configuration file.
 
-AIRBYTE_PROJECT_DIR=$HOME/airbyte-projects
-```
-
-
-### Security Model
+### Securing Your Secrets
 
 The MCP server implements a security model that protects your credentials:
+
 - **LLM sees only environment variable names** - The AI assistant can see which variables
-  are available (e.g., `POSTGRES_PASSWORD`) but never their actual values
+  are available (e.g., `POSTGRES_PASSWORD`) but never their actual values.
 - **MCP server reads actual values** - Only the MCP server process accesses the secret
-  values when executing operations
-- **Credentials never exposed to LLM** - Your API keys, passwords, and other secrets remain secure
-- **Safe Mode protects existing resources** - When enabled (default), destructive
-  operations are only allowed on resources created in the current session
+  values when executing operations.
+- **Credentials never exposed to LLM** - Your API keys, passwords, and other secrets remain secure.
 
 This design allows AI assistants to help configure connectors without compromising security.
 
-
-### Prerequisites Checklist
-
-Before using the MCP server, verify these prerequisites:
-
-1. **Docker Desktop is running** - Many connectors require Docker. Ensure Docker Desktop
-   is started and healthy.
-2. **Docker CLI is in PATH** - Verify by running `docker --version` in your terminal.
-3. **Absolute paths in env file** - Double-check that all paths use absolute notation.
-4. **Valid Airbyte Cloud API credentials** - Ensure you have:
-   - `AIRBYTE_CLOUD_CLIENT_ID` (not the same as Client Secret)
-   - `AIRBYTE_CLOUD_CLIENT_SECRET`
-   - `AIRBYTE_CLOUD_WORKSPACE_ID`
-   - Note: Client ID and Client Secret are different values - do not confuse them.
-
-
-### Common Issues
-
-**Issue: "Docker not found" or "Cannot connect to Docker daemon"**
-- Solution: Start Docker Desktop and ensure it's running. Verify with `docker ps`.
-
-**Issue: "Permission denied" when accessing AIRBYTE_PROJECT_DIR**
-- Solution: Ensure the directory exists and is writable. Create it with
-  `mkdir -p /path/to/dir` if needed.
-
-**Issue: "Invalid credentials" when connecting to Airbyte Cloud**
-- Solution: Verify your Client ID and Client Secret are correct and not swapped. These are
-  different values.
-
-**Issue: Connector fails with "path not found"**
-- Solution: Check that all paths in your env file are absolute, not relative or using `~`.
+Note: While the MCP server takes steps to secure your credentials, you are responsible for
+ensuring the agent is not given access to your secrets by other means. For example, Claude Code
+may have *full* local disk access when run in certain modes. Consult your agent's documentation
+for details on securing local files.
 
 ## Contributing to the Airbyte MCP Server
 
@@ -229,8 +202,8 @@ Before using the MCP server, verify these prerequisites:
 
 ### Additional resources
 
-- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+- [Airbyte AI Agents Documentation Home](https://docs.airbyte.com/ai-agents/)
+- [MCP Documentation Home](https://modelcontextprotocol.io/)
 
 For issues and questions:
 - [PyAirbyte GitHub Issues](https://github.com/airbytehq/pyairbyte/issues)
