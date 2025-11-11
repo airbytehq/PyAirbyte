@@ -195,6 +195,17 @@ def get_connector_version_history(
             default=5,
         ),
     ] = 5,
+    limit: Annotated[
+        int | None,
+        Field(
+            description=(
+                "DEPRECATED: Use num_versions_to_validate instead. "
+                "Maximum number of versions to return (most recent first). "
+                "If specified, only the first N versions will be returned."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> list[ConnectorVersionInfo] | Literal["Connector not found.", "Failed to fetch changelog."]:
     """Get version history for a connector.
 
@@ -212,10 +223,15 @@ def get_connector_version_history(
         List of version information, sorted by most recent first.
     """
     try:
-        return _get_connector_version_history(
+        versions = _get_connector_version_history(
             connector_name=connector_name,
             num_versions_to_validate=num_versions_to_validate,
         )
+
+        if limit is not None and limit > 0:
+            versions = versions[:limit]
+
+        return versions
     except exc.AirbyteConnectorNotRegisteredError:
         return "Connector not found."
     except requests.exceptions.RequestException:
