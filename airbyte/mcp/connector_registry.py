@@ -227,16 +227,15 @@ def get_connector_version_history(
             connector_name=connector_name,
             num_versions_to_validate=num_versions_to_validate,
         )
-
-        if limit is not None and limit > 0:
-            versions = versions[:limit]
-
-        return versions
     except exc.AirbyteConnectorNotRegisteredError:
         return "Connector not found."
     except requests.exceptions.RequestException:
         logger.exception(f"Failed to fetch changelog for {connector_name}")
         return "Failed to fetch changelog."
+    else:
+        if limit is not None and limit > 0:
+            return versions[:limit]
+        return versions
 
 
 def register_connector_registry_tools(app: FastMCP) -> None:
