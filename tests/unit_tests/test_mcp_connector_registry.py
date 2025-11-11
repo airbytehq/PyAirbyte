@@ -77,7 +77,10 @@ class TestExtractUrlsFromManifestDescription:
         urls = _extract_urls_from_manifest_description(description)
         assert len(urls) >= 2
         url_strings = set(u.url for u in urls)
-        expected_urls = {"https://api.example.com/docs", "https://dashboard.example.com/"}
+        expected_urls = {
+            "https://api.example.com/docs",
+            "https://dashboard.example.com/",
+        }
         assert expected_urls.issubset(url_strings)
 
     def test_no_urls_in_description(self) -> None:
