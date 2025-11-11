@@ -11,16 +11,18 @@ import requests
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from airbyte import exceptions as exc
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
-from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
 from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.registry import (
     ConnectorMetadata,
+    ConnectorVersionInfo,
     InstallType,
     get_available_connectors,
     get_connector_metadata,
+    get_connector_version_history,
 )
 from airbyte.sources.util import get_source
 
@@ -126,18 +128,6 @@ class ConnectorInfo(BaseModel):
     manifest_url: str | None = None
 
 
-class ConnectorVersionInfo(BaseModel):
-    """@private Class to hold information about a specific connector version."""
-
-    version: str
-    release_date: str | None = None
-    docker_image_url: str | None = None
-    changelog_url: str | None = None
-    pr_url: str | None = None
-    pr_title: str | None = None
-    parsing_errors: list[str] = Field(default_factory=list)
-
-
 @mcp_tool(
     domain="registry",
     read_only=True,
@@ -188,23 +178,23 @@ def get_connector_info(
     read_only=True,
     idempotent=True,
 )
-def get_connector_version_history(
+def get_connector_version_history_mcp(
     connector_name: Annotated[
         str,
         Field(
             description="The name of the connector (e.g., 'source-faker', 'destination-postgres')"
         ),
     ],
-    limit: Annotated[
-        int | None,
+    num_versions_to_validate: Annotated[
+        int,
         Field(
             description=(
-                "Maximum number of versions to return (most recent first). "
-                "If not specified, returns all versions."
+                "Number of most recent versions to validate with registry data for accurate "
+                "release dates. Defaults to 5."
             ),
-            default=None,
+            default=5,
         ),
-    ] = None,
+    ] = 5,
 ) -> list[ConnectorVersionInfo] | Literal["Connector not found.", "Failed to fetch changelog."]:
     """Get version history for a connector.
 
@@ -215,49 +205,22 @@ def get_connector_version_history(
     - Changelog URL
     - PR URL and title (scraped from changelog)
 
-    For the most recent 5 versions, release dates are fetched from the registry
-    for accuracy. For older versions, changelog dates are used.
+    For the most recent N versions (default 5), release dates are fetched from the
+    registry for accuracy. For older versions, changelog dates are used.
 
     Returns:
         List of version information, sorted by most recent first.
     """
-    if connector_name not in get_available_connectors():
-        return "Connector not found."
-
-    connector_type = "sources" if connector_name.startswith("source-") else "destinations"
-    connector_short_name = connector_name.replace("source-", "").replace("destination-", "")
-
-    changelog_url = f"https://docs.airbyte.com/integrations/{connector_type}/{connector_short_name}"
-
     try:
-        response = requests.get(changelog_url, timeout=30)
-        response.raise_for_status()
-        html_content = response.text
-    except Exception:
+        return get_connector_version_history(
+            connector_name=connector_name,
+            num_versions_to_validate=num_versions_to_validate,
+        )
+    except exc.AirbyteConnectorNotRegisteredError:
+        return "Connector not found."
+    except requests.exceptions.RequestException:
         logger.exception(f"Failed to fetch changelog for {connector_name}")
         return "Failed to fetch changelog."
-
-    version_dicts = parse_changelog_html(html_content, connector_name)
-
-    if not version_dicts:
-        logger.warning(f"No versions found in changelog for {connector_name}")
-        return []
-
-    versions = [ConnectorVersionInfo(**version_dict) for version_dict in version_dicts]
-
-    for version_info in versions[:5]:
-        registry_date = fetch_registry_version_date(connector_name, version_info.version)
-        if registry_date:
-            version_info.release_date = registry_date
-            logger.debug(
-                f"Updated release date for {connector_name} v{version_info.version} "
-                f"from registry: {registry_date}"
-            )
-
-    if limit is not None and limit > 0:
-        versions = versions[:limit]
-
-    return versions
 
 
 def register_connector_registry_tools(app: FastMCP) -> None:

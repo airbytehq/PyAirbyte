@@ -13,9 +13,10 @@ from pathlib import Path
 from typing import cast
 
 import requests
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
+from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
 from airbyte._util.meta import is_docker_installed
 from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.logs import warn_once
@@ -279,3 +280,106 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
             "install_type": install_type,
         },
     )
+
+
+class ConnectorVersionInfo(BaseModel):
+    """Information about a specific connector version."""
+
+    version: str
+    release_date: str | None = None
+    docker_image_url: str
+    changelog_url: str
+    pr_url: str | None = None
+    pr_title: str | None = None
+    parsing_errors: list[str] = Field(default_factory=list)
+
+    model_config = {
+        "json_schema_extra": {
+            "example": {
+                "version": "1.0.0",
+                "release_date": "2024-01-15",
+                "docker_image_url": "https://hub.docker.com/r/airbyte/source-faker/tags?name=1.0.0",
+                "changelog_url": "https://docs.airbyte.com/integrations/sources/faker#changelog",
+                "pr_url": "https://github.com/airbytehq/airbyte/pull/12345",
+                "pr_title": "Add new feature",
+                "parsing_errors": [],
+            }
+        }
+    }
+
+
+def get_connector_version_history(
+    connector_name: str,
+    *,
+    num_versions_to_validate: int = 5,
+    timeout: int = 30,
+) -> list[ConnectorVersionInfo]:
+    """Get version history for a connector.
+
+    This function retrieves the version history for a connector by:
+    1. Scraping the changelog HTML from docs.airbyte.com
+    2. Parsing version information including PR URLs and titles
+    3. Overriding release dates for the most recent N versions with accurate
+       registry data
+
+    Args:
+        connector_name: Name of the connector (e.g., 'source-faker', 'destination-postgres')
+        num_versions_to_validate: Number of most recent versions to override with
+            registry release dates for accuracy. Defaults to 5.
+        timeout: Timeout in seconds for the changelog fetch. Defaults to 30.
+
+    Returns:
+        List of ConnectorVersionInfo objects, sorted by most recent first.
+
+    Raises:
+        AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
+
+    Example:
+        >>> versions = get_connector_version_history("source-faker", num_versions_to_validate=3)
+        >>> for v in versions[:5]:
+        ...     print(f"{v.version}: {v.release_date}")
+    """
+    if connector_name not in get_available_connectors():
+        raise exc.AirbyteConnectorNotRegisteredError(
+            connector_name=connector_name,
+            context={
+                "registry_url": _get_registry_url(),
+                "available_connectors": get_available_connectors(),
+            },
+        )
+
+    connector_type = "sources" if connector_name.startswith("source-") else "destinations"
+    connector_short_name = connector_name.replace("source-", "").replace("destination-", "")
+
+    changelog_url = f"https://docs.airbyte.com/integrations/{connector_type}/{connector_short_name}"
+
+    try:
+        response = requests.get(
+            changelog_url,
+            headers={"User-Agent": f"PyAirbyte/{get_version()}"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+        html_content = response.text
+    except requests.exceptions.RequestException as e:
+        logger.warning(f"Failed to fetch changelog for {connector_name}: {e}")
+        return []
+
+    version_dicts = parse_changelog_html(html_content, connector_name)
+
+    if not version_dicts:
+        logger.warning(f"No versions found in changelog for {connector_name}")
+        return []
+
+    versions = [ConnectorVersionInfo(**version_dict) for version_dict in version_dicts]
+
+    for version_info in versions[:num_versions_to_validate]:
+        registry_date = fetch_registry_version_date(connector_name, version_info.version)
+        if registry_date:
+            version_info.release_date = registry_date
+            logger.debug(
+                f"Updated release date for {connector_name} v{version_info.version} "
+                f"from registry: {registry_date}"
+            )
+
+    return versions
