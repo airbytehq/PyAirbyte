@@ -15,6 +15,7 @@ from airbyte.registry import (
     get_connector_metadata,
 )
 
+
 __all__ = [
     "ConnectorMetadata",
     "InstallType",

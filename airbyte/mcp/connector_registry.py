@@ -16,8 +16,12 @@ from airbyte._registry_utils import fetch_registry_version_date, parse_changelog
 from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
-from airbyte.sources import get_available_connectors
-from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
+from airbyte.registry import (
+    ConnectorMetadata,
+    InstallType,
+    get_available_connectors,
+    get_connector_metadata,
+)
 from airbyte.sources.util import get_source
 
 

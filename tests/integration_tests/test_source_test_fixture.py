@@ -25,7 +25,7 @@ from airbyte.caches.base import CacheBase
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
 from airbyte.results import ReadResult
-from airbyte.sources import registry
+from airbyte import registry
 from airbyte.version import get_version
 from sqlalchemy import column, text
 

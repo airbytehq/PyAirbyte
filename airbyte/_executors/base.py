@@ -14,7 +14,7 @@ from airbyte._message_iterators import AirbyteMessageIterator
 if TYPE_CHECKING:
     from collections.abc import Generator, Iterable, Iterator
 
-    from airbyte.sources.registry import ConnectorMetadata
+    from airbyte.registry import ConnectorMetadata
 
 
 _LATEST_VERSION = "latest"
