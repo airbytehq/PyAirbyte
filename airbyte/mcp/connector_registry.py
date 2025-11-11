@@ -22,8 +22,8 @@ from airbyte.registry import (
     InstallType,
     get_available_connectors,
     get_connector_metadata,
-    get_connector_version_history,
 )
+from airbyte.registry import get_connector_version_history as _get_connector_version_history
 from airbyte.sources.util import get_source
 
 
@@ -178,7 +178,7 @@ def get_connector_info(
     read_only=True,
     idempotent=True,
 )
-def get_connector_version_history_mcp(
+def get_connector_version_history(
     connector_name: Annotated[
         str,
         Field(
@@ -212,7 +212,7 @@ def get_connector_version_history_mcp(
         List of version information, sorted by most recent first.
     """
     try:
-        return get_connector_version_history(
+        return _get_connector_version_history(
             connector_name=connector_name,
             num_versions_to_validate=num_versions_to_validate,
         )
