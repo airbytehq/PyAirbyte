@@ -173,6 +173,94 @@ metadata:
             assert urls[1].title == "API Deprecations"
             assert urls[1].url == "https://api.example.com/deprecations"
 
+    def test_manifest_with_external_docs_urls(self) -> None:
+        """Test extracting URLs from data.externalDocumentationUrls field."""
+        manifest_yaml = """
+version: 1.0.0
+type: DeclarativeSource
+data:
+  externalDocumentationUrls:
+    - title: Versioning docs
+      url: https://api.example.com/versioning
+      type: api_reference
+    - title: Changelog
+      url: https://api.example.com/changelog
+      type: api_release_history
+    - title: Deprecated API calls
+      url: https://api.example.com/deprecations
+      type: api_deprecations
+      requiresLogin: true
+"""
+        with patch("airbyte.mcp.connector_registry.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = manifest_yaml
+            mock_get.return_value = mock_response
+
+            urls = _fetch_manifest_docs_urls("source-example")
+            assert len(urls) == 3
+            assert urls[0].title == "Versioning docs"
+            assert urls[0].url == "https://api.example.com/versioning"
+            assert urls[0].doc_type == "api_reference"
+            assert urls[0].requires_login is False
+            assert urls[1].title == "Changelog"
+            assert urls[1].doc_type == "api_release_history"
+            assert urls[2].title == "Deprecated API calls"
+            assert urls[2].doc_type == "api_deprecations"
+            assert urls[2].requires_login is True
+
+    def test_manifest_with_external_docs_no_type(self) -> None:
+        """Test extracting URLs from data.externalDocumentationUrls without type field."""
+        manifest_yaml = """
+version: 1.0.0
+type: DeclarativeSource
+data:
+  externalDocumentationUrls:
+    - title: General docs
+      url: https://api.example.com/docs
+"""
+        with patch("airbyte.mcp.connector_registry.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = manifest_yaml
+            mock_get.return_value = mock_response
+
+            urls = _fetch_manifest_docs_urls("source-example")
+            assert len(urls) == 1
+            assert urls[0].title == "General docs"
+            assert urls[0].doc_type == "other"
+            assert urls[0].requires_login is False
+
+    def test_manifest_with_mixed_formats(self) -> None:
+        """Test backward compatibility with multiple doc formats."""
+        manifest_yaml = """
+version: 1.0.0
+type: DeclarativeSource
+data:
+  externalDocumentationUrls:
+    - title: New format docs
+      url: https://api.example.com/new
+      type: api_reference
+metadata:
+  assist:
+    docsUrl: https://api.example.com/assist
+  apiDocs:
+    - title: Old format docs
+      url: https://api.example.com/old
+"""
+        with patch("airbyte.mcp.connector_registry.requests.get") as mock_get:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.text = manifest_yaml
+            mock_get.return_value = mock_response
+
+            urls = _fetch_manifest_docs_urls("source-example")
+            assert len(urls) == 3
+            sources = [u.source for u in urls]
+            assert "data_external_docs" in sources
+            assert "manifest_assist" in sources
+            assert "manifest_api_docs" in sources
+
     def test_manifest_request_error(self) -> None:
         """Test handling request errors gracefully."""
         with patch("airbyte.mcp.connector_registry.requests.get") as mock_get:

@@ -170,6 +170,10 @@ class ApiDocsUrl(BaseModel):
     title: str
     url: str
     source: str
+    doc_type: str = Field(default="other", alias="type")
+    requires_login: bool = Field(default=False, alias="requiresLogin")
+
+    model_config = {"populate_by_name": True}
 
 
 class ApiDocsUrlsResult(BaseModel):
@@ -258,29 +262,45 @@ def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
     if manifest_data.get("description"):
         docs_urls.extend(_extract_urls_from_manifest_description(manifest_data["description"]))
 
-    metadata = manifest_data.get("metadata")
-    if not isinstance(metadata, dict):
-        return docs_urls
-
-    assist = metadata.get("assist")
-    if isinstance(assist, dict) and "docsUrl" in assist:
-        docs_urls.append(
-            ApiDocsUrl(
-                title="API Documentation (assist)",
-                url=assist["docsUrl"],
-                source="manifest_assist",
+    data_section = manifest_data.get("data")
+    if isinstance(data_section, dict):
+        external_docs = data_section.get("externalDocumentationUrls")
+        if isinstance(external_docs, list):
+            docs_urls.extend(
+                [
+                    ApiDocsUrl(
+                        title=doc["title"],
+                        url=doc["url"],
+                        source="data_external_docs",
+                        doc_type=doc.get("type", "other"),
+                        requires_login=doc.get("requiresLogin", False),
+                    )
+                    for doc in external_docs
+                    if isinstance(doc, dict) and "title" in doc and "url" in doc
+                ]
             )
-        )
 
-    api_docs = metadata.get("apiDocs")
-    if isinstance(api_docs, list):
-        docs_urls.extend(
-            [
-                ApiDocsUrl(title=doc["title"], url=doc["url"], source="manifest_api_docs")
-                for doc in api_docs
-                if isinstance(doc, dict) and "title" in doc and "url" in doc
-            ]
-        )
+    metadata = manifest_data.get("metadata")
+    if isinstance(metadata, dict):
+        assist = metadata.get("assist")
+        if isinstance(assist, dict) and "docsUrl" in assist:
+            docs_urls.append(
+                ApiDocsUrl(
+                    title="API Documentation (assist)",
+                    url=assist["docsUrl"],
+                    source="manifest_assist",
+                )
+            )
+
+        api_docs = metadata.get("apiDocs")
+        if isinstance(api_docs, list):
+            docs_urls.extend(
+                [
+                    ApiDocsUrl(title=doc["title"], url=doc["url"], source="manifest_api_docs")
+                    for doc in api_docs
+                    if isinstance(doc, dict) and "title" in doc and "url" in doc
+                ]
+            )
 
     return docs_urls
 
