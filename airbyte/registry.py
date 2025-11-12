@@ -10,10 +10,12 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import requests
+import yaml
 from pydantic import BaseModel, Field
+from typing_extensions import Self
 
 from airbyte import exceptions as exc
 from airbyte._registry_utils import fetch_registry_version_date, parse_changelog_html
@@ -37,6 +39,10 @@ _MANIFEST_ONLY_LANGUAGE = "manifest-only"
 
 _PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
 _MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
+
+_DEFAULT_MANIFEST_URL = (
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
+)
 
 
 class InstallType(str, Enum):
@@ -292,6 +298,180 @@ class ConnectorVersionInfo(BaseModel):
     pr_url: str | None = None
     pr_title: str | None = None
     parsing_errors: list[str] = Field(default_factory=list)
+
+
+class ApiDocsUrl(BaseModel):
+    """API documentation URL information."""
+
+    title: str
+    url: str
+    source: str
+    doc_type: str = Field(default="other", alias="type")
+    requires_login: bool = Field(default=False, alias="requiresLogin")
+
+    model_config = {"populate_by_name": True}
+
+    @classmethod
+    def from_manifest_dict(cls, manifest_data: dict[str, Any]) -> list[Self]:
+        """Extract documentation URLs from parsed manifest data.
+
+        Args:
+            manifest_data: The parsed manifest.yaml data as a dictionary
+
+        Returns:
+            List of ApiDocsUrl objects extracted from the manifest
+        """
+        results: list[Self] = []
+
+        data_section = manifest_data.get("data")
+        if isinstance(data_section, dict):
+            external_docs = data_section.get("externalDocumentationUrls")
+            if isinstance(external_docs, list):
+                results = [
+                    cls(
+                        title=doc["title"],
+                        url=doc["url"],
+                        source="data_external_docs",
+                        doc_type=doc.get("type", "other"),
+                        requires_login=doc.get("requiresLogin", False),
+                    )
+                    for doc in external_docs
+                ]
+
+        return results
+
+
+def _manifest_url_for(connector_name: str) -> str:
+    """Get the expected URL of the manifest.yaml file for a connector.
+
+    Args:
+        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
+
+    Returns:
+        The URL to the connector's manifest.yaml file
+    """
+    return _DEFAULT_MANIFEST_URL.format(
+        source_name=connector_name,
+        version="latest",
+    )
+
+
+def _fetch_manifest_dict(url: str) -> dict[str, Any]:
+    """Fetch and parse a manifest.yaml file from a URL.
+
+    Args:
+        url: The URL to fetch the manifest from
+
+    Returns:
+        The parsed manifest data as a dictionary, or empty dict if manifest not found (404)
+
+    Raises:
+        HTTPError: If the request fails with a non-404 status code
+    """
+    http_not_found = 404
+
+    response = requests.get(url, timeout=10)
+    if response.status_code == http_not_found:
+        return {}
+
+    response.raise_for_status()
+    return yaml.safe_load(response.text) or {}
+
+
+def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
+    """Extract documentation URLs from connector registry metadata.
+
+    Args:
+        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
+
+    Returns:
+        List of ApiDocsUrl objects extracted from the registry
+    """
+    registry_url = _get_registry_url()
+    response = requests.get(registry_url, timeout=10)
+    response.raise_for_status()
+    registry_data = response.json()
+
+    connector_list = registry_data.get("sources", []) + registry_data.get("destinations", [])
+    connector_entry = None
+    for entry in connector_list:
+        if entry.get("dockerRepository", "").endswith(f"/{connector_name}"):
+            connector_entry = entry
+            break
+
+    docs_urls = []
+
+    if connector_entry and "documentationUrl" in connector_entry:
+        docs_urls.append(
+            ApiDocsUrl(
+                title="Airbyte Documentation",
+                url=connector_entry["documentationUrl"],
+                source="registry",
+            )
+        )
+
+    if connector_entry and "externalDocumentationUrls" in connector_entry:
+        external_docs = connector_entry["externalDocumentationUrls"]
+        if isinstance(external_docs, list):
+            docs_urls.extend(
+                [
+                    ApiDocsUrl(
+                        title=doc["title"],
+                        url=doc["url"],
+                        source="registry_external_docs",
+                        doc_type=doc.get("type", "other"),
+                        requires_login=doc.get("requiresLogin", False),
+                    )
+                    for doc in external_docs
+                ]
+            )
+
+    return docs_urls
+
+
+def get_connector_api_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
+    """Get API documentation URLs for a connector.
+
+    This function retrieves documentation URLs for a connector's upstream API from multiple sources:
+    - Registry metadata (documentationUrl, externalDocumentationUrls)
+    - Connector manifest.yaml file (data.externalDocumentationUrls)
+
+    Args:
+        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
+
+    Returns:
+        List of ApiDocsUrl objects with documentation URLs, deduplicated by URL.
+
+    Raises:
+        AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
+    """
+    if connector_name not in get_available_connectors(InstallType.DOCKER):
+        raise exc.AirbyteConnectorNotRegisteredError(
+            connector_name=connector_name,
+            context={
+                "registry_url": _get_registry_url(),
+                "available_connectors": get_available_connectors(InstallType.DOCKER),
+            },
+        )
+
+    docs_urls: list[ApiDocsUrl] = []
+
+    registry_urls = _extract_docs_from_registry(connector_name)
+    docs_urls.extend(registry_urls)
+
+    manifest_url = _manifest_url_for(connector_name)
+    manifest_data = _fetch_manifest_dict(manifest_url)
+    manifest_urls = ApiDocsUrl.from_manifest_dict(manifest_data)
+    docs_urls.extend(manifest_urls)
+
+    seen_urls = set()
+    unique_docs_urls = []
+    for doc_url in docs_urls:
+        if doc_url.url not in seen_urls:
+            seen_urls.add(doc_url.url)
+            unique_docs_urls.append(doc_url)
+
+    return unique_docs_urls
 
 
 def get_connector_version_history(

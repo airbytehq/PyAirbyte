@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-
-from airbyte.mcp.connector_registry import (
+from airbyte import exceptions as exc
+from airbyte.mcp.connector_registry import get_api_docs_urls
+from airbyte.registry import (
     ApiDocsUrl,
     _fetch_manifest_dict,
     _manifest_url_for,
-    get_api_docs_urls,
 )
 
 
@@ -30,7 +30,7 @@ class TestFetchManifestDict:
 
     def test_manifest_not_found(self) -> None:
         """Test handling when manifest.yaml doesn't exist (404)."""
-        with patch("airbyte.mcp.connector_registry.requests.get") as mock_get:
+        with patch("airbyte.registry.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 404
             mock_get.return_value = mock_response
@@ -46,7 +46,7 @@ type: DeclarativeSource
 data:
   name: Example
 """
-        with patch("airbyte.mcp.connector_registry.requests.get") as mock_get:
+        with patch("airbyte.registry.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.text = manifest_yaml
@@ -133,49 +133,31 @@ class TestGetApiDocsUrls:
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
         with patch(
-            "airbyte.mcp.connector_registry.get_available_connectors"
-        ) as mock_get:
-            mock_get.return_value = ["source-faker", "source-facebook-marketing"]
+            "airbyte.mcp.connector_registry.get_connector_api_docs_urls"
+        ) as mock_get_docs:
+            mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
+                connector_name="nonexistent-connector",
+                context={},
+            )
 
             result = get_api_docs_urls("nonexistent-connector")
             assert result == "Connector not found."
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with (
-            patch(
-                "airbyte.mcp.connector_registry.get_available_connectors"
-            ) as mock_get,
-            patch("airbyte.mcp.connector_registry.get_source") as mock_source,
-            patch(
-                "airbyte.mcp.connector_registry._fetch_manifest_dict"
-            ) as mock_fetch_dict,
-            patch(
-                "airbyte.mcp.connector_registry._extract_docs_from_registry"
-            ) as mock_registry,
-        ):
-            mock_get.return_value = ["source-example", "source-faker"]
-
-            mock_connector = MagicMock()
-            mock_connector.docs_url = (
-                "https://docs.airbyte.com/integrations/sources/example"
-            )
-            mock_source.return_value = mock_connector
-
-            mock_registry.return_value = []
-
-            mock_fetch_dict.return_value = {
-                "data": {
-                    "externalDocumentationUrls": [
-                        {
-                            "title": "Airbyte Documentation",
-                            "url": "https://docs.airbyte.com/integrations/sources/example",
-                        }
-                    ]
-                }
-            }
+        with patch(
+            "airbyte.mcp.connector_registry.get_connector_api_docs_urls"
+        ) as mock_get_docs:
+            mock_get_docs.return_value = [
+                ApiDocsUrl(
+                    title="Airbyte Documentation",
+                    url="https://docs.airbyte.com/integrations/sources/example",
+                    source="registry",
+                )
+            ]
 
             result = get_api_docs_urls("source-example")
 
             assert isinstance(result, list)
             assert len(result) == 1
+            assert result[0].title == "Airbyte Documentation"

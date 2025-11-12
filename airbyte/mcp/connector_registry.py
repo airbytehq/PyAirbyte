@@ -8,21 +8,21 @@ import logging
 from typing import Annotated, Any, Literal
 
 import requests
-import yaml
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
-from typing_extensions import Self
 
 from airbyte import exceptions as exc
-from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.registry import (
+    _DEFAULT_MANIFEST_URL,
+    ApiDocsUrl,
     ConnectorMetadata,
     ConnectorVersionInfo,
     InstallType,
     get_available_connectors,
+    get_connector_api_docs_urls,
     get_connector_metadata,
 )
 from airbyte.registry import get_connector_version_history as _get_connector_version_history
@@ -161,7 +161,7 @@ def get_connector_info(
         connector.install()
         config_spec_jsonschema = connector.config_spec
 
-    manifest_url = DEFAULT_MANIFEST_URL.format(
+    manifest_url = _DEFAULT_MANIFEST_URL.format(
         source_name=connector_name,
         version="latest",
     )
@@ -173,125 +173,6 @@ def get_connector_info(
         config_spec_jsonschema=config_spec_jsonschema,
         manifest_url=manifest_url,
     )
-
-
-def _manifest_url_for(connector_name: str) -> str:
-    """Get the expected URL of the manifest.yaml file for a connector.
-
-    Args:
-        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
-
-    Returns:
-        The URL to the connector's manifest.yaml file
-    """
-    return DEFAULT_MANIFEST_URL.format(
-        source_name=connector_name,
-        version="latest",
-    )
-
-
-def _fetch_manifest_dict(url: str) -> dict[str, Any]:
-    """Fetch and parse a manifest.yaml file from a URL.
-
-    Args:
-        url: The URL to fetch the manifest from
-
-    Returns:
-        The parsed manifest data as a dictionary, or empty dict if manifest not found (404)
-
-    Raises:
-        HTTPError: If the request fails with a non-404 status code
-    """
-    http_not_found = 404
-
-    response = requests.get(url, timeout=10)
-    if response.status_code == http_not_found:
-        return {}
-
-    response.raise_for_status()
-    return yaml.safe_load(response.text) or {}
-
-
-class ApiDocsUrl(BaseModel):
-    """@private Class to hold API documentation URL information."""
-
-    title: str
-    url: str
-    source: str
-    doc_type: str = Field(default="other", alias="type")
-    requires_login: bool = Field(default=False, alias="requiresLogin")
-
-    model_config = {"populate_by_name": True}
-
-    @classmethod
-    def from_manifest_dict(cls, manifest_data: dict[str, Any]) -> list[Self]:
-        """Extract documentation URLs from parsed manifest data.
-
-        Args:
-            manifest_data: The parsed manifest.yaml data as a dictionary
-
-        Returns:
-            List of ApiDocsUrl objects extracted from the manifest
-        """
-        results: list[Self] = []
-
-        data_section = manifest_data.get("data")
-        if isinstance(data_section, dict):
-            external_docs = data_section.get("externalDocumentationUrls")
-            if isinstance(external_docs, list):
-                results = [
-                    cls(
-                        title=doc["title"],
-                        url=doc["url"],
-                        source="data_external_docs",
-                        doc_type=doc.get("type", "other"),
-                        requires_login=doc.get("requiresLogin", False),
-                    )
-                    for doc in external_docs
-                ]
-
-        return results
-
-
-def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
-    """Extract documentation URLs from connector registry metadata.
-
-    Args:
-        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
-
-    Returns:
-        List of ApiDocsUrl objects extracted from the registry
-    """
-    registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
-    response = requests.get(registry_url, timeout=10)
-    response.raise_for_status()
-    registry_data = response.json()
-
-    connector_list = registry_data.get("sources", []) + registry_data.get("destinations", [])
-    connector_entry = None
-    for entry in connector_list:
-        if entry.get("dockerRepository", "").endswith(f"/{connector_name}"):
-            connector_entry = entry
-            break
-
-    docs_urls = []
-    if connector_entry and "externalDocumentationUrls" in connector_entry:
-        external_docs = connector_entry["externalDocumentationUrls"]
-        if isinstance(external_docs, list):
-            docs_urls.extend(
-                [
-                    ApiDocsUrl(
-                        title=doc["title"],
-                        url=doc["url"],
-                        source="registry_external_docs",
-                        doc_type=doc.get("type", "other"),
-                        requires_login=doc.get("requiresLogin", False),
-                    )
-                    for doc in external_docs
-                ]
-            )
-
-    return docs_urls
 
 
 @mcp_tool(
@@ -315,46 +196,11 @@ def get_api_docs_urls(
     This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
     - Registry metadata (documentationUrl, externalDocumentationUrls)
     - Connector manifest.yaml file (data.externalDocumentationUrls)
-
-    Returns:
-        List of ApiDocsUrl objects with documentation URLs, or error message if connector not found.
     """
-    available_connectors = get_available_connectors()
-
-    if connector_name not in available_connectors:
+    try:
+        return get_connector_api_docs_urls(connector_name)
+    except exc.AirbyteConnectorNotRegisteredError:
         return "Connector not found."
-
-    docs_urls: list[ApiDocsUrl] = []
-
-    connector = None
-    with contextlib.suppress(Exception):
-        connector = get_source(
-            connector_name,
-            docker_image=is_docker_installed() or False,
-            install_if_missing=False,
-        )
-
-    if connector and connector.docs_url:
-        docs_urls.append(
-            ApiDocsUrl(title="Airbyte Documentation", url=connector.docs_url, source="registry")
-        )
-
-    registry_urls = _extract_docs_from_registry(connector_name)
-    docs_urls.extend(registry_urls)
-
-    manifest_url = _manifest_url_for(connector_name)
-    manifest_data = _fetch_manifest_dict(manifest_url)
-    manifest_urls = ApiDocsUrl.from_manifest_dict(manifest_data)
-    docs_urls.extend(manifest_urls)
-
-    seen_urls = set()
-    unique_docs_urls = []
-    for doc_url in docs_urls:
-        if doc_url.url not in seen_urls:
-            seen_urls.add(doc_url.url)
-            unique_docs_urls.append(doc_url)
-
-    return unique_docs_urls
 
 
 @mcp_tool(
