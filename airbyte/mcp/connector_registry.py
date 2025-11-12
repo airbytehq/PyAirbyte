@@ -10,6 +10,7 @@ import requests
 import yaml
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
+from typing_extensions import Self
 
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
@@ -163,6 +164,43 @@ def get_connector_info(
     )
 
 
+def _manifest_url_for(connector_name: str) -> str:
+    """Get the expected URL of the manifest.yaml file for a connector.
+
+    Args:
+        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
+
+    Returns:
+        The URL to the connector's manifest.yaml file
+    """
+    return DEFAULT_MANIFEST_URL.format(
+        source_name=connector_name,
+        version="latest",
+    )
+
+
+def _fetch_manifest_dict(url: str) -> dict[str, Any]:
+    """Fetch and parse a manifest.yaml file from a URL.
+
+    Args:
+        url: The URL to fetch the manifest from
+
+    Returns:
+        The parsed manifest data as a dictionary, or empty dict if manifest not found (404)
+
+    Raises:
+        HTTPError: If the request fails with a non-404 status code
+    """
+    http_not_found = 404
+
+    response = requests.get(url, timeout=10)
+    if response.status_code == http_not_found:
+        return {}
+
+    response.raise_for_status()
+    return yaml.safe_load(response.text) or {}
+
+
 class ApiDocsUrl(BaseModel):
     """@private Class to hold API documentation URL information."""
 
@@ -174,18 +212,24 @@ class ApiDocsUrl(BaseModel):
 
     model_config = {"populate_by_name": True}
 
+    @classmethod
+    def from_manifest_dict(cls, manifest_data: dict[str, Any]) -> list[Self]:
+        """Extract documentation URLs from parsed manifest data.
 
-def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
-    """Extract documentation URLs from parsed manifest data."""
-    docs_urls = []
+        Args:
+            manifest_data: The parsed manifest.yaml data as a dictionary
 
-    data_section = manifest_data.get("data")
-    if isinstance(data_section, dict):
-        external_docs = data_section.get("externalDocumentationUrls")
-        if isinstance(external_docs, list):
-            docs_urls.extend(
-                [
-                    ApiDocsUrl(
+        Returns:
+            List of ApiDocsUrl objects extracted from the manifest
+        """
+        results: list[Self] = []
+
+        data_section = manifest_data.get("data")
+        if isinstance(data_section, dict):
+            external_docs = data_section.get("externalDocumentationUrls")
+            if isinstance(external_docs, list):
+                results = [
+                    cls(
                         title=doc["title"],
                         url=doc["url"],
                         source="data_external_docs",
@@ -194,28 +238,8 @@ def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
                     )
                     for doc in external_docs
                 ]
-            )
 
-    return docs_urls
-
-
-def _fetch_manifest_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
-    """Fetch documentation URLs from connector manifest.yaml file."""
-    manifest_url = DEFAULT_MANIFEST_URL.format(
-        source_name=connector_name,
-        version="latest",
-    )
-
-    http_not_found = 404
-
-    response = requests.get(manifest_url, timeout=10)
-    if response.status_code == http_not_found:
-        return []
-
-    response.raise_for_status()
-    manifest_data = yaml.safe_load(response.text)
-
-    return _extract_docs_from_manifest(manifest_data)
+        return results
 
 
 def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
@@ -307,7 +331,9 @@ def get_api_docs_urls(
     registry_urls = _extract_docs_from_registry(connector_name)
     docs_urls.extend(registry_urls)
 
-    manifest_urls = _fetch_manifest_docs_urls(connector_name)
+    manifest_url = _manifest_url_for(connector_name)
+    manifest_data = _fetch_manifest_dict(manifest_url)
+    manifest_urls = ApiDocsUrl.from_manifest_dict(manifest_data)
     docs_urls.extend(manifest_urls)
 
     seen_urls = set()
