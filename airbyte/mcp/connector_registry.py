@@ -196,27 +196,6 @@ def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
                 ]
             )
 
-    metadata = manifest_data.get("metadata")
-    if isinstance(metadata, dict):
-        assist = metadata.get("assist")
-        if isinstance(assist, dict) and "docsUrl" in assist:
-            docs_urls.append(
-                ApiDocsUrl(
-                    title="API Documentation (assist)",
-                    url=assist["docsUrl"],
-                    source="manifest_assist",
-                )
-            )
-
-        api_docs = metadata.get("apiDocs")
-        if isinstance(api_docs, list):
-            docs_urls.extend(
-                [
-                    ApiDocsUrl(title=doc["title"], url=doc["url"], source="manifest_api_docs")
-                    for doc in api_docs
-                ]
-            )
-
     return docs_urls
 
 
@@ -229,18 +208,14 @@ def _fetch_manifest_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
 
     http_not_found = 404
 
-    try:
-        response = requests.get(manifest_url, timeout=10)
-        if response.status_code == http_not_found:
-            return []
-
-        response.raise_for_status()
-        manifest_data = yaml.safe_load(response.text)
-
-        return _extract_docs_from_manifest(manifest_data)
-
-    except Exception:
+    response = requests.get(manifest_url, timeout=10)
+    if response.status_code == http_not_found:
         return []
+
+    response.raise_for_status()
+    manifest_data = yaml.safe_load(response.text)
+
+    return _extract_docs_from_manifest(manifest_data)
 
 
 def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
@@ -252,38 +227,34 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
     Returns:
         List of ApiDocsUrl objects extracted from the registry
     """
+    registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
+    response = requests.get(registry_url, timeout=10)
+    response.raise_for_status()
+    registry_data = response.json()
+
+    connector_list = registry_data.get("sources", []) + registry_data.get("destinations", [])
+    connector_entry = None
+    for entry in connector_list:
+        if entry.get("dockerRepository", "").endswith(f"/{connector_name}"):
+            connector_entry = entry
+            break
+
     docs_urls = []
-
-    try:
-        registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
-        response = requests.get(registry_url, timeout=10)
-        response.raise_for_status()
-        registry_data = response.json()
-
-        connector_list = registry_data.get("sources", []) + registry_data.get("destinations", [])
-        connector_entry = None
-        for entry in connector_list:
-            if entry.get("dockerRepository", "").endswith(f"/{connector_name}"):
-                connector_entry = entry
-                break
-
-        if connector_entry and "externalDocumentationUrls" in connector_entry:
-            external_docs = connector_entry["externalDocumentationUrls"]
-            if isinstance(external_docs, list):
-                docs_urls.extend(
-                    [
-                        ApiDocsUrl(
-                            title=doc["title"],
-                            url=doc["url"],
-                            source="registry_external_docs",
-                            doc_type=doc.get("type", "other"),
-                            requires_login=doc.get("requiresLogin", False),
-                        )
-                        for doc in external_docs
-                    ]
-                )
-    except Exception:
-        pass
+    if connector_entry and "externalDocumentationUrls" in connector_entry:
+        external_docs = connector_entry["externalDocumentationUrls"]
+        if isinstance(external_docs, list):
+            docs_urls.extend(
+                [
+                    ApiDocsUrl(
+                        title=doc["title"],
+                        url=doc["url"],
+                        source="registry_external_docs",
+                        doc_type=doc.get("type", "other"),
+                        requires_login=doc.get("requiresLogin", False),
+                    )
+                    for doc in external_docs
+                ]
+            )
 
     return docs_urls
 
@@ -308,8 +279,7 @@ def get_api_docs_urls(
 
     This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
     - Registry metadata (documentationUrl, externalDocumentationUrls)
-    - Connector manifest.yaml file (data.externalDocumentationUrls, metadata.assist.docsUrl,
-      metadata.apiDocs)
+    - Connector manifest.yaml file (data.externalDocumentationUrls)
 
     Returns:
         List of ApiDocsUrl objects with documentation URLs, or error message if connector not found.
