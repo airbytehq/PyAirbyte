@@ -52,6 +52,8 @@ class InstallType(str, Enum):
     PYTHON = "python"
     DOCKER = "docker"
     JAVA = "java"
+    ANY = "any"
+    INSTALLABLE = "installable"
 
 
 class Language(str, Enum):
@@ -269,7 +271,7 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
             conn.name for conn in _get_registry_cache().values() if conn.language == Language.JAVA
         )
 
-    if install_type == InstallType.DOCKER:
+    if install_type in {InstallType.DOCKER, InstallType.ANY, InstallType.INSTALLABLE}:
         return sorted(conn.name for conn in _get_registry_cache().values())
 
     if install_type == InstallType.YAML:
@@ -445,12 +447,12 @@ def get_connector_api_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
     Raises:
         AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
     """
-    if connector_name not in get_available_connectors(InstallType.DOCKER):
+    if connector_name not in get_available_connectors(InstallType.INSTALLABLE):
         raise exc.AirbyteConnectorNotRegisteredError(
             connector_name=connector_name,
             context={
                 "registry_url": _get_registry_url(),
-                "available_connectors": get_available_connectors(InstallType.DOCKER),
+                "available_connectors": get_available_connectors(InstallType.INSTALLABLE),
             },
         )
 
@@ -505,12 +507,12 @@ def get_connector_version_history(
         >>> for v in versions[:5]:
         ...     print(f"{v.version}: {v.release_date}")
     """
-    if connector_name not in get_available_connectors(InstallType.DOCKER):
+    if connector_name not in get_available_connectors(InstallType.INSTALLABLE):
         raise exc.AirbyteConnectorNotRegisteredError(
             connector_name=connector_name,
             context={
                 "registry_url": _get_registry_url(),
-                "available_connectors": get_available_connectors(InstallType.DOCKER),
+                "available_connectors": get_available_connectors(InstallType.INSTALLABLE),
             },
         )
 
