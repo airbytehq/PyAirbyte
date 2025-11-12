@@ -312,6 +312,40 @@ class ApiDocsUrl(BaseModel):
     model_config = {"populate_by_name": True}
 
     @classmethod
+    def from_docs_list(cls, docs: list[dict[str, Any]], *, source: str, context: str) -> list[Self]:
+        """Extract documentation URLs from a list of documentation dictionaries.
+
+        Args:
+            docs: List of documentation dictionaries with 'title' and 'url' fields
+            source: The source identifier for these documentation URLs
+            context: Context string for error messages (e.g., "Manifest", "Registry")
+
+        Returns:
+            List of ApiDocsUrl objects extracted from the docs list
+
+        Raises:
+            PyAirbyteInternalError: If a documentation entry is missing required 'title' or
+                'url' field
+        """
+        results: list[Self] = []
+        for doc in docs:
+            try:
+                results.append(
+                    cls(
+                        title=doc["title"],
+                        url=doc["url"],
+                        source=source,
+                        doc_type=doc.get("type", "other"),
+                        requires_login=doc.get("requiresLogin", False),
+                    )
+                )
+            except KeyError as e:
+                raise exc.PyAirbyteInternalError(
+                    message=f"{context} parsing error: missing required field in {doc}: {e}"
+                ) from e
+        return results
+
+    @classmethod
     def from_manifest_dict(cls, manifest_data: dict[str, Any]) -> list[Self]:
         """Extract documentation URLs from parsed manifest data.
 
@@ -322,31 +356,17 @@ class ApiDocsUrl(BaseModel):
             List of ApiDocsUrl objects extracted from the manifest
 
         Raises:
-            PyAirbyteInternalError: If a documentation entry is missing required 'title' or 'url' field
+            PyAirbyteInternalError: If a documentation entry is missing required 'title' or
+                'url' field
         """
-        results: list[Self] = []
-
         data_section = manifest_data.get("data")
         if isinstance(data_section, dict):
             external_docs = data_section.get("externalDocumentationUrls")
             if isinstance(external_docs, list):
-                for doc in external_docs:
-                    try:
-                        results.append(
-                            cls(
-                                title=doc["title"],
-                                url=doc["url"],
-                                source="data_external_docs",
-                                doc_type=doc.get("type", "other"),
-                                requires_login=doc.get("requiresLogin", False),
-                            )
-                        )
-                    except KeyError as e:
-                        raise exc.PyAirbyteInternalError(
-                            message=f"Manifest parsing error: missing required field in {doc}: {e}"
-                        ) from e
-
-        return results
+                return cls.from_docs_list(
+                    external_docs, source="data_external_docs", context="Manifest"
+                )
+        return []
 
 
 def _manifest_url_for(connector_name: str) -> str:
@@ -425,29 +445,19 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
     if connector_entry and "externalDocumentationUrls" in connector_entry:
         external_docs = connector_entry["externalDocumentationUrls"]
         if isinstance(external_docs, list):
-            for doc in external_docs:
-                try:
-                    docs_urls.append(
-                        ApiDocsUrl(
-                            title=doc["title"],
-                            url=doc["url"],
-                            source="registry_external_docs",
-                            doc_type=doc.get("type", "other"),
-                            requires_login=doc.get("requiresLogin", False),
-                        )
-                    )
-                except KeyError as e:
-                    raise exc.PyAirbyteInternalError(
-                        message=f"Registry parsing error: missing required field in {doc}: {e}"
-                    ) from e
+            docs_urls.extend(
+                ApiDocsUrl.from_docs_list(
+                    external_docs, source="registry_external_docs", context="Registry"
+                )
+            )
 
     return docs_urls
 
 
 def get_connector_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
-    """Get API documentation URLs for a connector.
+    """Get documentation URLs for a connector.
 
-    This function retrieves documentation URLs for a connector's upstream API from multiple sources:
+    This function retrieves documentation URLs for a connector from multiple sources:
     - Registry metadata (documentationUrl, externalDocumentationUrls)
     - Connector manifest.yaml file (data.externalDocumentationUrls)
 
