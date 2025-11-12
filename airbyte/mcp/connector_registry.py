@@ -4,7 +4,6 @@
 # Note: Deferred type evaluation must be avoided due to FastMCP/Pydantic needing
 # types to be available at import time for tool registration.
 import contextlib
-import re
 from typing import Annotated, Any, Literal
 
 import requests
@@ -176,91 +175,9 @@ class ApiDocsUrl(BaseModel):
     model_config = {"populate_by_name": True}
 
 
-class ApiDocsUrlsResult(BaseModel):
-    """@private Class to hold API docs URLs result."""
-
-    connector_name: str
-    api_name: str | None = None
-    docs_urls: list[ApiDocsUrl]
-
-
-def _resolve_connector_name(connector_identifier: str) -> str | None:
-    """Resolve a connector identifier to a canonical connector name.
-
-    Args:
-        connector_identifier: Either a canonical connector name (e.g., "source-facebook-marketing")
-                            or an API name (e.g., "Facebook Marketing API" or "Facebook Marketing")
-
-    Returns:
-        Canonical connector name if found, None otherwise.
-    """
-    available_connectors = get_available_connectors()
-
-    if connector_identifier in available_connectors:
-        return connector_identifier
-
-    connector_identifier_lower = connector_identifier.lower()
-
-    search_term = re.sub(r"\s+(api|rest api)$", "", connector_identifier_lower, flags=re.IGNORECASE)
-
-    for connector_name in available_connectors:
-        metadata = None
-        with contextlib.suppress(Exception):
-            metadata = get_connector_metadata(connector_name)
-
-        if metadata:
-            pass
-
-        connector_name_clean = (
-            connector_name.replace("source-", "").replace("destination-", "").replace("-", " ")
-        )
-        if search_term in connector_name_clean or connector_name_clean in search_term:
-            return connector_name
-
-    return None
-
-
-def _extract_urls_from_manifest_description(description: str) -> list[ApiDocsUrl]:
-    """Extract URLs from manifest description field."""
-    urls = []
-
-    url_pattern = r"(API Reference|Documentation|Docs|API|Reference):\s*(https?://[^\s\n]+)"
-    matches = re.finditer(url_pattern, description, re.IGNORECASE)
-
-    for match in matches:
-        title = match.group(1)
-        url = match.group(2)
-        urls.append(
-            ApiDocsUrl(
-                title=f"{title} (from manifest description)", url=url, source="manifest_description"
-            )
-        )
-
-    standalone_url_pattern = r"https?://[^\s\n]+"
-    standalone_matches = re.finditer(standalone_url_pattern, description)
-
-    existing_urls = {u.url for u in urls}
-    for match in standalone_matches:
-        url = match.group(0)
-        if url not in existing_urls:
-            urls.append(
-                ApiDocsUrl(
-                    title="API Documentation (from manifest)",
-                    url=url,
-                    source="manifest_description",
-                )
-            )
-            existing_urls.add(url)
-
-    return urls
-
-
 def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
     """Extract documentation URLs from parsed manifest data."""
     docs_urls = []
-
-    if manifest_data.get("description"):
-        docs_urls.extend(_extract_urls_from_manifest_description(manifest_data["description"]))
 
     data_section = manifest_data.get("data")
     if isinstance(data_section, dict):
@@ -276,7 +193,6 @@ def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
                         requires_login=doc.get("requiresLogin", False),
                     )
                     for doc in external_docs
-                    if isinstance(doc, dict) and "title" in doc and "url" in doc
                 ]
             )
 
@@ -298,7 +214,6 @@ def _extract_docs_from_manifest(manifest_data: dict) -> list[ApiDocsUrl]:
                 [
                     ApiDocsUrl(title=doc["title"], url=doc["url"], source="manifest_api_docs")
                     for doc in api_docs
-                    if isinstance(doc, dict) and "title" in doc and "url" in doc
                 ]
             )
 
@@ -365,7 +280,6 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
                             requires_login=doc.get("requiresLogin", False),
                         )
                         for doc in external_docs
-                        if isinstance(doc, dict) and "title" in doc and "url" in doc
                     ]
                 )
     except Exception:
@@ -380,17 +294,16 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
     idempotent=True,
 )
 def get_api_docs_urls(
-    connector_identifier: Annotated[
+    connector_name: Annotated[
         str,
         Field(
             description=(
-                "The connector identifier. Can be either:\n"
-                "- A canonical connector name (e.g., 'source-facebook-marketing')\n"
-                "- An API name (e.g., 'Facebook Marketing API' or 'Facebook Marketing')"
+                "The canonical connector name "
+                "(e.g., 'source-facebook-marketing', 'destination-snowflake')"
             )
         ),
     ],
-) -> ApiDocsUrlsResult | Literal["Connector not found."]:
+) -> list[ApiDocsUrl] | Literal["Connector not found."]:
     """Get API documentation URLs for a connector.
 
     This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
@@ -398,19 +311,15 @@ def get_api_docs_urls(
     - Connector manifest.yaml file (data.externalDocumentationUrls, metadata.assist.docsUrl,
       metadata.apiDocs)
 
-    The tool accepts either a canonical connector ID (e.g., "source-facebook-marketing") or
-    an API name (e.g., "Facebook Marketing API" or "Facebook Marketing").
-
     Returns:
-        ApiDocsUrlsResult with connector name and list of documentation URLs, or error message.
+        List of ApiDocsUrl objects with documentation URLs, or error message if connector not found.
     """
-    connector_name = _resolve_connector_name(connector_identifier)
+    available_connectors = get_available_connectors()
 
-    if not connector_name:
+    if connector_name not in available_connectors:
         return "Connector not found."
 
     docs_urls: list[ApiDocsUrl] = []
-    api_name: str | None = None
 
     connector = None
     with contextlib.suppress(Exception):
@@ -438,11 +347,7 @@ def get_api_docs_urls(
             seen_urls.add(doc_url.url)
             unique_docs_urls.append(doc_url)
 
-    return ApiDocsUrlsResult(
-        connector_name=connector_name,
-        api_name=api_name,
-        docs_urls=unique_docs_urls,
-    )
+    return unique_docs_urls
 
 
 def register_connector_registry_tools(app: FastMCP) -> None:
