@@ -8,8 +8,8 @@ to validate the library is working correctly.
 import airbyte as ab
 
 
-def test_basic_source_connector():
-    """Test creating and reading from a source connector."""
+def example_basic_source_connector():
+    """Example: Test creating and reading from a source connector."""
     print("Testing basic source connector functionality...")
 
     source = ab.get_source(
@@ -35,8 +35,8 @@ def test_basic_source_connector():
     return True
 
 
-def test_connector_discovery():
-    """Test discovering available connectors."""
+def example_connector_discovery():
+    """Example: Test discovering available connectors."""
     print("\nTesting connector discovery...")
 
     from airbyte.registry import get_available_connectors
@@ -61,8 +61,8 @@ def main():
     print("=" * 60)
 
     try:
-        test_basic_source_connector()
-        test_connector_discovery()
+        example_basic_source_connector()
+        example_connector_discovery()
 
         print("\n" + "=" * 60)
         print("All tests passed! ✓")
