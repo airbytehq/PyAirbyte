@@ -46,7 +46,17 @@ _DEFAULT_MANIFEST_URL = (
 
 
 class InstallType(str, Enum):
-    """The type of installation for a connector."""
+    """The type of installation for a connector.
+
+    Values:
+        YAML: Manifest-only connectors that can be run without Docker
+        PYTHON: Python-based connectors available via PyPI
+        DOCKER: Docker-based connectors (returns all connectors for backward compatibility)
+        JAVA: Java-based connectors
+        ANY: All connectors in the registry (environment-independent)
+        INSTALLABLE: Connectors installable in the current environment (environment-sensitive:
+            returns all connectors if Docker is installed, otherwise only Python and YAML)
+    """
 
     YAML = "yaml"
     PYTHON = "python"
@@ -240,17 +250,16 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
         # No install type specified. Filter for whatever is runnable.
         if is_docker_installed():
             logger.info("Docker is detected. Returning all connectors.")
-            # If Docker is available, return all connectors.
-            return sorted(conn.name for conn in _get_registry_cache().values())
-
-        logger.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
-
-        # If Docker is not available, return only Python and Manifest-based connectors.
-        return sorted(
-            conn.name
-            for conn in _get_registry_cache().values()
-            if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
-        )
+            connectors = _get_registry_cache().values()
+        else:
+            logger.info(
+                "Docker was not detected. Returning only Python and Manifest-only connectors."
+            )
+            connectors = (
+                conn for conn in _get_registry_cache().values()
+                if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
+            )
+        return sorted(conn.name for conn in connectors)
 
     if not isinstance(install_type, InstallType):
         install_type = InstallType(install_type)
@@ -273,6 +282,20 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
 
     if install_type in {InstallType.DOCKER, InstallType.ANY}:
         return sorted(conn.name for conn in _get_registry_cache().values())
+
+    if install_type == InstallType.INSTALLABLE:
+        if is_docker_installed():
+            logger.info("Docker is detected. Returning all connectors.")
+            connectors = _get_registry_cache().values()
+        else:
+            logger.info(
+                "Docker was not detected. Returning only Python and Manifest-only connectors."
+            )
+            connectors = (
+                conn for conn in _get_registry_cache().values()
+                if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
+            )
+        return sorted(conn.name for conn in connectors)
 
     if install_type == InstallType.YAML:
         return sorted(
