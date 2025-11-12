@@ -343,7 +343,7 @@ class ApiDocsUrl(BaseModel):
                         )
                     except KeyError as e:
                         raise exc.PyAirbyteInputError(
-                            message=f"Manifest parsing error: missing required field {e}"
+                            message=f"Manifest parsing error: missing required field in {doc}: {e}"
                         ) from e
 
         return results
@@ -438,7 +438,7 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
                     )
                 except KeyError as e:
                     raise exc.PyAirbyteInputError(
-                        message=f"Registry parsing error: missing required field {e}"
+                        message=f"Registry parsing error: missing required field in {doc}: {e}"
                     ) from e
 
     return docs_urls
