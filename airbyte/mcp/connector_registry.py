@@ -328,6 +328,52 @@ def _fetch_manifest_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
         return []
 
 
+def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
+    """Extract documentation URLs from connector registry metadata.
+
+    Args:
+        connector_name: The canonical connector name (e.g., "source-facebook-marketing")
+
+    Returns:
+        List of ApiDocsUrl objects extracted from the registry
+    """
+    docs_urls = []
+
+    try:
+        registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
+        response = requests.get(registry_url, timeout=10)
+        response.raise_for_status()
+        registry_data = response.json()
+
+        connector_list = registry_data.get("sources", []) + registry_data.get("destinations", [])
+        connector_entry = None
+        for entry in connector_list:
+            if entry.get("dockerRepository", "").endswith(f"/{connector_name}"):
+                connector_entry = entry
+                break
+
+        if connector_entry and "externalDocumentationUrls" in connector_entry:
+            external_docs = connector_entry["externalDocumentationUrls"]
+            if isinstance(external_docs, list):
+                docs_urls.extend(
+                    [
+                        ApiDocsUrl(
+                            title=doc["title"],
+                            url=doc["url"],
+                            source="registry_external_docs",
+                            doc_type=doc.get("type", "other"),
+                            requires_login=doc.get("requiresLogin", False),
+                        )
+                        for doc in external_docs
+                        if isinstance(doc, dict) and "title" in doc and "url" in doc
+                    ]
+                )
+    except Exception:
+        pass
+
+    return docs_urls
+
+
 @mcp_tool(
     domain="registry",
     read_only=True,
@@ -348,8 +394,9 @@ def get_api_docs_urls(
     """Get API documentation URLs for a connector.
 
     This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
-    - Registry metadata (documentationUrl, erdUrl)
-    - Connector manifest.yaml file (description, metadata.assist.docsUrl, metadata.apiDocs)
+    - Registry metadata (documentationUrl, externalDocumentationUrls)
+    - Connector manifest.yaml file (data.externalDocumentationUrls, metadata.assist.docsUrl,
+      metadata.apiDocs)
 
     The tool accepts either a canonical connector ID (e.g., "source-facebook-marketing") or
     an API name (e.g., "Facebook Marketing API" or "Facebook Marketing").
@@ -377,6 +424,9 @@ def get_api_docs_urls(
         docs_urls.append(
             ApiDocsUrl(title="Airbyte Documentation", url=connector.docs_url, source="registry")
         )
+
+    registry_urls = _extract_docs_from_registry(connector_name)
+    docs_urls.extend(registry_urls)
 
     manifest_urls = _fetch_manifest_docs_urls(connector_name)
     docs_urls.extend(manifest_urls)
