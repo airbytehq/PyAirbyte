@@ -320,6 +320,9 @@ class ApiDocsUrl(BaseModel):
 
         Returns:
             List of ApiDocsUrl objects extracted from the manifest
+
+        Raises:
+            PyAirbyteInputError: If a documentation entry is missing required 'title' or 'url' field
         """
         results: list[Self] = []
 
@@ -327,16 +330,21 @@ class ApiDocsUrl(BaseModel):
         if isinstance(data_section, dict):
             external_docs = data_section.get("externalDocumentationUrls")
             if isinstance(external_docs, list):
-                results = [
-                    cls(
-                        title=doc["title"],
-                        url=doc["url"],
-                        source="data_external_docs",
-                        doc_type=doc.get("type", "other"),
-                        requires_login=doc.get("requiresLogin", False),
-                    )
-                    for doc in external_docs
-                ]
+                for doc in external_docs:
+                    try:
+                        results.append(
+                            cls(
+                                title=doc["title"],
+                                url=doc["url"],
+                                source="data_external_docs",
+                                doc_type=doc.get("type", "other"),
+                                requires_login=doc.get("requiresLogin", False),
+                            )
+                        )
+                    except KeyError as e:
+                        raise exc.PyAirbyteInputError(
+                            message=f"Manifest parsing error: missing required field {e}"
+                        ) from e
 
         return results
 
@@ -386,6 +394,9 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
 
     Returns:
         List of ApiDocsUrl objects extracted from the registry
+
+    Raises:
+        PyAirbyteInputError: If a documentation entry is missing required 'title' or 'url' field
     """
     registry_url = _get_registry_url()
     response = requests.get(registry_url, timeout=10)
@@ -413,18 +424,21 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
     if connector_entry and "externalDocumentationUrls" in connector_entry:
         external_docs = connector_entry["externalDocumentationUrls"]
         if isinstance(external_docs, list):
-            docs_urls.extend(
-                [
-                    ApiDocsUrl(
-                        title=doc["title"],
-                        url=doc["url"],
-                        source="registry_external_docs",
-                        doc_type=doc.get("type", "other"),
-                        requires_login=doc.get("requiresLogin", False),
+            for doc in external_docs:
+                try:
+                    docs_urls.append(
+                        ApiDocsUrl(
+                            title=doc["title"],
+                            url=doc["url"],
+                            source="registry_external_docs",
+                            doc_type=doc.get("type", "other"),
+                            requires_login=doc.get("requiresLogin", False),
+                        )
                     )
-                    for doc in external_docs
-                ]
-            )
+                except KeyError as e:
+                    raise exc.PyAirbyteInputError(
+                        message=f"Registry parsing error: missing required field {e}"
+                    ) from e
 
     return docs_urls
 

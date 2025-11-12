@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from airbyte import exceptions as exc
 from airbyte.mcp.connector_registry import get_api_docs_urls
 from airbyte.registry import (
@@ -125,6 +127,44 @@ class TestApiDocsUrlFromManifestDict:
         """Test handling empty manifest dict."""
         urls = ApiDocsUrl.from_manifest_dict({})
         assert len(urls) == 0
+
+    def test_manifest_missing_title_raises_error(self) -> None:
+        """Test that missing 'title' field raises PyAirbyteInputError."""
+        manifest_dict = {
+            "version": "1.0.0",
+            "type": "DeclarativeSource",
+            "data": {
+                "externalDocumentationUrls": [
+                    {
+                        "url": "https://api.example.com/docs",
+                    }
+                ]
+            },
+        }
+
+        with pytest.raises(
+            exc.PyAirbyteInputError, match="Manifest parsing error.*'title'"
+        ):
+            ApiDocsUrl.from_manifest_dict(manifest_dict)
+
+    def test_manifest_missing_url_raises_error(self) -> None:
+        """Test that missing 'url' field raises PyAirbyteInputError."""
+        manifest_dict = {
+            "version": "1.0.0",
+            "type": "DeclarativeSource",
+            "data": {
+                "externalDocumentationUrls": [
+                    {
+                        "title": "API Documentation",
+                    }
+                ]
+            },
+        }
+
+        with pytest.raises(
+            exc.PyAirbyteInputError, match="Manifest parsing error.*'url'"
+        ):
+            ApiDocsUrl.from_manifest_dict(manifest_dict)
 
 
 class TestGetApiDocsUrls:
