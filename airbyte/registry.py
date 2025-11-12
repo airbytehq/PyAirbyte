@@ -418,6 +418,7 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
                 title="Airbyte Documentation",
                 url=connector_entry["documentationUrl"],
                 source="registry",
+                doc_type="internal",
             )
         )
 
@@ -443,7 +444,7 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
     return docs_urls
 
 
-def get_connector_api_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
+def get_connector_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
     """Get API documentation URLs for a connector.
 
     This function retrieves documentation URLs for a connector's upstream API from multiple sources:

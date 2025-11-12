@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from airbyte import exceptions as exc
-from airbyte.mcp.connector_registry import get_api_docs_urls
+from airbyte.mcp.connector_registry import get_connector_docs_urls
 from airbyte.registry import (
     ApiDocsUrl,
     _fetch_manifest_dict,
@@ -167,26 +167,26 @@ class TestApiDocsUrlFromManifestDict:
             ApiDocsUrl.from_manifest_dict(manifest_dict)
 
 
-class TestGetApiDocsUrls:
-    """Tests for get_api_docs_urls function."""
+class TestGetConnectorDocsUrls:
+    """Tests for get_connector_docs_urls function."""
 
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
         with patch(
-            "airbyte.mcp.connector_registry.get_connector_api_docs_urls"
+            "airbyte.mcp.connector_registry.get_connector_docs_urls"
         ) as mock_get_docs:
             mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
                 connector_name="nonexistent-connector",
                 context={},
             )
 
-            result = get_api_docs_urls("nonexistent-connector")
+            result = get_connector_docs_urls("nonexistent-connector")
             assert result == "Connector not found."
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
         with patch(
-            "airbyte.mcp.connector_registry.get_connector_api_docs_urls"
+            "airbyte.mcp.connector_registry.get_connector_docs_urls"
         ) as mock_get_docs:
             mock_get_docs.return_value = [
                 ApiDocsUrl(
@@ -196,7 +196,7 @@ class TestGetApiDocsUrls:
                 )
             ]
 
-            result = get_api_docs_urls("source-example")
+            result = get_connector_docs_urls("source-example")
 
             assert isinstance(result, list)
             assert len(result) == 1
