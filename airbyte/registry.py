@@ -293,20 +293,6 @@ class ConnectorVersionInfo(BaseModel):
     pr_title: str | None = None
     parsing_errors: list[str] = Field(default_factory=list)
 
-    model_config = {
-        "json_schema_extra": {
-            "example": {
-                "version": "1.0.0",
-                "release_date": "2024-01-15",
-                "docker_image_url": "https://hub.docker.com/r/airbyte/source-faker/tags?name=1.0.0",
-                "changelog_url": "https://docs.airbyte.com/integrations/sources/faker#changelog",
-                "pr_url": "https://github.com/airbytehq/airbyte/pull/12345",
-                "pr_title": "Add new feature",
-                "parsing_errors": [],
-            }
-        }
-    }
-
 
 def get_connector_version_history(
     connector_name: str,
@@ -339,12 +325,12 @@ def get_connector_version_history(
         >>> for v in versions[:5]:
         ...     print(f"{v.version}: {v.release_date}")
     """
-    if connector_name not in get_available_connectors():
+    if connector_name not in get_available_connectors(InstallType.DOCKER):
         raise exc.AirbyteConnectorNotRegisteredError(
             connector_name=connector_name,
             context={
                 "registry_url": _get_registry_url(),
-                "available_connectors": get_available_connectors(),
+                "available_connectors": get_available_connectors(InstallType.DOCKER),
             },
         )
 
