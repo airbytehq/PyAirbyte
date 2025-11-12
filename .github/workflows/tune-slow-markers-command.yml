@@ -1,0 +1,79 @@
+name: Tune Slow Markers Command
+
+on:
+  repository_dispatch:
+    types: [tune-slow-markers-command]
+
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
+jobs:
+  tune-slow-markers:
+    name: Tune Slow Markers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.event.client_payload.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.client_payload.pull_request.head.ref }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.10'
+
+      - name: Run slow marker tuner
+        run: |
+          uv run bin/tune_slow_markers.py --timeout 7.0 --remove-slow
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push changes
+        if: steps.check_changes.outputs.changes == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add tests/
+          git commit -m "chore: Auto-tune pytest slow markers"
+          git push
+
+      - name: Add reaction to comment
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.event.client_payload.github.payload.repository.full_name }}
+          comment-id: ${{ github.event.client_payload.github.payload.comment.id }}
+          reactions: rocket
+
+      - name: Comment on PR with results
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
+          body: |
+            ✅ Slow marker tuning complete!
+            
+            ${{ steps.check_changes.outputs.changes == 'true' && 'Changes have been committed and pushed to this PR.' || 'No changes were needed - all markers are already correctly set.' }}
+
+      - name: Comment on PR with failure
+        if: failure()
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.client_payload.github.payload.issue.number }}
+          body: |
+            ❌ Slow marker tuning failed. Please check the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
