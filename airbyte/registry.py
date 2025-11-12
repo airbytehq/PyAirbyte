@@ -256,7 +256,8 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
                 "Docker was not detected. Returning only Python and Manifest-only connectors."
             )
             connectors = (
-                conn for conn in _get_registry_cache().values()
+                conn
+                for conn in _get_registry_cache().values()
                 if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
             )
         return sorted(conn.name for conn in connectors)
@@ -292,7 +293,8 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
                 "Docker was not detected. Returning only Python and Manifest-only connectors."
             )
             connectors = (
-                conn for conn in _get_registry_cache().values()
+                conn
+                for conn in _get_registry_cache().values()
                 if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
             )
         return sorted(conn.name for conn in connectors)
