@@ -182,37 +182,3 @@ class TestGetConnectorDocsUrls:
 
             result = get_connector_docs_urls("nonexistent-connector")
             assert result == "Connector not found."
-
-    def test_deduplication_of_urls(self) -> None:
-        """Test that duplicate URLs are deduplicated."""
-        with (
-            patch("airbyte.registry.get_available_connectors") as mock_available,
-            patch(
-                "airbyte.registry._extract_docs_from_registry"
-            ) as mock_extract_registry,
-            patch("airbyte.registry._fetch_manifest_dict") as mock_fetch_manifest,
-        ):
-            mock_available.return_value = ["source-example"]
-            mock_extract_registry.return_value = [
-                ApiDocsUrl(
-                    title="Airbyte Documentation",
-                    url="https://docs.airbyte.com/integrations/sources/example",
-                    source="registry",
-                )
-            ]
-            mock_fetch_manifest.return_value = {
-                "data": {
-                    "externalDocumentationUrls": [
-                        {
-                            "title": "Duplicate Documentation",
-                            "url": "https://docs.airbyte.com/integrations/sources/example",
-                        }
-                    ]
-                }
-            }
-
-            result = get_connector_docs_urls("source-example")
-
-            assert isinstance(result, list)
-            assert len(result) == 1
-            assert result[0].title == "Airbyte Documentation"

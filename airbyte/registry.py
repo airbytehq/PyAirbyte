@@ -455,7 +455,7 @@ def get_connector_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
         connector_name: The canonical connector name (e.g., "source-facebook-marketing")
 
     Returns:
-        List of ApiDocsUrl objects with documentation URLs, deduplicated by URL.
+        List of ApiDocsUrl objects with documentation URLs.
 
     Raises:
         AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
@@ -479,14 +479,7 @@ def get_connector_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
     manifest_urls = ApiDocsUrl.from_manifest_dict(manifest_data)
     docs_urls.extend(manifest_urls)
 
-    seen_urls = set()
-    unique_docs_urls = []
-    for doc_url in docs_urls:
-        if doc_url.url not in seen_urls:
-            seen_urls.add(doc_url.url)
-            unique_docs_urls.append(doc_url)
-
-    return unique_docs_urls
+    return docs_urls
 
 
 def get_connector_version_history(
