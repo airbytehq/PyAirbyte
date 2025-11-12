@@ -10,7 +10,7 @@ import jsonschema
 import requests
 
 from airbyte import exceptions as exc
-from airbyte.sources.registry import get_connector_metadata
+from airbyte.registry import get_connector_metadata
 from airbyte.version import get_version
 
 

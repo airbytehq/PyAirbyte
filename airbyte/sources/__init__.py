@@ -5,12 +5,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte.sources.base import Source
-from airbyte.sources.registry import (
+from airbyte.registry import (
     ConnectorMetadata,
     get_available_connectors,
     get_connector_metadata,
 )
+from airbyte.sources.base import Source
 from airbyte.sources.util import (
     get_benchmark_source,
     get_source,

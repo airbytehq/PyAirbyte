@@ -20,7 +20,7 @@ from airbyte._executors.python import VenvExecutor
 from airbyte._util.meta import which
 from airbyte._util.telemetry import EventState, log_install_state  # Non-public API
 from airbyte.constants import AIRBYTE_OFFLINE_MODE, DEFAULT_PROJECT_DIR, TEMP_DIR_OVERRIDE
-from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
+from airbyte.registry import ConnectorMetadata, InstallType, get_connector_metadata
 from airbyte.version import get_version
 
 

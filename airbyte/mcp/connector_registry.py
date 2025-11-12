@@ -4,18 +4,30 @@
 # Note: Deferred type evaluation must be avoided due to FastMCP/Pydantic needing
 # types to be available at import time for tool registration.
 import contextlib
+import logging
 from typing import Annotated, Any, Literal
 
+import requests
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
+from airbyte import exceptions as exc
 from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
-from airbyte.sources import get_available_connectors
-from airbyte.sources.registry import ConnectorMetadata, InstallType, get_connector_metadata
+from airbyte.registry import (
+    ConnectorMetadata,
+    ConnectorVersionInfo,
+    InstallType,
+    get_available_connectors,
+    get_connector_metadata,
+)
+from airbyte.registry import get_connector_version_history as _get_connector_version_history
 from airbyte.sources.util import get_source
+
+
+logger = logging.getLogger("airbyte.mcp")
 
 
 @mcp_tool(
@@ -159,6 +171,71 @@ def get_connector_info(
         config_spec_jsonschema=config_spec_jsonschema,
         manifest_url=manifest_url,
     )
+
+
+@mcp_tool(
+    domain="registry",
+    read_only=True,
+    idempotent=True,
+)
+def get_connector_version_history(
+    connector_name: Annotated[
+        str,
+        Field(
+            description="The name of the connector (e.g., 'source-faker', 'destination-postgres')"
+        ),
+    ],
+    num_versions_to_validate: Annotated[
+        int,
+        Field(
+            description=(
+                "Number of most recent versions to validate with registry data for accurate "
+                "release dates. Defaults to 5."
+            ),
+            default=5,
+        ),
+    ] = 5,
+    limit: Annotated[
+        int | None,
+        Field(
+            description=(
+                "DEPRECATED: Use num_versions_to_validate instead. "
+                "Maximum number of versions to return (most recent first). "
+                "If specified, only the first N versions will be returned."
+            ),
+            default=None,
+        ),
+    ] = None,
+) -> list[ConnectorVersionInfo] | Literal["Connector not found.", "Failed to fetch changelog."]:
+    """Get version history for a connector.
+
+    This tool retrieves the version history for a connector, including:
+    - Version number
+    - Release date (from changelog, with registry override for recent versions)
+    - DockerHub URL for the version
+    - Changelog URL
+    - PR URL and title (scraped from changelog)
+
+    For the most recent N versions (default 5), release dates are fetched from the
+    registry for accuracy. For older versions, changelog dates are used.
+
+    Returns:
+        List of version information, sorted by most recent first.
+    """
+    try:
+        versions = _get_connector_version_history(
+            connector_name=connector_name,
+            num_versions_to_validate=num_versions_to_validate,
+        )
+    except exc.AirbyteConnectorNotRegisteredError:
+        return "Connector not found."
+    except requests.exceptions.RequestException:
+        logger.exception(f"Failed to fetch changelog for {connector_name}")
+        return "Failed to fetch changelog."
+    else:
+        if limit is not None and limit > 0:
+            return versions[:limit]
+        return versions
 
 
 def register_connector_registry_tools(app: FastMCP) -> None:
