@@ -21,7 +21,7 @@ from airbyte.constants import DEFAULT_INSTALL_DIR, NO_UV
 
 
 if TYPE_CHECKING:
-    from airbyte.sources.registry import ConnectorMetadata
+    from airbyte.registry import ConnectorMetadata
 
 
 class VenvExecutor(Executor):

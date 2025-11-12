@@ -25,7 +25,7 @@ from airbyte.caches.base import CacheBase
 from airbyte.constants import AB_INTERNAL_COLUMNS
 from airbyte.datasets import CachedDataset, LazyDataset, SQLDataset
 from airbyte.results import ReadResult
-from airbyte.sources import registry
+from airbyte import registry
 from airbyte.version import get_version
 from sqlalchemy import column, text
 
@@ -158,14 +158,14 @@ def test_registry_list() -> None:
         "source-test",
     ]
     with patch(
-        "airbyte.sources.registry.is_docker_installed",
+        "airbyte.registry.is_docker_installed",
         return_value=False,
     ):
         assert set(registry.get_available_connectors()) == {
             "source-test",
         }
     with patch(
-        "airbyte.sources.registry.is_docker_installed",
+        "airbyte.registry.is_docker_installed",
         return_value=True,
     ):
         assert set(registry.get_available_connectors()) == {
