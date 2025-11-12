@@ -322,7 +322,7 @@ class ApiDocsUrl(BaseModel):
             List of ApiDocsUrl objects extracted from the manifest
 
         Raises:
-            PyAirbyteInputError: If a documentation entry is missing required 'title' or 'url' field
+            PyAirbyteInternalError: If a documentation entry is missing required 'title' or 'url' field
         """
         results: list[Self] = []
 
@@ -342,7 +342,7 @@ class ApiDocsUrl(BaseModel):
                             )
                         )
                     except KeyError as e:
-                        raise exc.PyAirbyteInputError(
+                        raise exc.PyAirbyteInternalError(
                             message=f"Manifest parsing error: missing required field in {doc}: {e}"
                         ) from e
 
@@ -396,7 +396,7 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
         List of ApiDocsUrl objects extracted from the registry
 
     Raises:
-        PyAirbyteInputError: If a documentation entry is missing required 'title' or 'url' field
+        PyAirbyteInternalError: If a documentation entry is missing required 'title' or 'url' field
     """
     registry_url = _get_registry_url()
     response = requests.get(registry_url, timeout=10)
@@ -437,7 +437,7 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
                         )
                     )
                 except KeyError as e:
-                    raise exc.PyAirbyteInputError(
+                    raise exc.PyAirbyteInternalError(
                         message=f"Registry parsing error: missing required field in {doc}: {e}"
                     ) from e
 

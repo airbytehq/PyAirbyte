@@ -129,7 +129,7 @@ class TestApiDocsUrlFromManifestDict:
         assert len(urls) == 0
 
     def test_manifest_missing_title_raises_error(self) -> None:
-        """Test that missing 'title' field raises PyAirbyteInputError."""
+        """Test that missing 'title' field raises PyAirbyteInternalError."""
         manifest_dict = {
             "version": "1.0.0",
             "type": "DeclarativeSource",
@@ -143,12 +143,12 @@ class TestApiDocsUrlFromManifestDict:
         }
 
         with pytest.raises(
-            exc.PyAirbyteInputError, match="Manifest parsing error.*'title'"
+            exc.PyAirbyteInternalError, match="Manifest parsing error.*'title'"
         ):
             ApiDocsUrl.from_manifest_dict(manifest_dict)
 
     def test_manifest_missing_url_raises_error(self) -> None:
-        """Test that missing 'url' field raises PyAirbyteInputError."""
+        """Test that missing 'url' field raises PyAirbyteInternalError."""
         manifest_dict = {
             "version": "1.0.0",
             "type": "DeclarativeSource",
@@ -162,7 +162,7 @@ class TestApiDocsUrlFromManifestDict:
         }
 
         with pytest.raises(
-            exc.PyAirbyteInputError, match="Manifest parsing error.*'url'"
+            exc.PyAirbyteInternalError, match="Manifest parsing error.*'url'"
         ):
             ApiDocsUrl.from_manifest_dict(manifest_dict)
 
