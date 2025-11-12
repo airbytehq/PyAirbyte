@@ -185,13 +185,13 @@ class TestGetConnectorDocsUrls:
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with patch(
-            "airbyte.registry.get_available_connectors"
-        ) as mock_available, patch(
-            "airbyte.registry._extract_docs_from_registry"
-        ) as mock_extract_registry, patch(
-            "airbyte.registry._fetch_manifest_dict"
-        ) as mock_fetch_manifest:
+        with (
+            patch("airbyte.registry.get_available_connectors") as mock_available,
+            patch(
+                "airbyte.registry._extract_docs_from_registry"
+            ) as mock_extract_registry,
+            patch("airbyte.registry._fetch_manifest_dict") as mock_fetch_manifest,
+        ):
             mock_available.return_value = ["source-example"]
             mock_extract_registry.return_value = [
                 ApiDocsUrl(
