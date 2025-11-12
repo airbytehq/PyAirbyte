@@ -88,9 +88,7 @@ def _list_tools() -> None:
 
     for domain in sorted(tools_by_domain.keys()):
         click.echo(f"[{domain.upper()}]")
-        for func, tool_annotations in sorted(
-            tools_by_domain[domain], key=lambda x: x[0].__name__
-        ):
+        for func, tool_annotations in sorted(tools_by_domain[domain], key=lambda x: x[0].__name__):
             tool_name = func.__name__
             doc = (func.__doc__ or "").strip().split("\n")[0]
             read_only = " [read-only]" if tool_annotations.get("readOnlyHint") else ""
