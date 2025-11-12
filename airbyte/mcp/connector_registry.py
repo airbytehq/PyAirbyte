@@ -12,15 +12,17 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte._executors.util import DEFAULT_MANIFEST_URL
 from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.registry import (
+    _DEFAULT_MANIFEST_URL,
+    ApiDocsUrl,
     ConnectorMetadata,
     ConnectorVersionInfo,
     InstallType,
     get_available_connectors,
+    get_connector_api_docs_urls,
     get_connector_metadata,
 )
 from airbyte.registry import get_connector_version_history as _get_connector_version_history
@@ -159,7 +161,7 @@ def get_connector_info(
         connector.install()
         config_spec_jsonschema = connector.config_spec
 
-    manifest_url = DEFAULT_MANIFEST_URL.format(
+    manifest_url = _DEFAULT_MANIFEST_URL.format(
         source_name=connector_name,
         version="latest",
     )
@@ -171,6 +173,34 @@ def get_connector_info(
         config_spec_jsonschema=config_spec_jsonschema,
         manifest_url=manifest_url,
     )
+
+
+@mcp_tool(
+    domain="registry",
+    read_only=True,
+    idempotent=True,
+)
+def get_api_docs_urls(
+    connector_name: Annotated[
+        str,
+        Field(
+            description=(
+                "The canonical connector name "
+                "(e.g., 'source-facebook-marketing', 'destination-snowflake')"
+            )
+        ),
+    ],
+) -> list[ApiDocsUrl] | Literal["Connector not found."]:
+    """Get API documentation URLs for a connector.
+
+    This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
+    - Registry metadata (documentationUrl, externalDocumentationUrls)
+    - Connector manifest.yaml file (data.externalDocumentationUrls)
+    """
+    try:
+        return get_connector_api_docs_urls(connector_name)
+    except exc.AirbyteConnectorNotRegisteredError:
+        return "Connector not found."
 
 
 @mcp_tool(
