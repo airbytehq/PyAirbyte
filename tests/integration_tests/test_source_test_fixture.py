@@ -158,14 +158,14 @@ def test_registry_list() -> None:
         "source-test",
     ]
     with patch(
-        "airbyte.sources.registry.is_docker_installed",
+        "airbyte.registry.is_docker_installed",
         return_value=False,
     ):
         assert set(registry.get_available_connectors()) == {
             "source-test",
         }
     with patch(
-        "airbyte.sources.registry.is_docker_installed",
+        "airbyte.registry.is_docker_installed",
         return_value=True,
     ):
         assert set(registry.get_available_connectors()) == {
