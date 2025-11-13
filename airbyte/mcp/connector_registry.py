@@ -16,15 +16,15 @@ from airbyte._util.meta import is_docker_installed
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.registry import (
-    _DEFAULT_MANIFEST_URL,
+    _DEFAULT_METADATA_URL,
     ApiDocsUrl,
     ConnectorMetadata,
     ConnectorVersionInfo,
     InstallType,
     get_available_connectors,
-    get_connector_api_docs_urls,
     get_connector_metadata,
 )
+from airbyte.registry import get_connector_docs_urls as _get_connector_docs_urls
 from airbyte.registry import get_connector_version_history as _get_connector_version_history
 from airbyte.sources.util import get_source
 
@@ -161,7 +161,7 @@ def get_connector_info(
         connector.install()
         config_spec_jsonschema = connector.config_spec
 
-    manifest_url = _DEFAULT_MANIFEST_URL.format(
+    manifest_url = _DEFAULT_METADATA_URL.format(
         source_name=connector_name,
         version="latest",
     )
@@ -180,7 +180,7 @@ def get_connector_info(
     read_only=True,
     idempotent=True,
 )
-def get_api_docs_urls(
+def get_connector_docs_urls(
     connector_name: Annotated[
         str,
         Field(
@@ -191,14 +191,14 @@ def get_api_docs_urls(
         ),
     ],
 ) -> list[ApiDocsUrl] | Literal["Connector not found."]:
-    """Get API documentation URLs for a connector.
+    """Get documentation URLs for a connector.
 
-    This tool retrieves documentation URLs for a connector's upstream API from multiple sources:
+    This tool retrieves documentation URLs for a connector from multiple sources:
     - Registry metadata (documentationUrl, externalDocumentationUrls)
-    - Connector manifest.yaml file (data.externalDocumentationUrls)
+    - Connector metadata.yaml file (data.externalDocumentationUrls)
     """
     try:
-        return get_connector_api_docs_urls(connector_name)
+        return _get_connector_docs_urls(connector_name)
     except exc.AirbyteConnectorNotRegisteredError:
         return "Connector not found."
 
