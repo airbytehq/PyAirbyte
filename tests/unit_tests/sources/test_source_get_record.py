@@ -300,9 +300,10 @@ def test_normalize_and_validate_pk_with_string(mock_catalog_with_pk):
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=Mock(), name="test-source")
 
-        result = source._normalize_and_validate_pk("users", "123")
+        field_name, field_value = source._normalize_and_validate_pk("users", "123")
 
-        assert result == "123"
+        assert field_name == "id"
+        assert field_value == "123"
 
 
 def test_normalize_and_validate_pk_with_valid_dict(mock_catalog_with_pk):
@@ -310,6 +311,149 @@ def test_normalize_and_validate_pk_with_valid_dict(mock_catalog_with_pk):
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=Mock(), name="test-source")
 
-        result = source._normalize_and_validate_pk("users", {"id": "123"})
+        field_name, field_value = source._normalize_and_validate_pk(
+            "users", {"id": "123"}
+        )
 
-        assert result == "123"
+        assert field_name == "id"
+        assert field_value == "123"
+
+
+def test_get_record_with_scanning_by_non_pk_field(
+    mock_catalog_with_pk, mock_declarative_executor
+):
+    """Test get_record with scanning enabled for a non-primary-key field."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=mock_declarative_executor, name="test-source")
+
+        mock_records = [
+            {"id": "1", "email": "user1@example.com", "name": "User 1"},
+            {"id": "2", "email": "user2@example.com", "name": "User 2"},
+            {"id": "3", "email": "target@example.com", "name": "Target User"},
+        ]
+
+        with patch.object(source, "get_records", return_value=iter(mock_records)):
+            result = source.get_record(
+                "users",
+                pk_value={"email": "target@example.com"},
+                allow_scanning=True,
+            )
+
+        assert result == {
+            "id": "3",
+            "email": "target@example.com",
+            "name": "Target User",
+        }
+
+
+def test_get_record_with_scanning_timeout(
+    mock_catalog_with_pk, mock_declarative_executor
+):
+    """Test get_record with scanning that times out."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=mock_declarative_executor, name="test-source")
+
+        def slow_records():
+            import time
+
+            for i in range(1000):
+                time.sleep(0.01)  # 10ms per record
+                yield {"id": str(i), "email": f"user{i}@example.com"}
+
+        with patch.object(source, "get_records", return_value=slow_records()):
+            with pytest.raises(ValueError) as exc_info:
+                source.get_record(
+                    "users",
+                    pk_value={"email": "nonexistent@example.com"},
+                    allow_scanning=True,
+                    scan_timeout_seconds=1,
+                )
+
+        assert "not found" in str(exc_info.value)
+        assert "within 1 seconds" in str(exc_info.value)
+
+
+def test_get_record_with_scanning_not_found(
+    mock_catalog_with_pk, mock_declarative_executor
+):
+    """Test get_record with scanning when record is not found."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=mock_declarative_executor, name="test-source")
+
+        mock_records = [
+            {"id": "1", "email": "user1@example.com"},
+            {"id": "2", "email": "user2@example.com"},
+        ]
+
+        with patch.object(source, "get_records", return_value=iter(mock_records)):
+            with pytest.raises(ValueError) as exc_info:
+                source.get_record(
+                    "users",
+                    pk_value={"email": "nonexistent@example.com"},
+                    allow_scanning=True,
+                )
+
+        assert "not found" in str(exc_info.value)
+        assert "checked 2 records" in str(exc_info.value)
+
+
+def test_get_record_with_scanning_by_pk_field(
+    mock_catalog_with_pk, mock_declarative_executor
+):
+    """Test get_record with scanning by primary key field (should try fast path first)."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=mock_declarative_executor, name="test-source")
+
+        result = source.get_record(
+            "users",
+            pk_value={"id": "123"},
+            allow_scanning=True,
+        )
+
+        assert result == {"id": "123", "name": "Test User"}
+        mock_declarative_executor.fetch_record.assert_called_once()
+
+
+def test_get_record_without_scanning_non_pk_field_fails(
+    mock_catalog_with_pk, mock_declarative_executor
+):
+    """Test get_record without scanning for non-PK field should fail validation."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=mock_declarative_executor, name="test-source")
+
+        with pytest.raises(exc.PyAirbyteInputError) as exc_info:
+            source.get_record("users", pk_value={"email": "user@example.com"})
+
+        assert "does not match" in str(exc_info.value)
+
+
+def test_normalize_and_validate_pk_with_non_strict_mode(mock_catalog_with_pk):
+    """Test _normalize_and_validate_pk with strict_pk_field=False allows any field."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=Mock(), name="test-source")
+
+        field_name, field_value = source._normalize_and_validate_pk(
+            "users",
+            {"email": "user@example.com"},
+            strict_pk_field=False,
+        )
+
+        assert field_name == "email"
+        assert field_value == "user@example.com"
+
+
+def test_get_record_scanning_with_scalar_no_pk_fails(
+    mock_catalog_no_pk, mock_declarative_executor
+):
+    """Test get_record with scanning and scalar value when stream has no PK."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_no_pk):
+        source = Source(executor=mock_declarative_executor, name="test-source")
+
+        with pytest.raises(exc.PyAirbyteInputError) as exc_info:
+            source.get_record(
+                "events",
+                pk_value="123",
+                allow_scanning=True,
+            )
+
+        assert "must have a primary key" in str(exc_info.value)
