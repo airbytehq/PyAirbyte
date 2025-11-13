@@ -466,6 +466,124 @@ def read_source_stream_records(
     read_only=True,
     extra_help_text=_CONFIG_HELP,
 )
+def fetch_source_stream_record(  # noqa: PLR0913
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    config: Annotated[
+        dict | str | None,
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
+    ],
+    config_file: Annotated[
+        str | Path | None,
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
+    *,
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream to fetch the record from."),
+    ],
+    pk_value: Annotated[
+        str | dict[str, Any],
+        Field(
+            description="Either a primary key value as a string (e.g., '123') or a dict "
+            "with a single entry where the key is the field name and the value is the field value "
+            "(e.g., {'id': '123'} or {'email': 'user@example.com'}). "
+            "When allow_scanning=False, dict keys must match the primary key. "
+            "When allow_scanning=True, dict keys can be any field name.",
+        ),
+    ],
+    allow_scanning: Annotated[
+        bool,
+        Field(
+            description="When True, enables scanning through records to find a match. "
+            "This allows searching by non-primary-key fields but is slower and may not find "
+            "the record if it's not in the first scan_timeout_seconds of data. Default: False.",
+            default=False,
+        ),
+    ],
+    scan_timeout_seconds: Annotated[
+        int,
+        Field(
+            description="Maximum time in seconds to scan for a record when allow_scanning=True. "
+            "Default: 5 seconds.",
+            default=5,
+        ),
+    ],
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
+            default="auto",
+        ),
+    ],
+    manifest_path: Annotated[
+        str | Path | None,
+        Field(
+            description="Path to a local YAML manifest file for declarative connectors.",
+            default=None,
+        ),
+    ],
+) -> dict[str, Any] | str:
+    """Fetch a single record from a source connector by primary key or field value.
+
+    This tool is only supported for declarative (YAML-based) sources.
+    """
+    try:
+        source: Source = _get_mcp_source(
+            connector_name=source_connector_name,
+            override_execution_mode=override_execution_mode,
+            manifest_path=manifest_path,
+        )
+        config_dict = resolve_config(
+            config=config,
+            config_file=config_file,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=source.config_spec,
+        )
+        source.set_config(config_dict)
+
+        record = source.get_record(
+            stream_name=stream_name,
+            pk_value=pk_value,
+            allow_scanning=allow_scanning,
+            scan_timeout_seconds=scan_timeout_seconds,
+        )
+
+        print(
+            f"Retrieved record with {pk_value} from stream '{stream_name}'",
+            file=sys.stderr,
+        )
+
+    except Exception as ex:
+        tb_str = traceback.format_exc()
+        return (
+            f"Error fetching record from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+        )
+    else:
+        return record
+
+
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def get_stream_previews(
     source_name: Annotated[
         str,

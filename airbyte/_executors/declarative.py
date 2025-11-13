@@ -140,3 +140,46 @@ class DeclarativeExecutor(Executor):
     def uninstall(self) -> None:
         """No-op. The declarative source is included with PyAirbyte."""
         pass
+
+    def fetch_record(
+        self,
+        stream_name: str,
+        pk_value: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch a single record from a stream by primary key.
+
+        This method requires airbyte-python-cdk with fetch_record support
+        (airbytehq/airbyte-python-cdk#846).
+
+        Args:
+            stream_name: Name of the stream to fetch from
+            pk_value: Primary key value as a string
+            config: Source configuration (optional, uses instance config if not provided)
+
+        Returns:
+            The fetched record as a dict
+
+        Raises:
+            NotImplementedError: If the installed CDK doesn't support fetch_record
+            ValueError: If the stream name is not found
+            RecordNotFoundException: If the record is not found
+        """
+        merged_config = {**self._config_dict}
+        if config:
+            merged_config.update(config)
+
+        source = self.declarative_source
+        fetch_record_method = getattr(source, "fetch_record", None)
+
+        if fetch_record_method is None:
+            raise NotImplementedError(
+                "The installed airbyte-python-cdk does not support fetch_record. "
+                "This requires airbytehq/airbyte-python-cdk#846 to be merged and installed."
+            )
+
+        return fetch_record_method(
+            stream_name=stream_name,
+            pk_value=pk_value,
+            config=merged_config,
+        )

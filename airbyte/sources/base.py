@@ -30,6 +30,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
+from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
@@ -62,6 +63,9 @@ from airbyte.constants import (
     AB_META_COLUMN,
     AB_RAW_ID_COLUMN,
 )
+
+
+LookupValue = Any
 
 
 class Source(ConnectorBase):  # noqa: PLR0904
@@ -575,6 +579,237 @@ class Source(ConnectorBase):  # noqa: PLR0904
             stream_metadata=configured_stream,
             stop_event=stop_event,
             progress_tracker=progress_tracker,
+        )
+
+    def _get_stream_primary_key(self, stream_name: str) -> list[str]:
+        """Get the primary key for a stream.
+
+        Returns the primary key from the configured catalog, which includes user overrides.
+        The Airbyte protocol represents primary keys as a list of field paths (list of lists).
+        This method flattens single-field paths to simple strings.
+
+        Args:
+            stream_name: Name of the stream
+
+        Returns:
+            List of primary key field names (flattened from field paths)
+
+        Raises:
+            PyAirbyteInputError: If the stream doesn't exist
+        """
+        configured_catalog = self.get_configured_catalog(streams=[stream_name])
+
+        if len(configured_catalog.streams) == 0:
+            raise exc.PyAirbyteInputError(
+                message="Stream name does not exist in catalog.",
+                input_value=stream_name,
+            )
+
+        configured_stream = configured_catalog.streams[0]
+        pk_field_paths = configured_stream.primary_key or []
+
+        return [field_path[0] for field_path in pk_field_paths if field_path]
+
+    def _normalize_and_validate_pk(
+        self,
+        stream_name: str,
+        pk_value: LookupValue | dict[str, LookupValue],
+        *,
+        strict_pk_field: bool = True,
+    ) -> tuple[str, str]:
+        """Normalize and validate primary key input.
+
+        Accepts either a direct primary key value or a dict with a single entry
+        where the key matches the stream's primary key field name (when strict_pk_field=True).
+
+        Args:
+            stream_name: Name of the stream
+            pk_value: Either a direct PK value or a dict with single entry
+            strict_pk_field: When True, dict keys must match the stream's primary key.
+                When False (for scanning), dict keys can be any field name.
+
+        Returns:
+            A tuple of (field_name, field_value) as strings
+
+        Raises:
+            PyAirbyteInputError: If validation fails
+            NotImplementedError: If the stream has composite or no primary key
+                (when strict_pk_field=True)
+        """
+        primary_key = self._get_stream_primary_key(stream_name)
+
+        if strict_pk_field:
+            if len(primary_key) == 0:
+                raise NotImplementedError(
+                    f"Stream '{stream_name}' does not have a primary key defined. "
+                    "Cannot fetch individual records without a primary key."
+                )
+
+            if len(primary_key) > 1:
+                raise NotImplementedError(
+                    f"Stream '{stream_name}' has a composite primary key {primary_key}. "
+                    "Fetching by composite primary key is not yet supported."
+                )
+
+        if isinstance(pk_value, dict):
+            if len(pk_value) != 1:
+                raise exc.PyAirbyteInputError(
+                    message="When passing a dict for pk_value, it must contain exactly one entry.",
+                    input_value=str(pk_value),
+                    context={
+                        "stream_name": stream_name,
+                        "expected_entries": 1,
+                        "actual_entries": len(pk_value),
+                        "pk_value": pk_value,
+                    },
+                )
+
+            dict_key = next(iter(pk_value.keys()))
+            dict_value = pk_value[dict_key]
+
+            if strict_pk_field:
+                pk_field = primary_key[0]
+                if dict_key != pk_field:
+                    raise exc.PyAirbyteInputError(
+                        message=(
+                            "The key in the pk_value dict does not match "
+                            "the stream's primary key."
+                        ),
+                        input_value=dict_key,
+                        context={
+                            "stream_name": stream_name,
+                            "expected_key": pk_field,
+                            "actual_key": dict_key,
+                        },
+                    )
+
+            return dict_key, str(dict_value)
+
+        if len(primary_key) == 0:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "When passing a scalar pk_value, the stream must have a primary key defined. "
+                    "Use a dict to specify the field name explicitly."
+                ),
+                input_value=str(pk_value),
+                context={
+                    "stream_name": stream_name,
+                },
+            )
+
+        return primary_key[0], str(pk_value)
+
+    def get_record(
+        self,
+        stream_name: str,
+        *,
+        pk_value: LookupValue | dict[str, LookupValue],
+        allow_scanning: bool = False,
+        scan_timeout_seconds: int = 5,
+    ) -> dict[str, Any]:
+        """Fetch a single record from a stream by primary key or field value.
+
+        This method is only supported for declarative (YAML-based) sources.
+
+        Args:
+            stream_name: Name of the stream to fetch from
+            pk_value: Either a direct primary key value (e.g., "123") or a dict
+                with a single entry where the key is the field name and the value
+                is the field value (e.g., {"id": "123"} or {"email": "user@example.com"}).
+                When allow_scanning=False, dict keys must match the primary key.
+                When allow_scanning=True, dict keys can be any field name.
+            allow_scanning: When True, enables scanning through records to find a match.
+                This allows searching by non-primary-key fields but is slower and may
+                not find the record if it's not in the first scan_timeout_seconds of data.
+                Default: False (use fast primary key lookup only).
+            scan_timeout_seconds: Maximum time in seconds to scan for a record when
+                allow_scanning=True. Default: 5 seconds.
+
+        Returns:
+            The fetched record as a dict
+
+        Raises:
+            NotImplementedError: If the source is not a declarative source and
+                allow_scanning=False, or if the stream has a composite primary key
+                or no primary key (when allow_scanning=False)
+            PyAirbyteInputError: If the stream doesn't exist or pk_value validation fails
+            ValueError: If the record is not found within the timeout period
+                (when allow_scanning=True)
+
+        Example:
+            ```python
+            source = get_source("source-rest-api-tutorial", config=config)
+
+            record = source.get_record("users", pk_value="123")
+            record = source.get_record("users", pk_value={"id": "123"})
+
+            record = source.get_record(
+                "users",
+                pk_value={"email": "user@example.com"},
+                allow_scanning=True,
+                scan_timeout_seconds=10,
+            )
+            ```
+        """
+        is_declarative = isinstance(self.executor, DeclarativeExecutor)
+
+        if not is_declarative and not allow_scanning:
+            raise NotImplementedError(
+                f"get_record() with allow_scanning=False is only supported for "
+                f"declarative sources. This source uses {type(self.executor).__name__}. "
+                f"Use allow_scanning=True to search by iterating through records."
+            )
+
+        field_name, field_value = self._normalize_and_validate_pk(
+            stream_name, pk_value, strict_pk_field=not allow_scanning
+        )
+
+        # Try fast path first if the field is the primary key and source is declarative
+        primary_key = self._get_stream_primary_key(stream_name)
+        if (
+            is_declarative
+            and len(primary_key) == 1
+            and field_name == primary_key[0]
+            and hasattr(self.executor, "fetch_record")
+        ):
+            try:
+                return self.executor.fetch_record(
+                    stream_name=stream_name,
+                    pk_value=field_value,
+                    config=self._config_dict,
+                )
+            except Exception:
+                if not allow_scanning:
+                    raise
+
+        if not allow_scanning:
+            raise ValueError(
+                f"Record with {field_name}={field_value} not found in stream '{stream_name}'. "
+                "Consider using allow_scanning=True to search by non-primary-key fields."
+            )
+
+        start_time = time.time()
+        records_checked = 0
+
+        dataset = self.get_records(stream_name)
+
+        for record in dataset:
+            elapsed = time.time() - start_time
+            if elapsed > scan_timeout_seconds:
+                raise ValueError(
+                    f"Record with {field_name}={field_value} not found in stream '{stream_name}' "
+                    f"within {scan_timeout_seconds} seconds (checked {records_checked} records). "
+                    "Consider increasing scan_timeout_seconds or using a primary key lookup."
+                )
+
+            records_checked += 1
+
+            if field_name in record and str(record[field_name]) == field_value:
+                return record
+
+        raise ValueError(
+            f"Record with {field_name}={field_value} not found in stream '{stream_name}' "
+            f"(checked {records_checked} records in {time.time() - start_time:.1f} seconds)."
         )
 
     def get_documents(
