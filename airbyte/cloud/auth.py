@@ -22,6 +22,14 @@ def resolve_cloud_client_id(
     return get_secret(constants.CLOUD_CLIENT_ID_ENV_VAR, default=input_value)
 
 
+def resolve_cloud_bearer_token(
+    input_value: str | SecretString | None = None,
+    /,
+) -> SecretString | None:
+    """Get the Airbyte Cloud bearer token from the environment."""
+    return try_get_secret(constants.CLOUD_BEARER_TOKEN_ENV_VAR, default=input_value)
+
+
 def resolve_cloud_api_url(
     input_value: str | None = None,
     /,
