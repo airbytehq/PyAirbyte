@@ -95,8 +95,8 @@ vector-db-based = ["cohere (>=4.21,<6.0.0)", "langchain_community (>=0.4,<0.5)",
 [package.source]
 type = "git"
 url = "https://github.com/airbytehq/airbyte-python-cdk.git"
-reference = "38d13d30af02cc4a47d771e9cbba85791c1ea7bf"
-resolved_reference = "38d13d30af02cc4a47d771e9cbba85791c1ea7bf"
+reference = "4386a351"
+resolved_reference = "4386a351d46eb9c633208e006c4cacc4d96a50f9"
 
 [[package]]
 name = "airbyte-protocol-models-dataclasses"
@@ -5838,4 +5838,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "5b798508f7b05cb9db462076ed970e869c49fee4e208f51723433c6a776197db"
+content-hash = "2c2b4e77e79fe3fa37073c39255392fab87f7f4c8df834b5100a646b87e0d0b6"
