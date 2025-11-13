@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+import os
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -25,6 +26,44 @@ from airbyte.mcp._tool_utils import (
     register_tools,
 )
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+
+
+def _check_internal_admin_flag() -> bool:
+    """Check if internal admin flag is properly configured.
+
+    Returns:
+        True if both AIRBYTE_INTERNAL_ADMIN_FLAG and AIRBYTE_INTERNAL_ADMIN_USER are set correctly.
+    """
+    admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
+    admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+
+    if admin_flag != "airbyte.io":
+        print(
+            "Warning: Invalid AIRBYTE_INTERNAL_ADMIN_FLAG configuration. "
+            "Remove or correct the environment variable."
+        )
+        return False
+
+    if not admin_user:
+        print(
+            "Warning: Invalid AIRBYTE_INTERNAL_ADMIN_USER configuration. "
+            "Remove or correct the environment variable."
+        )
+        return False
+
+    return True
+
+
+def _get_admin_user_email() -> str | None:
+    """Get the admin user email from environment variable.
+
+    Returns:
+        The admin user email from AIRBYTE_INTERNAL_ADMIN_USER, or None if not configured.
+    """
+    if not _check_internal_admin_flag():
+        return None
+
+    return os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -427,7 +466,7 @@ def get_cloud_sync_status(
                 for attempt in attempts
             ]
 
-        return result  # noqa: TRY300
+        return result
 
     except Exception as ex:
         return {
@@ -534,7 +573,7 @@ def get_cloud_sync_logs(
                 f"attempt {target_attempt.attempt_number}"
             )
 
-        return logs  # noqa: TRY300
+        return logs
 
     except Exception as ex:
         return f"Failed to get logs for connection '{connection_id}': {ex}"
@@ -757,6 +796,222 @@ def permanently_delete_custom_source_definition(
     return (
         f"Successfully deleted custom source definition '{definition_name}' (ID: {definition_id})"
     )
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
+def get_cloud_source_connector_version(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector."),
+    ],
+) -> str:
+    """Get the current version information for a deployed source connector.
+
+    Returns version details including the current version string and whether an override
+    is applied.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+    version_info = source.get_connector_version()
+    return str(version_info)
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
+def get_cloud_destination_connector_version(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination connector."),
+    ],
+) -> str:
+    """Get the current version information for a deployed destination connector.
+
+    Returns version details including the current version string and whether an override
+    is applied.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+    version_info = destination.get_connector_version()
+    return str(version_info)
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    idempotent=False,
+    open_world=True,
+    airbyte_internal=True,
+)
+def set_cloud_source_connector_version_override(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector."),
+    ],
+    version: Annotated[
+        str | None,
+        Field(
+            description="The semver version string to pin to (e.g., '0.1.0'). "
+            "Must be None if unset is True.",
+            default=None,
+        ),
+    ] = None,
+    *,
+    unset: Annotated[
+        bool,
+        Field(
+            description="If True, removes any existing version override. "
+            "Cannot be True if version is provided.",
+            default=False,
+        ),
+    ] = False,
+    override_reason: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Required when setting a version. "
+                "Explanation for the override (min 10 characters)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    override_reason_reference_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL with more context (e.g., issue link).",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """Set or clear a version override for a deployed source connector.
+
+    You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+    When setting a version, `override_reason` is required and must be at least 10 characters.
+
+    This is an admin-only operation. Requires environment variables:
+    - AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io
+    - AIRBYTE_INTERNAL_ADMIN_USER=<your_email>
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    admin_user_email = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+    if not admin_user_email:
+        raise ValueError("AIRBYTE_INTERNAL_ADMIN_USER environment variable is required")
+
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    source = workspace.get_source(source_id=source_id)
+    result = source._set_connector_version_override(  # noqa: SLF001  # Accessing Non-Public API
+        version=version,
+        unset=unset,
+        override_reason=override_reason,
+        override_reason_reference_url=override_reason_reference_url,
+        user_email=admin_user_email,
+    )
+
+    if unset:
+        if result:
+            return f"Successfully cleared version override for source '{source_id}'"
+        return f"No version override was set for source '{source_id}'"
+    return f"Successfully set version override to '{version}' for source '{source_id}'"
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    idempotent=False,
+    open_world=True,
+    airbyte_internal=True,
+)
+def set_cloud_destination_connector_version_override(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination connector."),
+    ],
+    version: Annotated[
+        str | None,
+        Field(
+            description="The semver version string to pin to (e.g., '0.1.0'). "
+            "Must be None if unset is True.",
+            default=None,
+        ),
+    ] = None,
+    *,
+    unset: Annotated[
+        bool,
+        Field(
+            description="If True, removes any existing version override. "
+            "Cannot be True if version is provided.",
+            default=False,
+        ),
+    ] = False,
+    override_reason: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Required when setting a version. "
+                "Explanation for the override (min 10 characters)."
+            ),
+            default=None,
+        ),
+    ] = None,
+    override_reason_reference_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL with more context (e.g., issue link).",
+            default=None,
+        ),
+    ] = None,
+) -> str:
+    """Set or clear a version override for a deployed destination connector.
+
+    You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+    When setting a version, `override_reason` is required and must be at least 10 characters.
+
+    This is an admin-only operation. Requires environment variables:
+    - AIRBYTE_INTERNAL_ADMIN_FLAG=airbyte.io
+    - AIRBYTE_INTERNAL_ADMIN_USER=<your_email>
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    admin_user_email = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+    if not admin_user_email:
+        raise ValueError("AIRBYTE_INTERNAL_ADMIN_USER environment variable is required")
+
+    workspace: CloudWorkspace = _get_cloud_workspace()
+    destination = workspace.get_destination(destination_id=destination_id)
+    result = destination._set_connector_version_override(  # noqa: SLF001  # Accessing Non-Public API
+        version=version,
+        unset=unset,
+        override_reason=override_reason,
+        override_reason_reference_url=override_reason_reference_url,
+        user_email=admin_user_email,
+    )
+
+    if unset:
+        if result:
+            return f"Successfully cleared version override for destination '{destination_id}'"
+        return f"No version override was set for destination '{destination_id}'"
+    return f"Successfully set version override to '{version}' for destination '{destination_id}'"
 
 
 @mcp_tool(

@@ -93,6 +93,7 @@ ignore = [
     "PLW0603", # Using the global statement to update _cache is discouraged
     "PLW0108", # Lambda may be unnecessary; consider inlining inner function
     "TRY003",  # Allow exceptions to receive strings in constructors.
+    "TRY300",  # Consider moving statement to else block (conflicts with RET505)
     # "TD003", # Require links for TODOs (now enabled)
     "UP038",   # Allow tuples instead of "|" syntax in `isinstance()` checks ("|" is sometimes slower)
 ]

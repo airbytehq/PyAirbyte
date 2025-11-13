@@ -1010,8 +1010,8 @@ def get_bearer_token(
             "accept": "application/json",
         },
         json={
-            "client_id": client_id,
-            "client_secret": client_secret,
+            "client_id": str(client_id),
+            "client_secret": str(client_secret),
         },
     )
     if not status_ok(response.status_code):
@@ -1418,3 +1418,384 @@ def get_connector_builder_project_for_definition_id(
         client_secret=client_secret,
     )
     return json_result.get("builderProjectId")
+
+
+def get_connector_version(
+    *,
+    connector_id: str,
+    connector_type: Literal["source", "destination"],
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get the current version for a source or destination connector.
+
+    Uses the Config API endpoint:
+    - /v1/actor_definition_versions/get_for_source
+    - /v1/actor_definition_versions/get_for_destination
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        connector_id: The source or destination ID
+        connector_type: Either "source" or "destination"
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        A dictionary containing version information including:
+        - dockerImageTag: The version string (e.g., "0.1.0")
+        - actorDefinitionId: The connector definition ID
+        - actorDefinitionVersionId: The specific version ID
+        - isOverrideApplied: Whether a version override is active
+    """
+    endpoint = f"/actor_definition_versions/get_for_{connector_type}"
+    return _make_config_api_request(
+        path=endpoint,
+        json={
+            f"{connector_type}Id": connector_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+def resolve_connector_version(
+    *,
+    actor_definition_id: str,
+    connector_type: Literal["source", "destination"],
+    version: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str:
+    """Resolve a semver version string to an actor_definition_version_id.
+
+    Uses the Config API endpoint:
+    /v1/actor_definition_versions/resolve
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        actor_definition_id: The connector definition ID
+        connector_type: Either "source" or "destination"
+        version: The semver version string (e.g., "0.1.0")
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The actor_definition_version_id (UUID as string)
+
+    Raises:
+        AirbyteError: If the version cannot be resolved
+    """
+    json_result = _make_config_api_request(
+        path="/actor_definition_versions/resolve",
+        json={
+            "actorDefinitionId": actor_definition_id,
+            "actorType": connector_type,
+            "dockerImageTag": version,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    version_id = json_result.get("versionId")
+    if not version_id:
+        raise AirbyteError(
+            message=f"Could not resolve version '{version}' for connector",
+            context={
+                "actor_definition_id": actor_definition_id,
+                "connector_type": connector_type,
+                "version": version,
+                "response": json_result,
+            },
+        )
+    return version_id
+
+
+def _find_connector_version_override_id(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Find the scoped configuration ID for a connector version override.
+
+    Uses the /v1/scoped_configuration/get_context endpoint to retrieve the active
+    configuration for the given scope without needing to list all configurations.
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The scoped configuration ID if found, None otherwise
+    """
+    json_result = _make_config_api_request(
+        path="/scoped_configuration/get_context",
+        json={
+            "config_key": "connector_version",
+            "scope_type": "actor",
+            "scope_id": connector_id,
+            "resource_type": "actor_definition",
+            "resource_id": actor_definition_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    active_config = json_result.get("activeConfiguration")
+    if active_config:
+        return active_config.get("id")
+
+    return None
+
+
+def get_connector_version_override_info(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any] | None:
+    """Get full information about a connector version override if one exists.
+
+    Uses the /v1/scoped_configuration/get_context endpoint to retrieve the active
+    configuration for the given scope.
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary with override info including 'id', 'origin' (user UUID), 'description', etc.
+        Returns None if no override exists.
+    """
+    json_result = _make_config_api_request(
+        path="/scoped_configuration/get_context",
+        json={
+            "config_key": "connector_version",
+            "scope_type": "actor",
+            "scope_id": connector_id,
+            "resource_type": "actor_definition",
+            "resource_id": actor_definition_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    return json_result.get("activeConfiguration")
+
+
+def clear_connector_version_override(
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> bool:
+    """Clear a version override for a source or destination connector.
+
+    Deletes the scoped configuration that pins the connector to a specific version.
+
+    Uses the Config API endpoints:
+    - /v1/scoped_configuration/get_context (to find the override)
+    - /v1/scoped_configuration/delete (to remove it)
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        True if an override was found and deleted, False if no override existed
+    """
+    config_id = _find_connector_version_override_id(
+        connector_id=connector_id,
+        actor_definition_id=actor_definition_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    if not config_id:
+        return False
+
+    _make_config_api_request(
+        path="/scoped_configuration/delete",
+        json={
+            "scopedConfigurationId": config_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    return True
+
+
+def get_user_id_by_email(
+    *,
+    email: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str:
+    """Get a user's UUID by their email address.
+
+    Uses the Config API endpoint:
+    /v1/users/list_instance_admin
+
+    Args:
+        email: The user's email address
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The user's UUID as a string
+
+    Raises:
+        ValueError: If no user with the given email is found
+    """
+    response = _make_config_api_request(
+        path="/users/list_instance_admin",
+        json={},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    users = response.get("users", [])
+    for user in users:
+        if user.get("email") == email:
+            return user["userId"]
+
+    raise ValueError(f"No user found with email: {email}")
+
+
+def get_user_email_by_id(
+    *,
+    user_id: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str | None:
+    """Get a user's email address by their UUID.
+
+    Uses the Config API endpoint:
+    /v1/users/list_instance_admin
+
+    Args:
+        user_id: The user's UUID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The user's email address, or None if not found
+    """
+    response = _make_config_api_request(
+        path="/users/list_instance_admin",
+        json={},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    users = response.get("users", [])
+    for user in users:
+        if user.get("userId") == user_id:
+            return user.get("email")
+
+    return None
+
+
+def set_connector_version_override(  # noqa: PLR0913
+    *,
+    connector_id: str,
+    actor_definition_id: str,
+    actor_definition_version_id: str,
+    override_reason: str,
+    user_email: str,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    override_reason_reference_url: str | None = None,
+) -> dict[str, Any]:
+    """Set a version override for a source or destination connector.
+
+    Creates a scoped configuration at the ACTOR level to pin the connector
+    to a specific version.
+
+    Uses the Config API endpoint:
+    /v1/scoped_configuration/create
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+
+    Args:
+        connector_id: The source or destination ID
+        actor_definition_id: The connector definition ID
+        actor_definition_version_id: The version ID to pin to
+        override_reason: Explanation for why the version override is being set
+        user_email: Email address of the user creating the override
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        override_reason_reference_url: Optional URL with more context (e.g., issue link)
+
+    Returns:
+        The created scoped configuration response
+    """
+    user_id = get_user_id_by_email(
+        email=user_email,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    request_body: dict[str, Any] = {
+        "config_key": "connector_version",
+        "value": actor_definition_version_id,
+        "resource_type": "actor_definition",
+        "resource_id": actor_definition_id,
+        "scope_type": "actor",
+        "scope_id": connector_id,
+        "origin": user_id,
+        "origin_type": "user",
+        "description": override_reason,
+    }
+    if override_reason_reference_url:
+        request_body["reference_url"] = override_reason_reference_url
+
+    # Note: The ScopedConfiguration API also supports an optional "expiresAt" field
+    # (ISO 8601 datetime string) to automatically expire the override after a certain date.
+    # This could be added in the future if there are business cases for time-limited overrides.
+
+    return _make_config_api_request(
+        path="/scoped_configuration/create",
+        json=request_body,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )

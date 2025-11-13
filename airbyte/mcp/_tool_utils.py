@@ -12,6 +12,7 @@ from collections.abc import Callable
 from typing import Any, Literal, TypeVar
 
 from airbyte.mcp._annotations import (
+    AIRBYTE_INTERNAL,
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
@@ -66,11 +67,18 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     """Check if a tool should be registered based on mode settings.
 
     Args:
-        annotations: Tool annotations dict containing domain, readOnlyHint, and destructiveHint
+        annotations: Tool annotations dict containing domain, readOnlyHint, destructiveHint,
+            and airbyte_internal
 
     Returns:
         True if the tool should be registered, False if it should be filtered out
     """
+    if annotations.get(AIRBYTE_INTERNAL):
+        admin_flag = os.environ.get("AIRBYTE_INTERNAL_ADMIN_FLAG")
+        admin_user = os.environ.get("AIRBYTE_INTERNAL_ADMIN_USER")
+        if admin_flag != "airbyte.io" or not admin_user or not admin_user.endswith("@airbyte.io"):
+            return False
+
     if annotations.get("domain") != "cloud":
         return True
 
@@ -106,6 +114,7 @@ def mcp_tool(
     destructive: bool = False,
     idempotent: bool = False,
     open_world: bool = False,
+    airbyte_internal: bool = False,
     extra_help_text: str | None = None,
 ) -> Callable[[F], F]:
     """Decorator to tag an MCP tool function with annotations for deferred registration.
@@ -119,6 +128,7 @@ def mcp_tool(
         destructive: If True, tool modifies/deletes existing data (default: False)
         idempotent: If True, repeated calls have same effect (default: False)
         open_world: If True, tool interacts with external systems (default: False)
+        airbyte_internal: If True, tool is only for internal Airbyte admin use.
         extra_help_text: Optional text to append to the function's docstring
             with a newline delimiter
 
@@ -136,6 +146,7 @@ def mcp_tool(
         DESTRUCTIVE_HINT: destructive,
         IDEMPOTENT_HINT: idempotent,
         OPEN_WORLD_HINT: open_world,
+        AIRBYTE_INTERNAL: airbyte_internal,
     }
 
     def decorator(func: F) -> F:
