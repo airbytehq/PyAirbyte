@@ -148,14 +148,43 @@ def test_get_record_with_dict_pk_value_wrong_key(
 def test_get_record_with_non_declarative_executor(
     mock_catalog_with_pk, mock_non_declarative_executor
 ):
-    """Test get_record with a non-declarative executor (should raise NotImplementedError)."""
+    """Test get_record with non-declarative executor without scanning (should raise NotImplementedError)."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_non_declarative_executor, name="test-source")
 
         with pytest.raises(NotImplementedError) as exc_info:
             source.get_record("users", pk_value="123")
 
-        assert "only supported for declarative sources" in str(exc_info.value)
+        assert "allow_scanning=False is only supported for declarative sources" in str(
+            exc_info.value
+        )
+
+
+def test_get_record_with_non_declarative_executor_with_scanning(
+    mock_catalog_with_pk, mock_non_declarative_executor
+):
+    """Test get_record with non-declarative executor with scanning enabled (should work)."""
+    with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
+        source = Source(executor=mock_non_declarative_executor, name="test-source")
+
+        mock_records = [
+            {"id": "1", "email": "user1@example.com", "name": "User 1"},
+            {"id": "2", "email": "user2@example.com", "name": "User 2"},
+            {"id": "123", "email": "target@example.com", "name": "Target User"},
+        ]
+
+        with patch.object(source, "get_records", return_value=iter(mock_records)):
+            result = source.get_record(
+                "users",
+                pk_value={"id": "123"},
+                allow_scanning=True,
+            )
+
+        assert result == {
+            "id": "123",
+            "email": "target@example.com",
+            "name": "Target User",
+        }
 
 
 def test_get_record_with_no_primary_key(mock_catalog_no_pk, mock_declarative_executor):

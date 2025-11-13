@@ -729,9 +729,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
             The fetched record as a dict
 
         Raises:
-            NotImplementedError: If the source is not a declarative source, or if
-                the stream has a composite primary key or no primary key
-                (when allow_scanning=False)
+            NotImplementedError: If the source is not a declarative source and
+                allow_scanning=False, or if the stream has a composite primary key
+                or no primary key (when allow_scanning=False)
             PyAirbyteInputError: If the stream doesn't exist or pk_value validation fails
             ValueError: If the record is not found within the timeout period
                 (when allow_scanning=True)
@@ -751,19 +751,27 @@ class Source(ConnectorBase):  # noqa: PLR0904
             )
             ```
         """
-        if not isinstance(self.executor, DeclarativeExecutor):
+        is_declarative = isinstance(self.executor, DeclarativeExecutor)
+
+        if not is_declarative and not allow_scanning:
             raise NotImplementedError(
-                f"get_record() is only supported for declarative sources. "
-                f"This source uses {type(self.executor).__name__}."
+                f"get_record() with allow_scanning=False is only supported for "
+                f"declarative sources. This source uses {type(self.executor).__name__}. "
+                f"Use allow_scanning=True to search by iterating through records."
             )
 
         field_name, field_value = self._normalize_and_validate_pk(
             stream_name, pk_value, strict_pk_field=not allow_scanning
         )
 
-        # Try fast path first if the field is the primary key
+        # Try fast path first if the field is the primary key and source is declarative
         primary_key = self._get_stream_primary_key(stream_name)
-        if len(primary_key) == 1 and field_name == primary_key[0]:
+        if (
+            is_declarative
+            and len(primary_key) == 1
+            and field_name == primary_key[0]
+            and hasattr(self.executor, "fetch_record")
+        ):
             try:
                 return self.executor.fetch_record(
                     stream_name=stream_name,
@@ -783,7 +791,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         start_time = time.time()
         records_checked = 0
 
-        for record in self.get_records(stream_name):
+        dataset = self.get_records(stream_name)
+
+        for record in dataset:
             elapsed = time.time() - start_time
             if elapsed > scan_timeout_seconds:
                 raise ValueError(
