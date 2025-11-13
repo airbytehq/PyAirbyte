@@ -6,6 +6,8 @@ both OSS and Enterprise.
 
 ## Usage Examples
 
+### Authentication with OAuth2 Client Credentials
+
 Get a new workspace object and deploy a source to it:
 
 ```python
@@ -30,6 +32,35 @@ check_result = deployed_source.check(raise_on_error=True)
 
 # Permanently delete the newly-created source
 workspace.permanently_delete_source(deployed_source)
+```
+
+
+Alternatively, authenticate using a bearer token directly:
+
+```python
+import airbyte as ab
+from airbyte import cloud
+
+workspace = cloud.CloudWorkspace(
+    workspace_id="...",
+    bearer_token="...",
+)
+
+sources = workspace.list_sources()
+```
+
+
+Generate a bearer token from client credentials:
+
+```python
+workspace = cloud.CloudWorkspace(
+    workspace_id="...",
+    client_id="...",
+    client_secret="...",
+)
+
+token = workspace.create_oauth_token()
+print(f"Bearer token: {token}")
 ```
 """
 
@@ -66,17 +97,40 @@ class CloudWorkspace:
 
     By overriding `api_root`, you can use this class to interact with self-managed Airbyte
     instances, both OSS and Enterprise.
+
+    Authentication can be done via either OAuth2 client credentials or bearer token.
+    Provide either (client_id + client_secret) OR bearer_token, but not both.
     """
 
     workspace_id: str
-    client_id: SecretString
-    client_secret: SecretString
+    client_id: SecretString | None = None
+    client_secret: SecretString | None = None
+    bearer_token: SecretString | None = None
     api_root: str = api_util.CLOUD_API_ROOT
 
     def __post_init__(self) -> None:
-        """Ensure that the client ID and secret are handled securely."""
-        self.client_id = SecretString(self.client_id)
-        self.client_secret = SecretString(self.client_secret)
+        """Ensure that credentials are handled securely and validate auth method."""
+        has_client_creds = self.client_id is not None and self.client_secret is not None
+        has_bearer = self.bearer_token is not None
+
+        if has_client_creds and has_bearer:
+            raise exc.PyAirbyteInputError(
+                message="Cannot provide both client credentials and bearer token. "
+                "Please use only one authentication method.",
+            )
+
+        if not has_client_creds and not has_bearer:
+            raise exc.PyAirbyteInputError(
+                message="Must provide either client credentials (client_id + client_secret) "
+                "or bearer_token for authentication.",
+            )
+
+        if self.client_id is not None:
+            self.client_id = SecretString(self.client_id)
+        if self.client_secret is not None:
+            self.client_secret = SecretString(self.client_secret)
+        if self.bearer_token is not None:
+            self.bearer_token = SecretString(self.bearer_token)
 
     @property
     def workspace_url(self) -> str | None:
@@ -95,10 +149,38 @@ class CloudWorkspace:
         _ = api_util.get_workspace(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
         print(f"Successfully connected to workspace: {self.workspace_url}")
+
+    def create_oauth_token(self) -> SecretString:
+        """Create and return an OAuth2 bearer token.
+
+        This method generates a new bearer token using the workspace's client credentials.
+        The token can be used for subsequent API calls or shared with other applications.
+
+        Returns:
+            SecretString containing the bearer token
+
+        Raises:
+            PyAirbyteInputError: If the workspace is configured with a bearer token
+                instead of client credentials
+        """
+        if self.bearer_token is not None:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Cannot create OAuth token when workspace is configured with a bearer token. "
+                    "This method requires client credentials (client_id + client_secret)."
+                ),
+            )
+
+        return api_util.get_bearer_token(
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            api_root=self.api_root,
+        )
 
     # Get sources, destinations, and connections
 
@@ -184,8 +266,9 @@ class CloudWorkspace:
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             config=source_config_dict,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
         return CloudSource(
             workspace=self,
@@ -239,8 +322,9 @@ class CloudWorkspace:
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             config=destination_conf_dict,  # Wants a dataclass but accepts dict
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
         return CloudDestination(
             workspace=self,
@@ -264,8 +348,8 @@ class CloudWorkspace:
         api_util.delete_source(
             source_id=source.connector_id if isinstance(source, CloudSource) else source,
             api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
         )
 
     # Deploy and delete destinations
@@ -289,8 +373,8 @@ class CloudWorkspace:
                 destination if isinstance(destination, str) else destination.destination_id
             ),
             api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
         )
 
     # Deploy and delete connections
@@ -334,8 +418,9 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             selected_stream_names=selected_streams,
             prefix=table_prefix or "",
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
 
         return CloudConnection(
@@ -366,8 +451,9 @@ class CloudWorkspace:
             connection_id=connection.connection_id,
             api_root=self.api_root,
             workspace_id=self.workspace_id,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
 
         if cascade_delete_source:
@@ -392,8 +478,9 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
         return [
             CloudConnection._from_connection_response(  # noqa: SLF001 (non-public API)
@@ -419,8 +506,9 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
         return [
             CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
@@ -446,8 +534,9 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            client_id=self.client_id,  # type: ignore[arg-type]
+            client_secret=self.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.bearer_token,
         )
         return [
             CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
@@ -541,8 +630,9 @@ class CloudWorkspace:
                 workspace_id=self.workspace_id,
                 manifest=manifest_dict,
                 api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
+                client_id=self.client_id,  # type: ignore[arg-type]
+                client_secret=self.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.bearer_token,
             )
             return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
@@ -568,8 +658,9 @@ class CloudWorkspace:
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
                 workspace_id=self.workspace_id,
                 api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
+                client_id=self.client_id,  # type: ignore[arg-type]
+                client_secret=self.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.bearer_token,
             )
             return [
                 CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
@@ -601,8 +692,9 @@ class CloudWorkspace:
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,
                 api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
+                client_id=self.client_id,  # type: ignore[arg-type]
+                client_secret=self.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.bearer_token,
             )
             return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 

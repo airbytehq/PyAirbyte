@@ -60,8 +60,8 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
         )
 
     @classmethod
@@ -178,8 +178,8 @@ class CloudConnection:
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
         )
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -216,8 +216,8 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
         )
         return [
             SyncResult(
@@ -268,8 +268,8 @@ class CloudConnection:
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
             name=name,
         )
         self._connection_info = updated_response
@@ -287,8 +287,8 @@ class CloudConnection:
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
             prefix=prefix,
         )
         self._connection_info = updated_response
@@ -311,8 +311,8 @@ class CloudConnection:
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
             configurations=configurations,
         )
         self._connection_info = updated_response
