@@ -140,3 +140,34 @@ class DeclarativeExecutor(Executor):
     def uninstall(self) -> None:
         """No-op. The declarative source is included with PyAirbyte."""
         pass
+
+    def fetch_record(
+        self,
+        stream_name: str,
+        pk_value: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch a single record from a stream by primary key.
+        
+        Args:
+            stream_name: Name of the stream to fetch from
+            pk_value: Primary key value as a string
+            config: Source configuration (optional, uses instance config if not provided)
+            
+        Returns:
+            The fetched record as a dict
+            
+        Raises:
+            ValueError: If the stream name is not found
+            NotImplementedError: If the stream doesn't support fetching individual records
+            RecordNotFoundException: If the record is not found
+        """
+        merged_config = {**self._config_dict}
+        if config:
+            merged_config.update(config)
+        
+        return self.declarative_source.fetch_record(
+            stream_name=stream_name,
+            pk_value=pk_value,
+            config=merged_config,
+        )
