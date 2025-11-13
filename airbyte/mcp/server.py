@@ -7,6 +7,7 @@ import sys
 from fastmcp import FastMCP
 
 from airbyte._util.meta import set_mcp_mode
+from airbyte.mcp._middleware import HeaderAuthMiddleware
 from airbyte.mcp._util import initialize_secrets
 from airbyte.mcp.cloud_ops import register_cloud_ops_tools
 from airbyte.mcp.connector_registry import register_connector_registry_tools
@@ -16,8 +17,15 @@ from airbyte.mcp.local_ops import register_local_ops_tools
 set_mcp_mode()
 initialize_secrets()
 
-app: FastMCP = FastMCP("airbyte-mcp")
-"""The Airbyte MCP Server application instance."""
+app: FastMCP = FastMCP(
+    "airbyte-mcp",
+    middleware=[HeaderAuthMiddleware],  # type: ignore[list-item]
+)
+"""The Airbyte MCP Server application instance.
+
+When running in HTTP/SSE mode, the HeaderAuthMiddleware extracts authentication
+values from HTTP headers and makes them available via ContextVars.
+"""
 
 register_connector_registry_tools(app)
 register_local_ops_tools(app)
