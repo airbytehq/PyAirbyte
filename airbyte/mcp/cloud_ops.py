@@ -8,16 +8,16 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from airbyte import cloud, get_destination, get_source
-from airbyte.cloud.auth import (
-    resolve_cloud_api_url,
-    resolve_cloud_client_id,
-    resolve_cloud_client_secret,
-    resolve_cloud_workspace_id,
-)
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
+from airbyte.mcp._request_context import (
+    get_effective_cloud_api_url,
+    get_effective_cloud_client_id,
+    get_effective_cloud_client_secret,
+    get_effective_cloud_workspace_id,
+)
 from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     mcp_tool,
@@ -28,12 +28,29 @@ from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
-    """Get an authenticated CloudWorkspace using environment variables."""
+    """Get an authenticated CloudWorkspace using HTTP headers or environment variables.
+
+    When running in HTTP/SSE mode with the HeaderAuthMiddleware, authentication values
+    are extracted from HTTP headers:
+    - X-Airbyte-Cloud-Client-Id or Airbyte-Cloud-Client-Id
+    - X-Airbyte-Cloud-Client-Secret or Airbyte-Cloud-Client-Secret
+    - X-Airbyte-Cloud-Workspace-Id or Airbyte-Cloud-Workspace-Id
+    - X-Airbyte-Cloud-Api-Url or Airbyte-Cloud-Api-Url (optional)
+
+    If headers are not provided, falls back to environment variables:
+    - AIRBYTE_CLOUD_CLIENT_ID
+    - AIRBYTE_CLOUD_CLIENT_SECRET
+    - AIRBYTE_CLOUD_WORKSPACE_ID
+    - AIRBYTE_CLOUD_API_URL (optional)
+
+    Returns:
+        Authenticated CloudWorkspace instance
+    """
     return CloudWorkspace(
-        workspace_id=resolve_cloud_workspace_id(),
-        client_id=resolve_cloud_client_id(),
-        client_secret=resolve_cloud_client_secret(),
-        api_root=resolve_cloud_api_url(),
+        workspace_id=get_effective_cloud_workspace_id(),
+        client_id=get_effective_cloud_client_id(),
+        client_secret=get_effective_cloud_client_secret(),
+        api_root=get_effective_cloud_api_url(),
     )
 
 
