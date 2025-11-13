@@ -11,38 +11,38 @@ from airbyte import exceptions as exc
 from airbyte.mcp.connector_registry import get_connector_docs_urls
 from airbyte.registry import (
     ApiDocsUrl,
-    _fetch_manifest_dict,
-    _manifest_url_for,
+    _fetch_metadata_dict,
+    _metadata_url_for,
 )
 
 
-class TestManifestUrlFor:
-    """Tests for _manifest_url_for function."""
+class TestMetadataUrlFor:
+    """Tests for _metadata_url_for function."""
 
-    def test_manifest_url_for(self) -> None:
-        """Test generating manifest URL for a connector."""
-        url = _manifest_url_for("source-example")
+    def test_metadata_url_for(self) -> None:
+        """Test generating metadata URL for a connector."""
+        url = _metadata_url_for("source-example")
         assert "source-example" in url
-        assert "manifest.yaml" in url
+        assert "metadata.yaml" in url
         assert "latest" in url
 
 
-class TestFetchManifestDict:
-    """Tests for _fetch_manifest_dict function."""
+class TestFetchMetadataDict:
+    """Tests for _fetch_metadata_dict function."""
 
-    def test_manifest_not_found(self) -> None:
-        """Test handling when manifest.yaml doesn't exist (404)."""
+    def test_metadata_not_found(self) -> None:
+        """Test handling when metadata.yaml doesn't exist (404)."""
         with patch("airbyte.registry.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 404
             mock_get.return_value = mock_response
 
-            manifest_dict = _fetch_manifest_dict("https://example.com/manifest.yaml")
-            assert manifest_dict == {}
+            metadata_dict = _fetch_metadata_dict("https://example.com/metadata.yaml")
+            assert metadata_dict == {}
 
-    def test_fetch_manifest_dict(self) -> None:
-        """Test fetching and parsing manifest.yaml."""
-        manifest_yaml = """
+    def test_fetch_metadata_dict(self) -> None:
+        """Test fetching and parsing metadata.yaml."""
+        metadata_yaml = """
 version: 1.0.0
 type: DeclarativeSource
 data:
@@ -51,21 +51,21 @@ data:
         with patch("airbyte.registry.requests.get") as mock_get:
             mock_response = MagicMock()
             mock_response.status_code = 200
-            mock_response.text = manifest_yaml
+            mock_response.text = metadata_yaml
             mock_get.return_value = mock_response
 
-            manifest_dict = _fetch_manifest_dict("https://example.com/manifest.yaml")
-            assert manifest_dict["version"] == "1.0.0"
-            assert manifest_dict["type"] == "DeclarativeSource"
-            assert manifest_dict["data"]["name"] == "Example"
+            metadata_dict = _fetch_metadata_dict("https://example.com/metadata.yaml")
+            assert metadata_dict["version"] == "1.0.0"
+            assert metadata_dict["type"] == "DeclarativeSource"
+            assert metadata_dict["data"]["name"] == "Example"
 
 
-class TestApiDocsUrlFromManifestDict:
-    """Tests for ApiDocsUrl.from_manifest_dict classmethod."""
+class TestApiDocsUrlFromMetadataDict:
+    """Tests for ApiDocsUrl.from_metadata_dict classmethod."""
 
-    def test_manifest_with_external_docs_urls(self) -> None:
+    def test_metadata_with_external_docs_urls(self) -> None:
         """Test extracting URLs from data.externalDocumentationUrls field."""
-        manifest_dict = {
+        metadata_dict = {
             "version": "1.0.0",
             "type": "DeclarativeSource",
             "data": {
@@ -90,7 +90,7 @@ class TestApiDocsUrlFromManifestDict:
             },
         }
 
-        urls = ApiDocsUrl.from_manifest_dict(manifest_dict)
+        urls = ApiDocsUrl.from_metadata_dict(metadata_dict)
         assert len(urls) == 3
         assert urls[0].title == "Versioning docs"
         assert urls[0].url == "https://api.example.com/versioning"
@@ -102,9 +102,9 @@ class TestApiDocsUrlFromManifestDict:
         assert urls[2].doc_type == "api_deprecations"
         assert urls[2].requires_login is True
 
-    def test_manifest_with_external_docs_no_type(self) -> None:
+    def test_metadata_with_external_docs_no_type(self) -> None:
         """Test extracting URLs from data.externalDocumentationUrls without type field."""
-        manifest_dict = {
+        metadata_dict = {
             "version": "1.0.0",
             "type": "DeclarativeSource",
             "data": {
@@ -117,20 +117,20 @@ class TestApiDocsUrlFromManifestDict:
             },
         }
 
-        urls = ApiDocsUrl.from_manifest_dict(manifest_dict)
+        urls = ApiDocsUrl.from_metadata_dict(metadata_dict)
         assert len(urls) == 1
         assert urls[0].title == "General docs"
         assert urls[0].doc_type == "other"
         assert urls[0].requires_login is False
 
-    def test_empty_manifest(self) -> None:
-        """Test handling empty manifest dict."""
-        urls = ApiDocsUrl.from_manifest_dict({})
+    def test_empty_metadata(self) -> None:
+        """Test handling empty metadata dict."""
+        urls = ApiDocsUrl.from_metadata_dict({})
         assert len(urls) == 0
 
-    def test_manifest_missing_title_raises_error(self) -> None:
+    def test_metadata_missing_title_raises_error(self) -> None:
         """Test that missing 'title' field raises PyAirbyteInternalError."""
-        manifest_dict = {
+        metadata_dict = {
             "version": "1.0.0",
             "type": "DeclarativeSource",
             "data": {
@@ -143,13 +143,13 @@ class TestApiDocsUrlFromManifestDict:
         }
 
         with pytest.raises(
-            exc.PyAirbyteInternalError, match="Manifest parsing error.*'title'"
+            exc.PyAirbyteInternalError, match="Metadata parsing error.*'title'"
         ):
-            ApiDocsUrl.from_manifest_dict(manifest_dict)
+            ApiDocsUrl.from_metadata_dict(metadata_dict)
 
-    def test_manifest_missing_url_raises_error(self) -> None:
+    def test_metadata_missing_url_raises_error(self) -> None:
         """Test that missing 'url' field raises PyAirbyteInternalError."""
-        manifest_dict = {
+        metadata_dict = {
             "version": "1.0.0",
             "type": "DeclarativeSource",
             "data": {
@@ -162,9 +162,9 @@ class TestApiDocsUrlFromManifestDict:
         }
 
         with pytest.raises(
-            exc.PyAirbyteInternalError, match="Manifest parsing error.*'url'"
+            exc.PyAirbyteInternalError, match="Metadata parsing error.*'url'"
         ):
-            ApiDocsUrl.from_manifest_dict(manifest_dict)
+            ApiDocsUrl.from_metadata_dict(metadata_dict)
 
 
 class TestGetConnectorDocsUrls:

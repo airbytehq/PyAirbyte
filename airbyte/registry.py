@@ -40,8 +40,8 @@ _MANIFEST_ONLY_LANGUAGE = "manifest-only"
 _PYTHON_LANGUAGE_TAG = f"language:{_PYTHON_LANGUAGE}"
 _MANIFEST_ONLY_TAG = f"language:{_MANIFEST_ONLY_LANGUAGE}"
 
-_DEFAULT_MANIFEST_URL = (
-    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
+_DEFAULT_METADATA_URL = (
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/metadata.yaml"
 )
 
 
@@ -312,13 +312,15 @@ class ApiDocsUrl(BaseModel):
     model_config = {"populate_by_name": True}
 
     @classmethod
-    def from_docs_list(cls, docs: list[dict[str, Any]], *, source: str, context: str) -> list[Self]:
-        """Extract documentation URLs from a list of documentation dictionaries.
+    def from_metadata_docs_list(
+        cls, docs: list[dict[str, Any]], *, source: str, context: str
+    ) -> list[Self]:
+        """Extract documentation URLs from a list of metadata documentation dictionaries.
 
         Args:
             docs: List of documentation dictionaries with 'title' and 'url' fields
             source: The source identifier for these documentation URLs
-            context: Context string for error messages (e.g., "Manifest", "Registry")
+            context: Context string for error messages (e.g., "Metadata", "Registry")
 
         Returns:
             List of ApiDocsUrl objects extracted from the docs list
@@ -346,52 +348,52 @@ class ApiDocsUrl(BaseModel):
         return results
 
     @classmethod
-    def from_manifest_dict(cls, manifest_data: dict[str, Any]) -> list[Self]:
-        """Extract documentation URLs from parsed manifest data.
+    def from_metadata_dict(cls, metadata_data: dict[str, Any]) -> list[Self]:
+        """Extract documentation URLs from parsed metadata.
 
         Args:
-            manifest_data: The parsed manifest.yaml data as a dictionary
+            metadata_data: The parsed metadata.yaml data as a dictionary
 
         Returns:
-            List of ApiDocsUrl objects extracted from the manifest
+            List of ApiDocsUrl objects extracted from the metadata
 
         Raises:
             PyAirbyteInternalError: If a documentation entry is missing required 'title' or
                 'url' field
         """
-        data_section = manifest_data.get("data")
+        data_section = metadata_data.get("data")
         if isinstance(data_section, dict):
             external_docs = data_section.get("externalDocumentationUrls")
             if isinstance(external_docs, list):
-                return cls.from_docs_list(
-                    external_docs, source="data_external_docs", context="Manifest"
+                return cls.from_metadata_docs_list(
+                    external_docs, source="metadata_external_docs", context="Metadata"
                 )
         return []
 
 
-def _manifest_url_for(connector_name: str) -> str:
-    """Get the expected URL of the manifest.yaml file for a connector.
+def _metadata_url_for(connector_name: str) -> str:
+    """Get the expected URL of the metadata.yaml file for a connector.
 
     Args:
         connector_name: The canonical connector name (e.g., "source-facebook-marketing")
 
     Returns:
-        The URL to the connector's manifest.yaml file
+        The URL to the connector's metadata.yaml file
     """
-    return _DEFAULT_MANIFEST_URL.format(
+    return _DEFAULT_METADATA_URL.format(
         source_name=connector_name,
         version="latest",
     )
 
 
-def _fetch_manifest_dict(url: str) -> dict[str, Any]:
-    """Fetch and parse a manifest.yaml file from a URL.
+def _fetch_metadata_dict(url: str) -> dict[str, Any]:
+    """Fetch and parse a metadata.yaml file from a URL.
 
     Args:
-        url: The URL to fetch the manifest from
+        url: The URL to fetch the metadata from
 
     Returns:
-        The parsed manifest data as a dictionary, or empty dict if manifest not found (404)
+        The parsed metadata as a dictionary, or empty dict if metadata not found (404)
 
     Raises:
         HTTPError: If the request fails with a non-404 status code
@@ -446,7 +448,7 @@ def _extract_docs_from_registry(connector_name: str) -> list[ApiDocsUrl]:
         external_docs = connector_entry["externalDocumentationUrls"]
         if isinstance(external_docs, list):
             docs_urls.extend(
-                ApiDocsUrl.from_docs_list(
+                ApiDocsUrl.from_metadata_docs_list(
                     external_docs, source="registry_external_docs", context="Registry"
                 )
             )
@@ -459,7 +461,7 @@ def get_connector_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
 
     This function retrieves documentation URLs for a connector from multiple sources:
     - Registry metadata (documentationUrl, externalDocumentationUrls)
-    - Connector manifest.yaml file (data.externalDocumentationUrls)
+    - Connector metadata.yaml file (data.externalDocumentationUrls)
 
     Args:
         connector_name: The canonical connector name (e.g., "source-facebook-marketing")
@@ -484,10 +486,10 @@ def get_connector_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
     registry_urls = _extract_docs_from_registry(connector_name)
     docs_urls.extend(registry_urls)
 
-    manifest_url = _manifest_url_for(connector_name)
-    manifest_data = _fetch_manifest_dict(manifest_url)
-    manifest_urls = ApiDocsUrl.from_manifest_dict(manifest_data)
-    docs_urls.extend(manifest_urls)
+    metadata_url = _metadata_url_for(connector_name)
+    metadata_data = _fetch_metadata_dict(metadata_url)
+    metadata_urls = ApiDocsUrl.from_metadata_dict(metadata_data)
+    docs_urls.extend(metadata_urls)
 
     return docs_urls
 
