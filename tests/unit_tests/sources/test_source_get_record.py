@@ -79,18 +79,20 @@ def mock_declarative_executor():
 def mock_non_declarative_executor():
     """Create a mock non-declarative executor."""
     from airbyte._executors.base import Executor
-    
+
     executor = Mock(spec=Executor)
     return executor
 
 
-def test_get_record_with_string_pk_value(mock_catalog_with_pk, mock_declarative_executor):
+def test_get_record_with_string_pk_value(
+    mock_catalog_with_pk, mock_declarative_executor
+):
     """Test get_record with a simple string primary key value."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         result = source.get_record("users", pk_value="123")
-        
+
         assert result == {"id": "123", "name": "Test User"}
         mock_declarative_executor.fetch_record.assert_called_once_with(
             stream_name="users",
@@ -99,13 +101,15 @@ def test_get_record_with_string_pk_value(mock_catalog_with_pk, mock_declarative_
         )
 
 
-def test_get_record_with_dict_pk_value_valid(mock_catalog_with_pk, mock_declarative_executor):
+def test_get_record_with_dict_pk_value_valid(
+    mock_catalog_with_pk, mock_declarative_executor
+):
     """Test get_record with a dict primary key value that matches the stream's PK."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         result = source.get_record("users", pk_value={"id": "123"})
-        
+
         assert result == {"id": "123", "name": "Test User"}
         mock_declarative_executor.fetch_record.assert_called_once_with(
             stream_name="users",
@@ -120,10 +124,10 @@ def test_get_record_with_dict_pk_value_multiple_entries(
     """Test get_record with a dict that has multiple entries (should fail)."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         with pytest.raises(exc.PyAirbyteInputError) as exc_info:
             source.get_record("users", pk_value={"id": "123", "name": "test"})
-        
+
         assert "exactly one entry" in str(exc_info.value)
 
 
@@ -133,10 +137,10 @@ def test_get_record_with_dict_pk_value_wrong_key(
     """Test get_record with a dict where the key doesn't match the stream's PK."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         with pytest.raises(exc.PyAirbyteInputError) as exc_info:
             source.get_record("users", pk_value={"user_id": "123"})
-        
+
         assert "does not match" in str(exc_info.value)
         assert "Expected Key" in str(exc_info.value)
 
@@ -147,10 +151,10 @@ def test_get_record_with_non_declarative_executor(
     """Test get_record with a non-declarative executor (should raise NotImplementedError)."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_non_declarative_executor, name="test-source")
-        
+
         with pytest.raises(NotImplementedError) as exc_info:
             source.get_record("users", pk_value="123")
-        
+
         assert "only supported for declarative sources" in str(exc_info.value)
 
 
@@ -158,10 +162,10 @@ def test_get_record_with_no_primary_key(mock_catalog_no_pk, mock_declarative_exe
     """Test get_record with a stream that has no primary key."""
     with patch.object(Source, "_discover", return_value=mock_catalog_no_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         with pytest.raises(NotImplementedError) as exc_info:
             source.get_record("events", pk_value="123")
-        
+
         assert "does not have a primary key" in str(exc_info.value)
 
 
@@ -171,10 +175,10 @@ def test_get_record_with_composite_primary_key(
     """Test get_record with a stream that has a composite primary key."""
     with patch.object(Source, "_discover", return_value=mock_catalog_composite_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         with pytest.raises(NotImplementedError) as exc_info:
             source.get_record("orders", pk_value="123")
-        
+
         assert "composite primary key" in str(exc_info.value)
 
 
@@ -184,10 +188,10 @@ def test_get_record_with_invalid_stream_name(
     """Test get_record with an invalid stream name."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         with pytest.raises(exc.PyAirbyteInputError) as exc_info:
             source.get_record("nonexistent_stream", pk_value="123")
-        
+
         assert "does not exist" in str(exc_info.value)
 
 
@@ -201,9 +205,9 @@ def test_get_record_with_primary_key_override(
             name="test-source",
             primary_key_overrides={"users": "custom_id"},
         )
-        
+
         result = source.get_record("users", pk_value={"custom_id": "456"})
-        
+
         assert result == {"id": "123", "name": "Test User"}
         mock_declarative_executor.fetch_record.assert_called_once_with(
             stream_name="users",
@@ -220,9 +224,9 @@ def test_get_record_with_config(mock_catalog_with_pk, mock_declarative_executor)
             name="test-source",
             config={"api_key": "test_key"},
         )
-        
+
         result = source.get_record("users", pk_value="123")
-        
+
         assert result == {"id": "123", "name": "Test User"}
         mock_declarative_executor.fetch_record.assert_called_once_with(
             stream_name="users",
@@ -237,23 +241,25 @@ def test_get_record_propagates_exceptions_from_executor(
     """Test that exceptions from the executor are propagated."""
     test_exception = ValueError("Record with primary key 999 not found")
     mock_declarative_executor.fetch_record.side_effect = test_exception
-    
+
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         with pytest.raises(ValueError) as exc_info:
             source.get_record("users", pk_value="999")
-        
+
         assert "999" in str(exc_info.value)
 
 
-def test_get_record_with_integer_pk_value(mock_catalog_with_pk, mock_declarative_executor):
+def test_get_record_with_integer_pk_value(
+    mock_catalog_with_pk, mock_declarative_executor
+):
     """Test get_record with an integer primary key value (should be converted to string)."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         result = source.get_record("users", pk_value=123)
-        
+
         assert result == {"id": "123", "name": "Test User"}
         mock_declarative_executor.fetch_record.assert_called_once_with(
             stream_name="users",
@@ -262,13 +268,15 @@ def test_get_record_with_integer_pk_value(mock_catalog_with_pk, mock_declarative
         )
 
 
-def test_get_record_with_dict_integer_value(mock_catalog_with_pk, mock_declarative_executor):
+def test_get_record_with_dict_integer_value(
+    mock_catalog_with_pk, mock_declarative_executor
+):
     """Test get_record with a dict containing an integer value (should be converted to string)."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=mock_declarative_executor, name="test-source")
-        
+
         result = source.get_record("users", pk_value={"id": 456})
-        
+
         assert result == {"id": "123", "name": "Test User"}
         mock_declarative_executor.fetch_record.assert_called_once_with(
             stream_name="users",
@@ -281,9 +289,9 @@ def test_get_stream_primary_key_helper(mock_catalog_with_pk):
     """Test the _get_stream_primary_key helper method."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=Mock(), name="test-source")
-        
+
         pk = source._get_stream_primary_key("users")
-        
+
         assert pk == ["id"]
 
 
@@ -291,9 +299,9 @@ def test_normalize_and_validate_pk_with_string(mock_catalog_with_pk):
     """Test the _normalize_and_validate_pk helper with a string value."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=Mock(), name="test-source")
-        
+
         result = source._normalize_and_validate_pk("users", "123")
-        
+
         assert result == "123"
 
 
@@ -301,7 +309,7 @@ def test_normalize_and_validate_pk_with_valid_dict(mock_catalog_with_pk):
     """Test the _normalize_and_validate_pk helper with a valid dict."""
     with patch.object(Source, "_discover", return_value=mock_catalog_with_pk):
         source = Source(executor=Mock(), name="test-source")
-        
+
         result = source._normalize_and_validate_pk("users", {"id": "123"})
-        
+
         assert result == "123"

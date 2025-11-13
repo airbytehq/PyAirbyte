@@ -30,6 +30,7 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
+from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
@@ -582,31 +583,31 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
     def _get_stream_primary_key(self, stream_name: str) -> list[str]:
         """Get the primary key for a stream.
-        
+
         Returns the primary key from the configured catalog, which includes user overrides.
         The Airbyte protocol represents primary keys as a list of field paths (list of lists).
         This method flattens single-field paths to simple strings.
-        
+
         Args:
             stream_name: Name of the stream
-            
+
         Returns:
             List of primary key field names (flattened from field paths)
-            
+
         Raises:
             PyAirbyteInputError: If the stream doesn't exist
         """
         configured_catalog = self.get_configured_catalog(streams=[stream_name])
-        
+
         if len(configured_catalog.streams) == 0:
             raise exc.PyAirbyteInputError(
                 message="Stream name does not exist in catalog.",
                 input_value=stream_name,
             )
-        
+
         configured_stream = configured_catalog.streams[0]
         pk_field_paths = configured_stream.primary_key or []
-        
+
         return [field_path[0] for field_path in pk_field_paths if field_path]
 
     def _normalize_and_validate_pk(
@@ -615,52 +616,53 @@ class Source(ConnectorBase):  # noqa: PLR0904
         pk_value: LookupValue | dict[str, LookupValue],
     ) -> str:
         """Normalize and validate primary key input.
-        
+
         Accepts either a direct primary key value or a dict with a single entry
         where the key matches the stream's primary key field name.
-        
+
         Args:
             stream_name: Name of the stream
             pk_value: Either a direct PK value or a dict with single entry
-            
+
         Returns:
             The primary key value as a string
-            
+
         Raises:
             PyAirbyteInputError: If validation fails
             NotImplementedError: If the stream has composite or no primary key
         """
         primary_key = self._get_stream_primary_key(stream_name)
-        
+
         if len(primary_key) == 0:
             raise NotImplementedError(
                 f"Stream '{stream_name}' does not have a primary key defined. "
                 "Cannot fetch individual records without a primary key."
             )
-        
+
         if len(primary_key) > 1:
             raise NotImplementedError(
                 f"Stream '{stream_name}' has a composite primary key {primary_key}. "
                 "Fetching by composite primary key is not yet supported."
             )
-        
+
         pk_field = primary_key[0]
-        
+
         if isinstance(pk_value, dict):
             if len(pk_value) != 1:
                 raise exc.PyAirbyteInputError(
                     message="When passing a dict for pk_value, it must contain exactly one entry.",
-                    input_value=pk_value,
+                    input_value=str(pk_value),
                     context={
                         "stream_name": stream_name,
                         "expected_entries": 1,
                         "actual_entries": len(pk_value),
+                        "pk_value": pk_value,
                     },
                 )
-            
+
             dict_key = next(iter(pk_value.keys()))
             dict_value = pk_value[dict_key]
-            
+
             if dict_key != pk_field:
                 raise exc.PyAirbyteInputError(
                     message="The key in the pk_value dict does not match the stream's primary key.",
@@ -671,9 +673,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
                         "actual_key": dict_key,
                     },
                 )
-            
+
             return str(dict_value)
-        
+
         return str(pk_value)
 
     def get_record(
@@ -683,9 +685,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         pk_value: LookupValue | dict[str, LookupValue],
     ) -> dict[str, Any]:
         """Fetch a single record from a stream by primary key.
-        
+
         This method is only supported for declarative (YAML-based) sources.
-        
+
         Args:
             stream_name: Name of the stream to fetch from
             pk_value: Either a direct primary key value (e.g., "123") or a dict
@@ -693,35 +695,33 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 and the value is the primary key value (e.g., {"id": "123"}).
                 The dict form provides explicit validation that you're using
                 the correct primary key field.
-                
+
         Returns:
             The fetched record as a dict
-            
+
         Raises:
             NotImplementedError: If the source is not a declarative source, or if
                 the stream has a composite primary key or no primary key
             PyAirbyteInputError: If the stream doesn't exist or pk_value validation fails
             RecordNotFoundException: If the record is not found (from CDK)
-            
+
         Example:
             ```python
             source = get_source("source-rest-api-tutorial", config=config)
-            
+
             record = source.get_record("users", pk_value="123")
-            
+
             record = source.get_record("users", pk_value={"id": "123"})
             ```
         """
-        from airbyte._executors.declarative import DeclarativeExecutor
-        
         if not isinstance(self.executor, DeclarativeExecutor):
             raise NotImplementedError(
                 f"get_record() is only supported for declarative sources. "
                 f"This source uses {type(self.executor).__name__}."
             )
-        
+
         validated_pk_str = self._normalize_and_validate_pk(stream_name, pk_value)
-        
+
         return self.executor.fetch_record(
             stream_name=stream_name,
             pk_value=validated_pk_str,
