@@ -7,7 +7,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from airbyte.mcp._request_context import (
-    CLOUD_API_URL_CVAR,
     CLOUD_CLIENT_ID_CVAR,
     CLOUD_CLIENT_SECRET_CVAR,
     CLOUD_WORKSPACE_ID_CVAR,
@@ -31,7 +30,6 @@ class HeaderAuthMiddleware:
     - X-Airbyte-Cloud-Client-Id or Airbyte-Cloud-Client-Id
     - X-Airbyte-Cloud-Client-Secret or Airbyte-Cloud-Client-Secret
     - X-Airbyte-Cloud-Workspace-Id or Airbyte-Cloud-Workspace-Id
-    - X-Airbyte-Cloud-Api-Url or Airbyte-Cloud-Api-Url
     """
 
     def __init__(self, app: Callable) -> None:
@@ -71,9 +69,6 @@ class HeaderAuthMiddleware:
         workspace_id = self._get_header_value(
             header_dict, ["x-airbyte-cloud-workspace-id", "airbyte-cloud-workspace-id"]
         )
-        api_url = self._get_header_value(
-            header_dict, ["x-airbyte-cloud-api-url", "airbyte-cloud-api-url"]
-        )
 
         tokens = []
         try:
@@ -91,11 +86,6 @@ class HeaderAuthMiddleware:
                 token = CLOUD_WORKSPACE_ID_CVAR.set(workspace_id)
                 tokens.append((CLOUD_WORKSPACE_ID_CVAR, token))
                 logger.debug("Set cloud workspace ID from HTTP header")
-
-            if api_url:
-                token = CLOUD_API_URL_CVAR.set(api_url)
-                tokens.append((CLOUD_API_URL_CVAR, token))
-                logger.debug("Set cloud API URL from HTTP header")
 
             await self.app(scope, receive, send)
 

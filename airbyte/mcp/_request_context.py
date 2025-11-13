@@ -11,7 +11,6 @@ from __future__ import annotations
 from contextvars import ContextVar
 
 from airbyte.cloud.auth import (
-    resolve_cloud_api_url,
     resolve_cloud_client_id,
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
@@ -26,7 +25,6 @@ CLOUD_CLIENT_SECRET_CVAR: ContextVar[str | SecretString | None] = ContextVar(
     "cloud_client_secret", default=None
 )
 CLOUD_WORKSPACE_ID_CVAR: ContextVar[str | None] = ContextVar("cloud_workspace_id", default=None)
-CLOUD_API_URL_CVAR: ContextVar[str | None] = ContextVar("cloud_api_url", default=None)
 
 
 def get_effective_cloud_client_id() -> SecretString:
@@ -63,15 +61,3 @@ def get_effective_cloud_workspace_id() -> str:
     if header_value is not None:
         return str(header_value)
     return resolve_cloud_workspace_id()
-
-
-def get_effective_cloud_api_url() -> str:
-    """Get the effective cloud API URL from request context or environment.
-
-    Returns:
-        API URL from HTTP headers (if set), otherwise from environment variables
-    """
-    header_value = CLOUD_API_URL_CVAR.get()
-    if header_value is not None:
-        return str(header_value)
-    return resolve_cloud_api_url()
