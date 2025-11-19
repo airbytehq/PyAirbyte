@@ -46,10 +46,13 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import yaml
 from airbyte_api import models as api_models  # noqa: TC002
+from pydantic import BaseModel
 
 from airbyte import exceptions as exc
-from airbyte._util import api_util, text_util
+from airbyte._util import api_util, biz_logic, text_util
 
+
+MIN_OVERRIDE_REASON_LENGTH = 10
 
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -82,6 +85,20 @@ class CheckResult:
             f"CheckResult(success={self.success}, "
             f"error_message={self.error_message or self.internal_error})"
         )
+
+
+class CloudConnectorVersionInfo(BaseModel):
+    """Information about a cloud connector's version."""
+
+    version: str
+    """The version string (e.g., '0.1.0')."""
+
+    is_version_pinned: bool
+    """Whether a version override is active for this connector."""
+
+    def __str__(self) -> str:
+        """Return a string representation of the version."""
+        return self.version if not self.is_version_pinned else f"{self.version} (pinned)"
 
 
 class CloudConnector(abc.ABC):
@@ -257,6 +274,165 @@ class CloudSource(CloudConnector):
         result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
         return result
 
+    def get_connector_version(self) -> CloudConnectorVersionInfo:
+        """Get the current version information for this source.
+
+        Returns:
+            CloudConnectorVersionInfo with version string and pinned status
+        """
+        version_data = api_util.get_connector_version(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudConnectorVersionInfo(
+            version=version_data["dockerImageTag"],
+            is_version_pinned=version_data.get("isVersionOverrideApplied", False),
+        )
+
+    def _set_connector_version_override(
+        self,
+        version: str | None = None,
+        *,
+        unset: bool = False,
+        override_reason: str | None = None,
+        override_reason_reference_url: str | None = None,
+        user_email: str,
+    ) -> bool:
+        """Set or clear a version override for this source.
+
+        **Internal use only.** This method is only for internal Airbyte admin use.
+        Endpoints are not enabled for end user access.
+
+        You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+        When setting a version, `override_reason` is required.
+
+        Args:
+            version: The semver version string to pin to (e.g., `"0.1.0"`)
+            unset: If `True`, removes any existing version override
+            override_reason: Required when setting a version. Explanation for the override.
+            override_reason_reference_url: Optional URL with more context (e.g., issue link)
+            user_email: Email of the user creating the override (from AIRBYTE_INTERNAL_ADMIN_USER).
+
+        Returns:
+            `True` if the operation succeeded, `False` if no override existed (unset only)
+
+        Raises:
+            exc.PyAirbyteInputError: If both or neither parameters are provided, or if
+                override_reason is missing when setting a version
+        """
+        if (version is None) == (not unset):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of version (to set) OR "
+                    "unset=True (to clear), but not both"
+                ),
+                context={
+                    "version_provided": version is not None,
+                    "unset": unset,
+                },
+            )
+
+        if version is not None and not override_reason:
+            raise exc.PyAirbyteInputError(
+                message="override_reason is required when setting a version override",
+                context={
+                    "version": version,
+                    "override_reason": override_reason,
+                },
+            )
+
+        if override_reason is not None and len(override_reason) < MIN_OVERRIDE_REASON_LENGTH:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"override_reason must be at least {MIN_OVERRIDE_REASON_LENGTH} "
+                    "characters long"
+                ),
+                context={
+                    "override_reason": override_reason,
+                    "length": len(override_reason),
+                },
+            )
+
+        connector_info = self._fetch_connector_info()
+        actor_definition_id = connector_info.definition_id
+
+        current_version_info = self.get_connector_version()
+        current_version = current_version_info.version
+
+        existing_override_info = api_util.get_connector_version_override_info(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        existing_override_creator_email = None
+        if existing_override_info and existing_override_info.get("origin"):
+            creator_user_id = existing_override_info["origin"]
+            existing_override_creator_email = api_util.get_user_email_by_id(
+                user_id=creator_user_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        is_permitted, denial_reason = biz_logic.validate_version_override_permission(
+            current_version=current_version,
+            new_version=version,
+            is_setting_override=not unset,
+            override_reason=override_reason or "",
+            user_email=user_email,
+            existing_override_creator_email=existing_override_creator_email,
+        )
+
+        if not is_permitted:
+            raise exc.PyAirbyteInputError(
+                message=f"Version override operation not permitted: {denial_reason}",
+                context={
+                    "current_version": current_version,
+                    "new_version": version,
+                    "is_setting_override": not unset,
+                    "user_email": user_email,
+                    "existing_override_creator_email": existing_override_creator_email,
+                },
+            )
+
+        if unset:
+            return api_util.clear_connector_version_override(
+                connector_id=self.connector_id,
+                actor_definition_id=actor_definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        actor_definition_version_id = api_util.resolve_connector_version(
+            actor_definition_id=actor_definition_id,
+            connector_type=self.connector_type,
+            version=version,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        api_util.set_connector_version_override(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            actor_definition_version_id=actor_definition_version_id,
+            override_reason=override_reason,  # type: ignore[arg-type]
+            user_email=user_email,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            override_reason_reference_url=override_reason_reference_url,
+        )
+
+        return True
+
 
 class CloudDestination(CloudConnector):
     """A cloud destination is a destination that is deployed on Airbyte Cloud."""
@@ -338,6 +514,165 @@ class CloudDestination(CloudConnector):
         )
         result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
         return result
+
+    def get_connector_version(self) -> CloudConnectorVersionInfo:
+        """Get the current version information for this destination.
+
+        Returns:
+            CloudConnectorVersionInfo with version string and pinned status
+        """
+        version_data = api_util.get_connector_version(
+            connector_id=self.connector_id,
+            connector_type=self.connector_type,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudConnectorVersionInfo(
+            version=version_data["dockerImageTag"],
+            is_version_pinned=version_data.get("isVersionOverrideApplied", False),
+        )
+
+    def _set_connector_version_override(
+        self,
+        version: str | None = None,
+        *,
+        unset: bool = False,
+        override_reason: str | None = None,
+        override_reason_reference_url: str | None = None,
+        user_email: str,
+    ) -> bool:
+        """Set or clear a version override for this destination.
+
+        **Internal use only.** This method is only for internal Airbyte admin use.
+        Endpoints are not enabled for end user access.
+
+        You must specify EXACTLY ONE of `version` OR `unset=True`, but not both.
+        When setting a version, `override_reason` is required.
+
+        Args:
+            version: The semver version string to pin to (e.g., `"0.1.0"`)
+            unset: If `True`, removes any existing version override
+            override_reason: Required when setting a version. Explanation for the override.
+            override_reason_reference_url: Optional URL with more context (e.g., issue link)
+            user_email: Email of the user creating the override (from AIRBYTE_INTERNAL_ADMIN_USER).
+
+        Returns:
+            `True` if the operation succeeded, `False` if no override existed (unset only)
+
+        Raises:
+            exc.PyAirbyteInputError: If both or neither parameters are provided, or if
+                override_reason is missing when setting a version
+        """
+        if (version is None) == (not unset):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EXACTLY ONE of version (to set) OR "
+                    "unset=True (to clear), but not both"
+                ),
+                context={
+                    "version_provided": version is not None,
+                    "unset": unset,
+                },
+            )
+
+        if version is not None and not override_reason:
+            raise exc.PyAirbyteInputError(
+                message="override_reason is required when setting a version override",
+                context={
+                    "version": version,
+                    "override_reason": override_reason,
+                },
+            )
+
+        if override_reason is not None and len(override_reason) < MIN_OVERRIDE_REASON_LENGTH:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    f"override_reason must be at least {MIN_OVERRIDE_REASON_LENGTH} "
+                    "characters long"
+                ),
+                context={
+                    "override_reason": override_reason,
+                    "length": len(override_reason),
+                },
+            )
+
+        connector_info = self._fetch_connector_info()
+        actor_definition_id = connector_info.definition_id
+
+        current_version_info = self.get_connector_version()
+        current_version = current_version_info.version
+
+        existing_override_info = api_util.get_connector_version_override_info(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        existing_override_creator_email = None
+        if existing_override_info and existing_override_info.get("origin"):
+            creator_user_id = existing_override_info["origin"]
+            existing_override_creator_email = api_util.get_user_email_by_id(
+                user_id=creator_user_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        is_permitted, denial_reason = biz_logic.validate_version_override_permission(
+            current_version=current_version,
+            new_version=version,
+            is_setting_override=not unset,
+            override_reason=override_reason or "",
+            user_email=user_email,
+            existing_override_creator_email=existing_override_creator_email,
+        )
+
+        if not is_permitted:
+            raise exc.PyAirbyteInputError(
+                message=f"Version override operation not permitted: {denial_reason}",
+                context={
+                    "current_version": current_version,
+                    "new_version": version,
+                    "is_setting_override": not unset,
+                    "user_email": user_email,
+                    "existing_override_creator_email": existing_override_creator_email,
+                },
+            )
+
+        if unset:
+            return api_util.clear_connector_version_override(
+                connector_id=self.connector_id,
+                actor_definition_id=actor_definition_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+            )
+
+        actor_definition_version_id = api_util.resolve_connector_version(
+            actor_definition_id=actor_definition_id,
+            connector_type=self.connector_type,
+            version=version,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        api_util.set_connector_version_override(
+            connector_id=self.connector_id,
+            actor_definition_id=actor_definition_id,
+            actor_definition_version_id=actor_definition_version_id,
+            override_reason=override_reason,  # type: ignore[arg-type]
+            user_email=user_email,  # type: ignore[arg-type]
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            override_reason_reference_url=override_reason_reference_url,
+        )
+
+        return True
 
 
 class CustomCloudSourceDefinition:
