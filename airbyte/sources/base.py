@@ -710,7 +710,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
         return self.executor.fetch_record(
             stream_name=stream_name,
             primary_key_value=pk_value_str,
-            config=self._config_dict,
         )
 
     def get_samples(

@@ -196,7 +196,6 @@ class DeclarativeExecutor(Executor):
         self,
         stream_name: str,
         primary_key_value: str,
-        config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Fetch a single record by primary key from a declarative stream.
 
@@ -207,7 +206,6 @@ class DeclarativeExecutor(Executor):
         Args:
             stream_name: The name of the stream to fetch from.
             primary_key_value: The primary key value as a string.
-            config: Optional config overrides to merge with the executor's config.
 
         Returns:
             The fetched record as a dictionary.
@@ -217,9 +215,7 @@ class DeclarativeExecutor(Executor):
             exc.AirbyteRecordNotFoundError: If the record is not found (empty response).
             NotImplementedError: If the stream does not use SimpleRetriever.
         """
-        merged_config = {**self._config_dict, **(config or {})}
-
-        streams = self.declarative_source.streams(merged_config)
+        streams = self.declarative_source.streams(self._config_dict)
 
         target_stream = None
         for stream in streams:
