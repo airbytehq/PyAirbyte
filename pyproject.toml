@@ -56,7 +56,7 @@ fastmcp = ">=2.11.3,<3.0.0"
 uv = ">=0.5.0,<0.9.0"
 
 [tool.poetry.group.integrations.dependencies]
-connector-sdk = {path = "../sonar/connector-sdk", develop = true}
+connector-sdk = {path = "./sonar/connector-sdk", develop = true}
 
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
@@ -69,6 +69,7 @@ pandas-stubs = "^2.1.4.231218"
 pdoc = "^16.0.0"
 poethepoet = ">=0.26.1,<0.32.0"
 pytest = "^8.2.0"
+pytest-asyncio = "^0.23.0"
 pytest-docker = "^3.1.1"
 pytest-mock = "^3.14.0"
 pytest-timeout = "^2.3.1"
@@ -91,7 +92,7 @@ build-backend = "poetry_dynamic_versioning.backend"
 # - No test can take longer than 10 minutes (600 seconds)
 # - Markers must be declared explicitly
 # - Generate junit test results at a deterministic location
-addopts = "-rs --strict-markers --timeout=600 --junit-xml=build/test-results/test-results.xml"
+addopts = "-rs --strict-markers --timeout=600 --junit-xml=build/test-results/test-results.xml --ignore=sonar"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
@@ -185,4 +186,6 @@ DEP002 = [
   "sqlalchemy-bigquery",
   # Used as subprocess tool, not imported directly:
   "uv",
+  # Optional dependency in integrations group, imported lazily:
+  "connector-sdk",
 ]

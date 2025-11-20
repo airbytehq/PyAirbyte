@@ -664,7 +664,7 @@ dev = ["pytest (>=7.0.0)", "pytest-asyncio (>=0.21.0)", "pytest-httpx (>=0.30.0)
 
 [package.source]
 type = "directory"
-url = "../sonar/connector-sdk"
+url = "sonar/connector-sdk"
 
 [[package]]
 name = "coverage"
@@ -4037,6 +4037,26 @@ tomli = {version = ">=1", markers = "python_version < \"3.11\""}
 dev = ["argcomplete", "attrs (>=19.2)", "hypothesis (>=3.56)", "mock", "requests", "setuptools", "xmlschema"]
 
 [[package]]
+name = "pytest-asyncio"
+version = "0.23.8"
+description = "Pytest support for asyncio"
+optional = false
+python-versions = ">=3.8"
+groups = ["dev"]
+markers = "python_version <= \"3.11\" or python_version >= \"3.12\""
+files = [
+    {file = "pytest_asyncio-0.23.8-py3-none-any.whl", hash = "sha256:50265d892689a5faefb84df80819d1ecef566eb3549cf915dfb33569359d1ce2"},
+    {file = "pytest_asyncio-0.23.8.tar.gz", hash = "sha256:759b10b33a6dc61cce40a8bd5205e302978bbbcc00e279a8b61d9a6a3c82e4d3"},
+]
+
+[package.dependencies]
+pytest = ">=7.0.0,<9"
+
+[package.extras]
+docs = ["sphinx (>=5.3)", "sphinx-rtd-theme (>=1.0)"]
+testing = ["coverage (>=6.2)", "hypothesis (>=5.7.1)"]
+
+[[package]]
 name = "pytest-docker"
 version = "3.2.3"
 description = "Simple pytest fixtures for Docker and Docker Compose based tests"
@@ -6038,4 +6058,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "4844de34da82e7668d6317490049c0782e79d13646ad155579a1042658b0f37e"
+content-hash = "5eb38fdc64601ce178b8a1a7562e98ddc7179a195fb30774007e30ffec02d6ae"
