@@ -40,7 +40,7 @@ jobs:
       id: get-app-token
       with:
         owner: "airbytehq"
-        repositories: "PyAirbyte"
+        repositories: "PyAirbyte,sonar"
         app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Checkout Airbyte
@@ -49,6 +49,7 @@ jobs:
         # Important that this is set so that CI checks are triggered again
         # Without this we would be forever waiting on required checks to pass
         token: ${{ steps.get-app-token.outputs.token }}
+        submodules: recursive
 
     - name: Checkout PR (${{ github.event.inputs.pr }})
       uses: dawidd6/action-checkout-pr@a7598e18433a763b784f17d666372913d8bd4205 # v1.2.0
