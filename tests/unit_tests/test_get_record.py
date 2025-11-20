@@ -8,6 +8,7 @@ from unittest.mock import Mock, PropertyMock, patch
 import pytest
 
 from airbyte_cdk.sources.declarative.retrievers.simple_retriever import SimpleRetriever
+from airbyte_cdk.sources.streams.concurrent.abstract_stream import AbstractStream
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
@@ -50,7 +51,7 @@ def test_declarative_executor_fetch_record_stream_validation(
         manifest=manifest,
     )
 
-    mock_stream = Mock()
+    mock_stream = Mock(spec=AbstractStream)
     mock_stream.name = "users"
 
     mock_retriever = Mock(spec=SimpleRetriever)

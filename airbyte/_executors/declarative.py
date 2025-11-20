@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import contextlib
 import hashlib
 import warnings
 from pathlib import Path
@@ -17,6 +16,7 @@ from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
     ConcurrentDeclarativeSource,
 )
 from airbyte_cdk.sources.declarative.retrievers.simple_retriever import SimpleRetriever
+from airbyte_cdk.sources.streams.concurrent.abstract_stream import AbstractStream
 from airbyte_cdk.sources.types import StreamSlice
 
 from airbyte import exceptions as exc
@@ -39,53 +39,6 @@ def _suppress_cdk_pydantic_deprecation_warnings() -> None:
     warnings.filterwarnings(
         "ignore",
         category=pydantic.warnings.PydanticDeprecatedSince20,
-    )
-
-
-def _unwrap_to_declarative_stream(stream: object) -> object:
-    """Unwrap a concurrent stream wrapper to access the underlying declarative stream.
-
-    This function uses duck-typing to navigate through various wrapper layers that may
-    exist around declarative streams, depending on the CDK version. It tries common
-    wrapper attribute names and returns the first object that has a 'retriever' attribute.
-
-    Args:
-        stream: A stream object that may be wrapped (e.g., AbstractStream wrapper).
-
-    Returns:
-        The underlying declarative stream object with a retriever attribute.
-
-    Raises:
-        NotImplementedError: If unable to locate a declarative stream with a retriever.
-    """
-    if hasattr(stream, "retriever"):
-        return stream
-
-    wrapper_attrs = [
-        "declarative_stream",
-        "wrapped_stream",
-        "stream",
-        "_stream",
-        "underlying_stream",
-        "inner",
-    ]
-
-    for attr_name in wrapper_attrs:
-        if hasattr(stream, attr_name):
-            unwrapped = getattr(stream, attr_name)
-            if unwrapped is not None and hasattr(unwrapped, "retriever"):
-                return unwrapped
-
-    for branch_attr in ["full_refresh_stream", "incremental_stream"]:
-        if hasattr(stream, branch_attr):
-            branch_stream = getattr(stream, branch_attr)
-            if branch_stream is not None and hasattr(branch_stream, "retriever"):
-                return branch_stream
-
-    stream_type = type(stream).__name__
-    raise NotImplementedError(
-        f"Unable to locate declarative stream with retriever from {stream_type}. "
-        f"fetch_record() requires access to the stream's retriever component."
     )
 
 
@@ -192,7 +145,7 @@ class DeclarativeExecutor(Executor):
         """No-op. The declarative source is included with PyAirbyte."""
         pass
 
-    def fetch_record(  # noqa: PLR0914, PLR0912, PLR0915
+    def fetch_record(
         self,
         stream_name: str,
         primary_key_value: str,
@@ -219,24 +172,14 @@ class DeclarativeExecutor(Executor):
 
         target_stream = None
         for stream in streams:
-            stream_name_attr = getattr(stream, "name", None)
-            if stream_name_attr == stream_name:
+            if not isinstance(stream, AbstractStream):
+                continue
+            if stream.name == stream_name:
                 target_stream = stream
                 break
-            try:
-                unwrapped = _unwrap_to_declarative_stream(stream)
-                if getattr(unwrapped, "name", None) == stream_name:
-                    target_stream = stream
-                    break
-            except NotImplementedError:
-                continue
 
         if target_stream is None:
-            available_streams = []
-            for s in streams:
-                name = getattr(s, "name", None)
-                if name:
-                    available_streams.append(name)
+            available_streams = [s.name for s in streams if isinstance(s, AbstractStream)]
             raise exc.AirbyteStreamNotFoundError(
                 stream_name=stream_name,
                 connector_name=self.name,
@@ -244,10 +187,15 @@ class DeclarativeExecutor(Executor):
                 message=f"Stream '{stream_name}' not found in source.",
             )
 
-        declarative_stream = _unwrap_to_declarative_stream(target_stream)
+        if not hasattr(target_stream, "retriever"):
+            raise NotImplementedError(
+                f"Stream '{stream_name}' does not have a retriever attribute. "
+                f"fetch_record() requires access to the stream's retriever component."
+            )
 
-        retriever = declarative_stream.retriever  # type: ignore[attr-defined]
+        retriever = target_stream.retriever
 
+        # Guard: Retriever must be SimpleRetriever
         if not isinstance(retriever, SimpleRetriever):
             raise NotImplementedError(
                 f"Stream '{stream_name}' uses {type(retriever).__name__}, but fetch_record() "
@@ -289,24 +237,21 @@ class DeclarativeExecutor(Executor):
             ),
         )
 
+        # Guard: Response must not be None
         if response is None:
-            msg = (
-                f"No response received when fetching record with primary key "
-                f"'{primary_key_value}' from stream '{stream_name}'."
-            )
             raise exc.AirbyteRecordNotFoundError(
                 stream_name=stream_name,
                 primary_key_value=primary_key_value,
                 connector_name=self.name,
-                message=msg,
+                message=f"No response received when fetching record with primary key "
+                f"'{primary_key_value}' from stream '{stream_name}'.",
             )
 
         records_schema = {}
-        if hasattr(declarative_stream, "schema_loader"):
-            schema_loader = declarative_stream.schema_loader
+        if hasattr(target_stream, "schema_loader"):
+            schema_loader = target_stream.schema_loader
             if hasattr(schema_loader, "get_json_schema"):
-                with contextlib.suppress(Exception):
-                    records_schema = schema_loader.get_json_schema()
+                records_schema = schema_loader.get_json_schema()
 
         records = list(
             retriever.record_selector.select_records(
@@ -318,23 +263,14 @@ class DeclarativeExecutor(Executor):
             )
         )
 
+        # Guard: Records must not be empty
         if not records:
-            try:
-                response_json = response.json()
-                if isinstance(response_json, dict) and response_json:
-                    return response_json
-            except Exception:
-                pass
-
-            msg = (
-                f"Record with primary key '{primary_key_value}' "
-                f"not found in stream '{stream_name}'."
-            )
             raise exc.AirbyteRecordNotFoundError(
                 stream_name=stream_name,
                 primary_key_value=primary_key_value,
                 connector_name=self.name,
-                message=msg,
+                message=f"Record with primary key '{primary_key_value}' "
+                f"not found in stream '{stream_name}'.",
             )
 
         first_record = records[0]
