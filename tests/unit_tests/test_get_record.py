@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import Mock, PropertyMock, patch
 
 import pytest
@@ -179,7 +180,7 @@ def test_source_get_stream_primary_key_stream_not_found() -> None:
     ],
 )
 def test_source_normalize_and_validate_pk_value(
-    pk_value: any,
+    pk_value: Any,
     primary_key_fields: list[str],
     expected_result: str | None,
     expected_error: type[Exception] | None,
@@ -250,7 +251,7 @@ def test_source_get_record_calls_executor_fetch_record() -> None:
         pytest.param({"id": "123"}, id="dict_pk"),
     ],
 )
-def test_source_get_record_accepts_various_pk_formats(pk_value: any) -> None:
+def test_source_get_record_accepts_various_pk_formats(pk_value: Any) -> None:
     """Test get_record() accepts various PK value formats."""
     mock_executor = Mock(spec=DeclarativeExecutor)
     mock_executor.fetch_record.return_value = {"id": "123", "name": "Test"}
