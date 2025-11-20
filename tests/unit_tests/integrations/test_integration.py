@@ -69,7 +69,7 @@ class TestIntegration:
         )
         assert integration.yaml_path == Path("/nonexistent/path.yaml")
 
-    @patch("airbyte.integrations.base.load_connector_config")
+    @patch("connector_sdk.config_loader.load_connector_config")
     def test_validate_yaml_success(
         self,
         mock_load: MagicMock,
@@ -80,7 +80,7 @@ class TestIntegration:
         integration._validate_yaml()
         mock_load.assert_called_once()
 
-    @patch("airbyte.integrations.base.load_connector_config")
+    @patch("connector_sdk.config_loader.load_connector_config")
     def test_validate_yaml_import_error(
         self,
         mock_load: MagicMock,
@@ -94,7 +94,7 @@ class TestIntegration:
 
         assert "connector-sdk is required" in str(excinfo.value)
 
-    @patch("airbyte.integrations.base.load_connector_config")
+    @patch("connector_sdk.config_loader.load_connector_config")
     def test_validate_yaml_invalid(
         self,
         mock_load: MagicMock,
@@ -108,7 +108,7 @@ class TestIntegration:
 
         assert "Invalid connector YAML" in str(excinfo.value)
 
-    @patch("airbyte.integrations.base.load_connector_config")
+    @patch("connector_sdk.config_loader.load_connector_config")
     def test_list_resources(
         self,
         mock_load: MagicMock,
@@ -128,7 +128,7 @@ class TestIntegration:
         assert resources == ["customers", "products"]
         assert integration._resources == ["customers", "products"]
 
-    @patch("airbyte.integrations.base.load_connector_config")
+    @patch("connector_sdk.config_loader.load_connector_config")
     def test_list_verbs(
         self,
         mock_load: MagicMock,
@@ -150,7 +150,7 @@ class TestIntegration:
 
         assert verbs == ["list", "get"]
 
-    @patch("airbyte.integrations.base.load_connector_config")
+    @patch("connector_sdk.config_loader.load_connector_config")
     def test_list_verbs_resource_not_found(
         self,
         mock_load: MagicMock,
@@ -314,7 +314,7 @@ class TestGetIntegration:
 
     def test_get_integration_with_validation(self, mock_yaml_path: Path) -> None:
         """Test get_integration with validation."""
-        with patch("airbyte.integrations.base.load_connector_config"):
+        with patch("connector_sdk.config_loader.load_connector_config"):
             integration = get_integration(
                 name="test-api",
                 yaml_path=mock_yaml_path,
