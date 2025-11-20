@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import warnings
 from pathlib import Path
@@ -14,9 +15,6 @@ import yaml
 from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
     ConcurrentDeclarativeSource,
-)
-from airbyte_cdk.sources.declarative.parsers.model_to_component_factory import (
-    ModelToComponentFactory,
 )
 from airbyte_cdk.sources.declarative.retrievers.simple_retriever import SimpleRetriever
 from airbyte_cdk.sources.types import StreamSlice
@@ -41,6 +39,53 @@ def _suppress_cdk_pydantic_deprecation_warnings() -> None:
     warnings.filterwarnings(
         "ignore",
         category=pydantic.warnings.PydanticDeprecatedSince20,
+    )
+
+
+def _unwrap_to_declarative_stream(stream: object) -> object:
+    """Unwrap a concurrent stream wrapper to access the underlying declarative stream.
+
+    This function uses duck-typing to navigate through various wrapper layers that may
+    exist around declarative streams, depending on the CDK version. It tries common
+    wrapper attribute names and returns the first object that has a 'retriever' attribute.
+
+    Args:
+        stream: A stream object that may be wrapped (e.g., AbstractStream wrapper).
+
+    Returns:
+        The underlying declarative stream object with a retriever attribute.
+
+    Raises:
+        NotImplementedError: If unable to locate a declarative stream with a retriever.
+    """
+    if hasattr(stream, "retriever"):
+        return stream
+
+    wrapper_attrs = [
+        "declarative_stream",
+        "wrapped_stream",
+        "stream",
+        "_stream",
+        "underlying_stream",
+        "inner",
+    ]
+
+    for attr_name in wrapper_attrs:
+        if hasattr(stream, attr_name):
+            unwrapped = getattr(stream, attr_name)
+            if unwrapped is not None and hasattr(unwrapped, "retriever"):
+                return unwrapped
+
+    for branch_attr in ["full_refresh_stream", "incremental_stream"]:
+        if hasattr(stream, branch_attr):
+            branch_stream = getattr(stream, branch_attr)
+            if branch_stream is not None and hasattr(branch_stream, "retriever"):
+                return branch_stream
+
+    stream_type = type(stream).__name__
+    raise NotImplementedError(
+        f"Unable to locate declarative stream with retriever from {stream_type}. "
+        f"fetch_record() requires access to the stream's retriever component."
     )
 
 
@@ -147,7 +192,7 @@ class DeclarativeExecutor(Executor):
         """No-op. The declarative source is included with PyAirbyte."""
         pass
 
-    def fetch_record(  # noqa: PLR0914
+    def fetch_record(  # noqa: PLR0914, PLR0912, PLR0915
         self,
         stream_name: str,
         primary_key_value: str,
@@ -155,7 +200,8 @@ class DeclarativeExecutor(Executor):
     ) -> dict[str, Any]:
         """Fetch a single record by primary key from a declarative stream.
 
-        This method constructs an HTTP GET request to fetch a single record by appending
+        This method uses the already-instantiated streams from the declarative source
+        to access the stream's retriever and make an HTTP GET request by appending
         the primary key value to the stream's base path (e.g., /users/123).
 
         Args:
@@ -167,47 +213,44 @@ class DeclarativeExecutor(Executor):
             The fetched record as a dictionary.
 
         Raises:
-            exc.AirbyteStreamNotFoundError: If the stream is not found in the manifest.
+            exc.AirbyteStreamNotFoundError: If the stream is not found.
             exc.AirbyteRecordNotFoundError: If the record is not found (empty response).
             NotImplementedError: If the stream does not use SimpleRetriever.
         """
         merged_config = {**self._config_dict, **(config or {})}
 
-        stream_configs = self._manifest_dict.get("streams", [])
-        stream_config = None
-        for config_item in stream_configs:
-            if config_item.get("name") == stream_name:
-                stream_config = config_item
-                break
+        streams = self.declarative_source.streams(merged_config)
 
-        if stream_config is None:
-            available_streams = [s.get("name") for s in stream_configs]
+        target_stream = None
+        for stream in streams:
+            stream_name_attr = getattr(stream, "name", None)
+            if stream_name_attr == stream_name:
+                target_stream = stream
+                break
+            try:
+                unwrapped = _unwrap_to_declarative_stream(stream)
+                if getattr(unwrapped, "name", None) == stream_name:
+                    target_stream = stream
+                    break
+            except NotImplementedError:
+                continue
+
+        if target_stream is None:
+            available_streams = []
+            for s in streams:
+                name = getattr(s, "name", None)
+                if name:
+                    available_streams.append(name)
             raise exc.AirbyteStreamNotFoundError(
                 stream_name=stream_name,
                 connector_name=self.name,
                 available_streams=available_streams,
-                message=f"Stream '{stream_name}' not found in manifest.",
+                message=f"Stream '{stream_name}' not found in source.",
             )
 
-        factory = ModelToComponentFactory()
+        declarative_stream = _unwrap_to_declarative_stream(target_stream)
 
-        retriever_config = stream_config.get("retriever")
-        if retriever_config is None:
-            raise NotImplementedError(
-                f"Stream '{stream_name}' does not have a retriever configuration. "
-                "fetch_record() is only supported for streams with retrievers."
-            )
-
-        try:
-            retriever = factory.create_component(
-                model_type=type(retriever_config),  # type: ignore[arg-type]
-                component_definition=retriever_config,
-                config=merged_config,
-            )
-        except Exception as e:
-            raise NotImplementedError(
-                f"Failed to create retriever for stream '{stream_name}': {e}"
-            ) from e
+        retriever = declarative_stream.retriever  # type: ignore[attr-defined]
 
         if not isinstance(retriever, SimpleRetriever):
             raise NotImplementedError(
@@ -222,7 +265,10 @@ class DeclarativeExecutor(Executor):
             next_page_token=None,
         )
 
-        fetch_path = f"{base_path}/{primary_key_value}".lstrip("/")
+        if base_path:
+            fetch_path = f"{base_path.rstrip('/')}/{primary_key_value}"
+        else:
+            fetch_path = primary_key_value
 
         response = retriever.requester.send_request(
             path=fetch_path,
@@ -259,8 +305,12 @@ class DeclarativeExecutor(Executor):
                 message=msg,
             )
 
-        schema = stream_config.get("schema_loader", {})
-        records_schema = schema if isinstance(schema, dict) else {}
+        records_schema = {}
+        if hasattr(declarative_stream, "schema_loader"):
+            schema_loader = declarative_stream.schema_loader
+            if hasattr(schema_loader, "get_json_schema"):
+                with contextlib.suppress(Exception):
+                    records_schema = schema_loader.get_json_schema()
 
         records = list(
             retriever.record_selector.select_records(

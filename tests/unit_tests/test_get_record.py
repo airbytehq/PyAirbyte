@@ -7,6 +7,8 @@ from unittest.mock import Mock, PropertyMock, patch
 
 import pytest
 
+from airbyte_cdk.sources.declarative.retrievers.simple_retriever import SimpleRetriever
+
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte.sources.base import Source
@@ -48,13 +50,43 @@ def test_declarative_executor_fetch_record_stream_validation(
         manifest=manifest,
     )
 
+    mock_stream = Mock()
+    mock_stream.name = "users"
+
+    mock_retriever = Mock(spec=SimpleRetriever)
+    mock_retriever.requester = Mock()
+    mock_retriever.requester.get_path = Mock(return_value="/users")
+    mock_retriever.requester.send_request = Mock(
+        return_value=Mock(json=lambda: {"id": "123"})
+    )
+    mock_retriever._request_headers = Mock(return_value={})
+    mock_retriever._request_params = Mock(return_value={})
+    mock_retriever._request_body_data = Mock(return_value=None)
+    mock_retriever._request_body_json = Mock(return_value=None)
+    mock_retriever.record_selector = Mock()
+    mock_retriever.record_selector.select_records = Mock(return_value=[{"id": "123"}])
+
+    mock_stream.retriever = mock_retriever
+
+    mock_streams = [mock_stream] if stream_name == "users" else []
+
+    mock_declarative_source = Mock()
+    mock_declarative_source.streams = Mock(return_value=mock_streams)
+
     if expected_error:
-        with pytest.raises(expected_error):
-            executor.fetch_record(stream_name, pk_value)
-    else:
-        with patch.object(executor, "_manifest_dict", manifest):
-            with pytest.raises((NotImplementedError, AttributeError, KeyError)):
+        with patch.object(
+            type(executor), "declarative_source", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_declarative_source
+            with pytest.raises(expected_error):
                 executor.fetch_record(stream_name, pk_value)
+    else:
+        with patch.object(
+            type(executor), "declarative_source", new_callable=PropertyMock
+        ) as mock_prop:
+            mock_prop.return_value = mock_declarative_source
+            result = executor.fetch_record(stream_name, pk_value)
+            assert result == {"id": "123"}
 
 
 @pytest.mark.parametrize(
