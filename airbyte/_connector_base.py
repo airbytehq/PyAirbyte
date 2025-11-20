@@ -54,7 +54,7 @@ MAX_LOG_LINES = 20
 class ConnectorBase(abc.ABC):
     """A class representing a destination that can be called."""
 
-    connector_type: Literal["destination", "source"]
+    connector_type: Literal["destination", "source", "integration"]
 
     def __init__(
         self,

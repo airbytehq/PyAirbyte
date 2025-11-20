@@ -55,6 +55,9 @@ uuid7 = "^0.1.0"
 fastmcp = ">=2.11.3,<3.0.0"
 uv = ">=0.5.0,<0.9.0"
 
+[tool.poetry.group.integrations.dependencies]
+connector-sdk = {path = "../sonar/connector-sdk", develop = true}
+
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
 deptry = "^0.21.1"
@@ -95,6 +98,7 @@ markers = [
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
     "linting: marks a test as a linting test",
     "flaky: marks a test as flaky",
+    "asyncio: marks tests as async (automatically applied by pytest-asyncio)",
 ]
 filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Treat python warnings as errors in pytest
