@@ -92,64 +92,6 @@ def test_declarative_executor_fetch_record_stream_validation(
 
 
 @pytest.mark.parametrize(
-    "primary_key,expected_result",
-    [
-        pytest.param([["id"]], ["id"], id="nested_single_field"),
-        pytest.param(["id"], ["id"], id="flat_single_field"),
-        pytest.param([["id"], ["org_id"]], ["id", "org_id"], id="nested_composite"),
-        pytest.param([], [], id="no_primary_key"),
-        pytest.param(None, [], id="none_primary_key"),
-    ],
-)
-def test_source_get_stream_primary_key(
-    primary_key: list | None,
-    expected_result: list[str],
-) -> None:
-    """Test _get_stream_primary_key() handles various PK formats."""
-    mock_executor = Mock()
-    source = Source(
-        executor=mock_executor,
-        name="test-source",
-        config={"api_key": "test"},
-    )
-
-    mock_stream = Mock()
-    mock_stream.stream.name = "test_stream"
-    mock_stream.primary_key = primary_key
-
-    mock_catalog = Mock()
-    mock_catalog.streams = [mock_stream]
-
-    with patch.object(
-        type(source), "configured_catalog", new_callable=PropertyMock
-    ) as mock_prop:
-        mock_prop.return_value = mock_catalog
-        result = source._get_stream_primary_key("test_stream")
-        assert result == expected_result
-
-
-def test_source_get_stream_primary_key_stream_not_found() -> None:
-    """Test _get_stream_primary_key() raises error for nonexistent stream."""
-    mock_executor = Mock()
-    source = Source(
-        executor=mock_executor,
-        name="test-source",
-        config={"api_key": "test"},
-    )
-
-    mock_catalog = Mock()
-    mock_catalog.streams = []
-
-    with patch.object(
-        type(source), "configured_catalog", new_callable=PropertyMock
-    ) as mock_prop:
-        mock_prop.return_value = mock_catalog
-        with patch.object(source, "get_available_streams", return_value=[]):
-            with pytest.raises(exc.AirbyteStreamNotFoundError):
-                source._get_stream_primary_key("nonexistent_stream")
-
-
-@pytest.mark.parametrize(
     "pk_value,primary_key_fields,expected_result,expected_error",
     [
         pytest.param("123", ["id"], "123", None, id="string_value"),
@@ -186,6 +128,8 @@ def test_source_normalize_and_validate_pk_value(
     expected_error: type[Exception] | None,
 ) -> None:
     """Test _normalize_and_validate_pk_value() handles various input formats."""
+    from airbyte.shared.catalog_providers import CatalogProvider
+
     mock_executor = Mock()
     source = Source(
         executor=mock_executor,
@@ -193,9 +137,14 @@ def test_source_normalize_and_validate_pk_value(
         config={"api_key": "test"},
     )
 
+    mock_catalog_provider = Mock(spec=CatalogProvider)
+    mock_catalog_provider.get_primary_keys.return_value = primary_key_fields
+
     with patch.object(
-        source, "_get_stream_primary_key", return_value=primary_key_fields
-    ):
+        type(source), "catalog_provider", new_callable=PropertyMock
+    ) as mock_provider_prop:
+        mock_provider_prop.return_value = mock_catalog_provider
+
         if expected_error:
             with pytest.raises(expected_error):
                 source._normalize_and_validate_pk_value("test_stream", pk_value)

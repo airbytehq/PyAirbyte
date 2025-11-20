@@ -419,6 +419,11 @@ class Source(ConnectorBase):  # noqa: PLR0904
         streams_filter: list[str] = self._selected_stream_names or self.get_available_streams()
         return self.get_configured_catalog(streams=streams_filter)
 
+    @property
+    def catalog_provider(self) -> CatalogProvider:
+        """Return a catalog provider for this source."""
+        return CatalogProvider(self.configured_catalog)
+
     def get_configured_catalog(
         self,
         streams: Literal["*"] | list[str] | None = None,
@@ -603,40 +608,6 @@ class Source(ConnectorBase):  # noqa: PLR0904
             render_metadata=render_metadata,
         )
 
-    def _get_stream_primary_key(self, stream_name: str) -> list[str]:
-        """Get the primary key for a stream.
-
-        Returns the primary key as a flat list of field names.
-        Uses CatalogProvider to handle the Airbyte protocol's nested list structure.
-        """
-        catalog = self.configured_catalog
-        for configured_stream in catalog.streams:
-            if configured_stream.stream.name == stream_name:
-                pk = configured_stream.primary_key
-                if not pk:
-                    return []
-
-                # Normalize flat format to nested format for CatalogProvider
-                if isinstance(pk, list) and len(pk) > 0 and not isinstance(pk[0], list):
-                    pk = [[field] for field in pk]
-
-                temp_stream = type(configured_stream)(
-                    stream=configured_stream.stream,
-                    sync_mode=configured_stream.sync_mode,
-                    destination_sync_mode=configured_stream.destination_sync_mode,
-                    primary_key=pk,
-                    cursor_field=configured_stream.cursor_field,
-                )
-                temp_catalog = type(catalog)(streams=[temp_stream])
-                catalog_provider = CatalogProvider(temp_catalog)
-                return catalog_provider.get_primary_keys(stream_name)
-
-        raise exc.AirbyteStreamNotFoundError(
-            stream_name=stream_name,
-            connector_name=self.name,
-            available_streams=self.get_available_streams(),
-        )
-
     def _normalize_and_validate_pk_value(
         self,
         stream_name: str,
@@ -650,7 +621,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
         Returns the PK value as a string.
         """
-        primary_key_fields = self._get_stream_primary_key(stream_name)
+        primary_key_fields = self.catalog_provider.get_primary_keys(stream_name)
 
         if not primary_key_fields:
             raise exc.PyAirbyteInputError(
@@ -738,7 +709,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             scan_reason = "non-declarative source"
 
         pk_value_str = self._normalize_and_validate_pk_value(stream_name, pk_value)
-        primary_key_fields = self._get_stream_primary_key(stream_name)
+        primary_key_fields = self.catalog_provider.get_primary_keys(stream_name)
         pk_field = primary_key_fields[0]
 
         start_time = time.monotonic()
