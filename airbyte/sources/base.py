@@ -32,6 +32,7 @@ from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
 from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._message_iterators import AirbyteMessageIterator
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
@@ -606,7 +607,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """Get the primary key for a stream.
 
         Returns the primary key as a flat list of field names.
-        Handles the Airbyte protocol's nested list structure.
+        Uses CatalogProvider to handle the Airbyte protocol's nested list structure.
         """
         catalog = self.configured_catalog
         for configured_stream in catalog.streams:
@@ -614,11 +615,22 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 pk = configured_stream.primary_key
                 if not pk:
                     return []
-                if isinstance(pk, list) and len(pk) > 0:
-                    if isinstance(pk[0], list):
-                        return [field[0] if isinstance(field, list) else field for field in pk]
-                    return list(pk)  # type: ignore[arg-type]
-                return []
+
+                # Normalize flat format to nested format for CatalogProvider
+                if isinstance(pk, list) and len(pk) > 0 and not isinstance(pk[0], list):
+                    pk = [[field] for field in pk]
+
+                temp_stream = type(configured_stream)(
+                    stream=configured_stream.stream,
+                    sync_mode=configured_stream.sync_mode,
+                    destination_sync_mode=configured_stream.destination_sync_mode,
+                    primary_key=pk,
+                    cursor_field=configured_stream.cursor_field,
+                )
+                temp_catalog = type(catalog)(streams=[temp_stream])
+                catalog_provider = CatalogProvider(temp_catalog)
+                return catalog_provider.get_primary_keys(stream_name)
+
         raise exc.AirbyteStreamNotFoundError(
             stream_name=stream_name,
             connector_name=self.name,
@@ -661,7 +673,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     input_value=str(pk_value),
                 )
             provided_key = next(iter(pk_value.keys()))
-            if provided_key != pk_field:
+            normalized_provided_key = LowerCaseNormalizer.normalize(provided_key)
+            if normalized_provided_key != pk_field:
                 msg = (
                     f"Primary key field '{provided_key}' does not match "
                     f"stream's primary key '{pk_field}'."
@@ -679,6 +692,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
         stream_name: str,
         *,
         pk_value: Any,  # noqa: ANN401
+        allow_scanning: bool = False,
+        scan_timeout_seconds: int = 5,
     ) -> dict[str, Any]:
         """Fetch a single record by primary key value.
 
@@ -689,6 +704,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
             pk_value: The primary key value. Can be:
                 - A string or integer value (e.g., "123" or 123)
                 - A dict with a single entry (e.g., {"id": "123"})
+            allow_scanning: If True, fall back to scanning the stream if direct fetch fails.
+            scan_timeout_seconds: Maximum time to spend scanning for the record.
 
         Returns:
             The fetched record as a dictionary.
@@ -699,17 +716,55 @@ class Source(ConnectorBase):  # noqa: PLR0904
             exc.PyAirbyteInputError: If the pk_value format is invalid.
             NotImplementedError: If the source is not declarative or uses composite keys.
         """
-        if not isinstance(self.executor, DeclarativeExecutor):
+        if isinstance(self.executor, DeclarativeExecutor):
+            pk_value_str = self._normalize_and_validate_pk_value(stream_name, pk_value)
+            try:
+                return self.executor.fetch_record(
+                    stream_name=stream_name,
+                    primary_key_value=pk_value_str,
+                )
+            except (NotImplementedError, exc.AirbyteRecordNotFoundError) as e:
+                if not allow_scanning:
+                    raise
+                scan_reason = type(e).__name__
+
+        elif not allow_scanning:
             raise NotImplementedError(
-                f"get_record() is only supported for declarative sources. "
-                f"This source uses {type(self.executor).__name__}."
+                f"get_record() direct fetch is only supported for declarative sources. "
+                f"This source uses {type(self.executor).__name__}. "
+                f"Set allow_scanning=True to enable scanning fallback."
             )
+        else:
+            scan_reason = "non-declarative source"
 
         pk_value_str = self._normalize_and_validate_pk_value(stream_name, pk_value)
+        primary_key_fields = self._get_stream_primary_key(stream_name)
+        pk_field = primary_key_fields[0]
 
-        return self.executor.fetch_record(
+        start_time = time.monotonic()
+        for record in self.get_records(stream_name):
+            if time.monotonic() - start_time > scan_timeout_seconds:
+                raise exc.AirbyteRecordNotFoundError(
+                    stream_name=stream_name,
+                    context={
+                        "primary_key_field": pk_field,
+                        "primary_key_value": pk_value_str,
+                        "scan_timeout_seconds": scan_timeout_seconds,
+                        "scan_reason": scan_reason,
+                    },
+                )
+
+            record_data = record if isinstance(record, dict) else record.data
+            if str(record_data.get(pk_field)) == pk_value_str:
+                return record_data
+
+        raise exc.AirbyteRecordNotFoundError(
             stream_name=stream_name,
-            primary_key_value=pk_value_str,
+            context={
+                "primary_key_field": pk_field,
+                "primary_key_value": pk_value_str,
+                "scan_reason": scan_reason,
+            },
         )
 
     def get_samples(
