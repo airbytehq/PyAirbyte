@@ -149,6 +149,7 @@ coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" 
 coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
+check-deps = { shell = "deptry airbyte" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}

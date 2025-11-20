@@ -300,5 +300,4 @@ jobs:
 
     # Job-specific step(s):
     - name: Run Deptry
-      run: |
-        poetry run deptry .
+      run: poetry run poe check-deps
