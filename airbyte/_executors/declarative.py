@@ -172,14 +172,17 @@ class DeclarativeExecutor(Executor):
 
         target_stream = None
         for stream in streams:
-            if not isinstance(stream, AbstractStream):
-                continue
             if stream.name == stream_name:
+                if not isinstance(stream, AbstractStream):
+                    raise NotImplementedError(
+                        f"Stream '{stream_name}' is type {type(stream).__name__}; "
+                        "fetch_record() supports only AbstractStream."
+                    )
                 target_stream = stream
                 break
 
         if target_stream is None:
-            available_streams = [s.name for s in streams if isinstance(s, AbstractStream)]
+            available_streams = [s.name for s in streams]
             raise exc.AirbyteStreamNotFoundError(
                 stream_name=stream_name,
                 connector_name=self.name,
