@@ -413,6 +413,14 @@ class AirbyteStateNotFoundError(AirbyteConnectorError, KeyError):
 
 
 @dataclass
+class AirbyteRecordNotFoundError(AirbyteConnectorError):
+    """Record not found in stream."""
+
+    stream_name: str | None = None
+    primary_key_value: str | None = None
+
+
+@dataclass
 class PyAirbyteSecretNotFoundError(PyAirbyteError):
     """Secret not found."""
 

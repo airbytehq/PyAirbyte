@@ -15,7 +15,13 @@ from airbyte_cdk.entrypoint import AirbyteEntrypoint
 from airbyte_cdk.sources.declarative.concurrent_declarative_source import (
     ConcurrentDeclarativeSource,
 )
+from airbyte_cdk.sources.declarative.parsers.model_to_component_factory import (
+    ModelToComponentFactory,
+)
+from airbyte_cdk.sources.declarative.retrievers.simple_retriever import SimpleRetriever
+from airbyte_cdk.sources.types import StreamSlice
 
+from airbyte import exceptions as exc
 from airbyte._executors.base import Executor
 
 
@@ -140,3 +146,152 @@ class DeclarativeExecutor(Executor):
     def uninstall(self) -> None:
         """No-op. The declarative source is included with PyAirbyte."""
         pass
+
+    def fetch_record(  # noqa: PLR0914
+        self,
+        stream_name: str,
+        primary_key_value: str,
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Fetch a single record by primary key from a declarative stream.
+
+        This method constructs an HTTP GET request to fetch a single record by appending
+        the primary key value to the stream's base path (e.g., /users/123).
+
+        Args:
+            stream_name: The name of the stream to fetch from.
+            primary_key_value: The primary key value as a string.
+            config: Optional config overrides to merge with the executor's config.
+
+        Returns:
+            The fetched record as a dictionary.
+
+        Raises:
+            exc.AirbyteStreamNotFoundError: If the stream is not found in the manifest.
+            exc.AirbyteRecordNotFoundError: If the record is not found (empty response).
+            NotImplementedError: If the stream does not use SimpleRetriever.
+        """
+        merged_config = {**self._config_dict, **(config or {})}
+
+        stream_configs = self._manifest_dict.get("streams", [])
+        stream_config = None
+        for config_item in stream_configs:
+            if config_item.get("name") == stream_name:
+                stream_config = config_item
+                break
+
+        if stream_config is None:
+            available_streams = [s.get("name") for s in stream_configs]
+            raise exc.AirbyteStreamNotFoundError(
+                stream_name=stream_name,
+                connector_name=self.name,
+                available_streams=available_streams,
+                message=f"Stream '{stream_name}' not found in manifest.",
+            )
+
+        factory = ModelToComponentFactory()
+
+        retriever_config = stream_config.get("retriever")
+        if retriever_config is None:
+            raise NotImplementedError(
+                f"Stream '{stream_name}' does not have a retriever configuration. "
+                "fetch_record() is only supported for streams with retrievers."
+            )
+
+        try:
+            retriever = factory.create_component(
+                model_type=type(retriever_config),  # type: ignore[arg-type]
+                component_definition=retriever_config,
+                config=merged_config,
+            )
+        except Exception as e:
+            raise NotImplementedError(
+                f"Failed to create retriever for stream '{stream_name}': {e}"
+            ) from e
+
+        if not isinstance(retriever, SimpleRetriever):
+            raise NotImplementedError(
+                f"Stream '{stream_name}' uses {type(retriever).__name__}, but fetch_record() "
+                "only supports SimpleRetriever."
+            )
+
+        empty_slice = StreamSlice(partition={}, cursor_slice={})
+        base_path = retriever.requester.get_path(
+            stream_state={},
+            stream_slice=empty_slice,
+            next_page_token=None,
+        )
+
+        fetch_path = f"{base_path}/{primary_key_value}".lstrip("/")
+
+        response = retriever.requester.send_request(
+            path=fetch_path,
+            stream_state={},
+            stream_slice=empty_slice,
+            next_page_token=None,
+            request_headers=retriever._request_headers(  # noqa: SLF001
+                stream_slice=empty_slice,
+                next_page_token=None,
+            ),
+            request_params=retriever._request_params(  # noqa: SLF001
+                stream_slice=empty_slice,
+                next_page_token=None,
+            ),
+            request_body_data=retriever._request_body_data(  # noqa: SLF001
+                stream_slice=empty_slice,
+                next_page_token=None,
+            ),
+            request_body_json=retriever._request_body_json(  # noqa: SLF001
+                stream_slice=empty_slice,
+                next_page_token=None,
+            ),
+        )
+
+        if response is None:
+            msg = (
+                f"No response received when fetching record with primary key "
+                f"'{primary_key_value}' from stream '{stream_name}'."
+            )
+            raise exc.AirbyteRecordNotFoundError(
+                stream_name=stream_name,
+                primary_key_value=primary_key_value,
+                connector_name=self.name,
+                message=msg,
+            )
+
+        schema = stream_config.get("schema_loader", {})
+        records_schema = schema if isinstance(schema, dict) else {}
+
+        records = list(
+            retriever.record_selector.select_records(
+                response=response,
+                stream_state={},
+                records_schema=records_schema,
+                stream_slice=empty_slice,
+                next_page_token=None,
+            )
+        )
+
+        if not records:
+            try:
+                response_json = response.json()
+                if isinstance(response_json, dict) and response_json:
+                    return response_json
+            except Exception:
+                pass
+
+            msg = (
+                f"Record with primary key '{primary_key_value}' "
+                f"not found in stream '{stream_name}'."
+            )
+            raise exc.AirbyteRecordNotFoundError(
+                stream_name=stream_name,
+                primary_key_value=primary_key_value,
+                connector_name=self.name,
+                message=msg,
+            )
+
+        first_record = records[0]
+        if hasattr(first_record, "data"):
+            return dict(first_record.data)  # type: ignore[arg-type]
+        return dict(first_record)  # type: ignore[arg-type]
