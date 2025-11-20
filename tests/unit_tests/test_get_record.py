@@ -86,7 +86,9 @@ def test_source_get_stream_primary_key(
     mock_catalog = Mock()
     mock_catalog.streams = [mock_stream]
 
-    with patch.object(type(source), "configured_catalog", new_callable=PropertyMock) as mock_prop:
+    with patch.object(
+        type(source), "configured_catalog", new_callable=PropertyMock
+    ) as mock_prop:
         mock_prop.return_value = mock_catalog
         result = source._get_stream_primary_key("test_stream")
         assert result == expected_result
@@ -104,7 +106,9 @@ def test_source_get_stream_primary_key_stream_not_found() -> None:
     mock_catalog = Mock()
     mock_catalog.streams = []
 
-    with patch.object(type(source), "configured_catalog", new_callable=PropertyMock) as mock_prop:
+    with patch.object(
+        type(source), "configured_catalog", new_callable=PropertyMock
+    ) as mock_prop:
         mock_prop.return_value = mock_catalog
         with patch.object(source, "get_available_streams", return_value=[]):
             with pytest.raises(exc.AirbyteStreamNotFoundError):
