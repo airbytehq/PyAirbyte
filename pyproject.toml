@@ -171,7 +171,7 @@ required_environment_variables = ["GCP_GSM_CREDENTIALS"]
 side_car_docker_engine = true
 
 [tool.deptry]
-exclude = ["sonar"]
+exclude = [".venv", "sonar", "tests"]
 
 [tool.deptry.per_rule_ignores]
 # This is a mapping of rules and package names to be ignored for that rule.
@@ -179,7 +179,8 @@ DEP001 = [
   "IPython"  # Optional dependency, used for detecting Notebook environments
 ]
 DEP004 = [
-  "pdoc"  # Only used for generating documentation. Not a runtime dependency.
+  "pdoc",  # Only used for generating documentation. Not a runtime dependency.
+  "connector-sdk",  # Optional dependency in integrations group, imported lazily
 ]
 DEP002 = [
   # Only used for SQLAlchemy engine. Not imported directly:
