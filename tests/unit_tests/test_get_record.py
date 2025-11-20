@@ -238,7 +238,6 @@ def test_source_get_record_calls_executor_fetch_record() -> None:
     mock_executor.fetch_record.assert_called_once_with(
         stream_name="test_stream",
         primary_key_value="123",
-        config={"api_key": "test"},
     )
 
 
