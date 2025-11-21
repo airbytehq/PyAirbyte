@@ -179,9 +179,13 @@ exclude = [".venv", "sonar", "tests"]
 DEP001 = [
   "IPython"  # Optional dependency, used for detecting Notebook environments
 ]
+DEP003 = [
+  "airbyte"  # Ignore self-imports (airbyte package importing from airbyte submodules)
+]
 DEP004 = [
   "pdoc",  # Only used for generating documentation. Not a runtime dependency.
   "connector-sdk",  # Optional dependency in integrations group, imported lazily
+  "connector_sdk",  # Module name for connector-sdk (underscore vs hyphen)
 ]
 DEP002 = [
   # Only used for SQLAlchemy engine. Not imported directly:
