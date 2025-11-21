@@ -73,18 +73,15 @@ class TestSonarExecutor:
         assert executor.enable_logging is True
         assert executor.log_file == "/tmp/test.log"
 
-    @patch("airbyte._executors.sonar.ConnectorExecutor")
-    @patch("airbyte._executors.sonar.SecretStr")
+    @patch("connector_sdk.ConnectorExecutor")
     def test_get_executor(
         self,
-        mock_secret_str: MagicMock,
         mock_connector_executor: MagicMock,
         executor: SonarExecutor,
     ) -> None:
         """Test lazy executor creation."""
         mock_executor_instance = MagicMock()
         mock_connector_executor.return_value = mock_executor_instance
-        mock_secret_str.side_effect = lambda x: f"SecretStr({x})"
 
         result = executor._get_executor()
 
@@ -94,7 +91,7 @@ class TestSonarExecutor:
 
     def test_get_executor_import_error(self, executor: SonarExecutor) -> None:
         """Test executor creation with missing connector-sdk."""
-        with patch("airbyte._executors.sonar.ConnectorExecutor") as mock:
+        with patch("connector_sdk.ConnectorExecutor") as mock:
             mock.side_effect = ImportError("No module named 'connector_sdk'")
 
             with patch.dict("sys.modules", {"connector_sdk": None}):
