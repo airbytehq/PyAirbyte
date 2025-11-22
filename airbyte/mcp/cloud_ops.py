@@ -2,10 +2,10 @@
 """Airbyte Cloud MCP operations."""
 
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastmcp import FastMCP
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte.cloud.auth import (
@@ -14,8 +14,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
 )
-from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
+from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._tool_utils import (
@@ -25,6 +24,43 @@ from airbyte.mcp._tool_utils import (
     register_tools,
 )
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+
+
+class CloudSourceResult(BaseModel):
+    """Information about a deployed source connector in Airbyte Cloud."""
+
+    id: str
+    """The source ID."""
+    name: str
+    """Display name of the source."""
+    url: str
+    """Web URL for managing this source in Airbyte Cloud."""
+
+
+class CloudDestinationResult(BaseModel):
+    """Information about a deployed destination connector in Airbyte Cloud."""
+
+    id: str
+    """The destination ID."""
+    name: str
+    """Display name of the destination."""
+    url: str
+    """Web URL for managing this destination in Airbyte Cloud."""
+
+
+class CloudConnectionResult(BaseModel):
+    """Information about a deployed connection in Airbyte Cloud."""
+
+    id: str
+    """The connection ID."""
+    name: str
+    """Display name of the connection."""
+    url: str
+    """Web URL for managing this connection in Airbyte Cloud."""
+    source_id: str
+    """ID of the source used by this connection."""
+    destination_id: str
+    """ID of the destination used by this connection."""
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -444,7 +480,16 @@ def get_cloud_sync_status(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_source_connectors() -> list[CloudSource]:
+def list_deployed_cloud_source_connectors(
+    name_contains: Annotated[
+        str | None,
+        "Optional case-insensitive substring to filter sources by name",
+    ] = None,
+    max_items_limit: Annotated[
+        int | None,
+        "Optional maximum number of items to return (default: no limit)",
+    ] = None,
+) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -452,7 +497,26 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     Airbyte Cloud API.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
-    return workspace.list_sources()
+    sources = workspace.list_sources()
+
+    # Filter by name if requested
+    if name_contains:
+        needle = name_contains.lower()
+        sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
+
+    # Apply limit if requested
+    if max_items_limit is not None:
+        sources = sources[:max_items_limit]
+
+    # Note: name and url are guaranteed non-null from list API responses
+    return [
+        CloudSourceResult(
+            id=source.source_id,
+            name=cast(str, source.name),
+            url=cast(str, source.connector_url),
+        )
+        for source in sources
+    ]
 
 
 @mcp_tool(
@@ -461,7 +525,16 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
+def list_deployed_cloud_destination_connectors(
+    name_contains: Annotated[
+        str | None,
+        "Optional case-insensitive substring to filter destinations by name",
+    ] = None,
+    max_items_limit: Annotated[
+        int | None,
+        "Optional maximum number of items to return (default: no limit)",
+    ] = None,
+) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -469,7 +542,26 @@ def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     Airbyte Cloud API.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
-    return workspace.list_destinations()
+    destinations = workspace.list_destinations()
+
+    # Filter by name if requested
+    if name_contains:
+        needle = name_contains.lower()
+        destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
+
+    # Apply limit if requested
+    if max_items_limit is not None:
+        destinations = destinations[:max_items_limit]
+
+    # Note: name and url are guaranteed non-null from list API responses
+    return [
+        CloudDestinationResult(
+            id=destination.destination_id,
+            name=cast(str, destination.name),
+            url=cast(str, destination.connector_url),
+        )
+        for destination in destinations
+    ]
 
 
 @mcp_tool(
@@ -546,7 +638,16 @@ def get_cloud_sync_logs(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_connections() -> list[CloudConnection]:
+def list_deployed_cloud_connections(
+    name_contains: Annotated[
+        str | None,
+        "Optional case-insensitive substring to filter connections by name",
+    ] = None,
+    max_items_limit: Annotated[
+        int | None,
+        "Optional maximum number of items to return (default: no limit)",
+    ] = None,
+) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -554,7 +655,28 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
     Airbyte Cloud API.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
-    return workspace.list_connections()
+    connections = workspace.list_connections()
+
+    # Filter by name if requested
+    if name_contains:
+        needle = name_contains.lower()
+        connections = [c for c in connections if c.name is not None and needle in c.name.lower()]
+
+    # Apply limit if requested
+    if max_items_limit is not None:
+        connections = connections[:max_items_limit]
+
+    # Note: name and url are guaranteed non-null from list API responses
+    return [
+        CloudConnectionResult(
+            id=connection.connection_id,
+            name=cast(str, connection.name),
+            url=cast(str, connection.connection_url),
+            source_id=connection.source_id,
+            destination_id=connection.destination_id,
+        )
+        for connection in connections
+    ]
 
 
 def _get_custom_source_definition_description(
