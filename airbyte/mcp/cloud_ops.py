@@ -485,6 +485,10 @@ def list_deployed_cloud_source_connectors(
         str | None,
         "Optional case-insensitive substring to filter sources by name",
     ] = None,
+    max_items_limit: Annotated[
+        int | None,
+        "Optional maximum number of items to return (default: no limit)",
+    ] = None,
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
@@ -499,6 +503,10 @@ def list_deployed_cloud_source_connectors(
     if name_contains:
         needle = name_contains.lower()
         sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
+
+    # Apply limit if requested
+    if max_items_limit is not None:
+        sources = sources[:max_items_limit]
 
     return [
         CloudSourceResult(
@@ -521,6 +529,10 @@ def list_deployed_cloud_destination_connectors(
         str | None,
         "Optional case-insensitive substring to filter destinations by name",
     ] = None,
+    max_items_limit: Annotated[
+        int | None,
+        "Optional maximum number of items to return (default: no limit)",
+    ] = None,
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
@@ -535,6 +547,10 @@ def list_deployed_cloud_destination_connectors(
     if name_contains:
         needle = name_contains.lower()
         destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
+
+    # Apply limit if requested
+    if max_items_limit is not None:
+        destinations = destinations[:max_items_limit]
 
     return [
         CloudDestinationResult(
@@ -625,6 +641,10 @@ def list_deployed_cloud_connections(
         str | None,
         "Optional case-insensitive substring to filter connections by name",
     ] = None,
+    max_items_limit: Annotated[
+        int | None,
+        "Optional maximum number of items to return (default: no limit)",
+    ] = None,
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
@@ -639,6 +659,10 @@ def list_deployed_cloud_connections(
     if name_contains:
         needle = name_contains.lower()
         connections = [c for c in connections if c.name is not None and needle in c.name.lower()]
+
+    # Apply limit if requested
+    if max_items_limit is not None:
+        connections = connections[:max_items_limit]
 
     return [
         CloudConnectionResult(
