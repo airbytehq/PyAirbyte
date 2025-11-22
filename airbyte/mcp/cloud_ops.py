@@ -480,7 +480,12 @@ def get_cloud_sync_status(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_source_connectors() -> list[CloudSourceResult]:
+def list_deployed_cloud_source_connectors(
+    name_contains: Annotated[
+        str | None,
+        "Optional case-insensitive substring to filter sources by name",
+    ] = None,
+) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -489,6 +494,11 @@ def list_deployed_cloud_source_connectors() -> list[CloudSourceResult]:
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     sources = workspace.list_sources()
+
+    # Filter by name if requested
+    if name_contains:
+        needle = name_contains.lower()
+        sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
 
     return [
         CloudSourceResult(
@@ -506,7 +516,12 @@ def list_deployed_cloud_source_connectors() -> list[CloudSourceResult]:
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_destination_connectors() -> list[CloudDestinationResult]:
+def list_deployed_cloud_destination_connectors(
+    name_contains: Annotated[
+        str | None,
+        "Optional case-insensitive substring to filter destinations by name",
+    ] = None,
+) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -515,6 +530,11 @@ def list_deployed_cloud_destination_connectors() -> list[CloudDestinationResult]
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     destinations = workspace.list_destinations()
+
+    # Filter by name if requested
+    if name_contains:
+        needle = name_contains.lower()
+        destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
 
     return [
         CloudDestinationResult(
@@ -600,7 +620,12 @@ def get_cloud_sync_logs(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_connections() -> list[CloudConnectionResult]:
+def list_deployed_cloud_connections(
+    name_contains: Annotated[
+        str | None,
+        "Optional case-insensitive substring to filter connections by name",
+    ] = None,
+) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -609,6 +634,11 @@ def list_deployed_cloud_connections() -> list[CloudConnectionResult]:
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
     connections = workspace.list_connections()
+
+    # Filter by name if requested
+    if name_contains:
+        needle = name_contains.lower()
+        connections = [c for c in connections if c.name is not None and needle in c.name.lower()]
 
     return [
         CloudConnectionResult(
