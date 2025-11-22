@@ -508,6 +508,7 @@ def list_deployed_cloud_source_connectors(
     if max_items_limit is not None:
         sources = sources[:max_items_limit]
 
+    # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudSourceResult(
             id=source.source_id,
@@ -552,6 +553,7 @@ def list_deployed_cloud_destination_connectors(
     if max_items_limit is not None:
         destinations = destinations[:max_items_limit]
 
+    # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudDestinationResult(
             id=destination.destination_id,
@@ -664,6 +666,7 @@ def list_deployed_cloud_connections(
     if max_items_limit is not None:
         connections = connections[:max_items_limit]
 
+    # Note: name and url are guaranteed non-null from list API responses
     return [
         CloudConnectionResult(
             id=connection.connection_id,
