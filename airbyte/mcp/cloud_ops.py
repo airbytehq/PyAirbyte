@@ -14,8 +14,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
 )
-from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import CloudDestination, CloudSource, CustomCloudSourceDefinition
+from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._tool_utils import (
@@ -444,7 +443,7 @@ def get_cloud_sync_status(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_source_connectors() -> list[CloudSource]:
+def list_deployed_cloud_source_connectors() -> list[dict[str, Any]]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -452,7 +451,16 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     Airbyte Cloud API.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
-    return workspace.list_sources()
+    sources = workspace.list_sources()
+
+    return [
+        {
+            "id": source.source_id,
+            "name": source.name,
+            "url": source.connector_url,
+        }
+        for source in sources
+    ]
 
 
 @mcp_tool(
@@ -461,7 +469,7 @@ def list_deployed_cloud_source_connectors() -> list[CloudSource]:
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
+def list_deployed_cloud_destination_connectors() -> list[dict[str, Any]]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -469,7 +477,16 @@ def list_deployed_cloud_destination_connectors() -> list[CloudDestination]:
     Airbyte Cloud API.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
-    return workspace.list_destinations()
+    destinations = workspace.list_destinations()
+
+    return [
+        {
+            "id": destination.destination_id,
+            "name": destination.name,
+            "url": destination.connector_url,
+        }
+        for destination in destinations
+    ]
 
 
 @mcp_tool(
@@ -546,7 +563,7 @@ def get_cloud_sync_logs(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_connections() -> list[CloudConnection]:
+def list_deployed_cloud_connections() -> list[dict[str, Any]]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -554,7 +571,16 @@ def list_deployed_cloud_connections() -> list[CloudConnection]:
     Airbyte Cloud API.
     """
     workspace: CloudWorkspace = _get_cloud_workspace()
-    return workspace.list_connections()
+    connections = workspace.list_connections()
+
+    return [
+        {
+            "id": connection.connection_id,
+            "name": connection.name,
+            "url": connection.connection_url,
+        }
+        for connection in connections
+    ]
 
 
 def _get_custom_source_definition_description(
