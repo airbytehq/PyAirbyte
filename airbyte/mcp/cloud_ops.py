@@ -31,8 +31,8 @@ class CloudSourceResult(BaseModel):
 
     id: str
     """The source ID."""
-    name: str | None
-    """Display name of the source, if set."""
+    name: str
+    """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
 
@@ -42,8 +42,8 @@ class CloudDestinationResult(BaseModel):
 
     id: str
     """The destination ID."""
-    name: str | None
-    """Display name of the destination, if set."""
+    name: str
+    """Display name of the destination."""
     url: str
     """Web URL for managing this destination in Airbyte Cloud."""
 
@@ -53,8 +53,8 @@ class CloudConnectionResult(BaseModel):
 
     id: str
     """The connection ID."""
-    name: str | None
-    """Display name of the connection, if set."""
+    name: str
+    """Display name of the connection."""
     url: str
     """Web URL for managing this connection in Airbyte Cloud."""
     source_id: str
@@ -511,7 +511,7 @@ def list_deployed_cloud_source_connectors(
     return [
         CloudSourceResult(
             id=source.source_id,
-            name=source.name,
+            name=cast(str, source.name),
             url=cast(str, source.connector_url),
         )
         for source in sources
@@ -555,7 +555,7 @@ def list_deployed_cloud_destination_connectors(
     return [
         CloudDestinationResult(
             id=destination.destination_id,
-            name=destination.name,
+            name=cast(str, destination.name),
             url=cast(str, destination.connector_url),
         )
         for destination in destinations
@@ -667,7 +667,7 @@ def list_deployed_cloud_connections(
     return [
         CloudConnectionResult(
             id=connection.connection_id,
-            name=connection.name,
+            name=cast(str, connection.name),
             url=cast(str, connection.connection_url),
             source_id=connection.source_id,
             destination_id=connection.destination_id,
