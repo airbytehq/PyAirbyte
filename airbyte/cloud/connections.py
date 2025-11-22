@@ -123,7 +123,7 @@ class CloudConnection:
             if not self._connection_info:
                 self._connection_info = self._fetch_connection_info()
 
-            self._destination_id = self._connection_info.source_id
+            self._destination_id = self._connection_info.destination_id
 
         return self._destination_id
 
