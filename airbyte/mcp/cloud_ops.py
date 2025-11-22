@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 from fastmcp import FastMCP
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte.cloud.auth import (
@@ -24,6 +24,43 @@ from airbyte.mcp._tool_utils import (
     register_tools,
 )
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+
+
+class CloudSourceResult(BaseModel):
+    """Information about a deployed source connector in Airbyte Cloud."""
+
+    id: str
+    """The source ID."""
+    name: str | None
+    """Display name of the source, if set."""
+    url: str | None
+    """Web URL for managing this source in Airbyte Cloud."""
+
+
+class CloudDestinationResult(BaseModel):
+    """Information about a deployed destination connector in Airbyte Cloud."""
+
+    id: str
+    """The destination ID."""
+    name: str | None
+    """Display name of the destination, if set."""
+    url: str | None
+    """Web URL for managing this destination in Airbyte Cloud."""
+
+
+class CloudConnectionResult(BaseModel):
+    """Information about a deployed connection in Airbyte Cloud."""
+
+    id: str
+    """The connection ID."""
+    name: str | None
+    """Display name of the connection, if set."""
+    url: str | None
+    """Web URL for managing this connection in Airbyte Cloud."""
+    source_id: str
+    """ID of the source used by this connection."""
+    destination_id: str
+    """ID of the destination used by this connection."""
 
 
 def _get_cloud_workspace() -> CloudWorkspace:
@@ -443,7 +480,7 @@ def get_cloud_sync_status(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_source_connectors() -> list[dict[str, Any]]:
+def list_deployed_cloud_source_connectors() -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -454,11 +491,11 @@ def list_deployed_cloud_source_connectors() -> list[dict[str, Any]]:
     sources = workspace.list_sources()
 
     return [
-        {
-            "id": source.source_id,
-            "name": source.name,
-            "url": source.connector_url,
-        }
+        CloudSourceResult(
+            id=source.source_id,
+            name=source.name,
+            url=source.connector_url,
+        )
         for source in sources
     ]
 
@@ -469,7 +506,7 @@ def list_deployed_cloud_source_connectors() -> list[dict[str, Any]]:
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_destination_connectors() -> list[dict[str, Any]]:
+def list_deployed_cloud_destination_connectors() -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -480,11 +517,11 @@ def list_deployed_cloud_destination_connectors() -> list[dict[str, Any]]:
     destinations = workspace.list_destinations()
 
     return [
-        {
-            "id": destination.destination_id,
-            "name": destination.name,
-            "url": destination.connector_url,
-        }
+        CloudDestinationResult(
+            id=destination.destination_id,
+            name=destination.name,
+            url=destination.connector_url,
+        )
         for destination in destinations
     ]
 
@@ -563,7 +600,7 @@ def get_cloud_sync_logs(
     idempotent=True,
     open_world=True,
 )
-def list_deployed_cloud_connections() -> list[dict[str, Any]]:
+def list_deployed_cloud_connections() -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -574,11 +611,13 @@ def list_deployed_cloud_connections() -> list[dict[str, Any]]:
     connections = workspace.list_connections()
 
     return [
-        {
-            "id": connection.connection_id,
-            "name": connection.name,
-            "url": connection.connection_url,
-        }
+        CloudConnectionResult(
+            id=connection.connection_id,
+            name=connection.name,
+            url=connection.connection_url,
+            source_id=connection.source_id,
+            destination_id=connection.destination_id,
+        )
         for connection in connections
     ]
 
