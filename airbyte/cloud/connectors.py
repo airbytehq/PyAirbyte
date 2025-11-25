@@ -500,9 +500,8 @@ class CustomCloudSourceDefinition:
         """Permanently delete this custom source definition.
 
         Args:
-            safe_mode: If True, requires the connector name to either start with "delete:"
-                or contain "delete-me" (case insensitive) to prevent accidental deletion.
-                Defaults to True.
+            safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if self.definition_type == "yaml":
             api_util.delete_custom_yaml_source_definition(
