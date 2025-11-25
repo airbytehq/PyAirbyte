@@ -907,7 +907,7 @@ def permanently_delete_cloud_source(
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_source(
         source=source_id,
-        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        safe_mode=True,  # Requires name to contain "delete-me" or "deleteme" (case insensitive)
     )
     return f"Successfully deleted source '{actual_name}' (ID: {source_id})"
 
