@@ -7,7 +7,6 @@ for deferred registration with safe mode filtering.
 
 from __future__ import annotations
 
-import inspect
 import os
 from collections.abc import Callable
 from typing import Any, Literal, TypeVar
@@ -26,7 +25,6 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
     os.environ.get("AIRBYTE_CLOUD_MCP_READONLY_MODE", "").strip() == "1"
 )
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
-AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
@@ -49,6 +47,8 @@ def register_guid_created_in_session(guid: str) -> None:
 
 def check_guid_created_in_session(guid: str) -> None:
     """Check if a GUID was created in this session.
+
+    This is a no-op if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "0".
 
     Raises SafeModeError if the GUID was not created in this session and
     AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
@@ -160,20 +160,8 @@ def register_tools(app: Any, domain: Literal["cloud", "local", "registry"]) -> N
     for func, tool_annotations in get_registered_tools(domain):
         if should_register_tool(tool_annotations):
             extra_help_text = getattr(func, "_mcp_extra_help_text", None)
-            description: str | None = None
             if extra_help_text:
                 description = (func.__doc__ or "").rstrip() + "\n" + extra_help_text
-
-            # For cloud tools, conditionally hide workspace_id parameter when env var is set
-            exclude_args: list[str] | None = None
-            if domain == "cloud" and AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET:
-                params = set(inspect.signature(func).parameters.keys())
-                excluded = [name for name in ["workspace_id"] if name in params]
-                exclude_args = excluded or None
-
-            app.tool(
-                func,
-                annotations=tool_annotations,
-                description=description,
-                exclude_args=exclude_args,
-            )
+                app.tool(func, annotations=tool_annotations, description=description)
+            else:
+                app.tool(func, annotations=tool_annotations)

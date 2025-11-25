@@ -250,10 +250,17 @@ class CloudWorkspace:
     def permanently_delete_source(
         self,
         source: str | CloudSource,
+        *,
+        safe_mode: bool = True,
     ) -> None:
         """Delete a source from the workspace.
 
         You can pass either the source ID `str` or a deployed `Source` object.
+
+        Args:
+            source: The source ID or CloudSource object to delete
+            safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(source, (str, CloudSource)):
             raise exc.PyAirbyteInputError(
@@ -263,9 +270,11 @@ class CloudWorkspace:
 
         api_util.delete_source(
             source_id=source.connector_id if isinstance(source, CloudSource) else source,
+            source_name=source.name if isinstance(source, CloudSource) else None,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            safe_mode=safe_mode,
         )
 
     # Deploy and delete destinations
@@ -273,10 +282,17 @@ class CloudWorkspace:
     def permanently_delete_destination(
         self,
         destination: str | CloudDestination,
+        *,
+        safe_mode: bool = True,
     ) -> None:
         """Delete a deployed destination from the workspace.
 
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
+
+        Args:
+            destination: The destination ID or CloudDestination object to delete
+            safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(destination, (str, CloudDestination)):
             raise exc.PyAirbyteInputError(
@@ -288,9 +304,13 @@ class CloudWorkspace:
             destination_id=(
                 destination if isinstance(destination, str) else destination.destination_id
             ),
+            destination_name=(
+                destination.name if isinstance(destination, CloudDestination) else None
+            ),
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            safe_mode=safe_mode,
         )
 
     # Deploy and delete connections
@@ -351,8 +371,19 @@ class CloudWorkspace:
         *,
         cascade_delete_source: bool = False,
         cascade_delete_destination: bool = False,
+        safe_mode: bool = True,
     ) -> None:
-        """Delete a deployed connection from the workspace."""
+        """Delete a deployed connection from the workspace.
+
+        Args:
+            connection: The connection ID or CloudConnection object to delete
+            cascade_delete_source: If True, also delete the source after deleting the connection
+            cascade_delete_destination: If True, also delete the destination after deleting
+                the connection
+            safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True. Also applies
+                to cascade deletes.
+        """
         if connection is None:
             raise ValueError("No connection ID provided.")
 
@@ -364,16 +395,24 @@ class CloudWorkspace:
 
         api_util.delete_connection(
             connection_id=connection.connection_id,
+            connection_name=connection.name,
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            safe_mode=safe_mode,
         )
 
         if cascade_delete_source:
-            self.permanently_delete_source(source=connection.source_id)
+            self.permanently_delete_source(
+                source=connection.source_id,
+                safe_mode=safe_mode,
+            )
         if cascade_delete_destination:
-            self.permanently_delete_destination(destination=connection.destination_id)
+            self.permanently_delete_destination(
+                destination=connection.destination_id,
+                safe_mode=safe_mode,
+            )
 
     # List sources, destinations, and connections
 

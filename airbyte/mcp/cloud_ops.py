@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
+from airbyte._util.api_util import PyAirbyteInputError
 from airbyte.cloud.auth import (
     resolve_cloud_api_url,
     resolve_cloud_client_id,
@@ -964,6 +965,10 @@ def permanently_delete_custom_source_definition(
         str,
         Field(description="The ID of the custom source definition to delete."),
     ],
+    name: Annotated[
+        str,
+        Field(description="The expected name of the custom source definition (for verification)."),
+    ],
     *,
     workspace_id: Annotated[
         str | None,
@@ -975,13 +980,15 @@ def permanently_delete_custom_source_definition(
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
-    IMPORTANT: This operation requires the connector name to either:
-    1. Start with "delete:" (case insensitive), OR
-    2. Contain "delete-me" (case insensitive)
+    IMPORTANT: This operation requires the connector name to contain "delete-me" or "deleteme"
+    (case insensitive).
 
-    If the connector does not meet these requirements, the deletion will be rejected with a
+    If the connector does not meet this requirement, the deletion will be rejected with a
     helpful error message. Instruct the user to rename the connector appropriately to authorize
     the deletion.
+
+    The provided name must match the actual name of the definition for the operation to proceed.
+    This is a safety measure to ensure you are deleting the correct resource.
 
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
@@ -992,13 +999,248 @@ def permanently_delete_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
     )
-    definition_name: str = definition.name  # Capture name before deletion
+    actual_name: str = definition.name
+
+    # Verify the name matches
+    if actual_name != name:
+        raise PyAirbyteInputError(
+            message=(
+                f"Name mismatch: expected '{name}' but found '{actual_name}'. "
+                "The provided name must exactly match the definition's actual name. "
+                "This is a safety measure to prevent accidental deletion."
+            ),
+            context={
+                "definition_id": definition_id,
+                "expected_name": name,
+                "actual_name": actual_name,
+            },
+        )
+
     definition.permanently_delete(
         safe_mode=True,  # Hard-coded safe mode for extra protection when running in LLM agents.
     )
-    return (
-        f"Successfully deleted custom source definition '{definition_name}' (ID: {definition_id})"
+    return f"Successfully deleted custom source definition '{actual_name}' (ID: {definition_id})"
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def permanently_delete_cloud_source(
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source to delete."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="The expected name of the source (for verification)."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> str:
+    """Permanently delete a deployed source connector from Airbyte Cloud.
+
+    IMPORTANT: This operation requires the source name to contain "delete-me" or "deleteme"
+    (case insensitive).
+
+    If the source does not meet this requirement, the deletion will be rejected with a
+    helpful error message. Instruct the user to rename the source appropriately to authorize
+    the deletion.
+
+    The provided name must match the actual name of the source for the operation to proceed.
+    This is a safety measure to ensure you are deleting the correct resource.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    check_guid_created_in_session(source_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    source = workspace.get_source(source_id=source_id)
+    actual_name: str = cast(str, source.name)
+
+    # Verify the name matches
+    if actual_name != name:
+        raise PyAirbyteInputError(
+            message=(
+                f"Name mismatch: expected '{name}' but found '{actual_name}'. "
+                "The provided name must exactly match the source's actual name. "
+                "This is a safety measure to prevent accidental deletion."
+            ),
+            context={
+                "source_id": source_id,
+                "expected_name": name,
+                "actual_name": actual_name,
+            },
+        )
+
+    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    workspace.permanently_delete_source(
+        source=source_id,
+        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
     )
+    return f"Successfully deleted source '{actual_name}' (ID: {source_id})"
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def permanently_delete_cloud_destination(
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination to delete."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="The expected name of the destination (for verification)."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> str:
+    """Permanently delete a deployed destination connector from Airbyte Cloud.
+
+    IMPORTANT: This operation requires the destination name to contain "delete-me" or "deleteme"
+    (case insensitive).
+
+    If the destination does not meet this requirement, the deletion will be rejected with a
+    helpful error message. Instruct the user to rename the destination appropriately to authorize
+    the deletion.
+
+    The provided name must match the actual name of the destination for the operation to proceed.
+    This is a safety measure to ensure you are deleting the correct resource.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    check_guid_created_in_session(destination_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    destination = workspace.get_destination(destination_id=destination_id)
+    actual_name: str = cast(str, destination.name)
+
+    # Verify the name matches
+    if actual_name != name:
+        raise PyAirbyteInputError(
+            message=(
+                f"Name mismatch: expected '{name}' but found '{actual_name}'. "
+                "The provided name must exactly match the destination's actual name. "
+                "This is a safety measure to prevent accidental deletion."
+            ),
+            context={
+                "destination_id": destination_id,
+                "expected_name": name,
+                "actual_name": actual_name,
+            },
+        )
+
+    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    workspace.permanently_delete_destination(
+        destination=destination_id,
+        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+    )
+    return f"Successfully deleted destination '{actual_name}' (ID: {destination_id})"
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def permanently_delete_cloud_connection(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to delete."),
+    ],
+    name: Annotated[
+        str,
+        Field(description="The expected name of the connection (for verification)."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+    cascade_delete_source: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether to also delete the source connector associated with this connection."
+            ),
+            default=False,
+        ),
+    ] = False,
+    cascade_delete_destination: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether to also delete the destination connector associated with this connection."
+            ),
+            default=False,
+        ),
+    ] = False,
+) -> str:
+    """Permanently delete a connection from Airbyte Cloud.
+
+    IMPORTANT: This operation requires the connection name to contain "delete-me" or "deleteme"
+    (case insensitive).
+
+    If the connection does not meet this requirement, the deletion will be rejected with a
+    helpful error message. Instruct the user to rename the connection appropriately to authorize
+    the deletion.
+
+    The provided name must match the actual name of the connection for the operation to proceed.
+    This is a safety measure to ensure you are deleting the correct resource.
+
+    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
+    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
+    Airbyte Cloud API.
+    """
+    check_guid_created_in_session(connection_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+    actual_name: str = cast(str, connection.name)
+
+    # Verify the name matches
+    if actual_name != name:
+        raise PyAirbyteInputError(
+            message=(
+                f"Name mismatch: expected '{name}' but found '{actual_name}'. "
+                "The provided name must exactly match the connection's actual name. "
+                "This is a safety measure to prevent accidental deletion."
+            ),
+            context={
+                "connection_id": connection_id,
+                "expected_name": name,
+                "actual_name": actual_name,
+            },
+        )
+
+    # Safe mode is hard-coded to True for extra protection when running in LLM agents
+    workspace.permanently_delete_connection(
+        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        connection=connection_id,
+        cascade_delete_source=cascade_delete_source,
+        cascade_delete_destination=cascade_delete_destination,
+    )
+    return f"Successfully deleted connection '{actual_name}' (ID: {connection_id})"
 
 
 @mcp_tool(
