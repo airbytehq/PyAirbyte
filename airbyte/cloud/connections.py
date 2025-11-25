@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -102,7 +102,7 @@ class CloudConnection:
 
             self._source_id = self._connection_info.source_id
 
-        return cast("str", self._source_id)
+        return self._source_id
 
     @property
     def source(self) -> CloudSource:
@@ -123,9 +123,9 @@ class CloudConnection:
             if not self._connection_info:
                 self._connection_info = self._fetch_connection_info()
 
-            self._destination_id = self._connection_info.source_id
+            self._destination_id = self._connection_info.destination_id
 
-        return cast("str", self._destination_id)
+        return self._destination_id
 
     @property
     def destination(self) -> CloudDestination:
@@ -255,6 +255,68 @@ class CloudConnection:
             connection=self,
             job_id=job_id,
         )
+
+    def rename(self, name: str) -> CloudConnection:
+        """Rename the connection.
+
+        Args:
+            name: New name for the connection
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            name=name,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def set_table_prefix(self, prefix: str) -> CloudConnection:
+        """Set the table prefix for the connection.
+
+        Args:
+            prefix: New table prefix to use when syncing to the destination
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            prefix=prefix,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
+        """Set the selected streams for the connection.
+
+        This is a destructive operation that can break existing connections if the
+        stream selection is changed incorrectly. Use with caution.
+
+        Args:
+            stream_names: List of stream names to sync
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        configurations = api_util.build_stream_configurations(stream_names)
+
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            configurations=configurations,
+        )
+        self._connection_info = updated_response
+        return self
 
     # Deletions
 

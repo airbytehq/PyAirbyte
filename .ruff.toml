@@ -80,6 +80,7 @@ ignore = [
     "RUF022",  # Allow unsorted __all__ (sometimes useful for grouping by type with pdoc)
     "S",       # flake8-bandit (noisy, security related)
     "SIM910",  # Allow "None" as second argument to Dict.get(). "Explicit is better than implicit."
+    "TC006",   # Require quoted type names in cast() calls
     "TD002",   # Require author for TODOs
     "ASYNC1",  # flake8-trio (opinionated, noisy)
     "INP001",  # Dir 'examples' is part of an implicit namespace package. Add an __init__.py.

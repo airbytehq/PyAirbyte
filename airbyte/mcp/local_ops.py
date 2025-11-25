@@ -13,12 +13,13 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
+from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
-from airbyte.sources.registry import get_connector_metadata
 
 
 if TYPE_CHECKING:
@@ -104,7 +105,12 @@ def _get_mcp_source(
     return source
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def validate_connector_config(
     connector_name: Annotated[
         str,
@@ -179,7 +185,11 @@ def validate_connector_config(
     return True, f"Configuration for {connector_name} is valid!"
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+)
 def list_connector_config_secrets(
     connector_name: Annotated[
         str,
@@ -205,6 +215,12 @@ def list_connector_config_secrets(
     return secrets_names
 
 
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def list_dotenv_secrets() -> dict[str, list[str]]:
     """List all environment variable names declared within declared .env files.
 
@@ -219,7 +235,12 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     return result
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def list_source_streams(
     source_connector_name: Annotated[
         str,
@@ -281,7 +302,12 @@ def list_source_streams(
     return source.get_available_streams()
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def get_source_stream_json_schema(
     source_connector_name: Annotated[
         str,
@@ -344,7 +370,11 @@ def get_source_stream_json_schema(
     return source.get_stream_json_schema(stream_name=stream_name)
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def read_source_stream_records(
     source_connector_name: Annotated[
         str,
@@ -431,7 +461,11 @@ def read_source_stream_records(
         return records
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def get_stream_previews(
     source_name: Annotated[
         str,
@@ -511,7 +545,9 @@ def get_stream_previews(
     )
     source.set_config(config_dict)
 
-    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(streams)
+    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(
+        streams
+    )  # pyrefly: ignore[no-matching-overload]
     if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
         streams_param = "*"
 
@@ -538,7 +574,11 @@ def get_stream_previews(
     return result
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    destructive=False,
+    extra_help_text=_CONFIG_HELP,
+)
 def sync_source_to_cache(
     source_connector_name: Annotated[
         str,
@@ -643,7 +683,12 @@ class CachedDatasetInfo(BaseModel):
     schema_name: str | None = None
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
     cache: DuckDBCache = get_default_cache()
@@ -659,7 +704,12 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
     return result
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
     cache = get_default_cache()
@@ -706,7 +756,12 @@ def _is_safe_sql(sql_query: str) -> bool:
     return any(normalized_query.startswith(prefix) for prefix in allowed_prefixes)
 
 
-# @app.tool()  # << deferred
+@mcp_tool(
+    domain="local",
+    read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
 def run_sql_query(
     sql_query: Annotated[
         str,
@@ -765,21 +820,4 @@ def register_local_ops_tools(app: FastMCP) -> None:
 
     This is an internal function and should not be called directly.
     """
-    app.tool(list_connector_config_secrets)
-    for tool in (
-        describe_default_cache,
-        get_source_stream_json_schema,
-        get_stream_previews,
-        list_cached_streams,
-        list_dotenv_secrets,
-        list_source_streams,
-        read_source_stream_records,
-        run_sql_query,
-        sync_source_to_cache,
-        validate_connector_config,
-    ):
-        # Register each tool with the FastMCP app.
-        app.tool(
-            tool,
-            description=(tool.__doc__ or "").rstrip() + "\n" + _CONFIG_HELP,
-        )
+    register_tools(app, domain="local")

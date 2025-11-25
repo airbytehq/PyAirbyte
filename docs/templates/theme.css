@@ -1,0 +1,46 @@
+/* pdoc color scheme - Airbyte branded version */
+:root {
+    --pdoc-background: #fff;
+}
+
+.pdoc {
+    /* Airbyte purple color scheme */
+    --text: hsl(240, 19%, 18%);
+    --muted: #6c757d;
+    --link: #615eff;
+    --link-hover: #3f3bff;
+    --code: hsl(240, 100%, 98%);
+    --active: #fff598;
+
+    --accent: hsl(240, 25%, 98%);
+    --accent2: #c1c1c1;
+
+    --nav-hover: rgba(97, 94, 255, 0.1);
+    --name: #615eff;
+    --def: #3f3bff;
+    --annotation: #007020;
+}
+
+/* Dark mode theme */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --pdoc-background: #212529;
+    }
+
+    .pdoc {
+        --text: hsl(240, 10%, 90%);
+        --muted: #9d9d9d;
+        --link: #9492ff;
+        --link-hover: #c8c7ff;
+        --code: hsl(252, 25%, 18%);
+        --active: #555;
+
+        --accent: hsl(240, 14%, 14%);
+        --accent2: #555;
+
+        --nav-hover: rgba(0, 0, 0, 0.1);
+        --name: #9492ff;
+        --def: #8381ff;
+        --annotation: #00c037;
+    }
+}

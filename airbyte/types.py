@@ -18,8 +18,8 @@ CONVERSION_MAP = {
     "number": sqlalchemy.types.DECIMAL(38, 9),
     "boolean": sqlalchemy.types.BOOLEAN,
     "date": sqlalchemy.types.DATE,
-    "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP,
-    "timestamp_without_timezone": sqlalchemy.types.TIMESTAMP,
+    "timestamp_with_timezone": sqlalchemy.types.TIMESTAMP(timezone=True),
+    "timestamp_without_timezone": sqlalchemy.types.TIMESTAMP(timezone=False),
     "time_with_timezone": sqlalchemy.types.TIME,
     "time_without_timezone": sqlalchemy.types.TIME,
     # Technically 'object' and 'array' as JSON Schema types, not airbyte types.
@@ -135,6 +135,7 @@ class SQLTypeConverter:
         except SQLTypeConversionError:
             print(f"Could not determine airbyte type from JSON schema: {json_schema_property_def}")
         except KeyError:
+            # pyrefly: ignore[unbound-name]
             print(f"Could not find SQL type for airbyte type: {airbyte_type}")
         else:
             # No exceptions were raised, so we can return the SQL type.
@@ -151,7 +152,7 @@ class SQLTypeConverter:
             return sqlalchemy.types.DATE()
 
         if json_schema_type == "string" and json_schema_format == "date-time":
-            return sqlalchemy.types.TIMESTAMP()
+            return sqlalchemy.types.TIMESTAMP(timezone=True)
 
         if json_schema_type == "array":
             return sqlalchemy.types.JSON()

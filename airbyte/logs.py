@@ -62,9 +62,12 @@ def warn_once(
 
     if not with_stack:
         stacklevel = 0
-
-    if with_stack is True:
+    elif with_stack is True:
         stacklevel = 2
+    elif isinstance(with_stack, int):
+        stacklevel = with_stack
+    else:
+        stacklevel = 0
 
     _warned_messages.add(message)
     warnings.warn(

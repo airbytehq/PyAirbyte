@@ -455,7 +455,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
             state_writer=state_writer,
         )
         cache_processor.process_airbyte_messages(
-            messages=stdin,
+            messages=stdin,  # pyrefly: ignore[bad-argument-type]
             write_strategy=write_strategy,
             progress_tracker=progress_tracker,
         )

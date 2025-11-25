@@ -85,7 +85,9 @@ requirements.
         "airbyte-mcp"
       ],
       "env": {
-        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env"
+        "AIRBYTE_MCP_ENV_FILE": "/path/to/my/.mcp/airbyte_mcp.env",
+        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "1",
+        "AIRBYTE_CLOUD_MCP_READONLY_MODE": "0"
       }
     }
   }
@@ -109,14 +111,98 @@ Helpful prompts to try:
 4. "Use your MCP tools to check your connection to your Airbyte Cloud workspace."
 5. "Use your MCP tools to list all available destinations in my Airbyte Cloud workspace."
 
+## Airbyte Cloud MCP Server Safety
+
+The PyAirbyte MCP server supports environment variables to control safety and access levels for
+Airbyte Cloud operations.
+
+**Important:** The below settings only affect Cloud operations; local operations are not affected.
+
+### Airbyte Cloud Safe Mode
+
+Safe mode is enabled by default and is controlled by the `AIRBYTE_CLOUD_MCP_SAFE_MODE` environment
+variable.
+
+When enabled, write operations are allowed but destructive operations (updates, deletions) are
+only allowed for objects created within the same session. For example, you can create a new
+connector and then delete it, but you cannot delete an existing connector that was not created in
+the current session. Modifications to configurations are likewise treated as potentially destructive
+and are only allowed for objects created in the current session.
+
+Set the environment variable `AIRBYTE_CLOUD_MCP_SAFE_MODE=0` to disable safe mode.
+
+### Airbyte Cloud Read-Only Mode
+
+Read-only mode is not enabled by default and is controlled by the
+`AIRBYTE_CLOUD_MCP_READONLY_MODE` environment variable.
+
+When enabled, only read-only Cloud tools are available. Write and destructive operations are
+disabled.
+
+This mode does allow running syncs on existing connectors, since sync operations
+are not considered to be modifications of the Airbyte Cloud workspace.
+
+Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
+
+## Troubleshooting
+
+### Troubleshooting Local Connector Installation Issues
+
+The MCP server uses PyAirbyte under the hood to manage Airbyte connectors. PyAirbyte
+supports both Python-native connectors (installed via pip/uv) and Docker-based connectors
+(run in containers).
+
+To ensure docker connectors run correctly, please make sure `which docker` returns a valid
+path and that Docker Desktop (or an alternative container runtime) is running.
+
+To ensure Python connectors run correctly, please make sure the Python version used to run the
+MCP server is compatible with the connector requirements. See the MCP server conifiguration
+section above for details on how to specify the Python version used by the MCP server.
+
+### Using Abolute Paths
+
+**Always use absolute paths in your environment files.** Relative paths, tilde (`~`), or
+environment variables like `$HOME` will not work correctly, due to the way MCP servers
+are loaded and executed.
+
+The `AIRBYTE_PROJECT_DIR` environment variable is critical - it specifies where PyAirbyte
+stores connector artifacts, cache files, and temporary data. Ensure this directory:
+
+- Uses an absolute path. (For example: `/Users/username/airbyte-projects`.)
+- Exists on the filesystem. (Use `mkdir -p /path/to/dir` to create it if needed.)
+- Is writable by the user account running the MCP server.
+
+Note:
+- In rare cases, your agent may not be able to find `uv` or `uvx` if they are not in the system
+  `PATH` or if the agent has a stale `PATH` value. In these cases, you can use `which uvx` from
+  your own terminal to discover the full path to the `uvx` binary, and then provide the full path
+  in your MCP configuration file.
+
+### Securing Your Secrets
+
+The MCP server implements a security model that protects your credentials:
+
+- **LLM sees only environment variable names** - The AI assistant can see which variables
+  are available (e.g., `POSTGRES_PASSWORD`) but never their actual values.
+- **MCP server reads actual values** - Only the MCP server process accesses the secret
+  values when executing operations.
+- **Credentials never exposed to LLM** - Your API keys, passwords, and other secrets remain secure.
+
+This design allows AI assistants to help configure connectors without compromising security.
+
+Note: While the MCP server takes steps to secure your credentials, you are responsible for
+ensuring the agent is not given access to your secrets by other means. For example, Claude Code
+may have *full* local disk access when run in certain modes. Consult your agent's documentation
+for details on securing local files.
+
 ## Contributing to the Airbyte MCP Server
 
 - [PyAirbyte Contributing Guide](https://github.com/airbytehq/PyAirbyte/blob/main/docs/CONTRIBUTING.md)
 
 ### Additional resources
 
-- [Model Context Protocol Documentation](https://modelcontextprotocol.io/)
-- [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk)
+- [Airbyte AI Agents Documentation Home](https://docs.airbyte.com/ai-agents/)
+- [MCP Documentation Home](https://modelcontextprotocol.io/)
 
 For issues and questions:
 - [PyAirbyte GitHub Issues](https://github.com/airbytehq/pyairbyte/issues)

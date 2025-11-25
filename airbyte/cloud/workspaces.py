@@ -47,9 +47,9 @@ from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudCustomDestinationDefinition,
-    CloudCustomSourceDefinition,
     CloudDestination,
     CloudSource,
+    CustomCloudSourceDefinition,
 )
 from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
-@dataclass  # noqa: PLR0904
+@dataclass
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
@@ -466,10 +466,9 @@ class CloudWorkspace:
         manifest_yaml: dict[str, Any] | Path | str | None = None,
         docker_image: str | None = None,
         docker_tag: str | None = None,
-        documentation_url: str | None = None,
         unique: bool = True,
         pre_validate: bool = True,
-    ) -> CloudCustomSourceDefinition:
+    ) -> CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
         You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
@@ -480,12 +479,11 @@ class CloudWorkspace:
             manifest_yaml: Low-code CDK manifest (dict, Path to YAML file, or YAML string)
             docker_image: Docker repository (e.g., 'airbyte/source-custom')
             docker_tag: Docker image tag (e.g., '1.0.0')
-            documentation_url: Optional URL to connector documentation (Docker only)
             unique: Whether to enforce name uniqueness
             pre_validate: Whether to validate manifest client-side (YAML only)
 
         Returns:
-            CloudCustomSourceDefinition object representing the created definition
+            CustomCloudSourceDefinition object representing the created definition
 
         Raises:
             PyAirbyteInputError: If both or neither of manifest_yaml and docker_image provided
@@ -514,10 +512,9 @@ class CloudWorkspace:
 
         if unique:
             existing = self.list_custom_source_definitions(
-                name=name,
-                custom_connector_type="yaml" if is_yaml else "docker",
+                definition_type="yaml" if is_yaml else "docker",
             )
-            if existing:
+            if any(d.name == name for d in existing):
                 raise exc.AirbyteDuplicateResourcesError(
                     resource_type="custom_source_definition",
                     resource_name=name,
@@ -548,79 +545,59 @@ class CloudWorkspace:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
-            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-        result = api_util.create_custom_docker_source_definition(
-            name=name,
-            docker_repository=docker_image,  # type: ignore[arg-type]
-            docker_image_tag=docker_tag,  # type: ignore[arg-type]
-            workspace_id=self.workspace_id,
-            documentation_url=documentation_url,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
         )
-        return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
 
     def list_custom_source_definitions(
         self,
         *,
-        name: str | None = None,
-        custom_connector_type: Literal["yaml", "docker"],
-    ) -> list[CloudCustomSourceDefinition]:
+        definition_type: Literal["yaml", "docker"],
+    ) -> list[CustomCloudSourceDefinition]:
         """List custom source connector definitions.
 
         Args:
-            name: Filter by exact name match
-            custom_connector_type: Connector type to list ("yaml" or "docker"). Required.
+            definition_type: Connector type to list ("yaml" or "docker"). Required.
 
         Returns:
-            List of CloudCustomSourceDefinition objects matching the specified type
+            List of CustomCloudSourceDefinition objects matching the specified type
         """
-        result: list[CloudCustomSourceDefinition] = []
-
-        if custom_connector_type == "yaml":
+        if definition_type == "yaml":
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
                 workspace_id=self.workspace_id,
                 api_root=self.api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
-            result.extend(
-                CloudCustomSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
+            return [
+                CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
-                if name is None or d.name == name
-            )
-        elif custom_connector_type == "docker":
-            docker_definitions = api_util.list_custom_docker_source_definitions(
-                workspace_id=self.workspace_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-            )
-            result.extend(
-                CloudCustomSourceDefinition._from_docker_response(self, d)  # noqa: SLF001
-                for d in docker_definitions
-                if name is None or d.name == name
-            )
+            ]
 
-        return result
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
 
     def get_custom_source_definition(
         self,
         definition_id: str,
         *,
-        custom_connector_type: Literal["yaml", "docker"],
-    ) -> CloudCustomSourceDefinition:
+        definition_type: Literal["yaml", "docker"],
+    ) -> CustomCloudSourceDefinition:
         """Get a specific custom source definition by ID.
 
         Args:
             definition_id: The definition ID
-            custom_connector_type: Connector type ("yaml" or "docker"). Required.
+            definition_type: Connector type ("yaml" or "docker"). Required.
 
         Returns:
-            CloudCustomSourceDefinition object
+            CustomCloudSourceDefinition object
         """
-        if custom_connector_type == "yaml":
+        if definition_type == "yaml":
             result = api_util.get_custom_yaml_source_definition(
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,
@@ -628,44 +605,12 @@ class CloudWorkspace:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
-            return CloudCustomSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
-        result = api_util.get_custom_docker_source_definition(
-            workspace_id=self.workspace_id,
-            definition_id=definition_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
         )
-        return CloudCustomSourceDefinition._from_docker_response(self, result)  # noqa: SLF001
-
-    def permanently_delete_custom_source_definition(
-        self,
-        definition_id: str,
-        *,
-        custom_connector_type: Literal["yaml", "docker"],
-    ) -> None:
-        """Permanently delete a custom source definition.
-
-        Args:
-            definition_id: The definition ID to delete
-            custom_connector_type: Connector type ("yaml" or "docker"). Required.
-        """
-        if custom_connector_type == "yaml":
-            api_util.delete_custom_yaml_source_definition(
-                workspace_id=self.workspace_id,
-                definition_id=definition_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-            )
-        else:
-            api_util.delete_custom_docker_source_definition(
-                workspace_id=self.workspace_id,
-                definition_id=definition_id,
-                api_root=self.api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-            )
 
     def publish_custom_destination_definition(
         self,
