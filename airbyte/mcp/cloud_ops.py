@@ -1084,7 +1084,7 @@ def permanently_delete_cloud_source(
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_source(
         source=source_id,
-        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
     )
     return f"Successfully deleted source '{actual_name}' (ID: {source_id})"
 
@@ -1151,7 +1151,7 @@ def permanently_delete_cloud_destination(
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_destination(
         destination=destination_id,
-        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
     )
     return f"Successfully deleted destination '{actual_name}' (ID: {destination_id})"
 
@@ -1235,7 +1235,7 @@ def permanently_delete_cloud_connection(
 
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_connection(
-        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
         connection=connection_id,
         cascade_delete_source=cascade_delete_source,
         cascade_delete_destination=cascade_delete_destination,
