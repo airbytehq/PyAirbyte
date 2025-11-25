@@ -966,7 +966,7 @@ def permanently_delete_cloud_destination(
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_destination(
         destination=destination_id,
-        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
     )
     return f"Successfully deleted destination '{actual_name}' (ID: {destination_id})"
 
