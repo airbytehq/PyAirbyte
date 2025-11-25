@@ -1043,7 +1043,7 @@ def permanently_delete_cloud_connection(
 
     # Safe mode is hard-coded to True for extra protection when running in LLM agents
     workspace.permanently_delete_connection(
-        safe_mode=True,  # Requires name-based delete disposition ("delete:" or "delete-me")
+        safe_mode=True,  # Requires name-based delete disposition ("delete-me" or "deleteme")
         connection=connection_id,
         cascade_delete_source=cascade_delete_source,
         cascade_delete_destination=cascade_delete_destination,
