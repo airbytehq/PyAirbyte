@@ -98,28 +98,28 @@ def deploy_source_to_cloud(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     config: Annotated[
         dict | str | None,
         Field(
             description="The configuration for the source connector.",
             default=None,
         ),
-    ] = None,
+    ],
     config_secret_name: Annotated[
         str | None,
         Field(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
-    ] = None,
+    ],
     unique: Annotated[
         bool,
         Field(
             description="Whether to require a unique name.",
             default=True,
         ),
-    ] = True,
+    ],
 ) -> str:
     """Deploy a source connector to Airbyte Cloud.
 
@@ -176,28 +176,28 @@ def deploy_destination_to_cloud(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     config: Annotated[
         dict | str | None,
         Field(
             description="The configuration for the destination connector.",
             default=None,
         ),
-    ] = None,
+    ],
     config_secret_name: Annotated[
         str | None,
         Field(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
-    ] = None,
+    ],
     unique: Annotated[
         bool,
         Field(
             description="Whether to require a unique name.",
             default=True,
         ),
-    ] = True,
+    ],
 ) -> str:
     """Deploy a destination connector to Airbyte Cloud.
 
@@ -268,14 +268,14 @@ def create_connection_on_cloud(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     table_prefix: Annotated[
         str | None,
         Field(
             description="Optional table prefix to use when syncing to the destination.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud.
 
@@ -321,21 +321,21 @@ def run_cloud_sync(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     wait: Annotated[
         bool,
         Field(
             description="Whether to wait for the sync to complete.",
             default=True,
         ),
-    ] = True,
+    ],
     wait_timeout: Annotated[
         int,
         Field(
             description="Maximum time to wait for sync completion (seconds).",
             default=300,
         ),
-    ] = 300,
+    ],
 ) -> str:
     """Run a sync job on Airbyte Cloud.
 
@@ -379,7 +379,7 @@ def check_airbyte_cloud_workspace(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
@@ -416,7 +416,7 @@ def deploy_noop_destination_to_cloud(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     unique: bool = True,
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes.
@@ -463,7 +463,7 @@ def get_cloud_sync_status(
             description="Optional job ID. If not provided, the latest job will be used.",
             default=None,
         ),
-    ] = None,
+    ],
     *,
     workspace_id: Annotated[
         str | None,
@@ -471,14 +471,14 @@ def get_cloud_sync_status(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     include_attempts: Annotated[
         bool,
         Field(
             description="Whether to include detailed attempts information.",
             default=False,
         ),
-    ] = False,
+    ],
 ) -> dict[str, Any]:
     """Get the status of a sync job from the Airbyte Cloud.
 
@@ -545,7 +545,7 @@ def list_deployed_cloud_source_connectors(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     name_contains: Annotated[
         str | None,
         "Optional case-insensitive substring to filter sources by name",
@@ -598,7 +598,7 @@ def list_deployed_cloud_destination_connectors(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     name_contains: Annotated[
         str | None,
         "Optional case-insensitive substring to filter destinations by name",
@@ -665,7 +665,7 @@ def get_cloud_sync_logs(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Get the logs from a sync job attempt on Airbyte Cloud.
 
@@ -727,7 +727,7 @@ def list_deployed_cloud_connections(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     name_contains: Annotated[
         str | None,
         "Optional case-insensitive substring to filter connections by name",
@@ -798,7 +798,7 @@ def publish_custom_source_definition(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     manifest_yaml: Annotated[
         str | Path | None,
         Field(
@@ -868,7 +868,7 @@ def list_custom_source_definitions(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
@@ -914,7 +914,7 @@ def update_custom_source_definition(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
     pre_validate: Annotated[
         bool,
         Field(
@@ -971,7 +971,7 @@ def permanently_delete_custom_source_definition(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
@@ -1021,7 +1021,7 @@ def rename_cloud_source(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Rename a deployed source connector on Airbyte Cloud.
 
@@ -1065,7 +1065,7 @@ def update_cloud_source_config(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Update a deployed source connector's configuration on Airbyte Cloud.
 
@@ -1110,7 +1110,7 @@ def rename_cloud_destination(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Rename a deployed destination connector on Airbyte Cloud.
 
@@ -1149,7 +1149,7 @@ def update_cloud_destination_config(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
-    ] = None,
+    ],
     *,
     workspace_id: Annotated[
         str | None,
@@ -1157,7 +1157,7 @@ def update_cloud_destination_config(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Update a deployed destination connector's configuration on Airbyte Cloud.
 
@@ -1204,7 +1204,7 @@ def rename_cloud_connection(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Rename a connection on Airbyte Cloud.
 
@@ -1242,7 +1242,7 @@ def set_cloud_connection_table_prefix(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Set the table prefix for a connection on Airbyte Cloud.
 
@@ -1289,7 +1289,7 @@ def set_cloud_connection_selected_streams(
             description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Set the selected streams for a connection on Airbyte Cloud.
 
