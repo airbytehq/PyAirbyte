@@ -502,6 +502,14 @@ def list_deployed_cloud_source_connectors(
         int | None,
         "Optional maximum number of items to return (default: no limit)",
     ] = None,
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace.
 
