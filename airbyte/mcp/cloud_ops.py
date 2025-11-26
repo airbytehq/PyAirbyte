@@ -167,6 +167,13 @@ def deploy_destination_to_cloud(
         Field(description="The name of the destination connector (e.g., 'destination-postgres')."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     config: Annotated[
         dict | str | None,
         Field(
@@ -289,6 +296,13 @@ def run_cloud_sync(
         Field(description="The ID of the Airbyte Cloud connection."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     wait: Annotated[
         bool,
         Field(
@@ -407,6 +421,13 @@ def get_cloud_sync_status(
         ),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     include_attempts: Annotated[
         bool,
         Field(
@@ -682,6 +703,13 @@ def publish_custom_source_definition(
         Field(description="The name for the custom connector definition."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     manifest_yaml: Annotated[
         str | Path | None,
         Field(
@@ -778,6 +806,13 @@ def update_custom_source_definition(
         ),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     pre_validate: Annotated[
         bool,
         Field(
