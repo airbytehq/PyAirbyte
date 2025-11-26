@@ -344,7 +344,16 @@ def run_cloud_sync(
     idempotent=True,
     open_world=True,
 )
-def check_airbyte_cloud_workspace() -> str:
+def check_airbyte_cloud_workspace(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -767,7 +776,16 @@ def publish_custom_source_definition(
     idempotent=True,
     open_world=True,
 )
-def list_custom_source_definitions() -> list[dict[str, Any]]:
+def list_custom_source_definitions(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
     Note: Only YAML (declarative) connectors are currently supported.
