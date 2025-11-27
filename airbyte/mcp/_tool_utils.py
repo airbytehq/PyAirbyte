@@ -50,6 +50,8 @@ def register_guid_created_in_session(guid: str) -> None:
 def check_guid_created_in_session(guid: str) -> None:
     """Check if a GUID was created in this session.
 
+    This is a no-op if AIRBYTE_CLOUD_MCP_SAFE_MODE is set to "0".
+
     Raises SafeModeError if the GUID was not created in this session and
     AIRBYTE_CLOUD_MCP_SAFE_MODE is set to 1.
 

@@ -538,13 +538,57 @@ def get_source(
 def delete_source(
     source_id: str,
     *,
+    source_name: str | None = None,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
     workspace_id: str | None = None,
+    safe_mode: bool = True,
 ) -> None:
-    """Delete a source."""
+    """Delete a source.
+
+    Args:
+        source_id: The source ID to delete
+        source_name: Optional source name. If not provided and safe_mode is enabled,
+            the source name will be fetched from the API to perform safety checks.
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        workspace_id: The workspace ID (not currently used)
+        safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the source name does not meet
+            the safety requirements.
+    """
     _ = workspace_id  # Not used (yet)
+
+    if safe_mode:
+        if source_name is None:
+            source_info = get_source(
+                source_id=source_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+            source_name = source_info.name
+
+        if not _is_safe_name_to_delete(source_name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete source '{source_name}' with safe_mode enabled. "
+                    "To authorize deletion, the source name must contain 'delete-me' or 'deleteme' "
+                    "(case insensitive).\n\n"
+                    "Please rename the source to meet this requirement before attempting deletion."
+                ),
+                context={
+                    "source_id": source_id,
+                    "source_name": source_name,
+                    "safe_mode": True,
+                },
+            )
+
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -700,7 +744,7 @@ def get_destination(
         # the destination API response is of the wrong type.
         # https://github.com/airbytehq/pyairbyte/issues/320
         raw_response: dict[str, Any] = json.loads(response.raw_response.text)
-        raw_configuration: dict[str, Any] = raw_response["configuration"]
+        raw_configuration: dict[str, Any] | None = raw_response.get("configuration")
 
         destination_type = raw_response.get("destinationType")
         destination_mapping = {
@@ -710,7 +754,7 @@ def get_destination(
             "duckdb": models.DestinationDuckdb,
         }
 
-        if destination_type in destination_mapping:
+        if destination_type in destination_mapping and raw_configuration is not None:
             response.destination_response.configuration = destination_mapping[
                 destination_type  # pyrefly: ignore[index-error]
             ](**raw_configuration)
@@ -726,13 +770,58 @@ def get_destination(
 def delete_destination(
     destination_id: str,
     *,
+    destination_name: str | None = None,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
     workspace_id: str | None = None,
+    safe_mode: bool = True,
 ) -> None:
-    """Delete a destination."""
+    """Delete a destination.
+
+    Args:
+        destination_id: The destination ID to delete
+        destination_name: Optional destination name. If not provided and safe_mode is enabled,
+            the destination name will be fetched from the API to perform safety checks.
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        workspace_id: The workspace ID (not currently used)
+        safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the destination name does not meet
+            the safety requirements.
+    """
     _ = workspace_id  # Not used (yet)
+
+    if safe_mode:
+        if destination_name is None:
+            destination_info = get_destination(
+                destination_id=destination_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+            destination_name = destination_info.name
+
+        if not _is_safe_name_to_delete(destination_name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete destination '{destination_name}' with safe_mode enabled. "
+                    "To authorize deletion, the destination name must contain 'delete-me' or "
+                    "'deleteme' (case insensitive).\n\n"
+                    "Please rename the destination to meet this requirement "
+                    "before attempting deletion."
+                ),
+                context={
+                    "destination_id": destination_id,
+                    "destination_name": destination_name,
+                    "safe_mode": True,
+                },
+            )
+
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -902,13 +991,74 @@ def get_connection_by_name(
     return found[0]
 
 
+def _is_safe_name_to_delete(name: str) -> bool:
+    """Check if a name is safe to delete.
+
+    Requires the name to contain either "delete-me" or "deleteme" (case insensitive).
+    """
+    name_lower = name.lower()
+    return any(
+        {
+            "delete-me" in name_lower,
+            "deleteme" in name_lower,
+        }
+    )
+
+
 def delete_connection(
     connection_id: str,
+    connection_name: str | None = None,
+    *,
     api_root: str,
     workspace_id: str,
     client_id: SecretString,
     client_secret: SecretString,
+    safe_mode: bool = True,
 ) -> None:
+    """Delete a connection.
+
+    Args:
+        connection_id: The connection ID to delete
+        connection_name: Optional connection name. If not provided and safe_mode is enabled,
+            the connection name will be fetched from the API to perform safety checks.
+        api_root: The API root URL
+        workspace_id: The workspace ID
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the connection name does not meet
+            the safety requirements.
+    """
+    if safe_mode:
+        if connection_name is None:
+            connection_info = get_connection(
+                workspace_id=workspace_id,
+                connection_id=connection_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
+            connection_name = connection_info.name
+
+        if not _is_safe_name_to_delete(connection_name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete connection '{connection_name}' with safe_mode enabled. "
+                    "To authorize deletion, the connection name must contain 'delete-me' or "
+                    "'deleteme' (case insensitive).\n\n"
+                    "Please rename the connection to meet this requirement "
+                    "before attempting deletion."
+                ),
+                context={
+                    "connection_id": connection_id,
+                    "connection_name": connection_name,
+                    "safe_mode": True,
+                },
+            )
+
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -1317,9 +1467,8 @@ def delete_custom_yaml_source_definition(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
-        safe_mode: If True, requires the connector name to either start with "delete:"
-            or contain "delete-me" (case insensitive) to prevent accidental deletion.
-            Defaults to True.
+        safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
         PyAirbyteInputError: If safe_mode is True and the connector name does not meet
@@ -1335,19 +1484,14 @@ def delete_custom_yaml_source_definition(
         )
         connector_name = definition_info.name
 
-        def is_safe_to_delete(name: str) -> bool:
-            name_lower = name.lower()
-            return name_lower.startswith("delete:") or "delete-me" in name_lower
-
-        if not is_safe_to_delete(definition_info.name):
+        if not _is_safe_name_to_delete(definition_info.name):
             raise PyAirbyteInputError(
                 message=(
                     f"Cannot delete custom connector definition '{connector_name}' "
                     "with safe_mode enabled. "
-                    "To authorize deletion, the connector name must either:\n"
-                    "  1. Start with 'delete:' (case insensitive), OR\n"
-                    "  2. Contain 'delete-me' (case insensitive)\n\n"
-                    "Please rename the connector to meet one of these requirements "
+                    "To authorize deletion, the connector name must contain 'delete-me' or "
+                    "'deleteme' (case insensitive).\n\n"
+                    "Please rename the connector to meet this requirement "
                     "before attempting deletion."
                 ),
                 context={
