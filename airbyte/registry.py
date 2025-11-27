@@ -10,7 +10,8 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast, StrEnum
+from enum import StrEnum
+from typing import Any, cast
 
 import requests
 import yaml
