@@ -10,7 +10,7 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, StrEnum
 
 import requests
 import yaml
@@ -45,25 +45,25 @@ _DEFAULT_MANIFEST_URL = (
 )
 
 
-class InstallType(str, Enum):
-    """The type of installation for a connector.
-
-    Values:
-        YAML: Manifest-only connectors that can be run without Docker
-        PYTHON: Python-based connectors available via PyPI
-        DOCKER: Docker-based connectors (returns all connectors for backward compatibility)
-        JAVA: Java-based connectors
-        ANY: All connectors in the registry (environment-independent)
-        INSTALLABLE: Connectors installable in the current environment (environment-sensitive:
-            returns all connectors if Docker is installed, otherwise only Python and YAML)
-    """
+class InstallType(StrEnum):
+    """The type of installation for a connector."""
 
     YAML = "yaml"
+    """Manifest-only connectors that can be run without Docker."""
     PYTHON = "python"
+    """Python-based connectors available via PyPI."""
     DOCKER = "docker"
+    """Docker-based connectors (returns all connectors for backward compatibility)."""
     JAVA = "java"
-    ANY = "any"
+    """Java-based connectors."""
+
     INSTALLABLE = "installable"
+    """Connectors installable in the current environment (environment-sensitive).
+
+    Returns all connectors if Docker is installed, otherwise only Python and YAML.
+    """
+    ANY = "any"
+    """All connectors in the registry (environment-independent)."""
 
 
 class Language(str, Enum):
@@ -241,13 +241,18 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     return cache[name]
 
 
-def get_available_connectors(install_type: InstallType | str | None = None) -> list[str]:
+def get_available_connectors(
+        install_type: InstallType | str | None = InstallType.INSTALLABLE,
+    ) -> list[str]:
     """Return a list of all available connectors.
 
     Connectors will be returned in alphabetical order, with the standard prefix "source-".
+
+    Args:
+        install_type: The type of installation for the connector. Defaults to InstallType.INSTALLABLE.
     """
-    if install_type is None:
-        # No install type specified. Filter for whatever is runnable.
+    if install_type == InstallType.INSTALLABLE or install_type is None:
+        # Filter for installable connectors (default behavior).
         if is_docker_installed():
             logger.info("Docker is detected. Returning all connectors.")
             connectors = _get_registry_cache().values()
@@ -283,21 +288,6 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
 
     if install_type in {InstallType.DOCKER, InstallType.ANY}:
         return sorted(conn.name for conn in _get_registry_cache().values())
-
-    if install_type == InstallType.INSTALLABLE:
-        if is_docker_installed():
-            logger.info("Docker is detected. Returning all connectors.")
-            connectors = _get_registry_cache().values()
-        else:
-            logger.info(
-                "Docker was not detected. Returning only Python and Manifest-only connectors."
-            )
-            connectors = (
-                conn
-                for conn in _get_registry_cache().values()
-                if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
-            )
-        return sorted(conn.name for conn in connectors)
 
     if install_type == InstallType.YAML:
         return sorted(
