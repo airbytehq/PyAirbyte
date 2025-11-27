@@ -64,10 +64,15 @@ class CloudConnectionResult(BaseModel):
     """ID of the destination used by this connection."""
 
 
-def _get_cloud_workspace() -> CloudWorkspace:
-    """Get an authenticated CloudWorkspace using environment variables."""
+def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
+    """Get an authenticated CloudWorkspace.
+
+    Args:
+        workspace_id: Optional workspace ID. If not provided, uses the
+            AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
+    """
     return CloudWorkspace(
-        workspace_id=resolve_cloud_workspace_id(),
+        workspace_id=resolve_cloud_workspace_id(workspace_id),
         client_id=resolve_cloud_client_id(),
         client_secret=resolve_cloud_client_secret(),
         api_root=resolve_cloud_api_url(),
@@ -88,6 +93,13 @@ def deploy_source_to_cloud(
         Field(description="The name of the source connector (e.g., 'source-faker')."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     config: Annotated[
         dict | str | None,
         Field(
@@ -127,7 +139,7 @@ def deploy_source_to_cloud(
     )
     source.set_config(config_dict, validate=True)
 
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     deployed_source = workspace.deploy_source(
         name=source_name,
         source=source,
@@ -155,6 +167,13 @@ def deploy_destination_to_cloud(
         Field(description="The name of the destination connector (e.g., 'destination-postgres')."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     config: Annotated[
         dict | str | None,
         Field(
@@ -194,7 +213,7 @@ def deploy_destination_to_cloud(
     )
     destination.set_config(config_dict, validate=True)
 
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     deployed_destination = workspace.deploy_destination(
         name=destination_name,
         destination=destination,
@@ -235,6 +254,14 @@ def create_connection_on_cloud(
             )
         ),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     table_prefix: Annotated[
         str | None,
         Field(
@@ -250,7 +277,7 @@ def create_connection_on_cloud(
     Airbyte Cloud API.
     """
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     deployed_connection = workspace.deploy_connection(
         connection_name=connection_name,
         source=source_id,
@@ -277,6 +304,13 @@ def run_cloud_sync(
         Field(description="The ID of the Airbyte Cloud connection."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     wait: Annotated[
         bool,
         Field(
@@ -298,7 +332,7 @@ def run_cloud_sync(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     sync_result = connection.run_sync(wait=wait, wait_timeout=wait_timeout)
 
@@ -318,7 +352,16 @@ def run_cloud_sync(
     idempotent=True,
     open_world=True,
 )
-def check_airbyte_cloud_workspace() -> str:
+def check_airbyte_cloud_workspace(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
     By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
@@ -327,7 +370,7 @@ def check_airbyte_cloud_workspace() -> str:
 
     Returns workspace ID and workspace URL for verification.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     workspace.connect()
 
     return (
@@ -344,6 +387,13 @@ def check_airbyte_cloud_workspace() -> str:
 def deploy_noop_destination_to_cloud(
     name: str = "No-op Destination",
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     unique: bool = True,
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes.
@@ -353,7 +403,7 @@ def deploy_noop_destination_to_cloud(
     Airbyte Cloud API.
     """
     destination = get_noop_destination()
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     deployed_destination = workspace.deploy_destination(
         name=name,
         destination=destination,
@@ -388,6 +438,13 @@ def get_cloud_sync_status(
         ),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     include_attempts: Annotated[
         bool,
         Field(
@@ -402,7 +459,7 @@ def get_cloud_sync_status(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     # If a job ID is provided, get the job by ID.
@@ -445,6 +502,14 @@ def get_cloud_sync_status(
     open_world=True,
 )
 def list_deployed_cloud_source_connectors(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     name_contains: Annotated[
         str | None,
         "Optional case-insensitive substring to filter sources by name",
@@ -460,7 +525,7 @@ def list_deployed_cloud_source_connectors(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     sources = workspace.list_sources()
 
     # Filter by name if requested
@@ -490,6 +555,14 @@ def list_deployed_cloud_source_connectors(
     open_world=True,
 )
 def list_deployed_cloud_destination_connectors(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     name_contains: Annotated[
         str | None,
         "Optional case-insensitive substring to filter destinations by name",
@@ -505,7 +578,7 @@ def list_deployed_cloud_destination_connectors(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destinations = workspace.list_destinations()
 
     # Filter by name if requested
@@ -549,6 +622,14 @@ def get_cloud_sync_logs(
             description="Optional attempt number. If not provided, the latest attempt will be used."
         ),
     ] = None,
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Get the logs from a sync job attempt on Airbyte Cloud.
 
@@ -556,7 +637,7 @@ def get_cloud_sync_logs(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)
@@ -599,6 +680,14 @@ def get_cloud_sync_logs(
     open_world=True,
 )
 def list_deployed_cloud_connections(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     name_contains: Annotated[
         str | None,
         "Optional case-insensitive substring to filter connections by name",
@@ -614,7 +703,7 @@ def list_deployed_cloud_connections(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connections = workspace.list_connections()
 
     # Filter by name if requested
@@ -663,6 +752,13 @@ def publish_custom_source_definition(
         Field(description="The name for the custom connector definition."),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     manifest_yaml: Annotated[
         str | Path | None,
         Field(
@@ -697,7 +793,7 @@ def publish_custom_source_definition(
     if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
         processed_manifest = Path(manifest_yaml)
 
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
@@ -720,13 +816,22 @@ def publish_custom_source_definition(
     idempotent=True,
     open_world=True,
 )
-def list_custom_source_definitions() -> list[dict[str, Any]]:
+def list_custom_source_definitions(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     definitions = workspace.list_custom_source_definitions(
         definition_type="yaml",
     )
@@ -759,6 +864,13 @@ def update_custom_source_definition(
         ),
     ],
     *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
     pre_validate: Annotated[
         bool,
         Field(
@@ -777,7 +889,7 @@ def update_custom_source_definition(
     if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
         processed_manifest = Path(manifest_yaml)
 
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
@@ -808,6 +920,14 @@ def permanently_delete_custom_source_definition(
         str,
         Field(description="The expected name of the custom source definition (for verification)."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
@@ -825,7 +945,7 @@ def permanently_delete_custom_source_definition(
     Docker-based custom sources are not yet available.
     """
     check_guid_created_in_session(definition_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
@@ -1064,6 +1184,14 @@ def rename_cloud_source(
         str,
         Field(description="New name for the source."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Rename a deployed source connector on Airbyte Cloud.
 
@@ -1071,7 +1199,7 @@ def rename_cloud_source(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     source = workspace.get_source(source_id=source_id)
     source.rename(name=name)
     return f"Successfully renamed source '{source_id}' to '{name}'. URL: {source.connector_url}"
@@ -1100,6 +1228,14 @@ def update_cloud_source_config(
             default=None,
         ),
     ] = None,
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Update a deployed source connector's configuration on Airbyte Cloud.
 
@@ -1111,7 +1247,7 @@ def update_cloud_source_config(
     Airbyte Cloud API.
     """
     check_guid_created_in_session(source_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     source = workspace.get_source(source_id=source_id)
 
     config_dict = resolve_config(
@@ -1137,6 +1273,14 @@ def rename_cloud_destination(
         str,
         Field(description="New name for the destination."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Rename a deployed destination connector on Airbyte Cloud.
 
@@ -1144,7 +1288,7 @@ def rename_cloud_destination(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
     destination.rename(name=name)
     return (
@@ -1175,7 +1319,15 @@ def update_cloud_destination_config(
             description="The name of the secret containing the configuration.",
             default=None,
         ),
-    ] = None,
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Update a deployed destination connector's configuration on Airbyte Cloud.
 
@@ -1187,7 +1339,7 @@ def update_cloud_destination_config(
     Airbyte Cloud API.
     """
     check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
     config_dict = resolve_config(
@@ -1215,6 +1367,14 @@ def rename_cloud_connection(
         str,
         Field(description="New name for the connection."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Rename a connection on Airbyte Cloud.
 
@@ -1222,7 +1382,7 @@ def rename_cloud_connection(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     connection.rename(name=name)
     return (
@@ -1245,6 +1405,14 @@ def set_cloud_connection_table_prefix(
         str,
         Field(description="New table prefix to use when syncing to the destination."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Set the table prefix for a connection on Airbyte Cloud.
 
@@ -1256,7 +1424,7 @@ def set_cloud_connection_table_prefix(
     Airbyte Cloud API.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     connection.set_table_prefix(prefix=prefix)
     return (
@@ -1284,6 +1452,14 @@ def set_cloud_connection_selected_streams(
             )
         ),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> str:
     """Set the selected streams for a connection on Airbyte Cloud.
 
@@ -1295,7 +1471,7 @@ def set_cloud_connection_selected_streams(
     Airbyte Cloud API.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
