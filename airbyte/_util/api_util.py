@@ -1437,10 +1437,13 @@ def list_custom_docker_source_definitions(
         workspace_id=workspace_id,
     )
     response = airbyte_instance.source_definitions.list_source_definitions(request)
-    if response.definitions_response is None:
+    if not status_ok(response.status_code) or response.definitions_response is None:
         raise AirbyteError(
             message="Failed to list custom Docker source definitions",
-            context={"workspace_id": workspace_id},
+            context={
+                "workspace_id": workspace_id,
+                "response": response,
+            },
         )
     return response.definitions_response.data
 
@@ -1465,10 +1468,14 @@ def get_custom_docker_source_definition(
         definition_id=definition_id,
     )
     response = airbyte_instance.source_definitions.get_source_definition(request)
-    if response.definition_response is None:
+    if not status_ok(response.status_code) or response.definition_response is None:
         raise AirbyteError(
             message="Failed to get custom Docker source definition",
-            context={"workspace_id": workspace_id, "definition_id": definition_id},
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
         )
     return response.definition_response
 
@@ -1500,10 +1507,14 @@ def update_custom_docker_source_definition(
         update_definition_request=request_body,
     )
     response = airbyte_instance.source_definitions.update_source_definition(request)
-    if response.definition_response is None:
+    if not status_ok(response.status_code) or response.definition_response is None:
         raise AirbyteError(
             message="Failed to update custom Docker source definition",
-            context={"workspace_id": workspace_id, "definition_id": definition_id},
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
         )
     return response.definition_response
 
@@ -1593,10 +1604,13 @@ def list_custom_docker_destination_definitions(
         workspace_id=workspace_id,
     )
     response = airbyte_instance.destination_definitions.list_destination_definitions(request)
-    if response.definitions_response is None:
+    if not status_ok(response.status_code) or response.definitions_response is None:
         raise AirbyteError(
             message="Failed to list custom Docker destination definitions",
-            context={"workspace_id": workspace_id},
+            context={
+                "workspace_id": workspace_id,
+                "response": response,
+            },
         )
     return response.definitions_response.data
 
@@ -1621,10 +1635,14 @@ def get_custom_docker_destination_definition(
         definition_id=definition_id,
     )
     response = airbyte_instance.destination_definitions.get_destination_definition(request)
-    if response.definition_response is None:
+    if not status_ok(response.status_code) or response.definition_response is None:
         raise AirbyteError(
             message="Failed to get custom Docker destination definition",
-            context={"workspace_id": workspace_id, "definition_id": definition_id},
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
         )
     return response.definition_response
 
@@ -1656,10 +1674,14 @@ def update_custom_docker_destination_definition(
         update_definition_request=request_body,
     )
     response = airbyte_instance.destination_definitions.update_destination_definition(request)
-    if response.definition_response is None:
+    if not status_ok(response.status_code) or response.definition_response is None:
         raise AirbyteError(
             message="Failed to update custom Docker destination definition",
-            context={"workspace_id": workspace_id, "definition_id": definition_id},
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+                "response": response,
+            },
         )
     return response.definition_response
 
