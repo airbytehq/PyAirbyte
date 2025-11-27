@@ -10,7 +10,6 @@ import warnings
 from copy import copy
 from enum import Enum
 from pathlib import Path
-from enum import StrEnum
 from typing import Any, cast
 
 import requests
@@ -46,7 +45,7 @@ _DEFAULT_MANIFEST_URL = (
 )
 
 
-class InstallType(StrEnum):
+class InstallType(str, Enum):
     """The type of installation for a connector."""
 
     YAML = "yaml"
@@ -249,8 +248,8 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
 
 
 def get_available_connectors(
-        install_type: InstallType | str | None = InstallType.INSTALLABLE,
-    ) -> list[str]:
+    install_type: InstallType | str | None = InstallType.INSTALLABLE,
+) -> list[str]:
     """Return a list of all available connectors.
 
     Connectors will be returned in alphabetical order, with the standard prefix "source-".
@@ -265,9 +264,7 @@ def get_available_connectors(
             logger.info("Docker is detected. Returning all connectors.")
             return sorted(_get_registry_cache().keys())
 
-        logger.info(
-            "Docker was not detected. Returning only Python and Manifest-only connectors."
-        )
+        logger.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
         return sorted(
             [
                 connector_name
