@@ -997,10 +997,12 @@ def _is_safe_name_to_delete(name: str) -> bool:
     Requires the name to contain either "delete-me" or "deleteme" (case insensitive).
     """
     name_lower = name.lower()
-    return any({
-        "delete-me" in name_lower,
-        "deleteme" in name_lower,
-    })
+    return any(
+        {
+            "delete-me" in name_lower,
+            "deleteme" in name_lower,
+        }
+    )
 
 
 def delete_connection(
