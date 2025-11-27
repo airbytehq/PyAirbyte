@@ -49,9 +49,21 @@ class InstallType(str, Enum):
     """The type of installation for a connector."""
 
     YAML = "yaml"
+    """Manifest-only connectors that can be run without Docker."""
     PYTHON = "python"
+    """Python-based connectors available via PyPI."""
     DOCKER = "docker"
+    """Docker-based connectors (returns all connectors for backward compatibility)."""
     JAVA = "java"
+    """Java-based connectors."""
+
+    INSTALLABLE = "installable"
+    """Connectors installable in the current environment (environment-sensitive).
+
+    Returns all connectors if Docker is installed, otherwise only Python and YAML.
+    """
+    ANY = "any"
+    """All connectors in the registry (environment-independent)."""
 
 
 class Language(str, Enum):
@@ -154,8 +166,14 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     )
 
 
-def _get_registry_cache(*, force_refresh: bool = False) -> dict[str, ConnectorMetadata]:
-    """Return the registry cache."""
+def _get_registry_cache(
+    *,
+    force_refresh: bool = False,
+) -> dict[str, ConnectorMetadata]:
+    """Return the registry cache.
+
+    Result is a mapping of connector name to ConnectorMetadata.
+    """
     global __cache
     if __cache and not force_refresh:
         return __cache
@@ -229,25 +247,30 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     return cache[name]
 
 
-def get_available_connectors(install_type: InstallType | str | None = None) -> list[str]:
+def get_available_connectors(
+    install_type: InstallType | str | None = InstallType.INSTALLABLE,
+) -> list[str]:
     """Return a list of all available connectors.
 
     Connectors will be returned in alphabetical order, with the standard prefix "source-".
+
+    Args:
+        install_type: The type of installation for the connector.
+            Defaults to `InstallType.INSTALLABLE`.
     """
-    if install_type is None:
-        # No install type specified. Filter for whatever is runnable.
+    if install_type is None or install_type == InstallType.INSTALLABLE:
+        # Filter for installable connectors (default behavior).
         if is_docker_installed():
             logger.info("Docker is detected. Returning all connectors.")
-            # If Docker is available, return all connectors.
-            return sorted(conn.name for conn in _get_registry_cache().values())
+            return sorted(_get_registry_cache().keys())
 
         logger.info("Docker was not detected. Returning only Python and Manifest-only connectors.")
-
-        # If Docker is not available, return only Python and Manifest-based connectors.
         return sorted(
-            conn.name
-            for conn in _get_registry_cache().values()
-            if conn.language in {Language.PYTHON, Language.MANIFEST_ONLY}
+            [
+                connector_name
+                for connector_name, conn_info in _get_registry_cache().items()
+                if conn_info.language in {Language.PYTHON, Language.MANIFEST_ONLY}
+            ]
         )
 
     if not isinstance(install_type, InstallType):
@@ -255,9 +278,9 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
 
     if install_type == InstallType.PYTHON:
         return sorted(
-            conn.name
-            for conn in _get_registry_cache().values()
-            if conn.pypi_package_name is not None
+            connector_name
+            for connector_name, conn_info in _get_registry_cache().items()
+            if conn_info.pypi_package_name is not None
         )
 
     if install_type == InstallType.JAVA:
@@ -266,11 +289,13 @@ def get_available_connectors(install_type: InstallType | str | None = None) -> l
             stacklevel=2,
         )
         return sorted(
-            conn.name for conn in _get_registry_cache().values() if conn.language == Language.JAVA
+            connector_name
+            for connector_name, conn_info in _get_registry_cache().items()
+            if conn_info.language == Language.JAVA
         )
 
-    if install_type == InstallType.DOCKER:
-        return sorted(conn.name for conn in _get_registry_cache().values())
+    if install_type in {InstallType.DOCKER, InstallType.ANY}:
+        return sorted(_get_registry_cache().keys())
 
     if install_type == InstallType.YAML:
         return sorted(
@@ -445,12 +470,12 @@ def get_connector_api_docs_urls(connector_name: str) -> list[ApiDocsUrl]:
     Raises:
         AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
     """
-    if connector_name not in get_available_connectors(InstallType.DOCKER):
+    if connector_name not in get_available_connectors(InstallType.ANY):
         raise exc.AirbyteConnectorNotRegisteredError(
             connector_name=connector_name,
             context={
                 "registry_url": _get_registry_url(),
-                "available_connectors": get_available_connectors(InstallType.DOCKER),
+                "available_connectors": get_available_connectors(InstallType.ANY),
             },
         )
 
@@ -505,12 +530,12 @@ def get_connector_version_history(
         >>> for v in versions[:5]:
         ...     print(f"{v.version}: {v.release_date}")
     """
-    if connector_name not in get_available_connectors(InstallType.DOCKER):
+    if connector_name not in get_available_connectors(InstallType.ANY):
         raise exc.AirbyteConnectorNotRegisteredError(
             connector_name=connector_name,
             context={
                 "registry_url": _get_registry_url(),
-                "available_connectors": get_available_connectors(InstallType.DOCKER),
+                "available_connectors": get_available_connectors(InstallType.ANY),
             },
         )
 
