@@ -109,7 +109,7 @@ class CloudConnectionDetails(BaseModel):
     """Display name of the destination."""
     selected_streams: list[str]
     """List of stream names selected for syncing."""
-    table_prefix: str
+    table_prefix: str | None
     """Table prefix applied when syncing to the destination."""
 
 
