@@ -216,6 +216,9 @@ CLOUD_CLIENT_ID_ENV_VAR: str = "AIRBYTE_CLOUD_CLIENT_ID"
 CLOUD_CLIENT_SECRET_ENV_VAR: str = "AIRBYTE_CLOUD_CLIENT_SECRET"
 """The environment variable name for the Airbyte Cloud client secret."""
 
+CLOUD_BEARER_TOKEN_ENV_VAR: str = "AIRBYTE_CLOUD_BEARER_TOKEN"
+"""The environment variable name for the Airbyte Cloud bearer token."""
+
 CLOUD_API_ROOT_ENV_VAR: str = "AIRBYTE_CLOUD_API_URL"
 """The environment variable name for the Airbyte Cloud API URL."""
 
