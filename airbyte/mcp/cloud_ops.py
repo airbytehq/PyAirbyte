@@ -113,54 +113,6 @@ class CloudConnectionDetails(BaseModel):
     """Table prefix applied when syncing to the destination."""
 
 
-class CloudSourceDetails(BaseModel):
-    """Detailed information about a deployed source connector in Airbyte Cloud."""
-
-    source_id: str
-    """The source ID."""
-    source_name: str
-    """Display name of the source."""
-    source_url: str
-    """Web URL for managing this source in Airbyte Cloud."""
-    connector_definition_id: str
-    """The connector definition ID (e.g., the ID for 'source-postgres')."""
-
-
-class CloudDestinationDetails(BaseModel):
-    """Detailed information about a deployed destination connector in Airbyte Cloud."""
-
-    destination_id: str
-    """The destination ID."""
-    destination_name: str
-    """Display name of the destination."""
-    destination_url: str
-    """Web URL for managing this destination in Airbyte Cloud."""
-    connector_definition_id: str
-    """The connector definition ID (e.g., the ID for 'destination-snowflake')."""
-
-
-class CloudConnectionDetails(BaseModel):
-    """Detailed information about a deployed connection in Airbyte Cloud."""
-
-    connection_id: str
-    """The connection ID."""
-    connection_name: str
-    """Display name of the connection."""
-    connection_url: str
-    """Web URL for managing this connection in Airbyte Cloud."""
-    source_id: str
-    """ID of the source used by this connection."""
-    source_name: str
-    """Display name of the source."""
-    destination_id: str
-    """ID of the destination used by this connection."""
-    destination_name: str
-    """Display name of the destination."""
-    selected_streams: list[str]
-    """List of stream names selected for syncing."""
-    table_prefix: str
-    """Table prefix applied when syncing to the destination."""
-
 
 def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
@@ -710,6 +662,14 @@ def describe_cloud_source(
         str,
         Field(description="The ID of the source to describe."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> CloudSourceDetails:
     """Get detailed information about a specific deployed source connector.
 
@@ -717,7 +677,7 @@ def describe_cloud_source(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     source = workspace.get_source(source_id=source_id)
 
     # Access name property to ensure _connector_info is populated
@@ -742,6 +702,14 @@ def describe_cloud_destination(
         str,
         Field(description="The ID of the destination to describe."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> CloudDestinationDetails:
     """Get detailed information about a specific deployed destination connector.
 
@@ -749,7 +717,7 @@ def describe_cloud_destination(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
     # Access name property to ensure _connector_info is populated
@@ -774,6 +742,14 @@ def describe_cloud_connection(
         str,
         Field(description="The ID of the connection to describe."),
     ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
 ) -> CloudConnectionDetails:
     """Get detailed information about a specific deployed connection.
 
@@ -781,7 +757,7 @@ def describe_cloud_connection(
     and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
     Airbyte Cloud API.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     return CloudConnectionDetails(
