@@ -113,7 +113,6 @@ class CloudConnectionDetails(BaseModel):
     """Table prefix applied when syncing to the destination."""
 
 
-
 def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
 
