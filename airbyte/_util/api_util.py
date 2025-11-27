@@ -1527,7 +1527,15 @@ def delete_custom_docker_source_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    airbyte_instance.source_definitions.delete_source_definition(request)
+    response = airbyte_instance.source_definitions.delete_source_definition(request)
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            message="Failed to delete custom Docker source definition",
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+            },
+        )
 
 
 def create_custom_docker_destination_definition(
@@ -1675,7 +1683,15 @@ def delete_custom_docker_destination_definition(
         workspace_id=workspace_id,
         definition_id=definition_id,
     )
-    airbyte_instance.destination_definitions.delete_destination_definition(request)
+    response = airbyte_instance.destination_definitions.delete_destination_definition(request)
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            message="Failed to delete custom Docker destination definition",
+            context={
+                "workspace_id": workspace_id,
+                "definition_id": definition_id,
+            },
+        )
 
 
 def get_connector_builder_project_for_definition_id(
