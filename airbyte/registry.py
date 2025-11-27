@@ -251,7 +251,7 @@ def get_available_connectors(
     Args:
         install_type: The type of installation for the connector. Defaults to InstallType.INSTALLABLE.
     """
-    if install_type == InstallType.INSTALLABLE or install_type is None:
+    if install_type is None or install_type == InstallType.INSTALLABLE:
         # Filter for installable connectors (default behavior).
         if is_docker_installed():
             logger.info("Docker is detected. Returning all connectors.")
