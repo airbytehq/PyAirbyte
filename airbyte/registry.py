@@ -256,7 +256,8 @@ def get_available_connectors(
     Connectors will be returned in alphabetical order, with the standard prefix "source-".
 
     Args:
-        install_type: The type of installation for the connector. Defaults to InstallType.INSTALLABLE.
+        install_type: The type of installation for the connector.
+            Defaults to `InstallType.INSTALLABLE`.
     """
     if install_type is None or install_type == InstallType.INSTALLABLE:
         # Filter for installable connectors (default behavior).
