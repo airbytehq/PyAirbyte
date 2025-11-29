@@ -690,3 +690,117 @@ class CustomCloudSourceDefinition:
             workspace=self.workspace,
             source_response=result,
         )
+
+
+class CloudCustomDestinationDefinition:
+    """A custom destination connector definition in Airbyte Cloud.
+
+    Currently only supports Docker-based custom destinations.
+    """
+
+    def __init__(
+        self,
+        workspace: CloudWorkspace,
+        definition_id: str,
+    ) -> None:
+        """Initialize a custom destination definition object."""
+        self.workspace = workspace
+        self.definition_id = definition_id
+        self._definition_info: api_models.DefinitionResponse | None = None
+
+    def _fetch_definition_info(self) -> api_models.DefinitionResponse:
+        """Fetch definition info from the API."""
+        return api_util.get_custom_docker_destination_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+    @property
+    def name(self) -> str:
+        """Get the display name of the custom connector definition."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.name
+
+    @property
+    def docker_repository(self) -> str:
+        """Get the Docker repository."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.docker_repository
+
+    @property
+    def docker_image_tag(self) -> str:
+        """Get the Docker image tag."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.docker_image_tag
+
+    @property
+    def documentation_url(self) -> str | None:
+        """Get the documentation URL."""
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+        return self._definition_info.documentation_url
+
+    @property
+    def definition_url(self) -> str:
+        """Get the web URL of the custom destination definition."""
+        return (
+            f"{self.workspace.workspace_url}/settings/custom-connectors/"
+            f"destinations/{self.definition_id}"
+        )
+
+    def permanently_delete(self) -> None:
+        """Permanently delete this custom destination definition."""
+        self.workspace.permanently_delete_custom_destination_definition(self.definition_id)
+
+    def update_definition(
+        self,
+        *,
+        name: str,
+        docker_tag: str,
+    ) -> CloudCustomDestinationDefinition:
+        """Update this custom destination definition.
+
+        Args:
+            name: New display name
+            docker_tag: New Docker tag
+
+        Returns:
+            Updated CloudCustomDestinationDefinition object
+        """
+        result = api_util.update_custom_docker_destination_definition(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            name=name,
+            docker_image_tag=docker_tag,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return CloudCustomDestinationDefinition._from_docker_response(self.workspace, result)
+
+    def __repr__(self) -> str:
+        """String representation."""
+        return (
+            f"CloudCustomDestinationDefinition(definition_id={self.definition_id}, "
+            f"name={self.name}, docker_repository={self.docker_repository})"
+        )
+
+    @classmethod
+    def _from_docker_response(
+        cls,
+        workspace: CloudWorkspace,
+        response: api_models.DefinitionResponse,
+    ) -> CloudCustomDestinationDefinition:
+        """Internal factory method."""
+        result = cls(
+            workspace=workspace,
+            definition_id=response.id,
+        )
+        result._definition_info = response  # noqa: SLF001
+        return result

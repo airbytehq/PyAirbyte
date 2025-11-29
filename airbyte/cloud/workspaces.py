@@ -46,6 +46,7 @@ from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
+    CloudCustomDestinationDefinition,
     CloudDestination,
     CloudSource,
     CustomCloudSourceDefinition,
@@ -648,4 +649,111 @@ class CloudWorkspace:
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
             "Only YAML manifest-based custom sources are currently available."
+        )
+
+    def publish_custom_destination_definition(
+        self,
+        name: str,
+        *,
+        docker_image: str,
+        docker_tag: str,
+        documentation_url: str | None = None,
+        unique: bool = True,
+    ) -> CloudCustomDestinationDefinition:
+        """Publish a custom destination connector definition.
+
+        Currently only Docker-based destinations are supported.
+
+        Args:
+            name: Display name for the connector definition
+            docker_image: Docker repository (e.g., 'airbyte/destination-custom')
+            docker_tag: Docker image tag (e.g., '1.0.0')
+            documentation_url: Optional URL to connector documentation
+            unique: Whether to enforce name uniqueness
+
+        Returns:
+            CloudCustomDestinationDefinition object representing the created definition
+        """
+        if unique:
+            existing = self.list_custom_destination_definitions(name=name)
+            if existing:
+                raise exc.AirbyteDuplicateResourcesError(
+                    resource_type="custom_destination_definition",
+                    resource_name=name,
+                )
+
+        result = api_util.create_custom_docker_destination_definition(
+            name=name,
+            docker_repository=docker_image,
+            docker_image_tag=docker_tag,
+            workspace_id=self.workspace_id,
+            documentation_url=documentation_url,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+        return CloudCustomDestinationDefinition._from_docker_response(self, result)  # noqa: SLF001
+
+    def list_custom_destination_definitions(
+        self,
+        *,
+        name: str | None = None,
+    ) -> list[CloudCustomDestinationDefinition]:
+        """List custom destination connector definitions.
+
+        Args:
+            name: Filter by exact name match
+
+        Returns:
+            List of CloudCustomDestinationDefinition objects
+        """
+        definitions = api_util.list_custom_docker_destination_definitions(
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+
+        return [
+            CloudCustomDestinationDefinition._from_docker_response(self, d)  # noqa: SLF001
+            for d in definitions
+            if name is None or d.name == name
+        ]
+
+    def get_custom_destination_definition(
+        self,
+        definition_id: str,
+    ) -> CloudCustomDestinationDefinition:
+        """Get a specific custom destination definition by ID.
+
+        Args:
+            definition_id: The definition ID
+
+        Returns:
+            CloudCustomDestinationDefinition object
+        """
+        result = api_util.get_custom_docker_destination_definition(
+            workspace_id=self.workspace_id,
+            definition_id=definition_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+        return CloudCustomDestinationDefinition._from_docker_response(self, result)  # noqa: SLF001
+
+    def permanently_delete_custom_destination_definition(
+        self,
+        definition_id: str,
+    ) -> None:
+        """Permanently delete a custom destination definition.
+
+        Args:
+            definition_id: The definition ID to delete
+        """
+        api_util.delete_custom_docker_destination_definition(
+            workspace_id=self.workspace_id,
+            definition_id=definition_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
         )
