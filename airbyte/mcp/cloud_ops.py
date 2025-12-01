@@ -154,7 +154,7 @@ def deploy_source_to_cloud(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -224,7 +224,7 @@ def deploy_destination_to_cloud(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -308,7 +308,7 @@ def create_connection_on_cloud(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -353,7 +353,7 @@ def run_cloud_sync(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -399,7 +399,7 @@ def check_airbyte_cloud_workspace(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -429,7 +429,7 @@ def deploy_noop_destination_to_cloud(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -476,7 +476,7 @@ def get_cloud_sync_status(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -537,7 +537,7 @@ def list_deployed_cloud_source_connectors(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -586,7 +586,7 @@ def list_deployed_cloud_destination_connectors(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -639,7 +639,7 @@ def describe_cloud_source(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -675,7 +675,7 @@ def describe_cloud_destination(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -711,7 +711,7 @@ def describe_cloud_connection(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -759,7 +759,7 @@ def get_cloud_sync_logs(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -813,7 +813,7 @@ def list_deployed_cloud_connections(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -880,7 +880,7 @@ def publish_custom_source_definition(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -992,7 +992,7 @@ def update_custom_source_definition(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1049,7 +1049,7 @@ def permanently_delete_custom_source_definition(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1305,7 +1305,7 @@ def rename_cloud_source(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1345,7 +1345,7 @@ def update_cloud_source_config(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1387,7 +1387,7 @@ def rename_cloud_destination(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1430,7 +1430,7 @@ def update_cloud_destination_config(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1474,7 +1474,7 @@ def rename_cloud_connection(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1508,7 +1508,7 @@ def set_cloud_connection_table_prefix(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1552,7 +1552,7 @@ def set_cloud_connection_selected_streams(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
