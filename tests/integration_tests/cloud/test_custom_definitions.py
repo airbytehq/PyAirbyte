@@ -77,13 +77,22 @@ def test_publish_custom_yaml_source(
         assert definitions[0].definition_id == definition_id
 
         fetched = cloud_workspace.get_custom_source_definition(
-            definition_id,
+            definition_id=definition_id,
             definition_type="yaml",
         )
         assert fetched.definition_id == definition_id
         assert fetched.name == name
         assert fetched.definition_type == "yaml"
         assert fetched.connector_type == "source"
+
+        builder_project_id = fetched.connector_builder_project_id
+        if builder_project_id:
+            fetched_by_project_id = cloud_workspace.get_custom_source_definition(
+                connector_builder_project_id=builder_project_id,
+                definition_type="yaml",
+            )
+            assert fetched_by_project_id.definition_id == definition_id
+            assert fetched_by_project_id.name == name
 
         updated_manifest = TEST_YAML_MANIFEST.copy()
         updated_manifest["version"] = "0.2.0"
@@ -167,3 +176,36 @@ def test_safe_mode_deletion(
 
         finally:
             definition.permanently_delete(safe_mode=False)
+
+
+def test_get_custom_source_definition_validation() -> None:
+    """Test that get_custom_source_definition validates input parameters correctly."""
+    from airbyte.exceptions import PyAirbyteInputError
+    from unittest.mock import Mock
+
+    workspace = Mock(spec=CloudWorkspace)
+    workspace.workspace_id = "test-workspace"
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        CloudWorkspace.get_custom_source_definition(
+            workspace,
+            definition_type="yaml",
+        )
+    assert "EXACTLY ONE" in str(exc_info.value)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        CloudWorkspace.get_custom_source_definition(
+            workspace,
+            definition_id="test-id",
+            definition_type="yaml",
+            connector_builder_project_id="test-project-id",
+        )
+    assert "EXACTLY ONE" in str(exc_info.value)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        CloudWorkspace.get_custom_source_definition(
+            workspace,
+            definition_type="docker",
+            connector_builder_project_id="test-project-id",
+        )
+    assert "only valid for yaml" in str(exc_info.value)
