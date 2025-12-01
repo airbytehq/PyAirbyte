@@ -29,7 +29,7 @@ from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 CLOUD_AUTH_TIP_TEXT = (
     "By default, the `AIRBYTE_CLOUD_CLIENT_ID`, `AIRBYTE_CLOUD_CLIENT_SECRET`, "
-    "`AIRBYTE_CLOUD_WORKSPACE_ID`, and `AIRBYTE_CLOUD_API_ROOT` environment variables "
+    "and `AIRBYTE_CLOUD_WORKSPACE_ID` environment variables "
     "will be used to authenticate with the Airbyte Cloud API."
 )
 WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
