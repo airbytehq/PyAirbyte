@@ -14,7 +14,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
 )
-from airbyte.cloud.connectors import CustomCloudSourceDefinition
+from airbyte.cloud.connectors import CloudCustomDestinationDefinition, CustomCloudSourceDefinition
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._tool_utils import (
@@ -61,6 +61,23 @@ class CloudConnectionResult(BaseModel):
     """ID of the source used by this connection."""
     destination_id: str
     """ID of the destination used by this connection."""
+
+
+class CustomDestinationDefinitionResult(BaseModel):
+    """Information about a custom destination definition in Airbyte Cloud."""
+
+    definition_id: str
+    """The definition ID."""
+    name: str
+    """Display name of the custom destination definition."""
+    docker_repository: str
+    """Docker repository (e.g., 'airbyte/destination-custom')."""
+    docker_image_tag: str
+    """Docker image tag (e.g., '1.0.0')."""
+    documentation_url: str | None = None
+    """Optional URL to connector documentation."""
+    definition_url: str
+    """Web URL for managing this definition in Airbyte Cloud."""
 
 
 def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
@@ -998,6 +1015,196 @@ def permanently_delete_custom_source_definition(
     )
     return (
         f"Successfully deleted custom source definition '{definition_name}' (ID: {definition_id})"
+    )
+
+
+# =============================================================================
+# Custom Destination Definition Tools (Docker-based)
+# =============================================================================
+
+
+def _get_custom_destination_definition_result(
+    definition: CloudCustomDestinationDefinition,
+) -> CustomDestinationDefinitionResult:
+    """Convert a CloudCustomDestinationDefinition to a result model."""
+    return CustomDestinationDefinitionResult(
+        definition_id=definition.definition_id,
+        name=definition.name,
+        docker_repository=definition.docker_repository,
+        docker_image_tag=definition.docker_image_tag,
+        documentation_url=definition.documentation_url,
+        definition_url=definition.definition_url,
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
+def publish_custom_destination_definition(
+    name: Annotated[
+        str,
+        Field(description="The name for the custom destination connector definition."),
+    ],
+    *,
+    docker_image: Annotated[
+        str,
+        Field(description="Docker repository (e.g., 'airbyte/destination-custom')."),
+    ],
+    docker_tag: Annotated[
+        str,
+        Field(description="Docker image tag (e.g., '1.0.0')."),
+    ],
+    documentation_url: Annotated[
+        str | None,
+        Field(
+            description="Optional URL to connector documentation.",
+            default=None,
+        ),
+    ] = None,
+    unique: Annotated[
+        bool,
+        Field(
+            description="Whether to require a unique name.",
+            default=True,
+        ),
+    ] = True,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ] = None,
+) -> CustomDestinationDefinitionResult | str:
+    """Publish a custom Docker destination connector definition to Airbyte Cloud.
+
+    Creates a new custom destination definition using a Docker image.
+    Only Docker-based custom destinations are currently supported.
+    """
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+        custom_destination = workspace.publish_custom_destination_definition(
+            name=name,
+            docker_image=docker_image,
+            docker_tag=docker_tag,
+            documentation_url=documentation_url,
+            unique=unique,
+        )
+    except Exception as ex:
+        return f"Failed to publish custom destination definition '{name}': {ex}"
+    else:
+        register_guid_created_in_session(custom_destination.definition_id)
+        return _get_custom_destination_definition_result(custom_destination)
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
+def list_custom_destination_definitions(
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> list[CustomDestinationDefinitionResult]:
+    """List custom Docker destination definitions in the Airbyte Cloud workspace.
+
+    Returns all custom destination definitions. Only Docker-based custom
+    destinations are currently supported.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    definitions = workspace.list_custom_destination_definitions()
+
+    return [_get_custom_destination_definition_result(d) for d in definitions]
+
+
+@mcp_tool(
+    domain="cloud",
+    open_world=True,
+)
+def update_custom_destination_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the custom destination definition to update."),
+    ],
+    *,
+    name: Annotated[
+        str,
+        Field(description="New display name for the destination definition."),
+    ],
+    docker_tag: Annotated[
+        str,
+        Field(description="New Docker image tag (e.g., '1.0.1')."),
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ] = None,
+) -> CustomDestinationDefinitionResult | str:
+    """Update a custom Docker destination definition in Airbyte Cloud.
+
+    Updates the name and/or Docker tag of an existing custom destination definition.
+    Only Docker-based custom destinations are currently supported.
+    """
+    check_guid_created_in_session(definition_id)
+    try:
+        workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+        definition = workspace.get_custom_destination_definition(definition_id=definition_id)
+        updated = definition.update_definition(
+            name=name,
+            docker_tag=docker_tag,
+        )
+    except Exception as ex:
+        return f"Failed to update custom destination definition '{definition_id}': {ex}"
+    else:
+        return _get_custom_destination_definition_result(updated)
+
+
+@mcp_tool(
+    domain="cloud",
+    destructive=True,
+    open_world=True,
+)
+def permanently_delete_custom_destination_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the custom destination definition to delete."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            default=None,
+        ),
+    ],
+) -> str:
+    """Permanently delete a custom Docker destination definition from Airbyte Cloud.
+
+    IMPORTANT: This operation requires the definition to have been created in the
+    current session. Definitions created outside this session cannot be deleted
+    for safety reasons.
+
+    Only Docker-based custom destinations are currently supported.
+    """
+    check_guid_created_in_session(definition_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    definition = workspace.get_custom_destination_definition(definition_id=definition_id)
+    definition_name: str = definition.name  # Capture name before deletion
+    definition.permanently_delete()
+    return (
+        f"Successfully deleted custom destination definition '{definition_name}' "
+        f"(ID: {definition_id})"
     )
 
 
