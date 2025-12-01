@@ -1630,19 +1630,21 @@ def list_workspaces_in_organization(
     """
     result: list[dict[str, Any]] = []
     page_size = 100
-    offset = 0
 
-    while True:
-        payload: dict[str, Any] = {
-            "organizationId": organization_id,
-            "pagination": {
-                "pageSize": page_size,
-                "rowOffset": offset,
-            },
-        }
-        if name_contains:
-            payload["nameContains"] = name_contains
+    # Build base payload
+    payload: dict[str, Any] = {
+        "organizationId": organization_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains:
+        payload["nameContains"] = name_contains
 
+    # Fetch pages until we have all results or reach the limit
+    has_more_pages = True
+    while has_more_pages:
         json_result = _make_config_api_request(
             path="/workspaces/list_by_organization_id",
             json=payload,
@@ -1654,15 +1656,14 @@ def list_workspaces_in_organization(
         workspaces = json_result.get("workspaces", [])
         result.extend(workspaces)
 
-        # Check if we've reached the limit or no more results
+        # Check if we've reached the limit
         if max_items_limit is not None and len(result) >= max_items_limit:
-            result = result[:max_items_limit]
-            break
+            return result[:max_items_limit]
 
-        if len(workspaces) < page_size:
-            # No more pages
-            break
+        # Check if there are more pages
+        has_more_pages = len(workspaces) >= page_size
 
-        offset += page_size
+        # Bump offset for next iteration
+        payload["pagination"]["rowOffset"] += page_size
 
     return result

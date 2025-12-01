@@ -876,15 +876,15 @@ def list_deployed_cloud_connections(
     ]
 
 
-def _resolve_organization_id(
+def _resolve_organization(
     organization_id: str | None,
     organization_name: str | None,
     *,
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
-) -> str:
-    """Resolve organization ID from either ID or exact name match.
+) -> api_util.models.OrganizationResponse:
+    """Resolve organization from either ID or exact name match.
 
     Args:
         organization_id: The organization ID (if provided directly)
@@ -894,7 +894,7 @@ def _resolve_organization_id(
         client_secret: OAuth client secret
 
     Returns:
-        The resolved organization ID
+        The resolved OrganizationResponse object
 
     Raises:
         PyAirbyteInputError: If neither or both parameters are provided,
@@ -910,17 +910,28 @@ def _resolve_organization_id(
             message="Either 'organization_id' or 'organization_name' must be provided."
         )
 
-    if organization_id:
-        return organization_id
-
-    # Look up organization by exact name match
+    # Get all organizations for the user
     orgs = api_util.list_organizations_for_user(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
     )
 
-    # Find exact match (case-sensitive)
+    if organization_id:
+        # Find by ID
+        matching_orgs = [org for org in orgs if org.organization_id == organization_id]
+        if not matching_orgs:
+            raise AirbyteMissingResourceError(
+                resource_type="organization",
+                context={
+                    "organization_id": organization_id,
+                    "message": f"No organization found with ID '{organization_id}' "
+                    "for the current user.",
+                },
+            )
+        return matching_orgs[0]
+
+    # Find by exact name match (case-sensitive)
     matching_orgs = [org for org in orgs if org.organization_name == organization_name]
 
     if not matching_orgs:
@@ -939,7 +950,29 @@ def _resolve_organization_id(
             "Please use 'organization_id' instead to specify the exact organization."
         )
 
-    return matching_orgs[0].organization_id
+    return matching_orgs[0]
+
+
+def _resolve_organization_id(
+    organization_id: str | None,
+    organization_name: str | None,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> str:
+    """Resolve organization ID from either ID or exact name match.
+
+    This is a convenience wrapper around _resolve_organization that returns just the ID.
+    """
+    org = _resolve_organization(
+        organization_id=organization_id,
+        organization_name=organization_name,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    return org.organization_id
 
 
 @mcp_tool(
@@ -1048,47 +1081,13 @@ def describe_cloud_organization(
     client_id = resolve_cloud_client_id()
     client_secret = resolve_cloud_client_secret()
 
-    # Get all organizations for the user
-    orgs = api_util.list_organizations_for_user(
+    org = _resolve_organization(
+        organization_id=organization_id,
+        organization_name=organization_name,
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
     )
-
-    # Find the matching organization
-    if organization_id:
-        matching_orgs = [org for org in orgs if org.organization_id == organization_id]
-        if not matching_orgs:
-            raise AirbyteMissingResourceError(
-                resource_type="organization",
-                context={
-                    "organization_id": organization_id,
-                    "message": f"No organization found with ID '{organization_id}' "
-                    "for the current user.",
-                },
-            )
-        org = matching_orgs[0]
-    elif organization_name:
-        matching_orgs = [org for org in orgs if org.organization_name == organization_name]
-        if not matching_orgs:
-            raise AirbyteMissingResourceError(
-                resource_type="organization",
-                context={
-                    "organization_name": organization_name,
-                    "message": f"No organization found with exact name '{organization_name}' "
-                    "for the current user.",
-                },
-            )
-        if len(matching_orgs) > 1:
-            raise PyAirbyteInputError(
-                message=f"Multiple organizations found with name '{organization_name}'. "
-                "Please use 'organization_id' instead to specify the exact organization."
-            )
-        org = matching_orgs[0]
-    else:
-        raise PyAirbyteInputError(
-            message="Either 'organization_id' or 'organization_name' must be provided."
-        )
 
     return CloudOrganizationResult(
         id=org.organization_id,
