@@ -841,13 +841,17 @@ def list_deployed_cloud_connections(
     ] = None,
     with_connection_status: Annotated[
         bool | None,
-        "If True, include status info for each connection's most recent sync job",
-        default=False,
+        Field(
+            description="If True, include status info for each connection's most recent sync job",
+            default=False,
+        ),
     ],
     failing_connections_only: Annotated[
         bool | None,
-        "If True, only return connections where the most recent completed sync failed",
-        default=False,
+        Field(
+            description="If True, only return connections with failed/cancelled last sync",
+            default=False,
+        ),
     ],
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
