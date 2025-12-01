@@ -26,6 +26,7 @@ from airbyte.mcp._tool_utils import (
     register_tools,
 )
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.secrets import SecretString
 
 
 CLOUD_AUTH_TIP_TEXT = (
@@ -880,8 +881,8 @@ def _resolve_organization_id(
     organization_name: str | None,
     *,
     api_root: str,
-    client_id: str,
-    client_secret: str,
+    client_id: SecretString,
+    client_secret: SecretString,
 ) -> str:
     """Resolve organization ID from either ID or exact name match.
 
