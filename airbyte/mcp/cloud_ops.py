@@ -16,6 +16,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_workspace_id,
 )
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
+from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
 from airbyte.mcp._tool_utils import (
@@ -861,8 +862,8 @@ def list_deployed_cloud_connections(
     currently in-progress syncs to find the last completed job.
 
     When failing_connections_only is True, only connections where the most
-    recent completed sync job failed will be returned. This implicitly enables
-    with_connection_status.
+    recent completed sync job failed or was cancelled will be returned.
+    This implicitly enables with_connection_status.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connections = workspace.list_connections()
@@ -887,6 +888,7 @@ def list_deployed_cloud_connections(
 
         if with_connection_status:
             sync_logs = connection.get_previous_sync_logs(limit=5)
+            last_completed_job_status = None  # Keep enum for comparison
 
             for sync_result in sync_logs:
                 job_status = sync_result.get_job_status()
@@ -896,13 +898,15 @@ def list_deployed_cloud_connections(
                     currently_running_job_start_time = sync_result.start_time.isoformat()
                     continue
 
+                last_completed_job_status = job_status
                 last_job_status = str(job_status.value) if job_status else None
                 last_job_id = sync_result.job_id
                 last_job_time = sync_result.start_time.isoformat()
                 break
 
             if failing_connections_only and (
-                last_job_status is None or last_job_status not in {"failed", "cancelled"}
+                last_completed_job_status is None
+                or last_completed_job_status not in FAILED_STATUSES
             ):
                 continue
 
