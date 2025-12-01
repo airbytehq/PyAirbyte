@@ -840,13 +840,15 @@ def list_deployed_cloud_connections(
         "Optional maximum number of items to return (default: no limit)",
     ] = None,
     with_connection_status: Annotated[
-        bool,
+        bool | None,
         "If True, include status info for each connection's most recent sync job",
-    ] = False,
+        default=False,
+    ],
     failing_connections_only: Annotated[
-        bool,
+        bool | None,
         "If True, only return connections where the most recent completed sync failed",
-    ] = False,
+        default=False,
+    ],
 ) -> list[CloudConnectionResult]:
     """List all deployed connections in the Airbyte Cloud workspace.
 
