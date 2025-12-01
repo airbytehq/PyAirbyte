@@ -27,6 +27,14 @@ from airbyte.mcp._tool_utils import (
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
 
 
+CLOUD_AUTH_TIP_TEXT = (
+    "By default, the `AIRBYTE_CLOUD_CLIENT_ID`, `AIRBYTE_CLOUD_CLIENT_SECRET`, "
+    "`AIRBYTE_CLOUD_WORKSPACE_ID`, and `AIRBYTE_CLOUD_API_ROOT` environment variables "
+    "will be used to authenticate with the Airbyte Cloud API."
+)
+WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
+
+
 class CloudSourceResult(BaseModel):
     """Information about a deployed source connector in Airbyte Cloud."""
 
@@ -131,6 +139,7 @@ def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_source_to_cloud(
     source_name: Annotated[
@@ -171,12 +180,7 @@ def deploy_source_to_cloud(
         ),
     ],
 ) -> str:
-    """Deploy a source connector to Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Deploy a source connector to Airbyte Cloud."""
     source = get_source(
         source_connector_name,
         no_executor=True,
@@ -205,6 +209,7 @@ def deploy_source_to_cloud(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_destination_to_cloud(
     destination_name: Annotated[
@@ -245,12 +250,7 @@ def deploy_destination_to_cloud(
         ),
     ],
 ) -> str:
-    """Deploy a destination connector to Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Deploy a destination connector to Airbyte Cloud."""
     destination = get_destination(
         destination_connector_name,
         no_executor=True,
@@ -279,6 +279,7 @@ def deploy_destination_to_cloud(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def create_connection_on_cloud(
     connection_name: Annotated[
@@ -319,12 +320,7 @@ def create_connection_on_cloud(
         ),
     ],
 ) -> str:
-    """Create a connection between a deployed source and destination on Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Create a connection between a deployed source and destination on Airbyte Cloud."""
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams)
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     deployed_connection = workspace.deploy_connection(
@@ -346,6 +342,7 @@ def create_connection_on_cloud(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def run_cloud_sync(
     connection_id: Annotated[
@@ -375,12 +372,7 @@ def run_cloud_sync(
         ),
     ],
 ) -> str:
-    """Run a sync job on Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Run a sync job on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     sync_result = connection.run_sync(wait=wait, wait_timeout=wait_timeout)
@@ -400,6 +392,7 @@ def run_cloud_sync(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def check_airbyte_cloud_workspace(
     *,
@@ -412,10 +405,6 @@ def check_airbyte_cloud_workspace(
     ],
 ) -> str:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
 
     Returns workspace ID and workspace URL for verification.
     """
@@ -432,6 +421,7 @@ def check_airbyte_cloud_workspace(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_noop_destination_to_cloud(
     name: str = "No-op Destination",
@@ -445,12 +435,7 @@ def deploy_noop_destination_to_cloud(
     ],
     unique: bool = True,
 ) -> str:
-    """Deploy the No-op destination to Airbyte Cloud for testing purposes.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Deploy the No-op destination to Airbyte Cloud for testing purposes."""
     destination = get_noop_destination()
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     deployed_destination = workspace.deploy_destination(
@@ -471,6 +456,7 @@ def deploy_noop_destination_to_cloud(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_sync_status(
     connection_id: Annotated[
@@ -502,12 +488,7 @@ def get_cloud_sync_status(
         ),
     ],
 ) -> dict[str, Any]:
-    """Get the status of a sync job from the Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Get the status of a sync job from the Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -549,6 +530,7 @@ def get_cloud_sync_status(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_deployed_cloud_source_connectors(
     *,
@@ -568,12 +550,7 @@ def list_deployed_cloud_source_connectors(
         "Optional maximum number of items to return (default: no limit)",
     ] = None,
 ) -> list[CloudSourceResult]:
-    """List all deployed source connectors in the Airbyte Cloud workspace.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """List all deployed source connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     sources = workspace.list_sources()
 
@@ -602,6 +579,7 @@ def list_deployed_cloud_source_connectors(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_deployed_cloud_destination_connectors(
     *,
@@ -621,12 +599,7 @@ def list_deployed_cloud_destination_connectors(
         "Optional maximum number of items to return (default: no limit)",
     ] = None,
 ) -> list[CloudDestinationResult]:
-    """List all deployed destination connectors in the Airbyte Cloud workspace.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """List all deployed destination connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destinations = workspace.list_destinations()
 
@@ -655,6 +628,7 @@ def list_deployed_cloud_destination_connectors(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_source(
     source_id: Annotated[
@@ -670,12 +644,7 @@ def describe_cloud_source(
         ),
     ],
 ) -> CloudSourceDetails:
-    """Get detailed information about a specific deployed source connector.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Get detailed information about a specific deployed source connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     source = workspace.get_source(source_id=source_id)
 
@@ -695,6 +664,7 @@ def describe_cloud_source(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_destination(
     destination_id: Annotated[
@@ -710,12 +680,7 @@ def describe_cloud_destination(
         ),
     ],
 ) -> CloudDestinationDetails:
-    """Get detailed information about a specific deployed destination connector.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Get detailed information about a specific deployed destination connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
@@ -735,6 +700,7 @@ def describe_cloud_destination(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_connection(
     connection_id: Annotated[
@@ -750,12 +716,7 @@ def describe_cloud_connection(
         ),
     ],
 ) -> CloudConnectionDetails:
-    """Get detailed information about a specific deployed connection.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Get detailed information about a specific deployed connection."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -777,6 +738,7 @@ def describe_cloud_connection(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_sync_logs(
     connection_id: Annotated[
@@ -802,12 +764,7 @@ def get_cloud_sync_logs(
         ),
     ],
 ) -> str:
-    """Get the logs from a sync job attempt on Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Get the logs from a sync job attempt on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -849,6 +806,7 @@ def get_cloud_sync_logs(
     read_only=True,
     idempotent=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_deployed_cloud_connections(
     *,
@@ -868,12 +826,7 @@ def list_deployed_cloud_connections(
         "Optional maximum number of items to return (default: no limit)",
     ] = None,
 ) -> list[CloudConnectionResult]:
-    """List all deployed connections in the Airbyte Cloud workspace.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """List all deployed connections in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connections = workspace.list_connections()
 
@@ -916,6 +869,7 @@ def _get_custom_source_definition_description(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def publish_custom_source_definition(
     name: Annotated[
@@ -992,7 +946,7 @@ def list_custom_source_definitions(
     workspace_id: Annotated[
         str | None,
         Field(
-            description="Workspace ID. Defaults to AIRBYTE_CLOUD_WORKSPACE_ID env var.",
+            description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
     ],
@@ -1148,6 +1102,7 @@ def permanently_delete_custom_source_definition(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def permanently_delete_cloud_source(
     source_id: Annotated[
@@ -1170,10 +1125,6 @@ def permanently_delete_cloud_source(
 
     The provided name must match the actual name of the source for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(source_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
@@ -1207,6 +1158,7 @@ def permanently_delete_cloud_source(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def permanently_delete_cloud_destination(
     destination_id: Annotated[
@@ -1229,10 +1181,6 @@ def permanently_delete_cloud_destination(
 
     The provided name must match the actual name of the destination for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(destination_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
@@ -1266,6 +1214,7 @@ def permanently_delete_cloud_destination(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def permanently_delete_cloud_connection(
     connection_id: Annotated[
@@ -1307,10 +1256,6 @@ def permanently_delete_cloud_connection(
 
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace()
@@ -1345,6 +1290,7 @@ def permanently_delete_cloud_connection(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_source(
     source_id: Annotated[
@@ -1364,12 +1310,7 @@ def rename_cloud_source(
         ),
     ],
 ) -> str:
-    """Rename a deployed source connector on Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Rename a deployed source connector on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     source = workspace.get_source(source_id=source_id)
     source.rename(name=name)
@@ -1380,6 +1321,7 @@ def rename_cloud_source(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_source_config(
     source_id: Annotated[
@@ -1412,10 +1354,6 @@ def update_cloud_source_config(
 
     This is a destructive operation that can break existing connections if the
     configuration is changed incorrectly. Use with caution.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(source_id)
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
@@ -1434,6 +1372,7 @@ def update_cloud_source_config(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_destination(
     destination_id: Annotated[
@@ -1453,12 +1392,7 @@ def rename_cloud_destination(
         ),
     ],
 ) -> str:
-    """Rename a deployed destination connector on Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Rename a deployed destination connector on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
     destination.rename(name=name)
@@ -1472,6 +1406,7 @@ def rename_cloud_destination(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_destination_config(
     destination_id: Annotated[
@@ -1504,10 +1439,6 @@ def update_cloud_destination_config(
 
     This is a destructive operation that can break existing connections if the
     configuration is changed incorrectly. Use with caution.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(destination_id)
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
@@ -1528,6 +1459,7 @@ def update_cloud_destination_config(
 @mcp_tool(
     domain="cloud",
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_connection(
     connection_id: Annotated[
@@ -1547,12 +1479,7 @@ def rename_cloud_connection(
         ),
     ],
 ) -> str:
-    """Rename a connection on Airbyte Cloud.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
-    """
+    """Rename a connection on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     connection.rename(name=name)
@@ -1566,6 +1493,7 @@ def rename_cloud_connection(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_cloud_connection_table_prefix(
     connection_id: Annotated[
@@ -1589,10 +1517,6 @@ def set_cloud_connection_table_prefix(
 
     This is a destructive operation that can break downstream dependencies if the
     table prefix is changed incorrectly. Use with caution.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
@@ -1608,6 +1532,7 @@ def set_cloud_connection_table_prefix(
     domain="cloud",
     destructive=True,
     open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_cloud_connection_selected_streams(
     connection_id: Annotated[
@@ -1636,10 +1561,6 @@ def set_cloud_connection_selected_streams(
 
     This is a destructive operation that can break existing connections if the
     stream selection is changed incorrectly. Use with caution.
-
-    By default, the `AIRBYTE_CLIENT_ID`, `AIRBYTE_CLIENT_SECRET`, `AIRBYTE_WORKSPACE_ID`,
-    and `AIRBYTE_API_ROOT` environment variables will be used to authenticate with the
-    Airbyte Cloud API.
     """
     check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
