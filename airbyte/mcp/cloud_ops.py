@@ -816,18 +816,22 @@ def get_cloud_sync_logs(
         ),
     ],
     max_lines: Annotated[
-        int | None,
+        int,
         Field(
-            description="Maximum number of lines to return. Defaults to 4000 if not specified.",
-            default=None,
+            description=(
+                "Maximum number of lines to return. "
+                "Defaults to 4000 if not specified. "
+                "If '0' is provided, no limit is applied."
+            ),
+            default=4000,
         ),
-    ] = None,
+    ],
     line_offset: Annotated[
         int | None,
         Field(
             description=(
                 "Number of lines to skip from the beginning of the logs. "
-                "Cannot be used together with from_tail."
+                "Cannot be combined with `from_tail=True`."
             ),
             default=None,
         ),
@@ -837,7 +841,7 @@ def get_cloud_sync_logs(
         Field(
             description=(
                 "If True, return lines from the end of the logs instead of the beginning. "
-                "Cannot be used together with line_offset."
+                "Cannot be combined with `line_offset`."
             ),
             default=None,
         ),
@@ -847,9 +851,11 @@ def get_cloud_sync_logs(
     # Validate that line_offset and from_tail are not both set
     if line_offset is not None and from_tail:
         raise PyAirbyteInputError(
-            message="Cannot specify both 'line_offset' and 'from_tail' parameters."
+            message="Cannot specify both 'line_offset' and 'from_tail' parameters.",
+            context={"line_offset": line_offset, "from_tail": from_tail},
         )
 
+    max_lines = None if max_lines = 0 else max_lines
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -889,7 +895,10 @@ def get_cloud_sync_logs(
     if not logs:
         # Return empty result with zero lines
         return LogReadResult(
-            log_text="",
+            log_text=(
+                f"[No logs available for job '{sync_result.job_id}', "
+                f"attempt {target_attempt.attempt_number}.]"
+            ),
             log_text_start_line=1,
             log_text_line_count=0,
             total_log_lines_available=0,
@@ -899,8 +908,8 @@ def get_cloud_sync_logs(
     lines = logs.splitlines()
     total_lines = len(lines)
 
-    # Default max_lines to 4000 if not specified
-    effective_max_lines = max_lines if max_lines is not None else 4000
+    # If max_lines is 0 or None, we return all lines.
+    effective_max_lines = max_lines or total_lines
 
     if from_tail:
         # Return lines from the end
