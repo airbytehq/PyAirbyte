@@ -1643,8 +1643,7 @@ def list_workspaces_in_organization(
         payload["nameContains"] = name_contains
 
     # Fetch pages until we have all results or reach the limit
-    has_more_pages = True
-    while has_more_pages:
+    while True:
         json_result = _make_config_api_request(
             path="/workspaces/list_by_organization_id",
             json=payload,
@@ -1654,14 +1653,20 @@ def list_workspaces_in_organization(
         )
 
         workspaces = json_result.get("workspaces", [])
+
+        # If no results returned, we've exhausted all pages
+        if not workspaces:
+            break
+
         result.extend(workspaces)
 
         # Check if we've reached the limit
         if max_items_limit is not None and len(result) >= max_items_limit:
             return result[:max_items_limit]
 
-        # Check if there are more pages
-        has_more_pages = len(workspaces) >= page_size
+        # If we got fewer results than page_size, this was the last page
+        if len(workspaces) < page_size:
+            break
 
         # Bump offset for next iteration
         payload["pagination"]["rowOffset"] += page_size
