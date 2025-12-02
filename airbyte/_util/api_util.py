@@ -1562,3 +1562,113 @@ def get_connector_builder_project_for_definition_id(
         client_secret=client_secret,
     )
     return json_result.get("builderProjectId")
+
+
+# Organization and workspace listing
+
+
+def list_organizations_for_user(
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> list[models.OrganizationResponse]:
+    """List all organizations accessible to the current user.
+
+    Uses the public API endpoint: GET /organizations
+
+    Args:
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        List of OrganizationResponse objects containing organization_id, organization_name, email
+    """
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    response = airbyte_instance.organizations.list_organizations_for_user()
+
+    if status_ok(response.status_code) and response.organizations_response:
+        return response.organizations_response.data
+
+    raise AirbyteError(
+        message="Failed to list organizations for user.",
+        context={
+            "status_code": response.status_code,
+            "response": response,
+        },
+    )
+
+
+def list_workspaces_in_organization(
+    organization_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name_contains: str | None = None,
+    max_items_limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """List workspaces within a specific organization.
+
+    Uses the Config API endpoint: POST /v1/workspaces/list_by_organization_id
+
+    Args:
+        organization_id: The organization ID to list workspaces for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        name_contains: Optional substring filter for workspace names (server-side)
+        max_items_limit: Optional maximum number of workspaces to return
+
+    Returns:
+        List of workspace dictionaries containing workspaceId, organizationId, name, slug, etc.
+    """
+    result: list[dict[str, Any]] = []
+    page_size = 100
+
+    # Build base payload
+    payload: dict[str, Any] = {
+        "organizationId": organization_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains:
+        payload["nameContains"] = name_contains
+
+    # Fetch pages until we have all results or reach the limit
+    while True:
+        json_result = _make_config_api_request(
+            path="/workspaces/list_by_organization_id",
+            json=payload,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+
+        workspaces = json_result.get("workspaces", [])
+
+        # If no results returned, we've exhausted all pages
+        if not workspaces:
+            break
+
+        result.extend(workspaces)
+
+        # Check if we've reached the limit
+        if max_items_limit is not None and len(result) >= max_items_limit:
+            return result[:max_items_limit]
+
+        # If we got fewer results than page_size, this was the last page
+        if len(workspaces) < page_size:
+            break
+
+        # Bump offset for next iteration
+        payload["pagination"]["rowOffset"] += page_size
+
+    return result
