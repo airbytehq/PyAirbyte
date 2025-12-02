@@ -802,8 +802,41 @@ def get_cloud_sync_logs(
             default=None,
         ),
     ],
+    max_lines: Annotated[
+        int | None,
+        Field(
+            description="Maximum number of lines to return. Defaults to 4000 if not specified.",
+            default=None,
+        ),
+    ] = None,
+    line_offset: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Number of lines to skip from the beginning of the logs. "
+                "Cannot be used together with from_tail."
+            ),
+            default=None,
+        ),
+    ] = None,
+    from_tail: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "If True, return lines from the end of the logs instead of the beginning. "
+                "Cannot be used together with line_offset."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Get the logs from a sync job attempt on Airbyte Cloud."""
+    # Validate that line_offset and from_tail are not both set
+    if line_offset is not None and from_tail:
+        raise PyAirbyteInputError(
+            message="Cannot specify both 'line_offset' and 'from_tail' parameters."
+        )
+
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -837,7 +870,35 @@ def get_cloud_sync_logs(
             f"attempt {target_attempt.attempt_number}"
         )
 
-    return logs
+    # Apply line limiting
+    lines = logs.splitlines()
+    total_lines = len(lines)
+
+    # Default max_lines to 4000 if not specified
+    effective_max_lines = max_lines if max_lines is not None else 4000
+
+    if from_tail:
+        # Return lines from the end
+        lines = lines[-effective_max_lines:]
+    else:
+        # Return lines from the beginning, with optional offset
+        start_index = line_offset if line_offset is not None else 0
+        lines = lines[start_index : start_index + effective_max_lines]
+
+    result = "\n".join(lines)
+
+    # Add metadata about truncation if applicable
+    returned_lines = len(lines)
+    if returned_lines < total_lines:
+        truncation_note = f"\n\n[Showing {returned_lines} of {total_lines} total lines"
+        if from_tail:
+            truncation_note += " (from tail)"
+        elif line_offset:
+            truncation_note += f" (offset: {line_offset})"
+        truncation_note += "]"
+        result += truncation_note
+
+    return result
 
 
 @mcp_tool(
