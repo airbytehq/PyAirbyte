@@ -599,12 +599,18 @@ def list_deployed_cloud_source_connectors(
     ],
     name_contains: Annotated[
         str | None,
-        "Optional case-insensitive substring to filter sources by name",
-    ] = None,
+        Field(
+            description="Optional case-insensitive substring to filter sources by name",
+            default=None,
+        ),
+    ],
     max_items_limit: Annotated[
         int | None,
-        "Optional maximum number of items to return (default: no limit)",
-    ] = None,
+        Field(
+            description="Optional maximum number of items to return (default: no limit)",
+            default=None,
+        ),
+    ],
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
@@ -648,12 +654,18 @@ def list_deployed_cloud_destination_connectors(
     ],
     name_contains: Annotated[
         str | None,
-        "Optional case-insensitive substring to filter destinations by name",
-    ] = None,
+        Field(
+            description="Optional case-insensitive substring to filter destinations by name",
+            default=None,
+        ),
+    ],
     max_items_limit: Annotated[
         int | None,
-        "Optional maximum number of items to return (default: no limit)",
-    ] = None,
+        Field(
+            description="Optional maximum number of items to return (default: no limit)",
+            default=None,
+        ),
+    ],
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
@@ -955,12 +967,18 @@ def list_deployed_cloud_connections(
     ],
     name_contains: Annotated[
         str | None,
-        "Optional case-insensitive substring to filter connections by name",
-    ] = None,
+        Field(
+            description="Optional case-insensitive substring to filter connections by name",
+            default=None,
+        ),
+    ],
     max_items_limit: Annotated[
         int | None,
-        "Optional maximum number of items to return (default: no limit)",
-    ] = None,
+        Field(
+            description="Optional maximum number of items to return (default: no limit)",
+            default=None,
+        ),
+    ],
     with_connection_status: Annotated[
         bool | None,
         Field(
@@ -1178,12 +1196,18 @@ def list_cloud_workspaces(
     ],
     name_contains: Annotated[
         str | None,
-        "Optional substring to filter workspaces by name (server-side filtering)",
-    ] = None,
+        Field(
+            description="Optional substring to filter workspaces by name (server-side filtering)",
+            default=None,
+        ),
+    ],
     max_items_limit: Annotated[
         int | None,
-        "Optional maximum number of items to return (default: no limit)",
-    ] = None,
+        Field(
+            description="Optional maximum number of items to return (default: no limit)",
+            default=None,
+        ),
+    ],
 ) -> list[CloudWorkspaceResult]:
     """List all workspaces in a specific organization.
 
