@@ -855,7 +855,6 @@ def get_cloud_sync_logs(
             context={"line_offset": line_offset, "from_tail": from_tail},
         )
 
-    max_lines = None if max_lines = 0 else max_lines
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
