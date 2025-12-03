@@ -860,7 +860,8 @@ def get_cloud_sync_logs(
             context={"line_offset": line_offset, "from_tail": from_tail},
         )
 
-    from_tail = True if (line_offset is None and from_tail is None) else False
+    if from_tail is None and line_offset is None:
+        from_tail = True
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
@@ -915,31 +916,21 @@ def get_cloud_sync_logs(
     log_lines = logs.splitlines()
     total_lines = len(log_lines)
 
-    if max_lines == 0 or total_lines <= max_lines:
-        # Return all lines if no limit or total lines less than limit
-        return LogReadResult(
-            log_text=logs,
-            log_text_start_line=1,
-            log_text_line_count=total_lines,
-            total_log_lines_available=total_lines,
-            job_id=sync_result.job_id,
-            attempt_number=target_attempt.attempt_number,
-        )
+    # Determine effective max_lines (0 means no limit)
+    effective_max = total_lines if max_lines == 0 else max_lines
 
-    # Else, we need to limit the result:
+    # Calculate start_index and slice based on from_tail or line_offset
     if from_tail:
-        # Return lines from the end
-        start_index = max(0, total_lines - max_lines)
-        log_lines = log_lines[-max_lines:]
+        start_index = max(0, total_lines - effective_max)
+        selected_lines = log_lines[start_index:][:effective_max]
     else:
-        # Return lines from the beginning, with optional offset
-        start_index = line_offset if line_offset is not None else 0
-        log_lines = log_lines[start_index : start_index + max_lines]
+        start_index = line_offset or 0
+        selected_lines = log_lines[start_index : start_index + effective_max]
 
     return LogReadResult(
-        log_text="\n".join(log_lines),
+        log_text="\n".join(selected_lines),
         log_text_start_line=start_index + 1,  # Convert to 1-based index
-        log_text_line_count=len(log_lines),
+        log_text_line_count=len(selected_lines),
         total_log_lines_available=total_lines,
         job_id=sync_result.job_id,
         attempt_number=target_attempt.attempt_number,
