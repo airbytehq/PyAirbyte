@@ -914,7 +914,7 @@ def get_cloud_sync_logs(
     log_lines = logs.splitlines()
     total_lines = len(log_lines)
 
-    if max_lines == 0 or total_lines < max_lines:
+    if max_lines == 0 or total_lines <= max_lines:
         # Return all lines if no limit or total lines less than limit
         return LogReadResult(
             log_text=logs,
