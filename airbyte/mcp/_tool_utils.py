@@ -28,6 +28,22 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 
+# Domain filtering env vars
+_AIRBYTE_MCP_DOMAINS_RAW = os.environ.get("AIRBYTE_MCP_DOMAINS", "").strip()
+_AIRBYTE_MCP_DOMAINS_DISABLED_RAW = os.environ.get("AIRBYTE_MCP_DOMAINS_DISABLED", "").strip()
+
+# Parse CSV into sets (empty string -> empty set)
+AIRBYTE_MCP_DOMAINS: set[str] = (
+    {d.strip().lower() for d in _AIRBYTE_MCP_DOMAINS_RAW.split(",") if d.strip()}
+    if _AIRBYTE_MCP_DOMAINS_RAW
+    else set()
+)
+AIRBYTE_MCP_DOMAINS_DISABLED: set[str] = (
+    {d.strip().lower() for d in _AIRBYTE_MCP_DOMAINS_DISABLED_RAW.split(",") if d.strip()}
+    if _AIRBYTE_MCP_DOMAINS_DISABLED_RAW
+    else set()
+)
+
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
 
@@ -66,6 +82,39 @@ def check_guid_created_in_session(guid: str) -> None:
         )
 
 
+def is_domain_enabled(domain: str) -> bool:
+    """Check if a domain is enabled based on AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
+
+    The logic is:
+    - If neither env var is set: all domains are enabled
+    - If only AIRBYTE_MCP_DOMAINS is set: only those domains are enabled
+    - If only AIRBYTE_MCP_DOMAINS_DISABLED is set: all domains except those are enabled
+    - If both are set: disabled domains subtract from enabled domains
+
+    Args:
+        domain: The domain to check (e.g., "cloud", "local", "registry")
+
+    Returns:
+        True if the domain is enabled, False otherwise
+    """
+    domain_lower = domain.lower()
+
+    # If neither env var is set, all domains are enabled
+    if not AIRBYTE_MCP_DOMAINS and not AIRBYTE_MCP_DOMAINS_DISABLED:
+        return True
+
+    # If only disabled list is set, enable all except disabled
+    if not AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED:
+        return domain_lower not in AIRBYTE_MCP_DOMAINS_DISABLED
+
+    # If only enabled list is set, only enable those domains
+    if AIRBYTE_MCP_DOMAINS and not AIRBYTE_MCP_DOMAINS_DISABLED:
+        return domain_lower in AIRBYTE_MCP_DOMAINS
+
+    # Both are set: disabled list subtracts from enabled list
+    return domain_lower in AIRBYTE_MCP_DOMAINS and domain_lower not in AIRBYTE_MCP_DOMAINS_DISABLED
+
+
 def should_register_tool(annotations: dict[str, Any]) -> bool:
     """Check if a tool should be registered based on mode settings.
 
@@ -75,10 +124,14 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     Returns:
         True if the tool should be registered, False if it should be filtered out
     """
-    if annotations.get("domain") != "cloud":
-        return True
+    domain = annotations.get("domain")
 
-    if AIRBYTE_CLOUD_MCP_READONLY_MODE:
+    # Check domain filtering first
+    if domain and not is_domain_enabled(domain):
+        return False
+
+    # Cloud-specific readonly mode check
+    if domain == "cloud" and AIRBYTE_CLOUD_MCP_READONLY_MODE:
         is_readonly = annotations.get(READ_ONLY_HINT, False)
         if not is_readonly:
             return False
