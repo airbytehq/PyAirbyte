@@ -248,12 +248,9 @@ MCP_TOOL_DOMAINS: list[str] = ["cloud", "local", "registry"]
 - `registry`: Tools for querying the Airbyte connector registry
 """
 
-_mcp_domains_raw = os.getenv("AIRBYTE_MCP_DOMAINS", "").strip()
-AIRBYTE_MCP_DOMAINS: list[str] | None = (
-    ([d.strip().lower() for d in _mcp_domains_raw.split(",") if d.strip()] or None)
-    if _mcp_domains_raw
-    else None
-)
+AIRBYTE_MCP_DOMAINS: list[str] | None = [
+    d.strip().lower() for d in os.getenv("AIRBYTE_MCP_DOMAINS", "").split(",") if d.strip()
+] or None
 """Enabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS` environment variable.
 
 Accepts a comma-separated list of domain names (e.g., "registry,cloud").
@@ -263,12 +260,9 @@ If not set (None), all domains are enabled by default.
 Values are case-insensitive and whitespace is trimmed.
 """
 
-_mcp_domains_disabled_raw = os.getenv("AIRBYTE_MCP_DOMAINS_DISABLED", "").strip()
-AIRBYTE_MCP_DOMAINS_DISABLED: list[str] | None = (
-    ([d.strip().lower() for d in _mcp_domains_disabled_raw.split(",") if d.strip()] or None)
-    if _mcp_domains_disabled_raw
-    else None
-)
+AIRBYTE_MCP_DOMAINS_DISABLED: list[str] | None = [
+    d.strip().lower() for d in os.getenv("AIRBYTE_MCP_DOMAINS_DISABLED", "").split(",") if d.strip()
+] or None
 """Disabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS_DISABLED` environment variable.
 
 Accepts a comma-separated list of domain names (e.g., "registry").
