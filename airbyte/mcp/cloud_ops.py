@@ -417,7 +417,7 @@ def run_cloud_sync(
         bool,
         Field(
             description="Whether to wait for the sync to complete.",
-            default=True,
+            default=False,
         ),
     ],
     wait_timeout: Annotated[
