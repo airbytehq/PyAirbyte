@@ -139,6 +139,8 @@ def test_is_domain_enabled(
     expected: bool,
 ) -> None:
     """Test is_domain_enabled function with various domain configurations."""
+    import airbyte.mcp._tool_utils as tool_utils
+
     with (
         patch(
             "airbyte.mcp._tool_utils.AIRBYTE_MCP_DOMAINS",
@@ -149,9 +151,7 @@ def test_is_domain_enabled(
             {d.lower() for d in disabled_domains},
         ),
     ):
-        from airbyte.mcp._tool_utils import is_domain_enabled
-
-        result = is_domain_enabled(domain)
+        result = tool_utils.is_domain_enabled(domain)
         assert result == expected
 
 
@@ -268,6 +268,8 @@ def test_should_register_tool(
     expected: bool,
 ) -> None:
     """Test should_register_tool function with various configurations."""
+    import airbyte.mcp._tool_utils as tool_utils
+
     from airbyte.mcp._annotations import READ_ONLY_HINT
 
     annotations = {
@@ -289,9 +291,7 @@ def test_should_register_tool(
             readonly_mode,
         ),
     ):
-        from airbyte.mcp._tool_utils import should_register_tool
-
-        result = should_register_tool(annotations)
+        result = tool_utils.should_register_tool(annotations)
         assert result == expected
 
 
@@ -334,13 +334,13 @@ def test_domain_env_var_parsing(env_value: str, expected_set: set[str]) -> None:
     """Test that AIRBYTE_MCP_DOMAINS env var is parsed correctly."""
     import importlib
 
-    import airbyte.mcp._tool_utils as tool_utils
+    import airbyte.mcp.constants as constants
 
     with patch.dict("os.environ", {"AIRBYTE_MCP_DOMAINS": env_value}, clear=False):
-        importlib.reload(tool_utils)
-        assert tool_utils.AIRBYTE_MCP_DOMAINS == expected_set
+        importlib.reload(constants)
+        assert constants.AIRBYTE_MCP_DOMAINS == expected_set
 
-    importlib.reload(tool_utils)
+    importlib.reload(constants)
 
 
 @pytest.mark.parametrize(
@@ -369,12 +369,12 @@ def test_domain_disabled_env_var_parsing(
     """Test that AIRBYTE_MCP_DOMAINS_DISABLED env var is parsed correctly."""
     import importlib
 
-    import airbyte.mcp._tool_utils as tool_utils
+    import airbyte.mcp.constants as constants
 
     with patch.dict(
         "os.environ", {"AIRBYTE_MCP_DOMAINS_DISABLED": env_value}, clear=False
     ):
-        importlib.reload(tool_utils)
-        assert tool_utils.AIRBYTE_MCP_DOMAINS_DISABLED == expected_set
+        importlib.reload(constants)
+        assert constants.AIRBYTE_MCP_DOMAINS_DISABLED == expected_set
 
-    importlib.reload(tool_utils)
+    importlib.reload(constants)

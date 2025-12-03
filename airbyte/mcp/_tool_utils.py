@@ -18,6 +18,10 @@ from airbyte.mcp._annotations import (
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
 )
+from airbyte.mcp.constants import (
+    AIRBYTE_MCP_DOMAINS,
+    AIRBYTE_MCP_DOMAINS_DISABLED,
+)
 
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -28,21 +32,6 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
 
-# Domain filtering env vars
-_AIRBYTE_MCP_DOMAINS_RAW = os.environ.get("AIRBYTE_MCP_DOMAINS", "").strip()
-_AIRBYTE_MCP_DOMAINS_DISABLED_RAW = os.environ.get("AIRBYTE_MCP_DOMAINS_DISABLED", "").strip()
-
-# Parse CSV into sets (empty string -> empty set)
-AIRBYTE_MCP_DOMAINS: set[str] = (
-    {d.strip().lower() for d in _AIRBYTE_MCP_DOMAINS_RAW.split(",") if d.strip()}
-    if _AIRBYTE_MCP_DOMAINS_RAW
-    else set()
-)
-AIRBYTE_MCP_DOMAINS_DISABLED: set[str] = (
-    {d.strip().lower() for d in _AIRBYTE_MCP_DOMAINS_DISABLED_RAW.split(",") if d.strip()}
-    if _AIRBYTE_MCP_DOMAINS_DISABLED_RAW
-    else set()
-)
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
@@ -125,13 +114,14 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
         True if the tool should be registered, False if it should be filtered out
     """
     domain = annotations.get("domain")
+    domain_normalized = domain.lower() if isinstance(domain, str) else None
 
     # Check domain filtering first
-    if domain and not is_domain_enabled(domain):
+    if domain_normalized and not is_domain_enabled(domain_normalized):
         return False
 
-    # Cloud-specific readonly mode check
-    if domain == "cloud" and AIRBYTE_CLOUD_MCP_READONLY_MODE:
+    # Cloud-specific readonly mode check (case-insensitive)
+    if domain_normalized == "cloud" and AIRBYTE_CLOUD_MCP_READONLY_MODE:
         is_readonly = annotations.get(READ_ONLY_HINT, False)
         if not is_readonly:
             return False
