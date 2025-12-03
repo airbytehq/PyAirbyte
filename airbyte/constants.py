@@ -237,3 +237,45 @@ Documentation:
 - https://docs.airbyte.com/api-documentation#configuration-api-deprecated
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
 """
+
+# MCP (Model Context Protocol) Constants
+
+MCP_TOOL_DOMAINS: list[str] = ["cloud", "local", "registry"]
+"""Valid MCP tool domains available in the server.
+
+- `cloud`: Tools for managing Airbyte Cloud resources (sources, destinations, connections)
+- `local`: Tools for local operations (connector validation, caching, SQL queries)
+- `registry`: Tools for querying the Airbyte connector registry
+"""
+
+_mcp_domains_raw = os.getenv("AIRBYTE_MCP_DOMAINS", "").strip()
+AIRBYTE_MCP_DOMAINS: list[str] | None = (
+    ([d.strip().lower() for d in _mcp_domains_raw.split(",") if d.strip()] or None)
+    if _mcp_domains_raw
+    else None
+)
+"""Enabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS` environment variable.
+
+Accepts a comma-separated list of domain names (e.g., "registry,cloud").
+If set, only tools from these domains will be advertised by the MCP server.
+If not set (None), all domains are enabled by default.
+
+Values are case-insensitive and whitespace is trimmed.
+"""
+
+_mcp_domains_disabled_raw = os.getenv("AIRBYTE_MCP_DOMAINS_DISABLED", "").strip()
+AIRBYTE_MCP_DOMAINS_DISABLED: list[str] | None = (
+    ([d.strip().lower() for d in _mcp_domains_disabled_raw.split(",") if d.strip()] or None)
+    if _mcp_domains_disabled_raw
+    else None
+)
+"""Disabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS_DISABLED` environment variable.
+
+Accepts a comma-separated list of domain names (e.g., "registry").
+Tools from these domains will not be advertised by the MCP server.
+
+When both `AIRBYTE_MCP_DOMAINS` and `AIRBYTE_MCP_DOMAINS_DISABLED` are set,
+the disabled list takes precedence (subtracts from the enabled list).
+
+Values are case-insensitive and whitespace is trimmed.
+"""

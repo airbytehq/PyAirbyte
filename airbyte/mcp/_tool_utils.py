@@ -9,18 +9,21 @@ from __future__ import annotations
 
 import inspect
 import os
+import warnings
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Literal, TypeVar
 
+from airbyte.constants import (
+    AIRBYTE_MCP_DOMAINS,
+    AIRBYTE_MCP_DOMAINS_DISABLED,
+    MCP_TOOL_DOMAINS,
+)
 from airbyte.mcp._annotations import (
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
     OPEN_WORLD_HINT,
     READ_ONLY_HINT,
-)
-from airbyte.mcp.constants import (
-    AIRBYTE_MCP_DOMAINS,
-    AIRBYTE_MCP_DOMAINS_DISABLED,
 )
 
 
@@ -71,6 +74,42 @@ def check_guid_created_in_session(guid: str) -> None:
         )
 
 
+@lru_cache(maxsize=1)
+def _resolve_mcp_domain_filters() -> tuple[set[str], set[str]]:
+    """Resolve MCP domain filters from environment variables.
+
+    This function is cached to ensure warnings are only emitted once per process.
+
+    Returns:
+        Tuple of (enabled_domains, disabled_domains) as sets.
+        If an env var is not set, the corresponding set will be empty.
+    """
+    known_domains = set(MCP_TOOL_DOMAINS)
+    enabled = set(AIRBYTE_MCP_DOMAINS or [])
+    disabled = set(AIRBYTE_MCP_DOMAINS_DISABLED or [])
+
+    # Check for unknown domains and warn
+    unknown_enabled = enabled - known_domains
+    unknown_disabled = disabled - known_domains
+
+    if unknown_enabled or unknown_disabled:
+        parts: list[str] = []
+        if unknown_enabled:
+            parts.append(
+                f"AIRBYTE_MCP_DOMAINS contains unknown domain(s): {sorted(unknown_enabled)}"
+            )
+        if unknown_disabled:
+            parts.append(
+                "AIRBYTE_MCP_DOMAINS_DISABLED contains unknown domain(s): "
+                f"{sorted(unknown_disabled)}"
+            )
+        known_list = ", ".join(sorted(known_domains))
+        warning_message = "; ".join(parts) + f". Known MCP domains are: [{known_list}]."
+        warnings.warn(warning_message, stacklevel=3)
+
+    return enabled, disabled
+
+
 def is_domain_enabled(domain: str) -> bool:
     """Check if a domain is enabled based on AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
@@ -86,22 +125,23 @@ def is_domain_enabled(domain: str) -> bool:
     Returns:
         True if the domain is enabled, False otherwise
     """
+    enabled, disabled = _resolve_mcp_domain_filters()
     domain_lower = domain.lower()
 
     # If neither env var is set, all domains are enabled
-    if not AIRBYTE_MCP_DOMAINS and not AIRBYTE_MCP_DOMAINS_DISABLED:
+    if not enabled and not disabled:
         return True
 
     # If only disabled list is set, enable all except disabled
-    if not AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED:
-        return domain_lower not in AIRBYTE_MCP_DOMAINS_DISABLED
+    if not enabled and disabled:
+        return domain_lower not in disabled
 
     # If only enabled list is set, only enable those domains
-    if AIRBYTE_MCP_DOMAINS and not AIRBYTE_MCP_DOMAINS_DISABLED:
-        return domain_lower in AIRBYTE_MCP_DOMAINS
+    if enabled and not disabled:
+        return domain_lower in enabled
 
     # Both are set: disabled list subtracts from enabled list
-    return domain_lower in AIRBYTE_MCP_DOMAINS and domain_lower not in AIRBYTE_MCP_DOMAINS_DISABLED
+    return domain_lower in enabled and domain_lower not in disabled
 
 
 def should_register_tool(annotations: dict[str, Any]) -> bool:

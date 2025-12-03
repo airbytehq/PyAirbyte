@@ -12,120 +12,120 @@ import pytest
     "enabled_domains,disabled_domains,domain,expected",
     [
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "cloud",
             True,
             id="no_env_vars_set_all_enabled",
         ),
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "registry",
             True,
             id="no_env_vars_set_registry_enabled",
         ),
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "local",
             True,
             id="no_env_vars_set_local_enabled",
         ),
         pytest.param(
-            {"registry", "cloud"},
-            set(),
+            ["registry", "cloud"],
+            None,
             "cloud",
             True,
             id="scenario_a_cloud_enabled",
         ),
         pytest.param(
-            {"registry", "cloud"},
-            set(),
+            ["registry", "cloud"],
+            None,
             "registry",
             True,
             id="scenario_a_registry_enabled",
         ),
         pytest.param(
-            {"registry", "cloud"},
-            set(),
+            ["registry", "cloud"],
+            None,
             "local",
             False,
             id="scenario_a_local_disabled",
         ),
         pytest.param(
-            set(),
-            {"registry"},
+            None,
+            ["registry"],
             "cloud",
             True,
             id="scenario_b_cloud_enabled",
         ),
         pytest.param(
-            set(),
-            {"registry"},
+            None,
+            ["registry"],
             "local",
             True,
             id="scenario_b_local_enabled",
         ),
         pytest.param(
-            set(),
-            {"registry"},
+            None,
+            ["registry"],
             "registry",
             False,
             id="scenario_b_registry_disabled",
         ),
         pytest.param(
-            {"registry", "cloud"},
-            {"registry"},
+            ["registry", "cloud"],
+            ["registry"],
             "cloud",
             True,
             id="scenario_c_cloud_enabled",
         ),
         pytest.param(
-            {"registry", "cloud"},
-            {"registry"},
+            ["registry", "cloud"],
+            ["registry"],
             "registry",
             False,
             id="scenario_c_registry_disabled_by_intersection",
         ),
         pytest.param(
-            {"registry", "cloud"},
-            {"registry"},
+            ["registry", "cloud"],
+            ["registry"],
             "local",
             False,
             id="scenario_c_local_not_in_enabled_list",
         ),
         pytest.param(
-            {"cloud"},
-            {"registry"},
+            ["cloud"],
+            ["registry"],
             "cloud",
             True,
             id="scenario_d_cloud_enabled",
         ),
         pytest.param(
-            {"cloud"},
-            {"registry"},
+            ["cloud"],
+            ["registry"],
             "registry",
             False,
             id="scenario_d_registry_not_in_enabled_list",
         ),
         pytest.param(
-            {"cloud"},
-            {"registry"},
+            ["cloud"],
+            ["registry"],
             "local",
             False,
             id="scenario_d_local_not_in_enabled_list",
         ),
         pytest.param(
-            {"CLOUD"},
-            set(),
+            ["CLOUD"],
+            None,
             "cloud",
             True,
             id="case_insensitive_enabled_uppercase",
         ),
         pytest.param(
-            {"cloud"},
-            set(),
+            ["cloud"],
+            None,
             "CLOUD",
             True,
             id="case_insensitive_domain_uppercase",
@@ -133,24 +133,34 @@ import pytest
     ],
 )
 def test_is_domain_enabled(
-    enabled_domains: set[str],
-    disabled_domains: set[str],
+    enabled_domains: list[str] | None,
+    disabled_domains: list[str] | None,
     domain: str,
     expected: bool,
 ) -> None:
     """Test is_domain_enabled function with various domain configurations."""
     import airbyte.mcp._tool_utils as tool_utils
 
+    # Normalize to lowercase like the real code does
+    normalized_enabled = (
+        [d.lower() for d in enabled_domains] if enabled_domains else None
+    )
+    normalized_disabled = (
+        [d.lower() for d in disabled_domains] if disabled_domains else None
+    )
+
     with (
         patch(
             "airbyte.mcp._tool_utils.AIRBYTE_MCP_DOMAINS",
-            {d.lower() for d in enabled_domains},
+            normalized_enabled,
         ),
         patch(
             "airbyte.mcp._tool_utils.AIRBYTE_MCP_DOMAINS_DISABLED",
-            {d.lower() for d in disabled_domains},
+            normalized_disabled,
         ),
     ):
+        # Clear the lru_cache to ensure fresh computation
+        tool_utils._resolve_mcp_domain_filters.cache_clear()
         result = tool_utils.is_domain_enabled(domain)
         assert result == expected
 
@@ -159,8 +169,8 @@ def test_is_domain_enabled(
     "enabled_domains,disabled_domains,tool_domain,readonly_mode,is_readonly,expected",
     [
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "cloud",
             False,
             False,
@@ -168,8 +178,8 @@ def test_is_domain_enabled(
             id="no_filtering_cloud_tool_registered",
         ),
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "registry",
             False,
             False,
@@ -177,8 +187,8 @@ def test_is_domain_enabled(
             id="no_filtering_registry_tool_registered",
         ),
         pytest.param(
-            {"cloud"},
-            set(),
+            ["cloud"],
+            None,
             "cloud",
             False,
             False,
@@ -186,8 +196,8 @@ def test_is_domain_enabled(
             id="cloud_enabled_cloud_tool_registered",
         ),
         pytest.param(
-            {"cloud"},
-            set(),
+            ["cloud"],
+            None,
             "registry",
             False,
             False,
@@ -195,8 +205,8 @@ def test_is_domain_enabled(
             id="cloud_enabled_registry_tool_not_registered",
         ),
         pytest.param(
-            set(),
-            {"registry"},
+            None,
+            ["registry"],
             "registry",
             False,
             False,
@@ -204,8 +214,8 @@ def test_is_domain_enabled(
             id="registry_disabled_registry_tool_not_registered",
         ),
         pytest.param(
-            set(),
-            {"registry"},
+            None,
+            ["registry"],
             "cloud",
             False,
             False,
@@ -213,8 +223,8 @@ def test_is_domain_enabled(
             id="registry_disabled_cloud_tool_registered",
         ),
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "cloud",
             True,
             False,
@@ -222,8 +232,8 @@ def test_is_domain_enabled(
             id="readonly_mode_non_readonly_cloud_tool_not_registered",
         ),
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "cloud",
             True,
             True,
@@ -231,8 +241,8 @@ def test_is_domain_enabled(
             id="readonly_mode_readonly_cloud_tool_registered",
         ),
         pytest.param(
-            set(),
-            set(),
+            None,
+            None,
             "registry",
             True,
             False,
@@ -240,8 +250,8 @@ def test_is_domain_enabled(
             id="readonly_mode_non_cloud_tool_registered",
         ),
         pytest.param(
-            {"cloud"},
-            set(),
+            ["cloud"],
+            None,
             "cloud",
             True,
             True,
@@ -249,8 +259,8 @@ def test_is_domain_enabled(
             id="domain_filter_and_readonly_mode_combined",
         ),
         pytest.param(
-            {"registry"},
-            set(),
+            ["registry"],
+            None,
             "cloud",
             True,
             True,
@@ -260,8 +270,8 @@ def test_is_domain_enabled(
     ],
 )
 def test_should_register_tool(
-    enabled_domains: set[str],
-    disabled_domains: set[str],
+    enabled_domains: list[str] | None,
+    disabled_domains: list[str] | None,
     tool_domain: str,
     readonly_mode: bool,
     is_readonly: bool,
@@ -280,102 +290,106 @@ def test_should_register_tool(
     with (
         patch(
             "airbyte.mcp._tool_utils.AIRBYTE_MCP_DOMAINS",
-            {d.lower() for d in enabled_domains},
+            enabled_domains,
         ),
         patch(
             "airbyte.mcp._tool_utils.AIRBYTE_MCP_DOMAINS_DISABLED",
-            {d.lower() for d in disabled_domains},
+            disabled_domains,
         ),
         patch(
             "airbyte.mcp._tool_utils.AIRBYTE_CLOUD_MCP_READONLY_MODE",
             readonly_mode,
         ),
     ):
+        # Clear the lru_cache to ensure fresh computation
+        tool_utils._resolve_mcp_domain_filters.cache_clear()
         result = tool_utils.should_register_tool(annotations)
         assert result == expected
 
 
 @pytest.mark.parametrize(
-    "env_value,expected_set",
+    "env_value,expected_list",
     [
         pytest.param(
             "",
-            set(),
-            id="empty_string_returns_empty_set",
+            None,
+            id="empty_string_returns_none",
         ),
         pytest.param(
             "cloud",
-            {"cloud"},
+            ["cloud"],
             id="single_value",
         ),
         pytest.param(
             "registry,cloud",
-            {"registry", "cloud"},
+            ["registry", "cloud"],
             id="multiple_values",
         ),
         pytest.param(
             "registry, cloud, local",
-            {"registry", "cloud", "local"},
+            ["registry", "cloud", "local"],
             id="values_with_spaces",
         ),
         pytest.param(
             "REGISTRY,CLOUD",
-            {"registry", "cloud"},
+            ["registry", "cloud"],
             id="uppercase_normalized_to_lowercase",
         ),
         pytest.param(
             "registry,,cloud",
-            {"registry", "cloud"},
+            ["registry", "cloud"],
             id="empty_values_filtered",
         ),
     ],
 )
-def test_domain_env_var_parsing(env_value: str, expected_set: set[str]) -> None:
+def test_domain_env_var_parsing(
+    env_value: str, expected_list: list[str] | None
+) -> None:
     """Test that AIRBYTE_MCP_DOMAINS env var is parsed correctly."""
     import importlib
 
-    import airbyte.mcp.constants as constants
+    import airbyte.constants as constants
 
     with patch.dict("os.environ", {"AIRBYTE_MCP_DOMAINS": env_value}, clear=False):
         importlib.reload(constants)
-        assert constants.AIRBYTE_MCP_DOMAINS == expected_set
+        assert constants.AIRBYTE_MCP_DOMAINS == expected_list
 
     importlib.reload(constants)
 
 
 @pytest.mark.parametrize(
-    "env_value,expected_set",
+    "env_value,expected_list",
     [
         pytest.param(
             "",
-            set(),
-            id="empty_string_returns_empty_set",
+            None,
+            id="empty_string_returns_none",
         ),
         pytest.param(
             "registry",
-            {"registry"},
+            ["registry"],
             id="single_value",
         ),
         pytest.param(
             "registry,local",
-            {"registry", "local"},
+            ["registry", "local"],
             id="multiple_values",
         ),
     ],
 )
 def test_domain_disabled_env_var_parsing(
-    env_value: str, expected_set: set[str]
+    env_value: str, expected_list: list[str] | None
 ) -> None:
     """Test that AIRBYTE_MCP_DOMAINS_DISABLED env var is parsed correctly."""
     import importlib
 
-    import airbyte.mcp.constants as constants
+    import airbyte.constants as constants
 
     with patch.dict(
         "os.environ", {"AIRBYTE_MCP_DOMAINS_DISABLED": env_value}, clear=False
     ):
         importlib.reload(constants)
-        assert constants.AIRBYTE_MCP_DOMAINS_DISABLED == expected_set
+        assert constants.AIRBYTE_MCP_DOMAINS_DISABLED == expected_list
 
     importlib.reload(constants)
 
@@ -404,22 +418,32 @@ def test_unknown_domain_warning(
     import importlib
     import warnings
 
-    import airbyte.mcp.constants as constants
+    import airbyte.constants as constants
+    import airbyte.mcp._tool_utils as tool_utils
 
     with (
         patch.dict("os.environ", {env_var: env_value}, clear=False),
         warnings.catch_warnings(record=True) as caught_warnings,
     ):
         warnings.simplefilter("always")
+        # Reload constants to pick up the new env var value
         importlib.reload(constants)
+        # Reload tool_utils to get fresh imports
+        importlib.reload(tool_utils)
+        # Clear the cache and call the function to trigger the warning
+        tool_utils._resolve_mcp_domain_filters.cache_clear()
+        tool_utils._resolve_mcp_domain_filters()
 
         warning_messages = [str(w.message) for w in caught_warnings]
         assert any(expected_warning_contains in msg for msg in warning_messages), (
-            f"Expected warning containing '{expected_warning_contains}' not found in {warning_messages}"
+            f"Expected warning containing '{expected_warning_contains}' "
+            f"not found in {warning_messages}"
         )
 
         assert any("Known MCP domains are:" in msg for msg in warning_messages), (
             f"Expected 'Known MCP domains are:' in warning messages: {warning_messages}"
         )
 
+    # Reload to restore original state
     importlib.reload(constants)
+    importlib.reload(tool_utils)
