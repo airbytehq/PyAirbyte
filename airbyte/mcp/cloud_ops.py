@@ -163,6 +163,10 @@ class CloudWorkspaceResult(BaseModel):
 class LogReadResult(BaseModel):
     """Result of reading sync logs with pagination support."""
 
+    job_id: int
+    """The job ID the logs belong to."""
+    attempt_number: int
+    """The attempt number the logs belong to."""
     log_text: str
     """The string containing the log text we are returning."""
     log_text_start_line: int
@@ -826,6 +830,17 @@ def get_cloud_sync_logs(
             default=4000,
         ),
     ],
+    from_tail: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Pull from the end of the log text if total lines is greater than 'max_lines'. "
+                "Defaults to True if `line_offset` is not specified. "
+                "Cannot combine `from_tail=True` with `line_offset`."
+            ),
+            default=None,
+        ),
+    ],
     line_offset: Annotated[
         int | None,
         Field(
@@ -835,17 +850,7 @@ def get_cloud_sync_logs(
             ),
             default=None,
         ),
-    ] = None,
-    from_tail: Annotated[
-        bool | None,
-        Field(
-            description=(
-                "If True, return lines from the end of the logs instead of the beginning. "
-                "Cannot be combined with `line_offset`."
-            ),
-            default=None,
-        ),
-    ] = None,
+    ],
 ) -> LogReadResult:
     """Get the logs from a sync job attempt on Airbyte Cloud."""
     # Validate that line_offset and from_tail are not both set
@@ -901,29 +906,42 @@ def get_cloud_sync_logs(
             log_text_start_line=1,
             log_text_line_count=0,
             total_log_lines_available=0,
+            job_id=sync_result.job_id,
+            attempt_number=target_attempt.attempt_number,
         )
 
     # Apply line limiting
-    lines = logs.splitlines()
-    total_lines = len(lines)
+    log_lines = logs.splitlines()
+    total_lines = len(log_lines)
 
-    # If max_lines is 0 or None, we return all lines.
-    effective_max_lines = max_lines or total_lines
+    if max_lines == 0 or total_lines < max_lines:
+        # Return all lines if no limit or total lines less than limit
+        return LogReadResult(
+            log_text=logs,
+            log_text_start_line=1,
+            log_text_line_count=total_lines,
+            total_log_lines_available=total_lines,
+            job_id=sync_result.job_id,
+            attempt_number=target_attempt.attempt_number,
+        )
 
+    # Else, we need to limit the result:
     if from_tail:
         # Return lines from the end
-        start_index = max(0, total_lines - effective_max_lines)
-        lines = lines[-effective_max_lines:]
+        start_index = max(0, total_lines - max_lines)
+        log_lines = log_lines[-max_lines:]
     else:
         # Return lines from the beginning, with optional offset
         start_index = line_offset if line_offset is not None else 0
-        lines = lines[start_index : start_index + effective_max_lines]
+        log_lines = log_lines[start_index : start_index + max_lines]
 
     return LogReadResult(
-        log_text="\n".join(lines),
+        log_text="\n".join(log_lines),
         log_text_start_line=start_index + 1,  # Convert to 1-based index
-        log_text_line_count=len(lines),
+        log_text_line_count=len(log_lines),
         total_log_lines_available=total_lines,
+        job_id=sync_result.job_id,
+        attempt_number=target_attempt.attempt_number,
     )
 
 
