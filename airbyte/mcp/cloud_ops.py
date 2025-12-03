@@ -418,8 +418,9 @@ def run_cloud_sync(
         Field(
             description=(
                 "Whether to wait for the sync to complete. Since a sync can take between several "
-                "minutes and several hours, this option is not recommneded for most "
-                "scenarios.",
+                "minutes and several hours, this option is not recommended for most "
+                "scenarios."
+            ),
             default=False,
         ),
     ],
