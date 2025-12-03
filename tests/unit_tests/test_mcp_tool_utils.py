@@ -378,3 +378,48 @@ def test_domain_disabled_env_var_parsing(
         assert constants.AIRBYTE_MCP_DOMAINS_DISABLED == expected_set
 
     importlib.reload(constants)
+
+
+@pytest.mark.parametrize(
+    "env_var,env_value,expected_warning_contains",
+    [
+        pytest.param(
+            "AIRBYTE_MCP_DOMAINS",
+            "cloud,invalid_domain",
+            "AIRBYTE_MCP_DOMAINS contains unknown domain(s): ['invalid_domain']",
+            id="unknown_enabled_domain",
+        ),
+        pytest.param(
+            "AIRBYTE_MCP_DOMAINS_DISABLED",
+            "registry,fake_domain",
+            "AIRBYTE_MCP_DOMAINS_DISABLED contains unknown domain(s): ['fake_domain']",
+            id="unknown_disabled_domain",
+        ),
+    ],
+)
+def test_unknown_domain_warning(
+    env_var: str, env_value: str, expected_warning_contains: str
+) -> None:
+    """Test that a warning is emitted when unknown domains are specified."""
+    import importlib
+    import warnings
+
+    import airbyte.mcp.constants as constants
+
+    with (
+        patch.dict("os.environ", {env_var: env_value}, clear=False),
+        warnings.catch_warnings(record=True) as caught_warnings,
+    ):
+        warnings.simplefilter("always")
+        importlib.reload(constants)
+
+        warning_messages = [str(w.message) for w in caught_warnings]
+        assert any(expected_warning_contains in msg for msg in warning_messages), (
+            f"Expected warning containing '{expected_warning_contains}' not found in {warning_messages}"
+        )
+
+        assert any("Known MCP domains are:" in msg for msg in warning_messages), (
+            f"Expected 'Known MCP domains are:' in warning messages: {warning_messages}"
+        )
+
+    importlib.reload(constants)
