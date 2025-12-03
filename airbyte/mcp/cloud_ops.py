@@ -860,6 +860,7 @@ def get_cloud_sync_logs(
             context={"line_offset": line_offset, "from_tail": from_tail},
         )
 
+    from_tail = True if (line_offset is None and from_tail is None) else False
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
