@@ -9,9 +9,16 @@ from __future__ import annotations
 
 import inspect
 import os
+import warnings
 from collections.abc import Callable
+from functools import lru_cache
 from typing import Any, Literal, TypeVar
 
+from airbyte.constants import (
+    AIRBYTE_MCP_DOMAINS,
+    AIRBYTE_MCP_DOMAINS_DISABLED,
+    MCP_TOOL_DOMAINS,
+)
 from airbyte.mcp._annotations import (
     DESTRUCTIVE_HINT,
     IDEMPOTENT_HINT,
@@ -27,6 +34,7 @@ AIRBYTE_CLOUD_MCP_READONLY_MODE = (
 )
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
+
 
 _REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
@@ -66,6 +74,76 @@ def check_guid_created_in_session(guid: str) -> None:
         )
 
 
+@lru_cache(maxsize=1)
+def _resolve_mcp_domain_filters() -> tuple[set[str], set[str]]:
+    """Resolve MCP domain filters from environment variables.
+
+    This function is cached to ensure warnings are only emitted once per process.
+
+    Returns:
+        Tuple of (enabled_domains, disabled_domains) as sets.
+        If an env var is not set, the corresponding set will be empty.
+    """
+    known_domains = set(MCP_TOOL_DOMAINS)
+    enabled = set(AIRBYTE_MCP_DOMAINS or [])
+    disabled = set(AIRBYTE_MCP_DOMAINS_DISABLED or [])
+
+    # Check for unknown domains and warn
+    unknown_enabled = enabled - known_domains
+    unknown_disabled = disabled - known_domains
+
+    if unknown_enabled or unknown_disabled:
+        parts: list[str] = []
+        if unknown_enabled:
+            parts.append(
+                f"AIRBYTE_MCP_DOMAINS contains unknown domain(s): {sorted(unknown_enabled)}"
+            )
+        if unknown_disabled:
+            parts.append(
+                "AIRBYTE_MCP_DOMAINS_DISABLED contains unknown domain(s): "
+                f"{sorted(unknown_disabled)}"
+            )
+        known_list = ", ".join(sorted(known_domains))
+        warning_message = "; ".join(parts) + f". Known MCP domains are: [{known_list}]."
+        warnings.warn(warning_message, stacklevel=3)
+
+    return enabled, disabled
+
+
+def is_domain_enabled(domain: str) -> bool:
+    """Check if a domain is enabled based on AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
+
+    The logic is:
+    - If neither env var is set: all domains are enabled
+    - If only AIRBYTE_MCP_DOMAINS is set: only those domains are enabled
+    - If only AIRBYTE_MCP_DOMAINS_DISABLED is set: all domains except those are enabled
+    - If both are set: disabled domains subtract from enabled domains
+
+    Args:
+        domain: The domain to check (e.g., "cloud", "local", "registry")
+
+    Returns:
+        True if the domain is enabled, False otherwise
+    """
+    enabled, disabled = _resolve_mcp_domain_filters()
+    domain_lower = domain.lower()
+
+    # If neither env var is set, all domains are enabled
+    if not enabled and not disabled:
+        return True
+
+    # If only disabled list is set, enable all except disabled
+    if not enabled and disabled:
+        return domain_lower not in disabled
+
+    # If only enabled list is set, only enable those domains
+    if enabled and not disabled:
+        return domain_lower in enabled
+
+    # Both are set: disabled list subtracts from enabled list
+    return domain_lower in enabled and domain_lower not in disabled
+
+
 def should_register_tool(annotations: dict[str, Any]) -> bool:
     """Check if a tool should be registered based on mode settings.
 
@@ -75,10 +153,15 @@ def should_register_tool(annotations: dict[str, Any]) -> bool:
     Returns:
         True if the tool should be registered, False if it should be filtered out
     """
-    if annotations.get("domain") != "cloud":
-        return True
+    domain = annotations.get("domain")
+    domain_normalized = domain.lower() if isinstance(domain, str) else None
 
-    if AIRBYTE_CLOUD_MCP_READONLY_MODE:
+    # Check domain filtering first
+    if domain_normalized and not is_domain_enabled(domain_normalized):
+        return False
+
+    # Cloud-specific readonly mode check (case-insensitive)
+    if domain_normalized == "cloud" and AIRBYTE_CLOUD_MCP_READONLY_MODE:
         is_readonly = annotations.get(READ_ONLY_HINT, False)
         if not is_readonly:
             return False
