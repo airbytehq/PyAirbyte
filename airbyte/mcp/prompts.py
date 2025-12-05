@@ -37,21 +37,15 @@ Focus on validating that tools:
 Be efficient and practical in your testing approach.
 """.strip()
 
-SCOPE_GUIDANCE = {
-    "registry": "Focus testing on Registry tools only.",
-    "local": "Focus testing on Local tools only.",
-    "cloud": "Focus testing on Cloud tools only.",
-}
-
 
 def test_my_tools_prompt(
     scope: Annotated[
         str | None,
         Field(
             description=(
-                "Optional scope to focus testing on specific tool domains. "
-                "Valid values: 'registry', 'local', 'cloud'. "
-                "If not provided, all tools will be tested."
+                "Optional free-form text to focus or constrain testing. "
+                "This can be a single word, a sentence, or a paragraph "
+                "describing the desired scope or constraints."
             ),
         ),
     ] = None,
@@ -59,9 +53,8 @@ def test_my_tools_prompt(
     """Generate a prompt that instructs the agent to test available tools."""
     content = TEST_MY_TOOLS_GUIDANCE
 
-    if scope and scope.lower() in SCOPE_GUIDANCE:
-        scope_text = SCOPE_GUIDANCE[scope.lower()]
-        content = f"{content}\n\n---\n\n**Scope: {scope.lower()}**\n{scope_text}"
+    if scope:
+        content = f"{content}\n\n---\n\nAdditional scope or constraints:\n{scope}"
 
     return [
         {
