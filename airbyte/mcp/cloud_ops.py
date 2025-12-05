@@ -416,8 +416,12 @@ def run_cloud_sync(
     wait: Annotated[
         bool,
         Field(
-            description="Whether to wait for the sync to complete.",
-            default=True,
+            description=(
+                "Whether to wait for the sync to complete. Since a sync can take between several "
+                "minutes and several hours, this option is not recommended for most "
+                "scenarios."
+            ),
+            default=False,
         ),
     ],
     wait_timeout: Annotated[
