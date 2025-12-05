@@ -34,6 +34,7 @@ jobs:
             fix-pr
             test-pr
             poetry-lock
+            tune-slow-markers
           static-args: |
             pr=${{ github.event.issue.number }}
             comment-id=${{ github.event.comment.id }}
