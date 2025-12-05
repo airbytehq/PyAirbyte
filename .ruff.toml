@@ -3,7 +3,11 @@
 target-version = "py310"
 preview = true
 line-length = 100
+exclude = [
+    "sonar",  # Git submodule, not part of PyAirbyte codebase
+]
 
+[lint]
 select = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
     "A",     # flake8-builtins
@@ -61,8 +65,6 @@ select = [
     "W",      # pycodestyle (warnings)
     "YTT",    # flake8-2020
 ]
-
-[lint]
 ignore = [
     # For rules reference, see https://docs.astral.sh/ruff/rules/
 

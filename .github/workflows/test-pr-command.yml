@@ -81,7 +81,7 @@ jobs:
       id: get-app-token
       with:
         owner: "airbytehq"
-        repositories: "PyAirbyte"
+        repositories: "PyAirbyte,sonar"
         app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
@@ -90,6 +90,7 @@ jobs:
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         ref: ${{ needs.start-workflow.outputs.commit-sha }}
+        submodules: recursive
 
     # Post "In Progress" status to the PR.
     # This is required because otherwise slash commands won't automatically

@@ -55,6 +55,9 @@ uuid7 = "^0.1.0"
 fastmcp = ">=2.11.3,<3.0.0"
 uv = ">=0.5.0,<0.9.0"
 
+[tool.poetry.group.integrations.dependencies]
+connector-sdk = {path = "./sonar/connector-sdk", develop = true}
+
 [tool.poetry.group.dev.dependencies]
 coverage = "^7.5.1"
 deptry = "^0.21.1"
@@ -66,6 +69,7 @@ pandas-stubs = "^2.1.4.231218"
 pdoc = "^16.0.0"
 poethepoet = ">=0.26.1,<0.32.0"
 pytest = "^8.2.0"
+pytest-asyncio = "^0.23.0"
 pytest-docker = "^3.1.1"
 pytest-mock = "^3.14.0"
 pytest-timeout = "^2.3.1"
@@ -88,13 +92,14 @@ build-backend = "poetry_dynamic_versioning.backend"
 # - No test can take longer than 10 minutes (600 seconds)
 # - Markers must be declared explicitly
 # - Generate junit test results at a deterministic location
-addopts = "-rs --strict-markers --timeout=600 --junit-xml=build/test-results/test-results.xml"
+addopts = "-rs --strict-markers --timeout=600 --junit-xml=build/test-results/test-results.xml --ignore=sonar"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "super_slow: these super slow tests will not run in CI; they will only ever run on-demand",
     "requires_creds: marks a test as requiring credentials (skip when secrets unavailable)",
     "linting: marks a test as a linting test",
     "flaky: marks a test as flaky",
+    "asyncio: marks tests as async (automatically applied by pytest-asyncio)",
 ]
 filterwarnings = [ # syntax: "action:message_regex:category:module:line"
     # Treat python warnings as errors in pytest
@@ -144,6 +149,7 @@ coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" 
 coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
+check-deps = { shell = "deptry airbyte" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}
@@ -165,13 +171,21 @@ poe_tasks = ["test"]
 required_environment_variables = ["GCP_GSM_CREDENTIALS"]
 side_car_docker_engine = true
 
+[tool.deptry]
+exclude = [".venv", "sonar", "tests"]
+
 [tool.deptry.per_rule_ignores]
 # This is a mapping of rules and package names to be ignored for that rule.
 DEP001 = [
   "IPython"  # Optional dependency, used for detecting Notebook environments
 ]
+DEP003 = [
+  "airbyte"  # Ignore self-imports (airbyte package importing from airbyte submodules)
+]
 DEP004 = [
-  "pdoc"  # Only used for generating documentation. Not a runtime dependency.
+  "pdoc",  # Only used for generating documentation. Not a runtime dependency.
+  "connector-sdk",  # Optional dependency in integrations group, imported lazily
+  "connector_sdk",  # Module name for connector-sdk (underscore vs hyphen)
 ]
 DEP002 = [
   # Only used for SQLAlchemy engine. Not imported directly:
@@ -181,4 +195,6 @@ DEP002 = [
   "sqlalchemy-bigquery",
   # Used as subprocess tool, not imported directly:
   "uv",
+  # Optional dependency in integrations group, imported lazily:
+  "connector-sdk",
 ]

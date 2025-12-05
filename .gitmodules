@@ -1,0 +1,3 @@
+[submodule "sonar"]
+	path = sonar
+	url = https://github.com/airbytehq/sonar.git
