@@ -163,7 +163,7 @@ mcp-tool-test = { cmd = "poetry run python bin/test_mcp_tool.py", help = "Test M
 [tool.poe.tasks.test-my-tools]
 help = "Run Claude Code in headless mode with the test-my-tools MCP prompt"
 shell = """
-claude --print "Use the test-my-tools prompt${scope:+ with scope: $scope}" \
+npx @anthropic-ai/claude-code --print "Use the test-my-tools prompt${scope:+ with scope: $scope}" \
     --allowedTools "mcp__airbyte-mcp__*" \
     --mcp-config .mcp.json
 """
