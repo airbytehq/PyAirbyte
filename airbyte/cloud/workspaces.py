@@ -521,8 +521,9 @@ class CloudWorkspace:
             unique: Whether to enforce name uniqueness
             pre_validate: Whether to validate manifest client-side (YAML only)
             testing_values: Optional configuration values to use for testing in the
-                Connector Builder UI. If provided, these values will be set on the
-                connector builder project, allowing immediate test read operations.
+                Connector Builder UI. If provided, these values are stored as the complete
+                testing values object for the connector builder project (replaces any existing
+                values), allowing immediate test read operations.
 
         Returns:
             CustomCloudSourceDefinition object representing the created definition

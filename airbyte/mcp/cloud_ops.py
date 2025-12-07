@@ -1356,6 +1356,31 @@ def publish_custom_source_definition(
             default=True,
         ),
     ] = True,
+    testing_values: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "Optional testing configuration values for the Builder UI. "
+                "Can be provided as a JSON object or JSON string. "
+                "If provided, these values replace any existing testing values "
+                "for the connector builder project, allowing immediate test read operations."
+            ),
+            default=None,
+        ),
+    ] = None,
+    testing_values_secret_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional name of a secret containing testing configuration values "
+                "in JSON or YAML format. The secret will be resolved by the MCP "
+                "server and merged into testing_values, with secret values taking "
+                "precedence. This lets the agent reference secrets without sending "
+                "raw values as tool arguments."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -1366,12 +1391,24 @@ def publish_custom_source_definition(
     if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
         processed_manifest = Path(manifest_yaml)
 
+    # Resolve testing values from inline config and/or secret
+    testing_values_dict: dict[str, Any] | None = None
+    if testing_values is not None or testing_values_secret_name is not None:
+        testing_values_dict = (
+            resolve_config(
+                config=testing_values,
+                config_secret_name=testing_values_secret_name,
+            )
+            or None
+        )
+
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
         unique=unique,
         pre_validate=pre_validate,
+        testing_values=testing_values_dict,
     )
     register_guid_created_in_session(custom_source.definition_id)
     return (
@@ -1431,11 +1468,15 @@ def update_custom_source_definition(
         Field(description="The ID of the definition to update."),
     ],
     manifest_yaml: Annotated[
-        str | Path,
+        str | Path | None,
         Field(
-            description="New manifest as YAML string or file path.",
+            description=(
+                "New manifest as YAML string or file path. "
+                "Optional; omit to update only testing values."
+            ),
+            default=None,
         ),
-    ],
+    ] = None,
     *,
     workspace_id: Annotated[
         str | None,
@@ -1451,26 +1492,84 @@ def update_custom_source_definition(
             default=True,
         ),
     ] = True,
+    testing_values: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "Optional testing configuration values for the Builder UI. "
+                "Can be provided as a JSON object or JSON string. "
+                "If provided, these values replace any existing testing values "
+                "for the connector builder project. The entire testing values object "
+                "is overwritten, so pass the full set of values you want to persist."
+            ),
+            default=None,
+        ),
+    ] = None,
+    testing_values_secret_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional name of a secret containing testing configuration values "
+                "in JSON or YAML format. The secret will be resolved by the MCP "
+                "server and merged into testing_values, with secret values taking "
+                "precedence. This lets the agent reference secrets without sending "
+                "raw values as tool arguments."
+            ),
+            default=None,
+        ),
+    ] = None,
 ) -> str:
     """Update a custom YAML source definition in Airbyte Cloud.
 
-    Note: Only YAML (declarative) connectors are currently supported.
-    Docker-based custom sources are not yet available.
+    Updates the manifest and/or testing values for an existing custom source definition.
+    At least one of manifest_yaml, testing_values, or testing_values_secret_name must be provided.
     """
     check_guid_created_in_session(definition_id)
-    processed_manifest = manifest_yaml
+
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+
+    if manifest_yaml is None and testing_values is None and testing_values_secret_name is None:
+        raise PyAirbyteInputError(
+            message=(
+                "At least one of manifest_yaml, testing_values, or testing_values_secret_name "
+                "must be provided to update a custom source definition."
+            ),
+            context={
+                "definition_id": definition_id,
+                "workspace_id": workspace.workspace_id,
+            },
+        )
+
+    processed_manifest: str | Path | None = manifest_yaml
     if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
         processed_manifest = Path(manifest_yaml)
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    # Resolve testing values from inline config and/or secret
+    testing_values_dict: dict[str, Any] | None = None
+    if testing_values is not None or testing_values_secret_name is not None:
+        testing_values_dict = (
+            resolve_config(
+                config=testing_values,
+                config_secret_name=testing_values_secret_name,
+            )
+            or None
+        )
+
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
     )
-    custom_source: CustomCloudSourceDefinition = definition.update_definition(
-        manifest_yaml=processed_manifest,
-        pre_validate=pre_validate,
-    )
+    custom_source: CustomCloudSourceDefinition = definition
+
+    if processed_manifest is not None:
+        custom_source = definition.update_definition(
+            manifest_yaml=processed_manifest,
+            pre_validate=pre_validate,
+        )
+
+    if testing_values_dict is not None:
+        custom_source.set_testing_values(testing_values_dict)
+
     return (
         "Successfully updated custom YAML source definition:\n"
         + _get_custom_source_definition_description(

@@ -701,9 +701,12 @@ class CustomCloudSourceDefinition:
         in the Connector Builder UI. Setting these values allows users to immediately
         run test read operations after deploying a custom source to the Builder UI.
 
+        This method replaces any existing testing values with the provided dictionary.
+        Pass the full set of values you want to persist, not just the fields you're changing.
+
         Args:
             testing_values: A dictionary containing the configuration values to use for testing.
-                This should match the connector's spec schema.
+                This should match the connector's spec schema. Replaces any existing values.
 
         Returns:
             This `CustomCloudSourceDefinition` object (for method chaining).
