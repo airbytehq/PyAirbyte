@@ -506,6 +506,7 @@ class CloudWorkspace:
         docker_tag: str | None = None,
         unique: bool = True,
         pre_validate: bool = True,
+        testing_values: dict[str, Any] | None = None,
     ) -> CustomCloudSourceDefinition:
         """Publish a custom source connector definition.
 
@@ -519,6 +520,9 @@ class CloudWorkspace:
             docker_tag: Docker image tag (e.g., '1.0.0')
             unique: Whether to enforce name uniqueness
             pre_validate: Whether to validate manifest client-side (YAML only)
+            testing_values: Optional configuration values to use for testing in the
+                Connector Builder UI. If provided, these values will be set on the
+                connector builder project, allowing immediate test read operations.
 
         Returns:
             CustomCloudSourceDefinition object representing the created definition
@@ -583,7 +587,15 @@ class CloudWorkspace:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
             )
-            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+            custom_definition = CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
+                self, result
+            )
+
+            # Set testing values if provided
+            if testing_values is not None:
+                custom_definition.set_testing_values(testing_values)
+
+            return custom_definition
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
