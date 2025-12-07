@@ -1362,6 +1362,7 @@ def publish_custom_source_definition(
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
+                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project, allowing immediate test read operations."
             ),
@@ -1498,6 +1499,7 @@ def update_custom_source_definition(
             description=(
                 "Optional testing configuration values for the Builder UI. "
                 "Can be provided as a JSON object or JSON string. "
+                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
                 "If provided, these values replace any existing testing values "
                 "for the connector builder project. The entire testing values object "
                 "is overwritten, so pass the full set of values you want to persist."
