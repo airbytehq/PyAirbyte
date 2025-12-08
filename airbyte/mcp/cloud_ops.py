@@ -156,6 +156,8 @@ class CloudWorkspaceResult(BaseModel):
     """The workspace ID."""
     workspace_name: str
     """Display name of the workspace."""
+    workspace_url: str | None = None
+    """URL to access the workspace in Airbyte Cloud."""
     organization_id: str
     """ID of the organization this workspace belongs to."""
     organization_name: str | None = None
@@ -486,6 +488,7 @@ def check_airbyte_cloud_workspace(
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
+        workspace_url=workspace.workspace_url,
         organization_id=workspace.organization_id or "[error: organization ID not discovered]",
         organization_name=workspace.organization_name,
     )
