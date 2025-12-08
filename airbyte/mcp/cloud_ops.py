@@ -494,7 +494,7 @@ def check_airbyte_cloud_workspace(
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
-        organization_id=org_info.get("organizationId", ""),
+        organization_id=org_info.get("organizationId", "[error: organization ID not discovered]"),
         organization_name=org_info.get("organizationName"),
     )
 
