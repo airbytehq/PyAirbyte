@@ -152,9 +152,9 @@ class CloudOrganizationResult(BaseModel):
 class CloudWorkspaceResult(BaseModel):
     """Information about a workspace in Airbyte Cloud."""
 
-    id: str
+    workspace_id: str
     """The workspace ID."""
-    name: str
+    workspace_name: str
     """Display name of the workspace."""
     organization_id: str
     """ID of the organization this workspace belongs to."""
@@ -492,8 +492,8 @@ def check_airbyte_cloud_workspace(
     )
 
     return CloudWorkspaceResult(
-        id=workspace_response.workspace_id,
-        name=workspace_response.name,
+        workspace_id=workspace_response.workspace_id,
+        workspace_name=workspace_response.name,
         organization_id=org_info.get("organizationId", ""),
         organization_name=org_info.get("organizationName"),
     )
