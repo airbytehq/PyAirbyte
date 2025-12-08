@@ -1672,3 +1672,39 @@ def list_workspaces_in_organization(
         payload["pagination"]["rowOffset"] += page_size
 
     return result
+
+
+def get_workspace_organization_info(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get organization info for a workspace.
+
+    Uses the Config API endpoint: POST /v1/workspaces/get_organization_info
+
+    This is an efficient O(1) lookup that directly retrieves the organization
+    info for a workspace without needing to iterate through all organizations.
+
+    Args:
+        workspace_id: The workspace ID to look up
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary containing organization info:
+        - organizationId: The organization ID
+        - organizationName: The organization name
+        - sso: Whether SSO is enabled
+        - billing: Billing information (optional)
+    """
+    return _make_config_api_request(
+        path="/workspaces/get_organization_info",
+        json={"workspaceId": workspace_id},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
