@@ -468,26 +468,27 @@ def check_airbyte_cloud_workspace(
 ) -> CloudWorkspaceResult:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
-    Returns workspace details including workspace ID, name, organization ID, and organization name.
+    Returns workspace details including workspace ID and name. Organization info is not
+    currently available from the public API for a single workspace lookup.
     """
-    resolved_workspace_id = resolve_cloud_workspace_id(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     api_root = resolve_cloud_api_url()
     client_id = resolve_cloud_client_id()
     client_secret = resolve_cloud_client_secret()
 
-    # Get workspace details including organization info
-    workspace_info = api_util.get_workspace_with_org_info(
-        workspace_id=resolved_workspace_id,
+    # Get workspace details from the public API
+    workspace_response = api_util.get_workspace(
+        workspace_id=workspace.workspace_id,
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
     )
 
     return CloudWorkspaceResult(
-        id=workspace_info["workspace_id"],
-        name=workspace_info["workspace_name"],
-        organization_id=workspace_info["organization_id"],
-        organization_name=workspace_info["organization_name"],
+        id=workspace_response.workspace_id,
+        name=workspace_response.name,
+        organization_id="",  # Not available from public API without expensive lookup
+        organization_name=None,  # Not available from public API without expensive lookup
     )
 
 
