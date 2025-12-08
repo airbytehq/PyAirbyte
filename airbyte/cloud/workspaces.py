@@ -36,6 +36,7 @@ workspace.permanently_delete_source(deployed_source)
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -82,6 +83,35 @@ class CloudWorkspace:
     def workspace_url(self) -> str | None:
         """The web URL of the workspace."""
         return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
+
+    @cached_property
+    def _organization_info(self) -> dict[str, Any]:
+        """Fetch and cache organization info for this workspace.
+
+        Uses the Config API endpoint for an efficient O(1) lookup.
+        """
+        return api_util.get_workspace_organization_info(
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+
+    @property
+    def organization_id(self) -> str | None:
+        """The ID of the organization this workspace belongs to.
+
+        This value is cached after the first lookup.
+        """
+        return self._organization_info.get("organizationId")
+
+    @property
+    def organization_name(self) -> str | None:
+        """The name of the organization this workspace belongs to.
+
+        This value is cached after the first lookup.
+        """
+        return self._organization_info.get("organizationName")
 
     # Test connection and creds
 

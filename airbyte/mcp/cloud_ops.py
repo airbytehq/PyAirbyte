@@ -483,19 +483,11 @@ def check_airbyte_cloud_workspace(
         client_secret=client_secret,
     )
 
-    # Get organization info via the Config API (efficient O(1) lookup)
-    org_info = api_util.get_workspace_organization_info(
-        workspace_id=workspace.workspace_id,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
-        organization_id=org_info.get("organizationId", "[error: organization ID not discovered]"),
-        organization_name=org_info.get("organizationName"),
+        organization_id=workspace.organization_id or "[error: organization ID not discovered]",
+        organization_name=workspace.organization_name,
     )
 
 
