@@ -1368,7 +1368,7 @@ def publish_custom_source_definition(
             ),
             default=None,
         ),
-    ] = None,
+    ],
     testing_values_secret_name: Annotated[
         str | None,
         Field(
@@ -1381,7 +1381,7 @@ def publish_custom_source_definition(
             ),
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -1506,7 +1506,7 @@ def update_custom_source_definition(
             ),
             default=None,
         ),
-    ] = None,
+    ],
     testing_values_secret_name: Annotated[
         str | None,
         Field(
@@ -1519,7 +1519,7 @@ def update_custom_source_definition(
             ),
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Update a custom YAML source definition in Airbyte Cloud.
 
