@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
+from airbyte_api.errors import SDKError
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
@@ -53,6 +54,26 @@ from airbyte.cloud.connectors import (
 )
 from airbyte.destinations.base import Destination
 from airbyte.secrets.base import SecretString
+
+
+# Error patterns that indicate corrupted/malformed resources in the workspace
+# These should be handled gracefully rather than failing the entire list operation
+_CORRUPTED_RESOURCE_ERROR_PATTERNS = [
+    "Secret reference",
+    "does not exist but is referenced in the config",
+]
+
+
+def _is_corrupted_resource_error(error: SDKError) -> bool:
+    """Check if an SDKError indicates a corrupted resource in the workspace.
+
+    Some resources in a workspace may have corrupted configurations (e.g., references
+    to deleted secrets). When listing resources, these corrupted items can cause the
+    entire API call to fail. This function identifies such errors so they can be
+    handled gracefully.
+    """
+    error_body = str(error.body) if error.body else ""
+    return all(pattern in error_body for pattern in _CORRUPTED_RESOURCE_ERROR_PATTERNS)
 
 
 if TYPE_CHECKING:
@@ -454,16 +475,30 @@ class CloudWorkspace:
     ) -> list[CloudConnection]:
         """List connections by name in the workspace.
 
+        If the workspace contains corrupted resources (e.g., references to deleted secrets),
+        this method will log a warning and return an empty list rather than raising an error.
+
         TODO: Add pagination support
         """
-        connections = api_util.list_connections(
-            api_root=self.api_root,
-            workspace_id=self.workspace_id,
-            name=name,
-            name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
+        try:
+            connections = api_util.list_connections(
+                api_root=self.api_root,
+                workspace_id=self.workspace_id,
+                name=name,
+                name_filter=name_filter,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+        except SDKError as ex:
+            if _is_corrupted_resource_error(ex):
+                print(
+                    f"Warning: Failed to list connections in workspace {self.workspace_id} "
+                    "due to a corrupted resource. Returning empty list. "
+                    "Please clean up corrupted resources in the workspace."
+                )
+                return []
+            raise
+
         return [
             CloudConnection._from_connection_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
@@ -481,16 +516,30 @@ class CloudWorkspace:
     ) -> list[CloudSource]:
         """List all sources in the workspace.
 
+        If the workspace contains corrupted resources (e.g., references to deleted secrets),
+        this method will log a warning and return an empty list rather than raising an error.
+
         TODO: Add pagination support
         """
-        sources = api_util.list_sources(
-            api_root=self.api_root,
-            workspace_id=self.workspace_id,
-            name=name,
-            name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
+        try:
+            sources = api_util.list_sources(
+                api_root=self.api_root,
+                workspace_id=self.workspace_id,
+                name=name,
+                name_filter=name_filter,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+        except SDKError as ex:
+            if _is_corrupted_resource_error(ex):
+                print(
+                    f"Warning: Failed to list sources in workspace {self.workspace_id} "
+                    "due to a corrupted resource. Returning empty list. "
+                    "Please clean up corrupted resources in the workspace."
+                )
+                return []
+            raise
+
         return [
             CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
@@ -508,16 +557,30 @@ class CloudWorkspace:
     ) -> list[CloudDestination]:
         """List all destinations in the workspace.
 
+        If the workspace contains corrupted resources (e.g., references to deleted secrets),
+        this method will log a warning and return an empty list rather than raising an error.
+
         TODO: Add pagination support
         """
-        destinations = api_util.list_destinations(
-            api_root=self.api_root,
-            workspace_id=self.workspace_id,
-            name=name,
-            name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-        )
+        try:
+            destinations = api_util.list_destinations(
+                api_root=self.api_root,
+                workspace_id=self.workspace_id,
+                name=name,
+                name_filter=name_filter,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+        except SDKError as ex:
+            if _is_corrupted_resource_error(ex):
+                print(
+                    f"Warning: Failed to list destinations in workspace {self.workspace_id} "
+                    "due to a corrupted resource. Returning empty list. "
+                    "Please clean up corrupted resources in the workspace."
+                )
+                return []
+            raise
+
         return [
             CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
