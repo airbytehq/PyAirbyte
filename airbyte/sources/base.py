@@ -448,16 +448,18 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
         def _get_sync_mode(stream: AirbyteStream) -> SyncMode:
             """Determine the sync mode for a stream based on force_full_refresh and support."""
+            # Use getattr to handle mocks or streams without supported_sync_modes attribute
+            supported_modes = getattr(stream, "supported_sync_modes", None)
+
             if force_full_refresh:
                 # When force_full_refresh is True, prefer full_refresh if supported
-                if SyncMode.full_refresh in stream.supported_sync_modes:
+                if supported_modes and SyncMode.full_refresh in supported_modes:
                     return SyncMode.full_refresh
                 # Fall back to incremental if full_refresh is not supported
                 return SyncMode.incremental
-            # Default behavior: prefer incremental if supported
-            if SyncMode.incremental in stream.supported_sync_modes:
-                return SyncMode.incremental
-            return SyncMode.full_refresh
+
+            # Default behavior: preserve previous semantics (always incremental)
+            return SyncMode.incremental
 
         return ConfiguredAirbyteCatalog(
             streams=[
