@@ -1564,6 +1564,51 @@ def get_connector_builder_project_for_definition_id(
     return json_result.get("builderProjectId")
 
 
+def update_connector_builder_project_testing_values(
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    testing_values: dict[str, Any],
+    spec: dict[str, Any],
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Update the testing values for a connector builder project.
+
+    This call replaces the entire testing values object stored for the project.
+    Any keys not included in `testing_values` will be removed.
+
+    Uses the Config API endpoint:
+    /v1/connector_builder_projects/update_testing_values
+
+    Args:
+        workspace_id: The workspace ID
+        builder_project_id: The connector builder project ID
+        testing_values: The testing values (config blob) to persist. This replaces
+            any existing testing values entirely.
+        spec: The source definition specification (connector spec)
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The updated testing values from the API response
+    """
+    return _make_config_api_request(
+        path="/connector_builder_projects/update_testing_values",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "testingValues": testing_values,
+            "spec": spec,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
 # Organization and workspace listing
 
 

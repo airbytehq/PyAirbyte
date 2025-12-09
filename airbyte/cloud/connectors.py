@@ -690,3 +690,70 @@ class CustomCloudSourceDefinition:
             workspace=self.workspace,
             source_response=result,
         )
+
+    def set_testing_values(
+        self,
+        testing_values: dict[str, Any],
+    ) -> CustomCloudSourceDefinition:
+        """Set the testing values for this custom source definition's connector builder project.
+
+        Testing values are the input configuration values used when testing the connector
+        in the Connector Builder UI. Setting these values allows users to immediately
+        run test read operations after deploying a custom source to the Builder UI.
+
+        This method replaces any existing testing values with the provided dictionary.
+        Pass the full set of values you want to persist, not just the fields you're changing.
+
+        Args:
+            testing_values: A dictionary containing the configuration values to use for testing.
+                This should match the connector's spec schema. Replaces any existing values.
+
+        Returns:
+            This `CustomCloudSourceDefinition` object (for method chaining).
+
+        Raises:
+            NotImplementedError: If this is not a YAML custom source definition.
+            PyAirbyteInputError: If the connector builder project ID cannot be found.
+        """
+        if self.definition_type != "yaml":
+            raise NotImplementedError(
+                "Testing values can only be set for YAML custom source definitions. "
+                "Docker custom sources are not yet supported."
+            )
+
+        builder_project_id = self.connector_builder_project_id
+        if not builder_project_id:
+            raise exc.PyAirbyteInputError(
+                message="Could not find connector builder project ID for this definition.",
+                context={
+                    "definition_id": self.definition_id,
+                    "workspace_id": self.workspace.workspace_id,
+                },
+            )
+
+        # Get the spec from the definition info
+        if not self._definition_info:
+            self._definition_info = self._fetch_definition_info()
+
+        # Build the spec object from the manifest, matching the Builder UI pattern
+        spec: dict[str, Any] = {}
+        if self._definition_info.manifest:
+            manifest_spec = self._definition_info.manifest.get("spec", {})
+            if manifest_spec:
+                spec = {
+                    "documentationUrl": manifest_spec.get("documentation_url"),
+                    "connectionSpecification": manifest_spec.get("connection_specification", {}),
+                    "advancedAuth": manifest_spec.get("advanced_auth"),
+                }
+
+        api_util.update_connector_builder_project_testing_values(
+            workspace_id=self.workspace.workspace_id,
+            builder_project_id=builder_project_id,
+            testing_values=testing_values,
+            spec=spec,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+
+        return self
