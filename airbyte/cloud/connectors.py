@@ -735,15 +735,15 @@ class CustomCloudSourceDefinition:
         if not self._definition_info:
             self._definition_info = self._fetch_definition_info()
 
-        # Build the spec object from the manifest
+        # Build the spec object from the manifest, matching the Builder UI pattern
         spec: dict[str, Any] = {}
         if self._definition_info.manifest:
             manifest_spec = self._definition_info.manifest.get("spec", {})
             if manifest_spec:
                 spec = {
-                    "connectionSpecification": manifest_spec.get(
-                        "connection_specification", manifest_spec
-                    ),
+                    "documentationUrl": manifest_spec.get("documentation_url"),
+                    "connectionSpecification": manifest_spec.get("connection_specification", {}),
+                    "advancedAuth": manifest_spec.get("advanced_auth"),
                 }
 
         api_util.update_connector_builder_project_testing_values(
