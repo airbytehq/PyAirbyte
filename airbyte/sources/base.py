@@ -932,7 +932,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(
                 message=(
-                    "Using `REPLACE` strategy without also setting `full_refresh_mode=True` "
+                    "Using `REPLACE` strategy without also setting `force_full_refresh=True` "
                     "could result in data loss. "
                     "To silence this warning, use the following: "
                     'warnings.filterwarnings("ignore", '
