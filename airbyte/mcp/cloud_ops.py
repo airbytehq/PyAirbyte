@@ -152,12 +152,16 @@ class CloudOrganizationResult(BaseModel):
 class CloudWorkspaceResult(BaseModel):
     """Information about a workspace in Airbyte Cloud."""
 
-    id: str
+    workspace_id: str
     """The workspace ID."""
-    name: str
+    workspace_name: str
     """Display name of the workspace."""
+    workspace_url: str | None = None
+    """URL to access the workspace in Airbyte Cloud."""
     organization_id: str
     """ID of the organization this workspace belongs to."""
+    organization_name: str | None = None
+    """Name of the organization this workspace belongs to."""
 
 
 class LogReadResult(BaseModel):
@@ -463,18 +467,30 @@ def check_airbyte_cloud_workspace(
             default=None,
         ),
     ],
-) -> str:
+) -> CloudWorkspaceResult:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
-    Returns workspace ID and workspace URL for verification.
+    Returns workspace details including workspace ID, name, and organization info.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
-    workspace.connect()
+    api_root = resolve_cloud_api_url()
+    client_id = resolve_cloud_client_id()
+    client_secret = resolve_cloud_client_secret()
 
-    return (
-        f"✅ Successfully connected to Airbyte Cloud workspace.\n"
-        f"Workspace ID: {workspace.workspace_id}\n"
-        f"Workspace URL: {workspace.workspace_url}"
+    # Get workspace details from the public API
+    workspace_response = api_util.get_workspace(
+        workspace_id=workspace.workspace_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    return CloudWorkspaceResult(
+        workspace_id=workspace_response.workspace_id,
+        workspace_name=workspace_response.name,
+        workspace_url=workspace.workspace_url,
+        organization_id=workspace.organization_id or "[error: organization ID not discovered]",
+        organization_name=workspace.organization_name,
     )
 
 
@@ -1242,8 +1258,8 @@ def list_cloud_workspaces(
 
     return [
         CloudWorkspaceResult(
-            id=ws.get("workspaceId", ""),
-            name=ws.get("name", ""),
+            workspace_id=ws.get("workspaceId", ""),
+            workspace_name=ws.get("name", ""),
             organization_id=ws.get("organizationId", ""),
         )
         for ws in workspaces
