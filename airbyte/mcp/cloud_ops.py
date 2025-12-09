@@ -1258,8 +1258,8 @@ def list_cloud_workspaces(
 
     return [
         CloudWorkspaceResult(
-            id=ws.get("workspaceId", ""),
-            name=ws.get("name", ""),
+            workspace_id=ws.get("workspaceId", ""),
+            workspace_name=ws.get("name", ""),
             organization_id=ws.get("organizationId", ""),
         )
         for ws in workspaces
