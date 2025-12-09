@@ -420,6 +420,8 @@ class Source(ConnectorBase):  # noqa: PLR0904
     def get_configured_catalog(
         self,
         streams: Literal["*"] | list[str] | None = None,
+        *,
+        force_full_refresh: bool = False,
     ) -> ConfiguredAirbyteCatalog:
         """Get a configured catalog for the given streams.
 
@@ -427,6 +429,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         all available streams will be used.
 
         If '*' is provided, all available streams will be used.
+
+        If force_full_refresh is True, streams will be configured with full_refresh sync mode
+        when supported by the stream. Otherwise, incremental sync mode is used when supported.
         """
         selected_streams: list[str] = []
         if streams is None:
@@ -441,12 +446,25 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 input_value=streams,
             )
 
+        def _get_sync_mode(stream: AirbyteStream) -> SyncMode:
+            """Determine the sync mode for a stream based on force_full_refresh and support."""
+            if force_full_refresh:
+                # When force_full_refresh is True, prefer full_refresh if supported
+                if SyncMode.full_refresh in stream.supported_sync_modes:
+                    return SyncMode.full_refresh
+                # Fall back to incremental if full_refresh is not supported
+                return SyncMode.incremental
+            # Default behavior: prefer incremental if supported
+            if SyncMode.incremental in stream.supported_sync_modes:
+                return SyncMode.incremental
+            return SyncMode.full_refresh
+
         return ConfiguredAirbyteCatalog(
             streams=[
                 ConfiguredAirbyteStream(
                     stream=stream,
                     destination_sync_mode=DestinationSyncMode.overwrite,
-                    sync_mode=SyncMode.incremental,
+                    sync_mode=_get_sync_mode(stream),
                     primary_key=(
                         [self._primary_key_overrides[stream.name.lower()]]
                         if stream.name.lower() in self._primary_key_overrides
@@ -726,7 +744,10 @@ class Source(ConnectorBase):  # noqa: PLR0904
         """Get an AirbyteMessageIterator for this source."""
         return AirbyteMessageIterator(
             self._read_with_catalog(
-                catalog=self.get_configured_catalog(streams=streams),
+                catalog=self.get_configured_catalog(
+                    streams=streams,
+                    force_full_refresh=force_full_refresh,
+                ),
                 state=state_provider if not force_full_refresh else None,
                 progress_tracker=progress_tracker,
             )
@@ -868,7 +889,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         try:
             result = self._read_to_cache(
                 cache=cache,
-                catalog_provider=CatalogProvider(self.configured_catalog),
+                catalog_provider=CatalogProvider(
+                    self.get_configured_catalog(force_full_refresh=force_full_refresh)
+                ),
                 stream_names=self._selected_stream_names,
                 state_provider=state_provider,
                 state_writer=state_writer,

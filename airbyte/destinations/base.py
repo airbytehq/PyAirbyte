@@ -167,6 +167,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             catalog_provider = CatalogProvider(
                 configured_catalog=source.get_configured_catalog(
                     streams=streams,
+                    force_full_refresh=force_full_refresh,
                 )
             )
         elif read_result:
