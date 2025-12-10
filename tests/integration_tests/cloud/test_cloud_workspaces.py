@@ -63,7 +63,8 @@ def test_deploy_dummy_source(
 
 
 @pytest.mark.skip(
-    "Test is being flaky. TODO: Fix upstream Cloud API issue with missing secrets."
+    "Test is being flaky. TODO: Fix upstream Cloud API issue with missing secrets. "
+    "See: https://github.com/airbytehq/airbyte-internal-issues/issues/15502"
 )
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
