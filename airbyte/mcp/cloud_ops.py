@@ -159,9 +159,9 @@ class CloudWorkspaceResult(BaseModel):
     workspace_url: str | None = None
     """URL to access the workspace in Airbyte Cloud."""
     organization_id: str
-    """ID of the organization this workspace belongs to."""
+    """ID of the organization (requires ORGANIZATION_READER permission)."""
     organization_name: str | None = None
-    """Name of the organization this workspace belongs to."""
+    """Name of the organization (requires ORGANIZATION_READER permission)."""
 
 
 class LogReadResult(BaseModel):
@@ -515,12 +515,21 @@ def check_airbyte_cloud_workspace(
         client_secret=client_secret,
     )
 
+    # Try to get organization info, but fail gracefully if we don't have permissions.
+    # Fetching organization info requires ORGANIZATION_READER permissions on the organization,
+    # which may not be available with workspace-scoped credentials.
+    organization = workspace.get_organization(raise_on_error=False)
+
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
         workspace_url=workspace.workspace_url,
-        organization_id=workspace.organization_id or "[error: organization ID not discovered]",
-        organization_name=workspace.organization_name,
+        organization_id=(
+            organization.organization_id
+            if organization
+            else "[unavailable - requires ORGANIZATION_READER permission]"
+        ),
+        organization_name=organization.organization_name if organization else None,
     )
 
 

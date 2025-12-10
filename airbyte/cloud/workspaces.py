@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import yaml
 
@@ -52,6 +52,7 @@ from airbyte.cloud.connectors import (
     CustomCloudSourceDefinition,
 )
 from airbyte.destinations.base import Destination
+from airbyte.exceptions import AirbyteError
 from airbyte.secrets.base import SecretString
 
 
@@ -59,6 +60,20 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from airbyte.sources.base import Source
+
+
+@dataclass
+class CloudOrganization:
+    """Information about an organization in Airbyte Cloud.
+
+    This is a minimal value object returned by CloudWorkspace.get_organization().
+    """
+
+    organization_id: str
+    """The organization ID."""
+
+    organization_name: str | None = None
+    """Display name of the organization."""
 
 
 @dataclass
@@ -89,6 +104,7 @@ class CloudWorkspace:
         """Fetch and cache organization info for this workspace.
 
         Uses the Config API endpoint for an efficient O(1) lookup.
+        This is an internal method; use get_organization() for public access.
         """
         return api_util.get_workspace_organization_info(
             workspace_id=self.workspace_id,
@@ -97,21 +113,71 @@ class CloudWorkspace:
             client_secret=self.client_secret,
         )
 
-    @property
-    def organization_id(self) -> str | None:
-        """The ID of the organization this workspace belongs to.
+    @overload
+    def get_organization(self) -> CloudOrganization: ...
 
-        This value is cached after the first lookup.
+    @overload
+    def get_organization(
+        self,
+        *,
+        raise_on_error: Literal[True],
+    ) -> CloudOrganization: ...
+
+    @overload
+    def get_organization(
+        self,
+        *,
+        raise_on_error: Literal[False],
+    ) -> CloudOrganization | None: ...
+
+    def get_organization(
+        self,
+        *,
+        raise_on_error: bool = True,
+    ) -> CloudOrganization | None:
+        """Get the organization this workspace belongs to.
+
+        Fetching organization info requires ORGANIZATION_READER permissions on the organization,
+        which may not be available with workspace-scoped credentials.
+
+        Args:
+            raise_on_error: If True (default), raises AirbyteError on permission or API errors.
+                If False, returns None instead of raising.
+
+        Returns:
+            CloudOrganization object with organization_id and organization_name,
+            or None if raise_on_error=False and an error occurred.
+
+        Raises:
+            AirbyteError: If raise_on_error=True and the organization info cannot be fetched
+                (e.g., due to insufficient permissions or missing data).
         """
-        return self._organization_info.get("organizationId")
+        try:
+            info = self._organization_info
+        except AirbyteError:
+            if raise_on_error:
+                raise
+            return None
 
-    @property
-    def organization_name(self) -> str | None:
-        """The name of the organization this workspace belongs to.
+        organization_id = info.get("organizationId")
+        organization_name = info.get("organizationName")
 
-        This value is cached after the first lookup.
-        """
-        return self._organization_info.get("organizationName")
+        # Validate that both organization_id and organization_name are non-null and non-empty
+        if not organization_id or not organization_name:
+            if raise_on_error:
+                raise AirbyteError(
+                    message="Organization info is incomplete.",
+                    context={
+                        "organization_id": organization_id,
+                        "organization_name": organization_name,
+                    },
+                )
+            return None
+
+        return CloudOrganization(
+            organization_id=organization_id,
+            organization_name=organization_name,
+        )
 
     # Test connection and creds
 
