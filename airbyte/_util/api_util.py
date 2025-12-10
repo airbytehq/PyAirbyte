@@ -47,6 +47,10 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 
+# Job ordering constants for list_jobs API
+JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
+JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
+
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
@@ -412,8 +416,24 @@ def get_job_logs(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
+    offset: int | None = None,
+    order_by: str | None = None,
 ) -> list[models.JobResponse]:
-    """Get a job's logs."""
+    """Get a list of jobs for a connection.
+
+    Args:
+        workspace_id: The workspace ID.
+        connection_id: The connection ID.
+        limit: Maximum number of jobs to return. Defaults to 100.
+        api_root: The API root URL.
+        client_id: The client ID for authentication.
+        client_secret: The client secret for authentication.
+        offset: Number of jobs to skip from the beginning. Defaults to None (0).
+        order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
+
+    Returns:
+        A list of JobResponse objects.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -424,6 +444,8 @@ def get_job_logs(
             workspace_ids=[workspace_id],
             connection_id=connection_id,
             limit=limit,
+            offset=offset,
+            order_by=order_by,
         ),
     )
     if status_ok(response.status_code) and response.jobs_response:

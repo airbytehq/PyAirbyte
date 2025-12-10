@@ -208,14 +208,38 @@ class CloudConnection:
     def get_previous_sync_logs(
         self,
         *,
-        limit: int = 10,
+        limit: int = 20,
+        offset: int | None = None,
+        from_tail: bool = True,
     ) -> list[SyncResult]:
-        """Get the previous sync logs for a connection."""
+        """Get previous sync jobs for a connection with pagination support.
+
+        Returns SyncResult objects containing job metadata (job_id, status, bytes_synced,
+        rows_synced, start_time). Full log text can be fetched lazily via
+        `SyncResult.get_full_log_text()`.
+
+        Args:
+            limit: Maximum number of jobs to return. Defaults to 20.
+            offset: Number of jobs to skip from the beginning. Defaults to None (0).
+            from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
+                If False, returns jobs ordered oldest-first (createdAt ASC).
+                Defaults to True.
+
+        Returns:
+            A list of SyncResult objects representing the sync jobs.
+        """
+        order_by = (
+            api_util.JOB_ORDER_BY_CREATED_AT_DESC
+            if from_tail
+            else api_util.JOB_ORDER_BY_CREATED_AT_ASC
+        )
         sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
+            offset=offset,
+            order_by=order_by,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
         )
