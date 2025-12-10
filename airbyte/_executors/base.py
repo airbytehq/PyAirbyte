@@ -143,23 +143,25 @@ def _stream_from_subprocess(
             # Now, the process is either terminated or killed. Check the exit code.
             exit_code = process.wait()
 
-            # Check for exceptions from the input thread (ignore BrokenPipeError as it's expected)
-            if exception_holder.exception and not isinstance(
-                exception_holder.exception, BrokenPipeError
-            ):
-                raise exception_holder.exception
-
-            # If the exit code is not 0 or -15 (SIGTERM), raise an exception
+            # If the exit code is not 0 or -15 (SIGTERM), raise AirbyteSubprocessFailedError.
+            # Include input thread exception as original_exception if present.
             if exit_code not in {0, -15}:
                 raise exc.AirbyteSubprocessFailedError(
                     run_args=args,
                     exit_code=exit_code,
                     original_exception=(
                         exception_holder.exception
-                        if not isinstance(exception_holder.exception, BrokenPipeError)
+                        if exception_holder.exception
+                        and not isinstance(exception_holder.exception, BrokenPipeError)
                         else None
                     ),
                 )
+
+            # Only raise input thread exception if exit code was OK (ignore BrokenPipeError)
+            if exception_holder.exception and not isinstance(
+                exception_holder.exception, BrokenPipeError
+            ):
+                raise exception_holder.exception
         finally:
             # Close the stdout stream
             if process.stdout:
