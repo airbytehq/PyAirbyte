@@ -150,7 +150,7 @@ class CloudWorkspace:
 
         Raises:
             AirbyteError: If raise_on_error=True and the organization info cannot be fetched
-                (e.g., due to insufficient permissions).
+                (e.g., due to insufficient permissions or missing data).
         """
         try:
             info = self._organization_info
@@ -159,9 +159,24 @@ class CloudWorkspace:
                 raise
             return None
 
+        organization_id = info.get("organizationId")
+        organization_name = info.get("organizationName")
+
+        # Validate that both organization_id and organization_name are non-null and non-empty
+        if not organization_id or not organization_name:
+            if raise_on_error:
+                raise AirbyteError(
+                    message="Organization info is incomplete.",
+                    context={
+                        "organization_id": organization_id,
+                        "organization_name": organization_name,
+                    },
+                )
+            return None
+
         return CloudOrganization(
-            organization_id=str(info.get("organizationId", "")),
-            organization_name=info.get("organizationName"),
+            organization_id=organization_id,
+            organization_name=organization_name,
         )
 
     # Test connection and creds

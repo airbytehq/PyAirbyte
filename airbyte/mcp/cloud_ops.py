@@ -159,9 +159,9 @@ class CloudWorkspaceResult(BaseModel):
     workspace_url: str | None = None
     """URL to access the workspace in Airbyte Cloud."""
     organization_id: str
-    """ID of the organization this workspace belongs to."""
+    """ID of the organization (requires ORGANIZATION_READER permission)."""
     organization_name: str | None = None
-    """Name of the organization this workspace belongs to."""
+    """Name of the organization (requires ORGANIZATION_READER permission)."""
 
 
 class LogReadResult(BaseModel):
