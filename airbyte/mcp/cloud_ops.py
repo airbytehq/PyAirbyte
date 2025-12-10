@@ -657,7 +657,7 @@ def list_cloud_sync_jobs(
             description=(
                 "Maximum number of jobs to return. "
                 "Defaults to 20 if not specified. "
-                "If '0' is provided, no limit is applied (uses API default)."
+                "Maximum allowed value is 500."
             ),
             default=20,
         ),
@@ -707,8 +707,8 @@ def list_cloud_sync_jobs(
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
-    # Use 0 as "no limit" - pass a high number to the API
-    effective_limit = max_jobs if max_jobs > 0 else 1000
+    # Cap at 500 to avoid overloading agent context
+    effective_limit = min(max_jobs, 500) if max_jobs > 0 else 20
 
     sync_results = connection.get_previous_sync_logs(
         limit=effective_limit,
