@@ -229,6 +229,46 @@ class CloudConnection:
             for sync_log in sync_logs
         ]
 
+    def list_sync_jobs(
+        self,
+        *,
+        limit: int = 20,
+        offset: int | None = None,
+        from_tail: bool = True,
+    ) -> list[SyncResult]:
+        """List sync jobs for a connection with pagination support.
+
+        Args:
+            limit: Maximum number of jobs to return. Defaults to 20.
+            offset: Number of jobs to skip. Defaults to None (0).
+            from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
+                If False, returns jobs ordered oldest-first (createdAt ASC).
+                Defaults to True.
+
+        Returns:
+            A list of SyncResult objects representing the sync jobs.
+        """
+        order_by = "createdAt|DESC" if from_tail else "createdAt|ASC"
+        sync_logs: list[JobResponse] = api_util.get_job_logs(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            workspace_id=self.workspace.workspace_id,
+            limit=limit,
+            offset=offset,
+            order_by=order_by,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return [
+            SyncResult(
+                workspace=self.workspace,
+                connection=self,
+                job_id=sync_log.job_id,
+                _latest_job_info=sync_log,
+            )
+            for sync_log in sync_logs
+        ]
+
     def get_sync_result(
         self,
         job_id: int | None = None,
