@@ -47,6 +47,10 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 
+# Job ordering constants for list_jobs API
+JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
+JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
+
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""

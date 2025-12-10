@@ -210,24 +210,18 @@ class CloudConnection:
         *,
         limit: int = 10,
     ) -> list[SyncResult]:
-        """Get the previous sync logs for a connection."""
-        sync_logs: list[JobResponse] = api_util.get_job_logs(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            workspace_id=self.workspace.workspace_id,
-            limit=limit,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-        )
-        return [
-            SyncResult(
-                workspace=self.workspace,
-                connection=self,
-                job_id=sync_log.job_id,
-                _latest_job_info=sync_log,
-            )
-            for sync_log in sync_logs
-        ]
+        """Get the previous sync logs for a connection.
+
+        This is a convenience wrapper around `list_sync_jobs()` that returns
+        the N most recent jobs, ordered newest-first.
+
+        Args:
+            limit: Maximum number of jobs to return. Defaults to 10.
+
+        Returns:
+            A list of SyncResult objects representing the most recent sync jobs.
+        """
+        return self.list_sync_jobs(limit=limit, offset=None, from_tail=True)
 
     def list_sync_jobs(
         self,
@@ -248,7 +242,11 @@ class CloudConnection:
         Returns:
             A list of SyncResult objects representing the sync jobs.
         """
-        order_by = "createdAt|DESC" if from_tail else "createdAt|ASC"
+        order_by = (
+            api_util.JOB_ORDER_BY_CREATED_AT_DESC
+            if from_tail
+            else api_util.JOB_ORDER_BY_CREATED_AT_ASC
+        )
         sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
