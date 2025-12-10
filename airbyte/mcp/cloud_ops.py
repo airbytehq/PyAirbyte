@@ -19,7 +19,7 @@ from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.destinations.util import get_noop_destination
-from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
 from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     mcp_tool,
@@ -488,23 +488,18 @@ def check_airbyte_cloud_workspace(
     # Try to get organization info, but fail gracefully if we don't have permissions.
     # Fetching organization info requires ORGANIZATION_READER permissions on the organization,
     # which may not be available with workspace-scoped credentials.
-    organization_id: str | None = None
-    organization_name: str | None = None
-    try:
-        organization_id = workspace.organization_id
-        organization_name = workspace.organization_name
-    except AirbyteError:
-        # If we can't fetch organization info (e.g., due to insufficient permissions),
-        # we'll just omit these fields rather than failing the entire check.
-        pass
+    organization = workspace.get_organization(raise_on_error=False)
 
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
         workspace_url=workspace.workspace_url,
-        organization_id=organization_id
-        or "[unavailable - requires ORGANIZATION_READER permission]",
-        organization_name=organization_name,
+        organization_id=(
+            organization.organization_id
+            if organization
+            else "[unavailable - requires ORGANIZATION_READER permission]"
+        ),
+        organization_name=organization.organization_name if organization else None,
     )
 
 
