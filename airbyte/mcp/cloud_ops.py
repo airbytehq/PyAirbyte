@@ -710,7 +710,7 @@ def list_cloud_sync_jobs(
     # Use 0 as "no limit" - pass a high number to the API
     effective_limit = max_jobs if max_jobs > 0 else 1000
 
-    sync_results = connection.list_sync_jobs(
+    sync_results = connection.get_previous_sync_logs(
         limit=effective_limit,
         offset=jobs_offset,
         from_tail=from_tail,

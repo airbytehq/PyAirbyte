@@ -208,33 +208,19 @@ class CloudConnection:
     def get_previous_sync_logs(
         self,
         *,
-        limit: int = 10,
-    ) -> list[SyncResult]:
-        """Get the previous sync logs for a connection.
-
-        This is a convenience wrapper around `list_sync_jobs()` that returns
-        the N most recent jobs, ordered newest-first.
-
-        Args:
-            limit: Maximum number of jobs to return. Defaults to 10.
-
-        Returns:
-            A list of SyncResult objects representing the most recent sync jobs.
-        """
-        return self.list_sync_jobs(limit=limit, offset=None, from_tail=True)
-
-    def list_sync_jobs(
-        self,
-        *,
         limit: int = 20,
         offset: int | None = None,
         from_tail: bool = True,
     ) -> list[SyncResult]:
-        """List sync jobs for a connection with pagination support.
+        """Get previous sync jobs for a connection with pagination support.
+
+        Returns SyncResult objects containing job metadata (job_id, status, bytes_synced,
+        rows_synced, start_time). Full log text can be fetched lazily via
+        `SyncResult.get_full_log_text()`.
 
         Args:
             limit: Maximum number of jobs to return. Defaults to 20.
-            offset: Number of jobs to skip. Defaults to None (0).
+            offset: Number of jobs to skip from the beginning. Defaults to None (0).
             from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
                 If False, returns jobs ordered oldest-first (createdAt ASC).
                 Defaults to True.
