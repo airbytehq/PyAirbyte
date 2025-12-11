@@ -286,7 +286,7 @@ class CloudConnection:
         """Get the connection state artifacts.
 
         Returns the persisted state for this connection, which can be used
-        for incremental syncs or live testing.
+        when debugging incremental syncs.
 
         Uses the Config API endpoint: POST /v1/state/get
 
@@ -312,7 +312,7 @@ class CloudConnection:
         Uses the Config API endpoint: POST /v1/web_backend/connections/get
 
         Returns:
-            Dictionary containing the configured catalog (syncCatalog), or None if not found.
+            Dictionary containing the configured catalog, or `None` if not found.
         """
         connection_response = api_util.get_connection_catalog(
             connection_id=self.connection_id,
