@@ -303,7 +303,7 @@ class CloudConnection:
             return None
         return state_response.get("streamState", [])
 
-    def get_catalog_artifact(self) -> dict[str, Any]:
+    def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.
 
         Returns the full configured catalog (syncCatalog) for this connection,
@@ -312,7 +312,7 @@ class CloudConnection:
         Uses the Config API endpoint: POST /v1/web_backend/connections/get
 
         Returns:
-            Dictionary containing the configured catalog (syncCatalog).
+            Dictionary containing the configured catalog (syncCatalog), or None if not found.
         """
         connection_response = api_util.get_connection_catalog(
             connection_id=self.connection_id,
@@ -320,7 +320,7 @@ class CloudConnection:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
         )
-        return connection_response.get("syncCatalog", {})
+        return connection_response.get("syncCatalog")
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
