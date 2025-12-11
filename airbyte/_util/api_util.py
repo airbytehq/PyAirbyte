@@ -79,11 +79,10 @@ def get_web_url_root(api_root: str) -> str:
 
 
 def get_airbyte_server_instance(
-    *,
     api_root: str,
-    client_id: SecretString | None = None,
-    client_secret: SecretString | None = None,
-    bearer_token: SecretString | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
 ) -> airbyte_api.AirbyteAPI:
     """Get an Airbyte instance.
 
