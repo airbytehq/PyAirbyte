@@ -47,6 +47,10 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 
+# Job ordering constants for list_jobs API
+JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
+JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
+
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
@@ -452,8 +456,25 @@ def get_job_logs(
     client_id: SecretString | None = None,
     client_secret: SecretString | None = None,
     bearer_token: SecretString | None = None,
+    offset: int | None = None,
+    order_by: str | None = None,
 ) -> list[models.JobResponse]:
-    """Get a job's logs."""
+    """Get a list of jobs for a connection.
+
+    Args:
+        workspace_id: The workspace ID.
+        connection_id: The connection ID.
+        limit: Maximum number of jobs to return. Defaults to 100.
+        api_root: The API root URL.
+        client_id: The client ID for authentication.
+        client_secret: The client secret for authentication.
+        bearer_token: Optional bearer token for authentication (alternative to client credentials).
+        offset: Number of jobs to skip from the beginning. Defaults to None (0).
+        order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
+
+    Returns:
+        A list of JobResponse objects.
+    """
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -465,6 +486,8 @@ def get_job_logs(
             workspace_ids=[workspace_id],
             connection_id=connection_id,
             limit=limit,
+            offset=offset,
+            order_by=order_by,
         ),
     )
     if status_ok(response.status_code) and response.jobs_response:
@@ -585,14 +608,59 @@ def get_source(
 def delete_source(
     source_id: str,
     *,
+    source_name: str | None = None,
     api_root: str,
     client_id: SecretString | None = None,
     client_secret: SecretString | None = None,
     bearer_token: SecretString | None = None,
     workspace_id: str | None = None,
+    safe_mode: bool = True,
 ) -> None:
-    """Delete a source."""
-    _ = workspace_id
+    """Delete a source.
+
+    Args:
+        source_id: The source ID to delete
+        source_name: Optional source name. If not provided and safe_mode is enabled,
+            the source name will be fetched from the API to perform safety checks.
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
+        workspace_id: The workspace ID (not currently used)
+        safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the source name does not meet
+            the safety requirements.
+    """
+    _ = workspace_id  # Not used (yet)
+
+    if safe_mode:
+        if source_name is None:
+            source_info = get_source(
+                source_id=source_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            source_name = source_info.name
+
+        if not _is_safe_name_to_delete(source_name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete source '{source_name}' with safe_mode enabled. "
+                    "To authorize deletion, the source name must contain 'delete-me' or 'deleteme' "
+                    "(case insensitive).\n\n"
+                    "Please rename the source to meet this requirement before attempting deletion."
+                ),
+                context={
+                    "source_id": source_id,
+                    "source_name": source_name,
+                    "safe_mode": True,
+                },
+            )
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -744,7 +812,7 @@ def get_destination(
         # the destination API response is of the wrong type.
         # https://github.com/airbytehq/pyairbyte/issues/320
         raw_response: dict[str, Any] = json.loads(response.raw_response.text)
-        raw_configuration: dict[str, Any] = raw_response["configuration"]
+        raw_configuration: dict[str, Any] | None = raw_response.get("configuration")
 
         destination_type = raw_response.get("destinationType")
         destination_mapping = {
@@ -754,7 +822,7 @@ def get_destination(
             "duckdb": models.DestinationDuckdb,
         }
 
-        if destination_type in destination_mapping:
+        if destination_type in destination_mapping and raw_configuration is not None:
             response.destination_response.configuration = destination_mapping[
                 destination_type  # pyrefly: ignore[index-error]
             ](**raw_configuration)
@@ -770,14 +838,60 @@ def get_destination(
 def delete_destination(
     destination_id: str,
     *,
+    destination_name: str | None = None,
     api_root: str,
     client_id: SecretString | None = None,
     client_secret: SecretString | None = None,
     bearer_token: SecretString | None = None,
     workspace_id: str | None = None,
+    safe_mode: bool = True,
 ) -> None:
-    """Delete a destination."""
-    _ = workspace_id
+    """Delete a destination.
+
+    Args:
+        destination_id: The destination ID to delete
+        destination_name: Optional destination name. If not provided and safe_mode is enabled,
+            the destination name will be fetched from the API to perform safety checks.
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
+        workspace_id: The workspace ID (not currently used)
+        safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the destination name does not meet
+            the safety requirements.
+    """
+    _ = workspace_id  # Not used (yet)
+
+    if safe_mode:
+        if destination_name is None:
+            destination_info = get_destination(
+                destination_id=destination_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            destination_name = destination_info.name
+
+        if not _is_safe_name_to_delete(destination_name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete destination '{destination_name}' with safe_mode enabled. "
+                    "To authorize deletion, the destination name must contain 'delete-me' or "
+                    "'deleteme' (case insensitive).\n\n"
+                    "Please rename the destination to meet this requirement "
+                    "before attempting deletion."
+                ),
+                context={
+                    "destination_id": destination_id,
+                    "destination_name": destination_name,
+                    "safe_mode": True,
+                },
+            )
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -943,14 +1057,77 @@ def get_connection_by_name(
     return found[0]
 
 
+def _is_safe_name_to_delete(name: str) -> bool:
+    """Check if a name is safe to delete.
+
+    Requires the name to contain either "delete-me" or "deleteme" (case insensitive).
+    """
+    name_lower = name.lower()
+    return any(
+        {
+            "delete-me" in name_lower,
+            "deleteme" in name_lower,
+        }
+    )
+
+
 def delete_connection(
     connection_id: str,
+    connection_name: str | None = None,
+    *,
     api_root: str,
     workspace_id: str,
     client_id: SecretString,
     client_secret: SecretString,
     bearer_token: SecretString | None = None,
+    safe_mode: bool = True,
 ) -> None:
+    """Delete a connection.
+
+    Args:
+        connection_id: The connection ID to delete
+        connection_name: Optional connection name. If not provided and safe_mode is enabled,
+            the connection name will be fetched from the API to perform safety checks.
+        api_root: The API root URL
+        workspace_id: The workspace ID
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
+        safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe_mode is True and the connection name does not meet
+            the safety requirements.
+    """
+    if safe_mode:
+        if connection_name is None:
+            connection_info = get_connection(
+                workspace_id=workspace_id,
+                connection_id=connection_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            connection_name = connection_info.name
+
+        if not _is_safe_name_to_delete(connection_name):
+            raise PyAirbyteInputError(
+                message=(
+                    f"Cannot delete connection '{connection_name}' with safe_mode enabled. "
+                    "To authorize deletion, the connection name must contain 'delete-me' or "
+                    "'deleteme' (case insensitive).\n\n"
+                    "Please rename the connection to meet this requirement "
+                    "before attempting deletion."
+                ),
+                context={
+                    "connection_id": connection_id,
+                    "connection_name": connection_name,
+                    "safe_mode": True,
+                },
+            )
+
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -1377,9 +1554,8 @@ def delete_custom_yaml_source_definition(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Optional bearer token for authentication (alternative to client credentials)
-        safe_mode: If True, requires the connector name to either start with "delete:"
-            or contain "delete-me" (case insensitive) to prevent accidental deletion.
-            Defaults to True.
+        safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
+            (case insensitive) to prevent accidental deletion. Defaults to True.
 
     Raises:
         PyAirbyteInputError: If safe_mode is True and the connector name does not meet
@@ -1392,22 +1568,18 @@ def delete_custom_yaml_source_definition(
             api_root=api_root,
             client_id=client_id,
             client_secret=client_secret,
+            bearer_token=bearer_token,
         )
         connector_name = definition_info.name
 
-        def is_safe_to_delete(name: str) -> bool:
-            name_lower = name.lower()
-            return name_lower.startswith("delete:") or "delete-me" in name_lower
-
-        if not is_safe_to_delete(definition_info.name):
+        if not _is_safe_name_to_delete(definition_info.name):
             raise PyAirbyteInputError(
                 message=(
                     f"Cannot delete custom connector definition '{connector_name}' "
                     "with safe_mode enabled. "
-                    "To authorize deletion, the connector name must either:\n"
-                    "  1. Start with 'delete:' (case insensitive), OR\n"
-                    "  2. Contain 'delete-me' (case insensitive)\n\n"
-                    "Please rename the connector to meet one of these requirements "
+                    "To authorize deletion, the connector name must contain 'delete-me' or "
+                    "'deleteme' (case insensitive).\n\n"
+                    "Please rename the connector to meet this requirement "
                     "before attempting deletion."
                 ),
                 context={
@@ -1482,3 +1654,255 @@ def get_connector_builder_project_for_definition_id(
         bearer_token=bearer_token,
     )
     return json_result.get("builderProjectId")
+
+
+def update_connector_builder_project_testing_values(
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    testing_values: dict[str, Any],
+    spec: dict[str, Any],
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Update the testing values for a connector builder project.
+
+    This call replaces the entire testing values object stored for the project.
+    Any keys not included in `testing_values` will be removed.
+
+    Uses the Config API endpoint:
+    /v1/connector_builder_projects/update_testing_values
+
+    Args:
+        workspace_id: The workspace ID
+        builder_project_id: The connector builder project ID
+        testing_values: The testing values (config blob) to persist. This replaces
+            any existing testing values entirely.
+        spec: The source definition specification (connector spec)
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        The updated testing values from the API response
+    """
+    return _make_config_api_request(
+        path="/connector_builder_projects/update_testing_values",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+            "testingValues": testing_values,
+            "spec": spec,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+# Organization and workspace listing
+
+
+def list_organizations_for_user(
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> list[models.OrganizationResponse]:
+    """List all organizations accessible to the current user.
+
+    Uses the public API endpoint: GET /organizations
+
+    Args:
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        List of OrganizationResponse objects containing organization_id, organization_name, email
+    """
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+    response = airbyte_instance.organizations.list_organizations_for_user()
+
+    if status_ok(response.status_code) and response.organizations_response:
+        return response.organizations_response.data
+
+    raise AirbyteError(
+        message="Failed to list organizations for user.",
+        context={
+            "status_code": response.status_code,
+            "response": response,
+        },
+    )
+
+
+def list_workspaces_in_organization(
+    organization_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+    name_contains: str | None = None,
+    max_items_limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """List workspaces within a specific organization.
+
+    Uses the Config API endpoint: POST /v1/workspaces/list_by_organization_id
+
+    Args:
+        organization_id: The organization ID to list workspaces for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        name_contains: Optional substring filter for workspace names (server-side)
+        max_items_limit: Optional maximum number of workspaces to return
+
+    Returns:
+        List of workspace dictionaries containing workspaceId, organizationId, name, slug, etc.
+    """
+    result: list[dict[str, Any]] = []
+    page_size = 100
+
+    # Build base payload
+    payload: dict[str, Any] = {
+        "organizationId": organization_id,
+        "pagination": {
+            "pageSize": page_size,
+            "rowOffset": 0,
+        },
+    }
+    if name_contains:
+        payload["nameContains"] = name_contains
+
+    # Fetch pages until we have all results or reach the limit
+    while True:
+        json_result = _make_config_api_request(
+            path="/workspaces/list_by_organization_id",
+            json=payload,
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+
+        workspaces = json_result.get("workspaces", [])
+
+        # If no results returned, we've exhausted all pages
+        if not workspaces:
+            break
+
+        result.extend(workspaces)
+
+        # Check if we've reached the limit
+        if max_items_limit is not None and len(result) >= max_items_limit:
+            return result[:max_items_limit]
+
+        # If we got fewer results than page_size, this was the last page
+        if len(workspaces) < page_size:
+            break
+
+        # Bump offset for next iteration
+        payload["pagination"]["rowOffset"] += page_size
+
+    return result
+
+
+def get_workspace_organization_info(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get organization info for a workspace.
+
+    Uses the Config API endpoint: POST /v1/workspaces/get_organization_info
+
+    This is an efficient O(1) lookup that directly retrieves the organization
+    info for a workspace without needing to iterate through all organizations.
+
+    Args:
+        workspace_id: The workspace ID to look up
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary containing organization info:
+        - organizationId: The organization ID
+        - organizationName: The organization name
+        - sso: Whether SSO is enabled
+        - billing: Billing information (optional)
+    """
+    return _make_config_api_request(
+        path="/workspaces/get_organization_info",
+        json={"workspaceId": workspace_id},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+def get_connection_state(
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get the state for a connection.
+
+    Uses the Config API endpoint: POST /v1/state/get
+
+    Args:
+        connection_id: The connection ID to get state for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary containing the connection state.
+    """
+    return _make_config_api_request(
+        path="/state/get",
+        json={"connectionId": connection_id},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+def get_connection_catalog(
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get the configured catalog for a connection.
+
+    Uses the Config API endpoint: POST /v1/web_backend/connections/get
+
+    This returns the full connection info including the syncCatalog field,
+    which contains the configured catalog with full stream schemas.
+
+    Args:
+        connection_id: The connection ID to get catalog for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary containing the connection info with syncCatalog.
+    """
+    return _make_config_api_request(
+        path="/web_backend/connections/get",
+        json={"connectionId": connection_id, "withRefreshedCatalog": False},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
