@@ -1071,9 +1071,9 @@ def _make_config_api_request(
     api_root: str,
     path: str,
     json: dict[str, Any],
-    client_id: SecretString | None = None,
-    client_secret: SecretString | None = None,
-    bearer_token: SecretString | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root)
     if bearer_token is None:
