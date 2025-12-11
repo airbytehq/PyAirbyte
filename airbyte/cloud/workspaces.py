@@ -45,6 +45,12 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud.auth import (
+    resolve_cloud_api_url,
+    resolve_cloud_client_id,
+    resolve_cloud_client_secret,
+    resolve_cloud_workspace_id,
+)
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudDestination,
@@ -93,6 +99,55 @@ class CloudWorkspace:
         """Ensure that the client ID and secret are handled securely."""
         self.client_id = SecretString(self.client_id)
         self.client_secret = SecretString(self.client_secret)
+
+    @classmethod
+    def from_env(
+        cls,
+        workspace_id: str | None = None,
+        *,
+        api_root: str | None = None,
+    ) -> CloudWorkspace:
+        """Create a CloudWorkspace using credentials from environment variables.
+
+        This factory method resolves credentials from environment variables,
+        providing a convenient way to create a workspace without explicitly
+        passing credentials.
+
+        Environment variables used:
+            - `AIRBYTE_CLOUD_CLIENT_ID`: Required. The OAuth client ID.
+            - `AIRBYTE_CLOUD_CLIENT_SECRET`: Required. The OAuth client secret.
+            - `AIRBYTE_CLOUD_WORKSPACE_ID`: The workspace ID (if not passed as argument).
+            - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
+
+        Args:
+            workspace_id: The workspace ID. If not provided, will be resolved from
+                the `AIRBYTE_CLOUD_WORKSPACE_ID` environment variable.
+            api_root: The API root URL. If not provided, will be resolved from
+                the `AIRBYTE_CLOUD_API_URL` environment variable, or default to
+                the Airbyte Cloud API.
+
+        Returns:
+            A CloudWorkspace instance configured with credentials from the environment.
+
+        Raises:
+            PyAirbyteSecretNotFoundError: If required credentials are not found in
+                the environment.
+
+        Example:
+            ```python
+            # With workspace_id from environment
+            workspace = CloudWorkspace.from_env()
+
+            # With explicit workspace_id
+            workspace = CloudWorkspace.from_env(workspace_id="your-workspace-id")
+            ```
+        """
+        return cls(
+            workspace_id=resolve_cloud_workspace_id(workspace_id),
+            client_id=resolve_cloud_client_id(),
+            client_secret=resolve_cloud_client_secret(),
+            api_root=resolve_cloud_api_url(api_root),
+        )
 
     @property
     def workspace_url(self) -> str | None:
