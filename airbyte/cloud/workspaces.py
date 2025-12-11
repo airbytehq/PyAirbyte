@@ -113,6 +113,12 @@ class CloudWorkspace:
         providing a convenient way to create a workspace without explicitly
         passing credentials.
 
+        Environment variables used:
+            - `AIRBYTE_CLOUD_CLIENT_ID`: Required. The OAuth client ID.
+            - `AIRBYTE_CLOUD_CLIENT_SECRET`: Required. The OAuth client secret.
+            - `AIRBYTE_CLOUD_WORKSPACE_ID`: The workspace ID (if not passed as argument).
+            - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
+
         Args:
             workspace_id: The workspace ID. If not provided, will be resolved from
                 the `AIRBYTE_CLOUD_WORKSPACE_ID` environment variable.
