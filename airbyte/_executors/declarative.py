@@ -45,6 +45,7 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
+        config: dict[str, Any] = {},
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
     ) -> None:
@@ -66,7 +67,7 @@ class DeclarativeExecutor(Executor):
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
 
-        config_dict: dict[str, Any] = {}
+        config_dict: dict[str, Any] = config
         if components_py:
             if isinstance(components_py, Path):
                 components_py = components_py.read_text()
