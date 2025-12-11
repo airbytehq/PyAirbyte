@@ -1775,3 +1775,64 @@ def get_workspace_organization_info(
         client_id=client_id,
         client_secret=client_secret,
     )
+
+
+def get_connection_state(
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get the state for a connection.
+
+    Uses the Config API endpoint: POST /v1/state/get
+
+    Args:
+        connection_id: The connection ID to get state for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary containing the connection state.
+    """
+    return _make_config_api_request(
+        path="/state/get",
+        json={"connectionId": connection_id},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+def get_connection_catalog(
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString,
+    client_secret: SecretString,
+) -> dict[str, Any]:
+    """Get the configured catalog for a connection.
+
+    Uses the Config API endpoint: POST /v1/web_backend/connections/get
+
+    This returns the full connection info including the syncCatalog field,
+    which contains the configured catalog with full stream schemas.
+
+    Args:
+        connection_id: The connection ID to get catalog for
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+
+    Returns:
+        Dictionary containing the connection info with syncCatalog.
+    """
+    return _make_config_api_request(
+        path="/web_backend/connections/get",
+        json={"connectionId": connection_id, "withRefreshedCatalog": False},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -279,6 +279,48 @@ class CloudConnection:
             connection=self,
             job_id=job_id,
         )
+
+    # Artifacts
+
+    def get_state_artifacts(self) -> list[dict[str, Any]] | None:
+        """Get the connection state artifacts.
+
+        Returns the persisted state for this connection, which can be used
+        when debugging incremental syncs.
+
+        Uses the Config API endpoint: POST /v1/state/get
+
+        Returns:
+            List of state objects for each stream, or None if no state is set.
+        """
+        state_response = api_util.get_connection_state(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        if state_response.get("stateType") == "not_set":
+            return None
+        return state_response.get("streamState", [])
+
+    def get_catalog_artifact(self) -> dict[str, Any] | None:
+        """Get the configured catalog for this connection.
+
+        Returns the full configured catalog (syncCatalog) for this connection,
+        including stream schemas, sync modes, cursor fields, and primary keys.
+
+        Uses the Config API endpoint: POST /v1/web_backend/connections/get
+
+        Returns:
+            Dictionary containing the configured catalog, or `None` if not found.
+        """
+        connection_response = api_util.get_connection_catalog(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return connection_response.get("syncCatalog")
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
