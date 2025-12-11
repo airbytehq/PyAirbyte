@@ -3,8 +3,7 @@
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -283,14 +282,16 @@ class CloudConnection:
 
     # Artifacts
 
-    def get_state_artifact_json(self) -> str:
-        """Get the connection state as a JSON string.
+    def get_state_artifact(self) -> list[dict[str, Any]] | None:
+        """Get the connection state.
 
         Returns the persisted state for this connection, which can be used
         for incremental syncs or live testing.
 
+        Uses the Config API endpoint: POST /v1/state/get
+
         Returns:
-            JSON string containing the connection state.
+            List of state objects for each stream, or None if no state is set.
         """
         state_response = api_util.get_connection_state(
             connection_id=self.connection_id,
@@ -298,16 +299,20 @@ class CloudConnection:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
         )
-        return json.dumps(state_response, indent=2)
+        if state_response.get("stateType") == "not_set":
+            return None
+        return state_response.get("streamState", [])
 
-    def get_catalog_artifact_json(self) -> str:
-        """Get the configured catalog as a JSON string.
+    def get_catalog_artifact(self) -> dict[str, Any]:
+        """Get the configured catalog for this connection.
 
         Returns the full configured catalog (syncCatalog) for this connection,
         including stream schemas, sync modes, cursor fields, and primary keys.
 
+        Uses the Config API endpoint: POST /v1/web_backend/connections/get
+
         Returns:
-            JSON string containing the configured catalog.
+            Dictionary containing the configured catalog (syncCatalog).
         """
         connection_response = api_util.get_connection_catalog(
             connection_id=self.connection_id,
@@ -315,8 +320,7 @@ class CloudConnection:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
         )
-        sync_catalog = connection_response.get("syncCatalog", {})
-        return json.dumps(sync_catalog, indent=2)
+        return connection_response.get("syncCatalog", {})
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
