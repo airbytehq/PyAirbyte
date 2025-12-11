@@ -1460,6 +1460,60 @@ def describe_cloud_organization(
     )
 
 
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def list_cloud_organizations(
+    *,
+    name_contains: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional substring to filter organizations by name (case-insensitive). "
+                "For example, 'marathon' would match 'Marathon Org'."
+            ),
+            default=None,
+        ),
+    ],
+) -> list[CloudOrganizationResult]:
+    """List all organizations accessible to the current user.
+
+    Returns all organizations the authenticated user has access to.
+    Optionally filter by name using a case-insensitive substring match.
+
+    This is useful for finding an organization when you only know part of its name,
+    or for listing all organizations you have access to.
+    """
+    api_root = resolve_cloud_api_url()
+    client_id = resolve_cloud_client_id()
+    client_secret = resolve_cloud_client_secret()
+
+    orgs = api_util.list_organizations_for_user(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    results = [
+        CloudOrganizationResult(
+            id=org.organization_id,
+            name=org.organization_name,
+            email=org.email,
+        )
+        for org in orgs
+    ]
+
+    if name_contains:
+        needle = name_contains.lower()
+        results = [r for r in results if needle in r.name.lower()]
+
+    return results
+
+
 def _get_custom_source_definition_description(
     custom_source: CustomCloudSourceDefinition,
 ) -> str:
