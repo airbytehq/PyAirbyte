@@ -446,7 +446,7 @@ def run_connection(
 # Get job info (logs)
 
 
-def get_job_logs(
+def get_job_logs(  # noqa: PLR0913
     workspace_id: str,
     connection_id: str,
     limit: int = 100,
@@ -1662,8 +1662,9 @@ def update_connector_builder_project_testing_values(
     testing_values: dict[str, Any],
     spec: dict[str, Any],
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Update the testing values for a connector builder project.
 
@@ -1682,6 +1683,7 @@ def update_connector_builder_project_testing_values(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
 
     Returns:
         The updated testing values from the API response
@@ -1697,6 +1699,7 @@ def update_connector_builder_project_testing_values(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
@@ -1706,8 +1709,9 @@ def update_connector_builder_project_testing_values(
 def list_organizations_for_user(
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> list[models.OrganizationResponse]:
     """List all organizations accessible to the current user.
 
@@ -1717,6 +1721,7 @@ def list_organizations_for_user(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
 
     Returns:
         List of OrganizationResponse objects containing organization_id, organization_name, email
@@ -1725,6 +1730,7 @@ def list_organizations_for_user(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     response = airbyte_instance.organizations.list_organizations_for_user()
 
@@ -1744,8 +1750,9 @@ def list_workspaces_in_organization(
     organization_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
     name_contains: str | None = None,
     max_items_limit: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -1758,6 +1765,7 @@ def list_workspaces_in_organization(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
         name_contains: Optional substring filter for workspace names (server-side)
         max_items_limit: Optional maximum number of workspaces to return
 
@@ -1786,6 +1794,7 @@ def list_workspaces_in_organization(
             api_root=api_root,
             client_id=client_id,
             client_secret=client_secret,
+            bearer_token=bearer_token,
         )
 
         workspaces = json_result.get("workspaces", [])
@@ -1814,8 +1823,9 @@ def get_workspace_organization_info(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Get organization info for a workspace.
 
@@ -1829,6 +1839,7 @@ def get_workspace_organization_info(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
 
     Returns:
         Dictionary containing organization info:
@@ -1843,6 +1854,7 @@ def get_workspace_organization_info(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
@@ -1850,8 +1862,9 @@ def get_connection_state(
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Get the state for a connection.
 
@@ -1862,6 +1875,7 @@ def get_connection_state(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
 
     Returns:
         Dictionary containing the connection state.
@@ -1872,6 +1886,7 @@ def get_connection_state(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
@@ -1879,8 +1894,9 @@ def get_connection_catalog(
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Get the configured catalog for a connection.
 
@@ -1894,6 +1910,7 @@ def get_connection_catalog(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication (alternative to client credentials)
 
     Returns:
         Dictionary containing the connection info with syncCatalog.
@@ -1904,4 +1921,5 @@ def get_connection_catalog(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )

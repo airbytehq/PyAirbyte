@@ -223,14 +223,14 @@ def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
             AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
     """
     bearer_token = resolve_cloud_bearer_token()
-    
+
     if bearer_token is not None:
         return CloudWorkspace(
             workspace_id=resolve_cloud_workspace_id(workspace_id),
             bearer_token=bearer_token,
             api_root=resolve_cloud_api_url(),
         )
-    
+
     return CloudWorkspace(
         workspace_id=resolve_cloud_workspace_id(workspace_id),
         client_id=resolve_cloud_client_id(),
