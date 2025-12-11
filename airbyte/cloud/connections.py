@@ -282,8 +282,8 @@ class CloudConnection:
 
     # Artifacts
 
-    def get_state_artifact(self) -> list[dict[str, Any]] | None:
-        """Get the connection state.
+    def get_state_artifacts(self) -> list[dict[str, Any]] | None:
+        """Get the connection state artifacts.
 
         Returns the persisted state for this connection, which can be used
         for incremental syncs or live testing.
