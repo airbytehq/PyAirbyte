@@ -88,6 +88,10 @@ def get_airbyte_server_instance(
 
     Supports authentication via either OAuth2 client credentials or bearer token.
     Exactly one authentication method must be provided.
+
+    In future, we may consider falling back from bearer token to client credentials
+    if bearer token is provided but expired. For now, we fail if both auth
+    modes are provided.
     """
     has_client_creds = client_id is not None and client_secret is not None
     has_bearer = bearer_token is not None
