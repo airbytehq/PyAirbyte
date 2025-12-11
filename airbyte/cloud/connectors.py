@@ -190,6 +190,17 @@ class CloudSource(CloudConnector):
         """
         return self.connector_id
 
+    @property
+    def definition_id(self) -> str:
+        """Get the connector definition ID (source type).
+
+        This identifies the type of connector (e.g., 'source-postgres', 'source-stripe').
+        """
+        if not self._connector_info:
+            self._connector_info = self._fetch_connector_info()
+
+        return self._connector_info.definition_id
+
     def _fetch_connector_info(self) -> api_models.SourceResponse:
         """Populate the source with data from the API."""
         return api_util.get_source(

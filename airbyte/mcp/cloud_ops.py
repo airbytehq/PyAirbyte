@@ -47,6 +47,8 @@ class CloudSourceResult(BaseModel):
     """Display name of the source."""
     url: str
     """Web URL for managing this source in Airbyte Cloud."""
+    definition_id: str
+    """The connector definition ID (source type)."""
 
 
 class CloudDestinationResult(BaseModel):
@@ -162,6 +164,30 @@ class CloudWorkspaceResult(BaseModel):
     """ID of the organization (requires ORGANIZATION_READER permission)."""
     organization_name: str | None = None
     """Name of the organization (requires ORGANIZATION_READER permission)."""
+
+
+class WorkspaceSourcesResult(BaseModel):
+    """Sources in a workspace matching a specific connector definition."""
+
+    workspace_id: str
+    """The workspace ID."""
+    workspace_name: str
+    """Display name of the workspace."""
+    sources: list[CloudSourceResult]
+    """List of sources matching the definition_id filter."""
+
+
+class OrgSourcesByDefinitionResult(BaseModel):
+    """Result of searching for sources by definition across an organization."""
+
+    organization_id: str
+    """The organization ID that was searched."""
+    definition_id: str
+    """The connector definition ID that was searched for."""
+    total_sources_found: int
+    """Total number of sources found across all workspaces."""
+    workspaces_with_matches: list[WorkspaceSourcesResult]
+    """List of workspaces containing matching sources."""
 
 
 class LogReadResult(BaseModel):
@@ -795,6 +821,7 @@ def list_deployed_cloud_source_connectors(
             id=source.source_id,
             name=cast(str, source.name),
             url=cast(str, source.connector_url),
+            definition_id=source.definition_id,
         )
         for source in sources
     ]
@@ -1457,6 +1484,122 @@ def describe_cloud_organization(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+    )
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def list_sources_by_definition_in_organization(
+    *,
+    organization_id: Annotated[
+        str | None,
+        Field(
+            description="Organization ID. Required if organization_name is not provided.",
+            default=None,
+        ),
+    ],
+    organization_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Organization name (exact match). " "Required if organization_id is not provided."
+            ),
+            default=None,
+        ),
+    ],
+    definition_id: Annotated[
+        str,
+        Field(
+            description=(
+                "The connector definition ID (source type) to search for. "
+                "For example, 'afa734e4-3571-11ec-991a-1e0031268139' for YouTube Analytics."
+            ),
+        ),
+    ],
+) -> OrgSourcesByDefinitionResult:
+    """Find all sources of a specific connector type across all workspaces in an organization.
+
+    This tool searches all workspaces in the specified organization and returns
+    sources that match the given connector definition ID (source type).
+
+    This is useful for finding all instances of a specific connector type
+    (e.g., all YouTube Analytics sources) across an entire organization,
+    regardless of what the sources are named.
+
+    Note: This operation may take some time for organizations with many workspaces,
+    as it needs to query each workspace individually.
+    """
+    api_root = resolve_cloud_api_url()
+    client_id = resolve_cloud_client_id()
+    client_secret = resolve_cloud_client_secret()
+
+    resolved_org_id = _resolve_organization_id(
+        organization_id=organization_id,
+        organization_name=organization_name,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    # Get all workspaces in the organization
+    workspaces = api_util.list_workspaces_in_organization(
+        organization_id=resolved_org_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+    workspaces_with_matches: list[WorkspaceSourcesResult] = []
+    total_sources_found = 0
+
+    # Search each workspace for sources matching the definition_id
+    for ws in workspaces:
+        workspace_id = ws.get("workspaceId", "")
+        workspace_name = ws.get("name", "")
+
+        # Create a CloudWorkspace to list sources
+        workspace = CloudWorkspace(
+            workspace_id=workspace_id,
+            client_id=SecretString(client_id),
+            client_secret=SecretString(client_secret),
+            api_root=api_root,
+        )
+
+        # Get all sources in this workspace
+        sources = workspace.list_sources()
+
+        # Filter by definition_id
+        matching_sources = [s for s in sources if s.definition_id == definition_id]
+
+        if matching_sources:
+            source_results = [
+                CloudSourceResult(
+                    id=source.source_id,
+                    name=cast(str, source.name),
+                    url=cast(str, source.connector_url),
+                    definition_id=source.definition_id,
+                )
+                for source in matching_sources
+            ]
+            workspaces_with_matches.append(
+                WorkspaceSourcesResult(
+                    workspace_id=workspace_id,
+                    workspace_name=workspace_name,
+                    sources=source_results,
+                )
+            )
+            total_sources_found += len(matching_sources)
+
+    return OrgSourcesByDefinitionResult(
+        organization_id=resolved_org_id,
+        definition_id=definition_id,
+        total_sources_found=total_sources_found,
+        workspaces_with_matches=workspaces_with_matches,
     )
 
 
