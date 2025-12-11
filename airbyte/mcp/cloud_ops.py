@@ -2,7 +2,7 @@
 """Airbyte Cloud MCP operations."""
 
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -2282,6 +2282,55 @@ def set_cloud_connection_selected_streams(
         f"Successfully set selected streams for connection '{connection_id}' "
         f"to {resolved_streams_list}. URL: {connection.connection_url}"
     )
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_connection_artifact(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the Airbyte Cloud connection."),
+    ],
+    artifact_type: Annotated[
+        Literal["state", "catalog"],
+        Field(description="The type of artifact to retrieve: 'state' or 'catalog'."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Get a connection artifact (state or catalog) from Airbyte Cloud.
+
+    Retrieves the specified artifact for a connection:
+    - 'state': Returns the persisted state for incremental syncs as a list of
+      stream state objects, or {"ERROR": "..."} if no state is set.
+    - 'catalog': Returns the configured catalog (syncCatalog) as a dict,
+      or {"ERROR": "..."} if not found.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    if artifact_type == "state":
+        result = connection.get_state_artifacts()
+        if result is None:
+            return {"ERROR": "No state is set for this connection (stateType: not_set)"}
+        return result
+
+    # artifact_type == "catalog"
+    result = connection.get_catalog_artifact()
+    if result is None:
+        return {"ERROR": "No catalog found for this connection"}
+    return result
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:
