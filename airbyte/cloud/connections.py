@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 from airbyte._util import api_util
@@ -279,6 +280,43 @@ class CloudConnection:
             connection=self,
             job_id=job_id,
         )
+
+    # Artifacts
+
+    def get_state_artifact_json(self) -> str:
+        """Get the connection state as a JSON string.
+
+        Returns the persisted state for this connection, which can be used
+        for incremental syncs or live testing.
+
+        Returns:
+            JSON string containing the connection state.
+        """
+        state_response = api_util.get_connection_state(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        return json.dumps(state_response, indent=2)
+
+    def get_catalog_artifact_json(self) -> str:
+        """Get the configured catalog as a JSON string.
+
+        Returns the full configured catalog (syncCatalog) for this connection,
+        including stream schemas, sync modes, cursor fields, and primary keys.
+
+        Returns:
+            JSON string containing the configured catalog.
+        """
+        connection_response = api_util.get_connection_catalog(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+        )
+        sync_catalog = connection_response.get("syncCatalog", {})
+        return json.dumps(sync_catalog, indent=2)
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
