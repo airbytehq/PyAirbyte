@@ -163,8 +163,9 @@ class CloudConnector(abc.ABC):
             connector_type=self.connector_type,
             actor_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
         )
         check_result = CheckResult(
             success=result[0],
@@ -195,8 +196,9 @@ class CloudSource(CloudConnector):
         return api_util.get_source(
             source_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
         )
 
     def rename(self, name: str) -> CloudSource:
@@ -211,8 +213,9 @@ class CloudSource(CloudConnector):
         updated_response = api_util.patch_source(
             source_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
             name=name,
         )
         self._connector_info = updated_response
@@ -233,8 +236,9 @@ class CloudSource(CloudConnector):
         updated_response = api_util.patch_source(
             source_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
             config=config,
         )
         self._connector_info = updated_response
@@ -277,8 +281,9 @@ class CloudDestination(CloudConnector):
         return api_util.get_destination(
             destination_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
         )
 
     def rename(self, name: str) -> CloudDestination:
@@ -293,8 +298,9 @@ class CloudDestination(CloudConnector):
         updated_response = api_util.patch_destination(
             destination_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
             name=name,
         )
         self._connector_info = updated_response
@@ -315,8 +321,9 @@ class CloudDestination(CloudConnector):
         updated_response = api_util.patch_destination(
             destination_id=self.connector_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
             config=config,
         )
         self._connector_info = updated_response
@@ -375,8 +382,9 @@ class CustomCloudSourceDefinition:
                 workspace_id=self.workspace.workspace_id,
                 definition_id=self.definition_id,
                 api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
+                client_id=self.workspace.client_id,  # type: ignore[arg-type]
+                client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.workspace.bearer_token,
             )
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -461,8 +469,9 @@ class CustomCloudSourceDefinition:
                 workspace_id=self.workspace.workspace_id,
                 definition_id=self.definition_id,
                 api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
+                client_id=self.workspace.client_id,  # type: ignore[arg-type]
+                client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.workspace.bearer_token,
             )
         )
 
@@ -508,8 +517,9 @@ class CustomCloudSourceDefinition:
                 workspace_id=self.workspace.workspace_id,
                 definition_id=self.definition_id,
                 api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
+                client_id=self.workspace.client_id,  # type: ignore[arg-type]
+                client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.workspace.bearer_token,
                 safe_mode=safe_mode,
             )
         else:
@@ -577,8 +587,9 @@ class CustomCloudSourceDefinition:
                 definition_id=self.definition_id,
                 manifest=manifest_dict,
                 api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
+                client_id=self.workspace.client_id,  # type: ignore[arg-type]
+                client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+                bearer_token=self.workspace.bearer_token,
             )
             return CustomCloudSourceDefinition._from_yaml_response(self.workspace, result)
 
@@ -683,8 +694,9 @@ class CustomCloudSourceDefinition:
             workspace_id=self.workspace.workspace_id,
             config=config,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
+            client_id=self.workspace.client_id,  # type: ignore[arg-type]
+            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            bearer_token=self.workspace.bearer_token,
         )
         return CloudSource._from_source_response(  # noqa: SLF001  # Accessing Non-Public API
             workspace=self.workspace,

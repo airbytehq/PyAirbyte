@@ -255,6 +255,7 @@ class SyncResult:
             connection_id=self.connection.connection_id,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return self._connection_response
 
@@ -266,6 +267,7 @@ class SyncResult:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return asdict(destination_response.configuration)
 
@@ -287,6 +289,7 @@ class SyncResult:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return self._latest_job_info
 
@@ -313,6 +316,7 @@ class SyncResult:
                     json={"id": self.job_id},
                     client_id=self.workspace.client_id,
                     client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
                 )
                 raw_start_time = job_info_raw.get("startTime")
                 if raw_start_time:
@@ -332,6 +336,7 @@ class SyncResult:
             },
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return self._job_with_attempts_info
 
