@@ -232,7 +232,6 @@ def list_workspaces(
 
     name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
 
-    _ = workspace_id
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
