@@ -25,7 +25,7 @@ def run() -> None:
         shutil.rmtree("docs/generated")
 
     pdoc.render.configure(
-        template_directory="docs",
+        template_directory=pathlib.Path("docs/templates"),
         show_source=True,
         search=True,
         logo="https://docs.airbyte.com/img/pyairbyte-logo-dark.png",

@@ -36,14 +36,29 @@ workspace.permanently_delete_source(deployed_source)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from functools import cached_property
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal, overload
+
+import yaml
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud.auth import (
+    resolve_cloud_api_url,
+    resolve_cloud_client_id,
+    resolve_cloud_client_secret,
+    resolve_cloud_workspace_id,
+)
 from airbyte.cloud.connections import CloudConnection
-from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.connectors import (
+    CloudDestination,
+    CloudSource,
+    CustomCloudSourceDefinition,
+)
 from airbyte.destinations.base import Destination
+from airbyte.exceptions import AirbyteError
 from airbyte.secrets.base import SecretString
 
 
@@ -51,6 +66,20 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from airbyte.sources.base import Source
+
+
+@dataclass
+class CloudOrganization:
+    """Information about an organization in Airbyte Cloud.
+
+    This is a minimal value object returned by CloudWorkspace.get_organization().
+    """
+
+    organization_id: str
+    """The organization ID."""
+
+    organization_name: str | None = None
+    """Display name of the organization."""
 
 
 @dataclass
@@ -71,10 +100,139 @@ class CloudWorkspace:
         self.client_id = SecretString(self.client_id)
         self.client_secret = SecretString(self.client_secret)
 
+    @classmethod
+    def from_env(
+        cls,
+        workspace_id: str | None = None,
+        *,
+        api_root: str | None = None,
+    ) -> CloudWorkspace:
+        """Create a CloudWorkspace using credentials from environment variables.
+
+        This factory method resolves credentials from environment variables,
+        providing a convenient way to create a workspace without explicitly
+        passing credentials.
+
+        Environment variables used:
+            - `AIRBYTE_CLOUD_CLIENT_ID`: Required. The OAuth client ID.
+            - `AIRBYTE_CLOUD_CLIENT_SECRET`: Required. The OAuth client secret.
+            - `AIRBYTE_CLOUD_WORKSPACE_ID`: The workspace ID (if not passed as argument).
+            - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
+
+        Args:
+            workspace_id: The workspace ID. If not provided, will be resolved from
+                the `AIRBYTE_CLOUD_WORKSPACE_ID` environment variable.
+            api_root: The API root URL. If not provided, will be resolved from
+                the `AIRBYTE_CLOUD_API_URL` environment variable, or default to
+                the Airbyte Cloud API.
+
+        Returns:
+            A CloudWorkspace instance configured with credentials from the environment.
+
+        Raises:
+            PyAirbyteSecretNotFoundError: If required credentials are not found in
+                the environment.
+
+        Example:
+            ```python
+            # With workspace_id from environment
+            workspace = CloudWorkspace.from_env()
+
+            # With explicit workspace_id
+            workspace = CloudWorkspace.from_env(workspace_id="your-workspace-id")
+            ```
+        """
+        return cls(
+            workspace_id=resolve_cloud_workspace_id(workspace_id),
+            client_id=resolve_cloud_client_id(),
+            client_secret=resolve_cloud_client_secret(),
+            api_root=resolve_cloud_api_url(api_root),
+        )
+
     @property
     def workspace_url(self) -> str | None:
         """The web URL of the workspace."""
         return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
+
+    @cached_property
+    def _organization_info(self) -> dict[str, Any]:
+        """Fetch and cache organization info for this workspace.
+
+        Uses the Config API endpoint for an efficient O(1) lookup.
+        This is an internal method; use get_organization() for public access.
+        """
+        return api_util.get_workspace_organization_info(
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+        )
+
+    @overload
+    def get_organization(self) -> CloudOrganization: ...
+
+    @overload
+    def get_organization(
+        self,
+        *,
+        raise_on_error: Literal[True],
+    ) -> CloudOrganization: ...
+
+    @overload
+    def get_organization(
+        self,
+        *,
+        raise_on_error: Literal[False],
+    ) -> CloudOrganization | None: ...
+
+    def get_organization(
+        self,
+        *,
+        raise_on_error: bool = True,
+    ) -> CloudOrganization | None:
+        """Get the organization this workspace belongs to.
+
+        Fetching organization info requires ORGANIZATION_READER permissions on the organization,
+        which may not be available with workspace-scoped credentials.
+
+        Args:
+            raise_on_error: If True (default), raises AirbyteError on permission or API errors.
+                If False, returns None instead of raising.
+
+        Returns:
+            CloudOrganization object with organization_id and organization_name,
+            or None if raise_on_error=False and an error occurred.
+
+        Raises:
+            AirbyteError: If raise_on_error=True and the organization info cannot be fetched
+                (e.g., due to insufficient permissions or missing data).
+        """
+        try:
+            info = self._organization_info
+        except AirbyteError:
+            if raise_on_error:
+                raise
+            return None
+
+        organization_id = info.get("organizationId")
+        organization_name = info.get("organizationName")
+
+        # Validate that both organization_id and organization_name are non-null and non-empty
+        if not organization_id or not organization_name:
+            if raise_on_error:
+                raise AirbyteError(
+                    message="Organization info is incomplete.",
+                    context={
+                        "organization_id": organization_id,
+                        "organization_name": organization_name,
+                    },
+                )
+            return None
+
+        return CloudOrganization(
+            organization_id=organization_id,
+            organization_name=organization_name,
+        )
 
     # Test connection and creds
 
@@ -243,10 +401,17 @@ class CloudWorkspace:
     def permanently_delete_source(
         self,
         source: str | CloudSource,
+        *,
+        safe_mode: bool = True,
     ) -> None:
         """Delete a source from the workspace.
 
         You can pass either the source ID `str` or a deployed `Source` object.
+
+        Args:
+            source: The source ID or CloudSource object to delete
+            safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(source, (str, CloudSource)):
             raise exc.PyAirbyteInputError(
@@ -256,9 +421,11 @@ class CloudWorkspace:
 
         api_util.delete_source(
             source_id=source.connector_id if isinstance(source, CloudSource) else source,
+            source_name=source.name if isinstance(source, CloudSource) else None,
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            safe_mode=safe_mode,
         )
 
     # Deploy and delete destinations
@@ -266,10 +433,17 @@ class CloudWorkspace:
     def permanently_delete_destination(
         self,
         destination: str | CloudDestination,
+        *,
+        safe_mode: bool = True,
     ) -> None:
         """Delete a deployed destination from the workspace.
 
         You can pass either the `Cache` class or the deployed destination ID as a `str`.
+
+        Args:
+            destination: The destination ID or CloudDestination object to delete
+            safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True.
         """
         if not isinstance(destination, (str, CloudDestination)):
             raise exc.PyAirbyteInputError(
@@ -281,9 +455,13 @@ class CloudWorkspace:
             destination_id=(
                 destination if isinstance(destination, str) else destination.destination_id
             ),
+            destination_name=(
+                destination.name if isinstance(destination, CloudDestination) else None
+            ),
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            safe_mode=safe_mode,
         )
 
     # Deploy and delete connections
@@ -344,8 +522,19 @@ class CloudWorkspace:
         *,
         cascade_delete_source: bool = False,
         cascade_delete_destination: bool = False,
+        safe_mode: bool = True,
     ) -> None:
-        """Delete a deployed connection from the workspace."""
+        """Delete a deployed connection from the workspace.
+
+        Args:
+            connection: The connection ID or CloudConnection object to delete
+            cascade_delete_source: If True, also delete the source after deleting the connection
+            cascade_delete_destination: If True, also delete the destination after deleting
+                the connection
+            safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
+                (case insensitive) to prevent accidental deletion. Defaults to True. Also applies
+                to cascade deletes.
+        """
         if connection is None:
             raise ValueError("No connection ID provided.")
 
@@ -357,16 +546,24 @@ class CloudWorkspace:
 
         api_util.delete_connection(
             connection_id=connection.connection_id,
+            connection_name=connection.name,
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            safe_mode=safe_mode,
         )
 
         if cascade_delete_source:
-            self.permanently_delete_source(source=connection.source_id)
+            self.permanently_delete_source(
+                source=connection.source_id,
+                safe_mode=safe_mode,
+            )
         if cascade_delete_destination:
-            self.permanently_delete_destination(destination=connection.destination_id)
+            self.permanently_delete_destination(
+                destination=connection.destination_id,
+                safe_mode=safe_mode,
+            )
 
     # List sources, destinations, and connections
 
@@ -450,3 +647,169 @@ class CloudWorkspace:
             for destination in destinations
             if name is None or destination.name == name
         ]
+
+    def publish_custom_source_definition(
+        self,
+        name: str,
+        *,
+        manifest_yaml: dict[str, Any] | Path | str | None = None,
+        docker_image: str | None = None,
+        docker_tag: str | None = None,
+        unique: bool = True,
+        pre_validate: bool = True,
+        testing_values: dict[str, Any] | None = None,
+    ) -> CustomCloudSourceDefinition:
+        """Publish a custom source connector definition.
+
+        You must specify EITHER manifest_yaml (for YAML connectors) OR both docker_image
+        and docker_tag (for Docker connectors), but not both.
+
+        Args:
+            name: Display name for the connector definition
+            manifest_yaml: Low-code CDK manifest (dict, Path to YAML file, or YAML string)
+            docker_image: Docker repository (e.g., 'airbyte/source-custom')
+            docker_tag: Docker image tag (e.g., '1.0.0')
+            unique: Whether to enforce name uniqueness
+            pre_validate: Whether to validate manifest client-side (YAML only)
+            testing_values: Optional configuration values to use for testing in the
+                Connector Builder UI. If provided, these values are stored as the complete
+                testing values object for the connector builder project (replaces any existing
+                values), allowing immediate test read operations.
+
+        Returns:
+            CustomCloudSourceDefinition object representing the created definition
+
+        Raises:
+            PyAirbyteInputError: If both or neither of manifest_yaml and docker_image provided
+            AirbyteDuplicateResourcesError: If unique=True and name already exists
+        """
+        is_yaml = manifest_yaml is not None
+        is_docker = docker_image is not None
+
+        if is_yaml == is_docker:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "Must specify EITHER manifest_yaml (for YAML connectors) OR "
+                    "docker_image + docker_tag (for Docker connectors), but not both"
+                ),
+                context={
+                    "manifest_yaml_provided": is_yaml,
+                    "docker_image_provided": is_docker,
+                },
+            )
+
+        if is_docker and docker_tag is None:
+            raise exc.PyAirbyteInputError(
+                message="docker_tag is required when docker_image is specified",
+                context={"docker_image": docker_image},
+            )
+
+        if unique:
+            existing = self.list_custom_source_definitions(
+                definition_type="yaml" if is_yaml else "docker",
+            )
+            if any(d.name == name for d in existing):
+                raise exc.AirbyteDuplicateResourcesError(
+                    resource_type="custom_source_definition",
+                    resource_name=name,
+                )
+
+        if is_yaml:
+            manifest_dict: dict[str, Any]
+            if isinstance(manifest_yaml, Path):
+                manifest_dict = yaml.safe_load(manifest_yaml.read_text())
+            elif isinstance(manifest_yaml, str):
+                manifest_dict = yaml.safe_load(manifest_yaml)
+            elif manifest_yaml is not None:
+                manifest_dict = manifest_yaml
+            else:
+                raise exc.PyAirbyteInputError(
+                    message="manifest_yaml is required for YAML connectors",
+                    context={"name": name},
+                )
+
+            if pre_validate:
+                api_util.validate_yaml_manifest(manifest_dict, raise_on_error=True)
+
+            result = api_util.create_custom_yaml_source_definition(
+                name=name,
+                workspace_id=self.workspace_id,
+                manifest=manifest_dict,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            custom_definition = CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
+                self, result
+            )
+
+            # Set testing values if provided
+            if testing_values is not None:
+                custom_definition.set_testing_values(testing_values)
+
+            return custom_definition
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    def list_custom_source_definitions(
+        self,
+        *,
+        definition_type: Literal["yaml", "docker"],
+    ) -> list[CustomCloudSourceDefinition]:
+        """List custom source connector definitions.
+
+        Args:
+            definition_type: Connector type to list ("yaml" or "docker"). Required.
+
+        Returns:
+            List of CustomCloudSourceDefinition objects matching the specified type
+        """
+        if definition_type == "yaml":
+            yaml_definitions = api_util.list_custom_yaml_source_definitions(
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            return [
+                CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
+                for d in yaml_definitions
+            ]
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )
+
+    def get_custom_source_definition(
+        self,
+        definition_id: str,
+        *,
+        definition_type: Literal["yaml", "docker"],
+    ) -> CustomCloudSourceDefinition:
+        """Get a specific custom source definition by ID.
+
+        Args:
+            definition_id: The definition ID
+            definition_type: Connector type ("yaml" or "docker"). Required.
+
+        Returns:
+            CustomCloudSourceDefinition object
+        """
+        if definition_type == "yaml":
+            result = api_util.get_custom_yaml_source_definition(
+                workspace_id=self.workspace_id,
+                definition_id=definition_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+            )
+            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
+
+        raise NotImplementedError(
+            "Docker custom source definitions are not yet supported. "
+            "Only YAML manifest-based custom sources are currently available."
+        )

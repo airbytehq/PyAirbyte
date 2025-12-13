@@ -17,7 +17,7 @@ enable = true
 python = ">=3.10,<3.13"
 
 airbyte-api = "^0.53.0"
-airbyte-cdk = ">=6.61.6,<7.0.0"
+airbyte-cdk = ">=7.3.9,<8.0.0"
 airbyte-protocol-models-pdv2 = "^0.13.0"
 click = "^8.1.7"
 cryptography = ">=44.0.0,<45.0.0"
@@ -38,7 +38,6 @@ pydantic = ">=2.0,<=3.0"
 pydantic-core = "*"
 python-dotenv = "^1.0.1"
 python-ulid = "^3.0.0"
-pytz = "*"
 pyyaml = "^6.0.2"
 requests = "!=3.32.0"  # 3.32.0 breaks docker tests
 rich = "^13.7.0"
@@ -61,14 +60,13 @@ deptry = "^0.21.1"
 docker = "^7.1.0"
 faker = "^21.0.0"
 freezegun = "^1.4.0"
-mypy = "^1.11.2"
+pyrefly = ">=0.38.0"
 pandas-stubs = "^2.1.4.231218"
-pdoc = "^14.3.0"
+pdoc = "^16.0.0"
 poethepoet = ">=0.26.1,<0.32.0"
 pytest = "^8.2.0"
 pytest-docker = "^3.1.1"
 pytest-mock = "^3.14.0"
-pytest-mypy = "^0.10.3"
 pytest-timeout = "^2.3.1"
 responses = "^0.25.0"
 ruff = "^0.8.2"
@@ -117,58 +115,12 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
 
-[tool.mypy]
-# Platform configuration
-python_version = "3.10"
-# imports related
-ignore_missing_imports = true
-follow_imports = "silent"
-# None and Optional handling
-no_implicit_optional = true
-strict_optional = true
-# Configuring warnings
-warn_unused_configs = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
-warn_return_any = false
-# Untyped definitions and calls
-check_untyped_defs = true
-disallow_untyped_calls = false
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-disallow_untyped_decorators = false
-# Disallow dynamic typing
-disallow_subclassing_any = true
-disallow_any_unimported = false
-disallow_any_expr = false
-disallow_any_decorated = false
-disallow_any_explicit = false
-disallow_any_generics = false
-# Miscellaneous strictness flags
-allow_untyped_globals = false
-allow_redefinition = false
-local_partial_types = false
-implicit_reexport = true
-strict_equality = true
-# Configuring error messages
-show_error_context = false
-show_column_numbers = false
-show_error_codes = true
-exclude = [
-    "tests/integration_tests/fixtures/source-broken",
-    "tests/integration_tests/fixtures/source-test",
-    "docs",
-    "tests",
-]
+# [tool.pyrefly]
+# Pyrefly moved to dedicated config file: `pyrefly.toml`
 
-[[tool.mypy.overrides]]
-ignore_missing_imports = true  # No stubs yet (😢)
-module = [
-    "airbyte_protocol",
-    "airbyte_protocol.models",
-]
+[tool.mypy]
+# Disable all mypy checks for this project since we use pyrefly instead
+ignore_errors = true
 
 [tool.pyright]
 pythonVersion = "3.10"
@@ -190,7 +142,7 @@ coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 coverage-reset = { shell = "coverage erase" }
 
-check = { shell = "ruff check . && mypy . && pytest --collect-only -qq" }
+check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}

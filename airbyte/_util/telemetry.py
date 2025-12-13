@@ -109,8 +109,9 @@ def _setup_analytics() -> str | bool:
 
     if _ANALYTICS_FILE.exists():
         analytics_text = _ANALYTICS_FILE.read_text()
+        analytics: dict | None = None
         try:
-            analytics: dict = yaml.safe_load(analytics_text)
+            analytics = yaml.safe_load(analytics_text)
         except Exception as ex:
             issues += f"File appears corrupted. Error was: {ex!s}"
 
@@ -251,7 +252,7 @@ def send_telemetry(
                 "anonymousId": _get_analytics_id(),
                 "event": event_type,
                 "properties": payload_props,
-                "timestamp": datetime.datetime.utcnow().isoformat(),  # noqa: DTZ003
+                "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
             },
         )
 

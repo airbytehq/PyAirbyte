@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, cast, final
 
 import pandas as pd
 import sqlalchemy
+import sqlalchemy.exc
 import ulid
 from pandas import Index
 from pydantic import BaseModel, Field
@@ -212,9 +213,12 @@ class SqlProcessorBase(abc.ABC):
         ] = defaultdict(list, {})
 
         self._setup()
-        self.file_writer = file_writer or self.file_writer_class(
-            cache_dir=cast("Path", temp_dir),
-            cleanup=temp_file_cleanup,
+        self.file_writer = (
+            file_writer
+            or self.file_writer_class(  # pyrefly: ignore[bad-instantiation]
+                cache_dir=cast("Path", temp_dir),
+                cleanup=temp_file_cleanup,
+            )
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
@@ -273,7 +277,7 @@ class SqlProcessorBase(abc.ABC):
         This method assumes that the catalog is already registered with the processor.
         """
         if not isinstance(write_strategy, WriteStrategy):
-            raise exc.AirbyteInternalError(
+            raise exc.AirbyteInternalError(  # pyrefly: ignore[missing-attribute]
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
                 context={"write_strategy": write_strategy},
             )

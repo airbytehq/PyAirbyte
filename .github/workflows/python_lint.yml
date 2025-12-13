@@ -9,6 +9,8 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
 jobs:
   ruff-lint-check:
     name: Ruff Lint Check
@@ -58,8 +60,8 @@ jobs:
     - name: Check code format
       run: poetry run ruff format --diff .
 
-  mypy-check:
-    name: MyPy Check
+  python-type-checks:
+    name: Python Type Checks
     runs-on: ubuntu-latest
     steps:
     # Common steps:
@@ -81,5 +83,5 @@ jobs:
       run: poetry install
 
     # Job-specifc step(s):
-    - name: Check MyPy typing
-      run: poetry run mypy .
+    - name: Run Pyrefly Check
+      run: poetry run pyrefly check

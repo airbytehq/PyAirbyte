@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import abc
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from sqlalchemy import Column, String
 from sqlalchemy.orm import Session, declarative_base
@@ -233,7 +233,7 @@ class SqlCatalogBackend(CatalogBackendBase):
             ConfiguredAirbyteStream(
                 stream=AirbyteStream(
                     name=stream.stream_name,
-                    json_schema=json.loads(stream.catalog_metadata),  # type: ignore[arg-type]
+                    json_schema=json.loads(cast(str, stream.catalog_metadata)),
                     supported_sync_modes=[SyncMode.full_refresh],
                 ),
                 sync_mode=SyncMode.full_refresh,
@@ -261,13 +261,18 @@ class SqlCatalogBackend(CatalogBackendBase):
         source_name: str,
     ) -> CatalogProvider:
         if source_name not in self._source_catalogs:
-            self._source_catalogs[source_name] = CatalogProvider(
-                configured_catalog=ConfiguredAirbyteCatalog(
-                    streams=self._fetch_streams_info(
-                        source_name=source_name,
-                        table_prefix=self._table_prefix,
+            self._source_catalogs[source_name] = (
+                # type: ignore[unsupported-operation]
+                # type mismatch of CatalogProvider vs ConfiguredAirbyteCatalog
+                CatalogProvider(
+                    configured_catalog=ConfiguredAirbyteCatalog(
+                        streams=self._fetch_streams_info(
+                            source_name=source_name,
+                            table_prefix=self._table_prefix,
+                        )
                     )
                 )
             )
 
+        # type: ignore[bad-return]  # type mismatch of CatalogProvider vs ConfiguredAirbyteCatalog
         return self._source_catalogs[source_name]
