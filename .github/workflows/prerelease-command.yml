@@ -24,14 +24,6 @@ jobs:
   resolve-pr:
     name: Set up Workflow
     runs-on: ubuntu-latest
-    outputs:
-      source-repo: ${{ steps.vars.outputs.pr-source-repo-name-full }}
-      source-branch: ${{ steps.vars.outputs.pr-source-git-branch }}
-      commit-sha: ${{ steps.vars.outputs.pr-source-git-sha }}
-      pr-number: ${{ steps.vars.outputs.pr-number }}
-      job-run-url: ${{ steps.vars.outputs.run-url }}
-      first-comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
-      prerelease-version: ${{ steps.version.outputs.version }}
     steps:
     - name: Resolve workflow variables
       id: vars
@@ -65,6 +57,14 @@ jobs:
         PRERELEASE_VERSION="${BASE_VERSION}.dev${{ github.event.inputs.pr }}${{ github.run_id }}"
         echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
         echo "Computed prerelease version: $PRERELEASE_VERSION"
+    outputs:
+      source-repo: ${{ steps.vars.outputs.pr-source-repo-name-full }}
+      source-branch: ${{ steps.vars.outputs.pr-source-git-branch }}
+      commit-sha: ${{ steps.vars.outputs.pr-source-git-sha }}
+      pr-number: ${{ steps.vars.outputs.pr-number }}
+      job-run-url: ${{ steps.vars.outputs.run-url }}
+      first-comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+      prerelease-version: ${{ steps.version.outputs.version }}
 
   build-and-publish:
     name: Call Publish Workflow
