@@ -32,10 +32,19 @@ jobs:
       with:
         ref: ${{ inputs.git_ref || github.ref }}
         fetch-depth: 0
-    - name: Set version override
-      if: inputs.version_override != ''
-      run: echo "POETRY_DYNAMIC_VERSIONING_BYPASS=${{ inputs.version_override }}" >> $GITHUB_ENV
-    - uses: hynek/build-and-inspect-python-package@efb823f52190ad02594531168b7a2d5790e66516 # v2.14.0
+    - name: Prepare version override
+      id: version
+      run: |
+        echo "override=${{ inputs.version_override }}" >> $GITHUB_OUTPUT
+        echo "has_override=${{ inputs.version_override != '' }}" >> $GITHUB_OUTPUT
+    - name: Build package (with version override)
+      if: steps.version.outputs.has_override == 'true'
+      uses: hynek/build-and-inspect-python-package@efb823f52190ad02594531168b7a2d5790e66516 # v2.14.0
+      env:
+        POETRY_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.override }}
+    - name: Build package (dynamic version)
+      if: steps.version.outputs.has_override != 'true'
+      uses: hynek/build-and-inspect-python-package@efb823f52190ad02594531168b7a2d5790e66516 # v2.14.0
 
   publish:
     name: Publish to PyPI
