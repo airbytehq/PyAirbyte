@@ -71,7 +71,8 @@ jobs:
     needs: [resolve-pr]
     uses: ./.github/workflows/pypi_publish.yml
     with:
-      git_ref: ${{ needs.resolve-pr.outputs.commit-sha }}
+      # Use refs/pull/<PR>/head instead of raw SHA for fork compatibility
+      git_ref: refs/pull/${{ github.event.inputs.pr }}/head
       version_override: ${{ needs.resolve-pr.outputs.prerelease-version }}
       publish: true
 
