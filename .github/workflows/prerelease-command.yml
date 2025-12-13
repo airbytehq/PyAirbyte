@@ -37,12 +37,6 @@ jobs:
       id: vars
       uses: aaronsteers/resolve-ci-vars-action@2e56afab0344bbe03c047dfa39bae559d0291472 # v0.1.6
 
-    - name: Check source repo is not a fork
-      if: steps.vars.outputs.pr-source-repo-name-full != 'airbytehq/PyAirbyte'
-      run: |
-        echo "::error::Cannot publish prereleases from forks. Source repo: ${{ steps.vars.outputs.pr-source-repo-name-full }}"
-        exit 1
-
     - name: Append comment with job run link
       id: first-comment-action
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
