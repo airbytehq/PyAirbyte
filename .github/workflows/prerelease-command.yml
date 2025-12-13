@@ -81,12 +81,14 @@ jobs:
       version_override: ${{ needs.resolve-pr.outputs.prerelease-version }}
       publish: true
 
-  post-success-comment:
-    name: Post Success Comment
+  post-result-comment:
+    name: Post Result Comment
     needs: [resolve-pr, build-and-publish]
+    if: always()
     runs-on: ubuntu-latest
     steps:
     - name: Post success comment
+      if: needs.build-and-publish.result == 'success'
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
       with:
         comment-id: ${{ needs.resolve-pr.outputs.first-comment-id }}
@@ -101,14 +103,8 @@ jobs:
           > ```bash
           > pip install airbyte==${{ needs.resolve-pr.outputs.prerelease-version }}
           > ```
-
-  post-failure-comment:
-    name: Post Failure Comment
-    needs: [resolve-pr, build-and-publish]
-    if: failure()
-    runs-on: ubuntu-latest
-    steps:
     - name: Post failure comment
+      if: needs.build-and-publish.result == 'failure'
       uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
       with:
         comment-id: ${{ needs.resolve-pr.outputs.first-comment-id }}
