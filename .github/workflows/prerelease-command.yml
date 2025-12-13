@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   resolve-pr:
-    name: Resolve PR Info
+    name: Set up Workflow
     runs-on: ubuntu-latest
     outputs:
       source-repo: ${{ steps.vars.outputs.pr-source-repo-name-full }}
@@ -73,7 +73,7 @@ jobs:
         echo "Computed prerelease version: $PRERELEASE_VERSION"
 
   build-and-publish:
-    name: Build and Publish Prerelease
+    name: Call Publish Workflow
     needs: [resolve-pr]
     uses: ./.github/workflows/pypi_publish.yml
     with:
@@ -82,7 +82,7 @@ jobs:
       publish: true
 
   post-result-comment:
-    name: Post Result Comment
+    name: Write Status to PR
     needs: [resolve-pr, build-and-publish]
     if: always()
     runs-on: ubuntu-latest
