@@ -1,0 +1,117 @@
+name: On-Demand Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: 'PR Number'
+        type: string
+        required: true
+      comment-id:
+        description: 'Comment ID (Optional)'
+        type: string
+        required: false
+
+env:
+  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  resolve-pr:
+    name: Set up Workflow
+    runs-on: ubuntu-latest
+    steps:
+    - name: Resolve workflow variables
+      id: vars
+      uses: aaronsteers/resolve-ci-vars-action@2e56afab0344bbe03c047dfa39bae559d0291472 # v0.1.6
+
+    - name: Append comment with job run link
+      id: first-comment-action
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ github.event.inputs.comment-id }}
+        issue-number: ${{ github.event.inputs.pr }}
+        body: |
+          > **Prerelease Build Started**
+          >
+          > Building and publishing prerelease package from this PR...
+          > [Check job output.](${{ steps.vars.outputs.run-url }})
+
+    - name: Checkout to get latest tag
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      with:
+        fetch-depth: 0
+
+    - name: Compute prerelease version
+      id: version
+      run: |
+        # Get the latest tag version (strip 'v' prefix if present)
+        LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+        BASE_VERSION=${LATEST_TAG#v}
+        # Create a unique prerelease version using PR number and run ID
+        # Format: {base}.dev{pr_number}{run_id} (e.g., 0.34.0.dev825123456789)
+        PRERELEASE_VERSION="${BASE_VERSION}.dev${{ github.event.inputs.pr }}${{ github.run_id }}"
+        echo "version=$PRERELEASE_VERSION" >> $GITHUB_OUTPUT
+        echo "Computed prerelease version: $PRERELEASE_VERSION"
+    outputs:
+      source-repo: ${{ steps.vars.outputs.pr-source-repo-name-full }}
+      source-branch: ${{ steps.vars.outputs.pr-source-git-branch }}
+      commit-sha: ${{ steps.vars.outputs.pr-source-git-sha }}
+      pr-number: ${{ steps.vars.outputs.pr-number }}
+      job-run-url: ${{ steps.vars.outputs.run-url }}
+      first-comment-id: ${{ steps.first-comment-action.outputs.comment-id }}
+      prerelease-version: ${{ steps.version.outputs.version }}
+
+  build-and-publish:
+    name: Call Publish Workflow
+    needs: [resolve-pr]
+    uses: ./.github/workflows/pypi_publish.yml
+    with:
+      # Use refs/pull/<PR>/head instead of raw SHA for fork compatibility
+      git_ref: refs/pull/${{ github.event.inputs.pr }}/head
+      version_override: ${{ needs.resolve-pr.outputs.prerelease-version }}
+      publish: true
+
+  post-result-comment:
+    name: Write Status to PR
+    needs: [resolve-pr, build-and-publish]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+    - name: Post success comment
+      if: needs.build-and-publish.result == 'success'
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ needs.resolve-pr.outputs.first-comment-id }}
+        issue-number: ${{ github.event.inputs.pr }}
+        reactions: rocket
+        body: |
+          > **Prerelease Published to PyPI**
+          >
+          > Version: `${{ needs.resolve-pr.outputs.prerelease-version }}`
+          >
+          > Install with:
+          > ```bash
+          > pip install airbyte==${{ needs.resolve-pr.outputs.prerelease-version }}
+          > ```
+    - name: Post failure comment
+      if: needs.build-and-publish.result == 'failure'
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+      with:
+        comment-id: ${{ needs.resolve-pr.outputs.first-comment-id }}
+        issue-number: ${{ github.event.inputs.pr }}
+        reactions: confused
+        body: |
+          > **Prerelease Build/Publish Failed**
+          >
+          > The prerelease encountered an error.
+          > [Check job output](${{ needs.resolve-pr.outputs.job-run-url }}) for details.
+          >
+          > You can still install directly from this PR branch:
+          > ```bash
+          > pip install 'git+https://github.com/${{ needs.resolve-pr.outputs.source-repo }}.git@${{ needs.resolve-pr.outputs.source-branch }}'
+          > ```
