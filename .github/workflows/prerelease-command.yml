@@ -68,14 +68,23 @@ jobs:
       prerelease-version: ${{ steps.version.outputs.version }}
 
   build-and-publish:
-    name: Call Publish Workflow
+    name: Trigger Publish Workflow
     needs: [resolve-pr]
-    uses: ./.github/workflows/pypi_publish.yml
-    with:
-      # Use refs/pull/<PR>/head instead of raw SHA for fork compatibility
-      git_ref: refs/pull/${{ github.event.inputs.pr }}/head
-      version_override: ${{ needs.resolve-pr.outputs.prerelease-version }}
-      publish: true
+    runs-on: ubuntu-latest
+    steps:
+    - name: Trigger pypi_publish workflow
+      id: dispatch
+      uses: the-actions-org/workflow-dispatch@v4
+      with:
+        workflow: pypi_publish.yml
+        token: ${{ secrets.GITHUB_CI_WORKFLOW_TRIGGER_PAT }}
+        ref: main  # Run from main so OIDC attestation matches trusted publisher
+        inputs: '{"git_ref": "refs/pull/${{ github.event.inputs.pr }}/head", "version_override": "${{ needs.resolve-pr.outputs.prerelease-version }}", "publish": "true"}'
+        wait-for-completion: true
+        wait-for-completion-timeout: 30m
+    outputs:
+      workflow-conclusion: ${{ steps.dispatch.outputs.workflow-conclusion }}
+      workflow-url: ${{ steps.dispatch.outputs.workflow-url }}
 
   post-result-comment:
     name: Write Status to PR
@@ -94,6 +103,7 @@ jobs:
           > **Prerelease Published to PyPI**
           >
           > Version: `${{ needs.resolve-pr.outputs.prerelease-version }}`
+          > [View publish workflow](${{ needs.build-and-publish.outputs.workflow-url }})
           >
           > Install with:
           > ```bash
@@ -110,7 +120,7 @@ jobs:
           > **Prerelease Build/Publish Failed**
           >
           > The prerelease encountered an error.
-          > [Check job output](${{ needs.resolve-pr.outputs.job-run-url }}) for details.
+          > [Check publish workflow output](${{ needs.build-and-publish.outputs.workflow-url }}) for details.
           >
           > You can still install directly from this PR branch:
           > ```bash

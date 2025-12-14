@@ -4,6 +4,20 @@ on:
   push:
 
   workflow_dispatch:
+    inputs:
+      git_ref:
+        description: 'Git ref (SHA or branch) to checkout and build'
+        required: false
+        type: string
+      version_override:
+        description: 'Version to use (overrides dynamic versioning)'
+        required: false
+        type: string
+      publish:
+        description: 'Whether to publish to PyPI (true/false)'
+        required: false
+        type: string
+        default: 'false'
 
   workflow_call:
     inputs:
@@ -56,8 +70,8 @@ jobs:
     environment:
       name: PyPi
       url: https://pypi.org/p/airbyte
-    # Publish when: (1) triggered by a tag push, OR (2) called with publish=true
-    if: startsWith(github.ref, 'refs/tags/') || inputs.publish == true
+    # Publish when: (1) triggered by a tag push, OR (2) called with publish=true (handles both boolean and string)
+    if: startsWith(github.ref, 'refs/tags/') || inputs.publish == true || inputs.publish == 'true'
     steps:
     - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
       with:
