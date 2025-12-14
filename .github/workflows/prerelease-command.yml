@@ -16,7 +16,8 @@ env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
 permissions:
-  contents: read
+  contents: write  # Required by nested pypi_publish.yml workflow (for GitHub release uploads on tags)
+  id-token: write  # Required by nested pypi_publish.yml workflow (for OIDC PyPI publishing)
   pull-requests: write
   issues: write
 
