@@ -27,7 +27,6 @@ As needed or by request, Airbyte Maintainers can execute the following slash com
 - `/fix-pr` - Fixes most formatting and linting issues
 - `/poetry-lock` - Updates poetry.lock file
 - `/test-pr` - Runs tests with the updated PyAirbyte
-- `/prerelease` - Builds and publishes a prerelease version to PyPI
 
 ### Community Support
 

@@ -34,7 +34,6 @@ jobs:
             fix-pr
             test-pr
             poetry-lock
-            prerelease
           static-args: |
             pr=${{ github.event.issue.number }}
             comment-id=${{ github.event.comment.id }}

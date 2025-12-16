@@ -1260,11 +1260,6 @@ def _make_config_api_request(
             client_secret=client_secret,
             api_root=api_root,
         )
-    if not bearer_token:
-        raise PyAirbyteInputError(
-            message="No authentication provided. Either bearer_token or both client_id and "
-            "client_secret must be provided.",
-        )
     headers: dict[str, Any] = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {bearer_token}",
