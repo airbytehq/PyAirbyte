@@ -107,7 +107,7 @@ class CloudOrganization:
     """Display name of the organization."""
 
 
-@dataclass  # noqa: PLR0904
+@dataclass
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
