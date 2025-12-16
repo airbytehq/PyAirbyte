@@ -60,7 +60,7 @@ workspace = cloud.CloudWorkspace(
 )
 
 token = workspace.create_oauth_token()
-print(f"Bearer token: {token}")
+print(f"Bearer token set: {token is not None}")
 ```
 """
 
@@ -301,8 +301,8 @@ class CloudWorkspace:
         _ = api_util.get_workspace(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
         print(f"Successfully connected to workspace: {self.workspace_url}")
@@ -320,17 +320,17 @@ class CloudWorkspace:
             PyAirbyteInputError: If the workspace is configured with a bearer token
                 instead of client credentials
         """
-        if self.bearer_token is not None:
+        if not self.client_id or not self.client_secret:
             raise exc.PyAirbyteInputError(
                 message=(
-                    "Cannot create OAuth token when workspace is configured with a bearer token. "
-                    "This method requires client credentials (client_id + client_secret)."
+                    "This method requires client credentials (client_id + client_secret). "
+                    "Cannot create OAuth token when workspace is configured with a bearer token."
                 ),
             )
 
-        return api_util.get_bearer_token(
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+        return api_util.get_new_bearer_token(
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             api_root=self.api_root,
         )
 
@@ -418,8 +418,8 @@ class CloudWorkspace:
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             config=source_config_dict,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
         return CloudSource(
@@ -474,8 +474,8 @@ class CloudWorkspace:
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             config=destination_conf_dict,  # Wants a dataclass but accepts dict
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
         return CloudDestination(
@@ -508,8 +508,8 @@ class CloudWorkspace:
             source_id=source.connector_id if isinstance(source, CloudSource) else source,
             source_name=source.name if isinstance(source, CloudSource) else None,
             api_root=self.api_root,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             safe_mode=safe_mode,
         )
@@ -545,8 +545,8 @@ class CloudWorkspace:
                 destination.name if isinstance(destination, CloudDestination) else None
             ),
             api_root=self.api_root,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             safe_mode=safe_mode,
         )
@@ -592,8 +592,8 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             selected_stream_names=selected_streams,
             prefix=table_prefix or "",
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
 
@@ -637,8 +637,8 @@ class CloudWorkspace:
             connection_name=connection.name,
             api_root=self.api_root,
             workspace_id=self.workspace_id,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             safe_mode=safe_mode,
         )
@@ -671,8 +671,8 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
         return [
@@ -699,8 +699,8 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
         return [
@@ -727,8 +727,8 @@ class CloudWorkspace:
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
-            client_id=self.client_id,  # type: ignore[arg-type]
-            client_secret=self.client_secret,  # type: ignore[arg-type]
+            client_id=self.client_id,
+            client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
         return [
@@ -828,8 +828,8 @@ class CloudWorkspace:
                 workspace_id=self.workspace_id,
                 manifest=manifest_dict,
                 api_root=self.api_root,
-                client_id=self.client_id,  # type: ignore[arg-type]
-                client_secret=self.client_secret,  # type: ignore[arg-type]
+                client_id=self.client_id,
+                client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
             custom_definition = CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
@@ -864,8 +864,8 @@ class CloudWorkspace:
             yaml_definitions = api_util.list_custom_yaml_source_definitions(
                 workspace_id=self.workspace_id,
                 api_root=self.api_root,
-                client_id=self.client_id,  # type: ignore[arg-type]
-                client_secret=self.client_secret,  # type: ignore[arg-type]
+                client_id=self.client_id,
+                client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
             return [
@@ -898,8 +898,8 @@ class CloudWorkspace:
                 workspace_id=self.workspace_id,
                 definition_id=definition_id,
                 api_root=self.api_root,
-                client_id=self.client_id,  # type: ignore[arg-type]
-                client_secret=self.client_secret,  # type: ignore[arg-type]
+                client_id=self.client_id,
+                client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
             return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001

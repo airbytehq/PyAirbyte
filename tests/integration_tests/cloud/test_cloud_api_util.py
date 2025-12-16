@@ -15,7 +15,7 @@ from airbyte._util.api_util import (
     CLOUD_API_ROOT,
     AirbyteError,
     check_connector,
-    get_bearer_token,
+    get_new_bearer_token,
 )
 from airbyte.secrets.base import SecretString
 from airbyte_api.models import (
@@ -253,7 +253,7 @@ def test_get_bearer_token(
     api_root: str,
 ) -> None:
     try:
-        token: SecretString = get_bearer_token(
+        token: SecretString = get_new_bearer_token(
             client_id=airbyte_cloud_client_id,
             client_secret=airbyte_cloud_client_secret,
             api_root=api_root,
