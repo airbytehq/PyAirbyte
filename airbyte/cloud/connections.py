@@ -301,6 +301,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         if state_response.get("stateType") == "not_set":
             return None
@@ -322,6 +323,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return connection_response.get("syncCatalog")
 

@@ -165,6 +165,7 @@ class CloudWorkspace:
             api_root=self.api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
         )
 
     @overload

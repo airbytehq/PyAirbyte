@@ -519,6 +519,7 @@ def check_airbyte_cloud_workspace(
     api_root = resolve_cloud_api_url()
     client_id = resolve_cloud_client_id()
     client_secret = resolve_cloud_client_secret()
+    bearer_token = resolve_cloud_bearer_token()
 
     # Get workspace details from the public API
     workspace_response = api_util.get_workspace(
@@ -526,6 +527,7 @@ def check_airbyte_cloud_workspace(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     # Try to get organization info, but fail gracefully if we don't have permissions.
@@ -1254,6 +1256,7 @@ def _resolve_organization(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
+    bearer_token: SecretString | None,
 ) -> api_util.models.OrganizationResponse:
     """Resolve organization from either ID or exact name match.
 
@@ -1263,6 +1266,7 @@ def _resolve_organization(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Optional bearer token for authentication
 
     Returns:
         The resolved OrganizationResponse object
@@ -1286,6 +1290,7 @@ def _resolve_organization(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     if organization_id:
@@ -1331,6 +1336,7 @@ def _resolve_organization_id(
     api_root: str,
     client_id: SecretString,
     client_secret: SecretString,
+    bearer_token: SecretString | None,
 ) -> str:
     """Resolve organization ID from either ID or exact name match.
 
@@ -1342,6 +1348,7 @@ def _resolve_organization_id(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     return org.organization_id
 
@@ -1395,6 +1402,7 @@ def list_cloud_workspaces(
     api_root = resolve_cloud_api_url()
     client_id = resolve_cloud_client_id()
     client_secret = resolve_cloud_client_secret()
+    bearer_token = resolve_cloud_bearer_token()
 
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
@@ -1402,6 +1410,7 @@ def list_cloud_workspaces(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     workspaces = api_util.list_workspaces_in_organization(
@@ -1409,6 +1418,7 @@ def list_cloud_workspaces(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         name_contains=name_contains,
         max_items_limit=max_items_limit,
     )
@@ -1457,6 +1467,7 @@ def describe_cloud_organization(
     api_root = resolve_cloud_api_url()
     client_id = resolve_cloud_client_id()
     client_secret = resolve_cloud_client_secret()
+    bearer_token = resolve_cloud_bearer_token()
 
     org = _resolve_organization(
         organization_id=organization_id,
@@ -1464,6 +1475,7 @@ def describe_cloud_organization(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     return CloudOrganizationResult(

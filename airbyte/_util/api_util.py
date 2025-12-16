@@ -1249,9 +1249,9 @@ def _make_config_api_request(
     api_root: str,
     path: str,
     json: dict[str, Any],
-    client_id: SecretString,
-    client_secret: SecretString,
-    bearer_token: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root)
     if client_id and client_secret and not bearer_token:
@@ -1259,6 +1259,11 @@ def _make_config_api_request(
             client_id=client_id,
             client_secret=client_secret,
             api_root=api_root,
+        )
+    if not bearer_token:
+        raise PyAirbyteInputError(
+            message="No authentication provided. Either bearer_token or both client_id and "
+            "client_secret must be provided.",
         )
     headers: dict[str, Any] = {
         "Content-Type": "application/json",

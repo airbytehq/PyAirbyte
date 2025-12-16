@@ -766,6 +766,7 @@ class CustomCloudSourceDefinition:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
 
         return self
