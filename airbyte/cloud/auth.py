@@ -2,6 +2,7 @@
 """Authentication-related constants and utilities for the Airbyte Cloud."""
 
 from airbyte import constants
+from airbyte.mcp._util import get_bearer_token_from_headers
 from airbyte.secrets import SecretString
 from airbyte.secrets.util import get_secret, try_get_secret
 
@@ -37,10 +38,6 @@ def resolve_cloud_bearer_token(
         return SecretString(input_value)
 
     # Try HTTP header first (for MCP HTTP transport)
-    from airbyte.mcp._util import (  # noqa: PLC0415  # Deferred import to avoid circular dependency
-        get_bearer_token_from_headers,
-    )
-
     header_token = get_bearer_token_from_headers()
     if header_token:
         return SecretString(header_token)

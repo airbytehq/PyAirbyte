@@ -8,6 +8,7 @@ from typing import Any, overload
 
 import dotenv
 import yaml
+from fastmcp.server.dependencies import get_http_headers
 
 from airbyte._util.meta import is_interactive
 from airbyte.secrets import (
@@ -29,10 +30,6 @@ def get_bearer_token_from_headers() -> str | None:
 
     Returns None if not running over HTTP transport or no header present.
     """
-    from fastmcp.server.dependencies import (  # noqa: PLC0415  # Deferred import for optional dependency
-        get_http_headers,
-    )
-
     headers = get_http_headers()
     auth_header = headers.get("authorization", "")
     if auth_header.startswith("Bearer "):
