@@ -1216,7 +1216,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
 # Functions for leveraging the Airbyte Config API (may not be supported or stable)
 
 
-def get_bearer_token(
+def get_new_bearer_token(
     *,
     client_id: SecretString,
     client_secret: SecretString,
@@ -1249,13 +1249,13 @@ def _make_config_api_request(
     api_root: str,
     path: str,
     json: dict[str, Any],
-    client_id: SecretString,
-    client_secret: SecretString,
-    bearer_token: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root)
     if client_id and client_secret and not bearer_token:
-        bearer_token = get_bearer_token(
+        bearer_token = get_new_bearer_token(
             client_id=client_id,
             client_secret=client_secret,
             api_root=api_root,

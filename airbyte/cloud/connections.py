@@ -60,8 +60,8 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,  # type: ignore[arg-type]
-            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
 
@@ -179,8 +179,8 @@ class CloudConnection:
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
-            client_id=self.workspace.client_id,  # type: ignore[arg-type]
-            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
         sync_result = SyncResult(
@@ -242,8 +242,8 @@ class CloudConnection:
             limit=limit,
             offset=offset,
             order_by=order_by,
-            client_id=self.workspace.client_id,  # type: ignore[arg-type]
-            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
         return [
@@ -301,6 +301,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         if state_response.get("stateType") == "not_set":
             return None
@@ -322,6 +323,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return connection_response.get("syncCatalog")
 
@@ -337,8 +339,8 @@ class CloudConnection:
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,  # type: ignore[arg-type]
-            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             name=name,
         )
@@ -357,8 +359,8 @@ class CloudConnection:
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,  # type: ignore[arg-type]
-            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             prefix=prefix,
         )
@@ -382,8 +384,8 @@ class CloudConnection:
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,  # type: ignore[arg-type]
-            client_secret=self.workspace.client_secret,  # type: ignore[arg-type]
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             configurations=configurations,
         )
