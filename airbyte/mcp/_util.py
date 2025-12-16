@@ -24,6 +24,22 @@ from airbyte.secrets.util import get_secret, is_secret_available
 AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
 
 
+def get_bearer_token_from_headers() -> str | None:
+    """Extract bearer token from HTTP Authorization header.
+
+    Returns None if not running over HTTP transport or no header present.
+    """
+    from fastmcp.server.dependencies import (  # noqa: PLC0415  # Deferred import for optional dependency
+        get_http_headers,
+    )
+
+    headers = get_http_headers()
+    auth_header = headers.get("authorization", "")
+    if auth_header.startswith("Bearer "):
+        return auth_header[7:]  # Strip "Bearer " prefix
+    return None
+
+
 def _load_dotenv_file(dotenv_path: Path | str) -> None:
     """Load environment variables from a .env file."""
     if isinstance(dotenv_path, str):

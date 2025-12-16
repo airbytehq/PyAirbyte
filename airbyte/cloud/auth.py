@@ -26,8 +26,27 @@ def resolve_cloud_bearer_token(
     input_value: str | SecretString | None = None,
     /,
 ) -> SecretString | None:
-    """Get the Airbyte Cloud bearer token from the environment."""
-    return try_get_secret(constants.CLOUD_BEARER_TOKEN_ENV_VAR, default=input_value)
+    """Get the Airbyte Cloud bearer token.
+
+    Resolution order:
+    1. Explicit input_value parameter
+    2. HTTP Authorization header (when running as MCP HTTP server)
+    3. AIRBYTE_CLOUD_BEARER_TOKEN environment variable
+    """
+    if input_value:
+        return SecretString(input_value)
+
+    # Try HTTP header first (for MCP HTTP transport)
+    from airbyte.mcp._util import (  # noqa: PLC0415  # Deferred import to avoid circular dependency
+        get_bearer_token_from_headers,
+    )
+
+    header_token = get_bearer_token_from_headers()
+    if header_token:
+        return SecretString(header_token)
+
+    # Fall back to environment variable
+    return try_get_secret(constants.CLOUD_BEARER_TOKEN_ENV_VAR, default=None)
 
 
 def resolve_cloud_api_url(
