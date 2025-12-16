@@ -113,7 +113,7 @@ class CloudOrganization:
     """Display name of the organization."""
 
 
-@dataclass
+@dataclass  # noqa: PLR0904  # Too many public methods
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
