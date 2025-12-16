@@ -258,7 +258,7 @@ class CloudSource(CloudConnector):
             workspace=workspace,
             connector_id=source_response.source_id,
         )
-        result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
+        result._connector_info = source_response  # noqa: SLF001  # Non-public API
         return result
 
 
@@ -343,7 +343,7 @@ class CloudDestination(CloudConnector):
             workspace=workspace,
             connector_id=destination_response.destination_id,
         )
-        result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
+        result._connector_info = destination_response  # noqa: SLF001  # Non-public API
         return result
 
 
@@ -647,7 +647,7 @@ class CustomCloudSourceDefinition:
             definition_id=response.id,
             definition_type="yaml",
         )
-        result._definition_info = response  # noqa: SLF001
+        result._definition_info = response  # noqa: SLF001  # Non-public API
         return result
 
     def deploy_source(
