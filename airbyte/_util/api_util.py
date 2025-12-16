@@ -383,7 +383,6 @@ def get_connection(
     bearer_token: SecretString | None,
 ) -> models.ConnectionResponse:
     """Get a connection."""
-    _ = workspace_id
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
