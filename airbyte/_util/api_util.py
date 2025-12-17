@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import airbyte_api
 import requests
 from airbyte_api import api, models
+from airbyte_api.errors import SDKError
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
@@ -56,6 +57,42 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
+
+
+def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
+    """Extract context information from an SDKError for debugging.
+
+    This helper extracts the actual request URL and other useful debugging
+    information from the Speakeasy SDK's SDKError exception. The SDK stores
+    the raw response object which contains the request details.
+    """
+    context: dict[str, Any] = {
+        "status_code": error.status_code,
+        "error_message": error.message,
+    }
+
+    if error.raw_response is not None:
+        request = error.raw_response.request
+        if request is not None:
+            context["request_url"] = str(request.url)
+            context["request_method"] = request.method
+        context["response_content_type"] = error.raw_response.headers.get("content-type")
+
+    return context
+
+
+def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None) -> AirbyteError:
+    """Wrap an SDKError with additional context for debugging.
+
+    This function converts a Speakeasy SDK error into an AirbyteError with
+    full URL context, making it easier to debug API issues like 404 errors.
+    """
+    sdk_context = _get_sdk_error_context(error)
+    merged_context = {**(base_context or {}), **sdk_context}
+    return AirbyteError(
+        message=f"API error occurred: {error.message}",
+        context=merged_context,
+    )
 
 
 def get_config_api_root(api_root: str) -> str:
@@ -185,11 +222,16 @@ def get_workspace(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.workspaces.get_workspace(
-        api.GetWorkspaceRequest(
-            workspace_id=workspace_id,
-        ),
-    )
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
+    try:
+        response = airbyte_instance.workspaces.get_workspace(
+            api.GetWorkspaceRequest(
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.workspace_response:
         return response.workspace_response
 
@@ -232,14 +274,19 @@ def list_connections(
     result: list[models.ConnectionResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response = airbyte_instance.connections.list_connections(
-            api.ListConnectionsRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size,
-            ),
-        )
+        try:
+            response = airbyte_instance.connections.list_connections(
+                api.ListConnectionsRequest(
+                    workspace_ids=[workspace_id],
+                    offset=offset,
+                    limit=page_size,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.connections_response and response.connections_response.next)
         offset += page_size
 
@@ -286,10 +333,17 @@ def list_workspaces(
     result: list[models.WorkspaceResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-            api.ListWorkspacesRequest(workspace_ids=[workspace_id], offset=offset, limit=page_size),
-        )
+        try:
+            response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
+                api.ListWorkspacesRequest(
+                    workspace_ids=[workspace_id], offset=offset, limit=page_size
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.workspaces_response and response.workspaces_response.next)
         offset += page_size
 
@@ -338,14 +392,19 @@ def list_sources(
     result: list[models.SourceResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
-            api.ListSourcesRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size,
-            ),
-        )
+        try:
+            response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
+                api.ListSourcesRequest(
+                    workspace_ids=[workspace_id],
+                    offset=offset,
+                    limit=page_size,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.sources_response and response.sources_response.next)
         offset += page_size
 
@@ -389,14 +448,19 @@ def list_destinations(
     result: list[models.DestinationResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response = airbyte_instance.destinations.list_destinations(
-            api.ListDestinationsRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size,
-            ),
-        )
+        try:
+            response = airbyte_instance.destinations.list_destinations(
+                api.ListDestinationsRequest(
+                    workspace_ids=[workspace_id],
+                    offset=offset,
+                    limit=page_size,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.destinations_response and response.destinations_response.next)
         offset += page_size
 
@@ -438,11 +502,20 @@ def get_connection(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.get_connection(
-        api.GetConnectionRequest(
-            connection_id=connection_id,
-        ),
-    )
+    base_context = {
+        "workspace_id": workspace_id,
+        "connection_id": connection_id,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.connections.get_connection(
+            api.GetConnectionRequest(
+                connection_id=connection_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
