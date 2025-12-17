@@ -38,6 +38,7 @@ def test_get_workspace(
         api_root=airbyte_cloud_api_root,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert workspace.workspace_id == workspace_id
 
@@ -53,6 +54,7 @@ def test_list_workspaces(
         api_root=airbyte_cloud_api_root,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert result
     assert len(result) > 0
@@ -70,6 +72,7 @@ def test_list_sources(
         api_root=airbyte_cloud_api_root,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert (
         result
@@ -89,6 +92,7 @@ def test_list_destinations(
         api_root=airbyte_cloud_api_root,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert (
         result
@@ -112,6 +116,7 @@ def test_create_and_delete_source(
         api_root=airbyte_cloud_api_root,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert source.name == new_resource_name
     assert source.source_type == "faker"
@@ -123,6 +128,7 @@ def test_create_and_delete_source(
         workspace_id=workspace_id,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
 
 
@@ -148,6 +154,7 @@ def test_create_and_delete_destination(
         config=destination_config,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert destination.name == new_resource_name
     assert destination.destination_type == "duckdb"
@@ -159,6 +166,7 @@ def test_create_and_delete_destination(
         workspace_id=workspace_id,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
 
 
@@ -183,6 +191,7 @@ def test_create_and_delete_connection(
         config=SourceFaker(),
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert source.name == new_source_name
     assert source.source_type == "faker"
@@ -198,6 +207,7 @@ def test_create_and_delete_connection(
         ),
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert destination.name == new_destination_name
     assert destination.destination_type == "duckdb"
@@ -213,6 +223,7 @@ def test_create_and_delete_connection(
         selected_stream_names=["users", "purchases", "products"],
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     assert connection.source_id == source.source_id
     assert connection.destination_id == destination.destination_id
@@ -224,6 +235,7 @@ def test_create_and_delete_connection(
         workspace_id=workspace_id,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     api_util.delete_source(
         source_id=source.source_id,
@@ -231,6 +243,7 @@ def test_create_and_delete_connection(
         workspace_id=workspace_id,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
     api_util.delete_destination(
         destination_id=destination.destination_id,
@@ -238,6 +251,7 @@ def test_create_and_delete_connection(
         workspace_id=workspace_id,
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
+        bearer_token=None,
     )
 
 
@@ -283,6 +297,7 @@ def test_check_connector(
             connector_type=connector_type,
             client_id=airbyte_cloud_client_id,
             client_secret=airbyte_cloud_client_secret,
+            bearer_token=None,
         )
         assert result == expect_success
     except AirbyteError as e:
