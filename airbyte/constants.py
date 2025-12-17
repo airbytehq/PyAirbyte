@@ -222,6 +222,14 @@ CLOUD_API_ROOT_ENV_VAR: str = "AIRBYTE_CLOUD_API_URL"
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
 
+CLOUD_BEARER_TOKEN_ENV_VAR: str = "AIRBYTE_CLOUD_BEARER_TOKEN"
+"""The environment variable name for the Airbyte Cloud bearer token.
+
+When set, this bearer token will be used for authentication instead of
+client credentials (client_id + client_secret). This is useful when you
+already have a valid bearer token and want to skip the OAuth2 token exchange.
+"""
+
 CLOUD_API_ROOT: str = "https://api.airbyte.com/v1"
 """The Airbyte Cloud API root URL.
 
