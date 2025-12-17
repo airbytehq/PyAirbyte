@@ -158,6 +158,18 @@ mcp-serve-sse = { cmd = "poetry run python -c \"from airbyte.mcp.server import a
 mcp-inspect = { cmd = "poetry run fastmcp inspect airbyte/mcp/server.py:app", help = "Inspect MCP tools and resources (supports --tools, --health, etc.)" }
 mcp-tool-test = { cmd = "poetry run python bin/test_mcp_tool.py", help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'" }
 
+# Claude Code MCP Testing Tasks
+[tool.poe.tasks.test-my-tools]
+help = "Run Claude Code in headless mode with the test-my-tools MCP prompt"
+shell = """
+npx @anthropic-ai/claude-code --print "/mcp__airbyte-mcp__test-my-tools ${scope:+ $scope}" \
+    --mcp-config=.github/mcp-ci-tests.mcp.json \
+    --dangerously-skip-permissions \
+    --verbose --output-format=stream-json | \
+    jq -r '.message.content[]? | if .type == "text" then "💬 " + .text elif .type == "tool_use" then "🔧 " + .name + "(" + (.input | tojson) + ")" else empty end' 2>/dev/null
+"""
+args = [{ name = "scope", default = "", help = "Optional scope/context to focus testing (e.g., 'focus on areas of the code changed versus main')" }]
+
 [tool.airbyte_ci]
 extra_poetry_groups = ["dev"]
 poe_tasks = ["test"]

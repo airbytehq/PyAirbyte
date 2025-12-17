@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "airbyte-mcp": {
+      "type": "stdio",
+      "command": "poetry",
+      "args": [
+        "run",
+        "airbyte-mcp"
+      ],
+      "env": {
+        "GCP_GSM_CREDENTIALS": "${GCP_GSM_CREDENTIALS}",
+        "AIRBYTE_CLOUD_MCP_SAFE_MODE": "1"
+      }
+    }
+  }
+}
