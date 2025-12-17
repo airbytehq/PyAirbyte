@@ -243,12 +243,13 @@ def list_connections(
         has_more = bool(response.connections_response and response.connections_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.connections_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
         assert response.connections_response is not None
         result += [
@@ -292,12 +293,13 @@ def list_workspaces(
         has_more = bool(response.workspaces_response and response.workspaces_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.workspaces_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
 
         assert response.workspaces_response is not None
@@ -347,12 +349,13 @@ def list_sources(
         has_more = bool(response.sources_response and response.sources_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.sources_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
         assert response.sources_response is not None
         result += [source for source in response.sources_response.data if name_filter(source.name)]
@@ -397,12 +400,13 @@ def list_destinations(
         has_more = bool(response.destinations_response and response.destinations_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.destinations_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
         assert response.destinations_response is not None
         result += [
@@ -488,6 +492,8 @@ def run_connection(
         connection_id=connection_id,
         context={
             "workspace_id": workspace_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -626,6 +632,10 @@ def create_source(
 
     raise AirbyteError(
         message="Could not create source.",
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
         response=response,
     )
 
@@ -736,7 +746,8 @@ def delete_source(
         raise AirbyteError(
             context={
                 "source_id": source_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -790,6 +801,8 @@ def patch_source(
         message="Could not update source.",
         context={
             "source_id": source_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -855,6 +868,10 @@ def create_destination(
 
     raise AirbyteError(
         message="Could not create destination.",
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
         response=response,
     )
 
@@ -984,7 +1001,8 @@ def delete_destination(
         raise AirbyteError(
             context={
                 "destination_id": destination_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -1038,6 +1056,8 @@ def patch_destination(
         message="Could not update destination.",
         context={
             "destination_id": destination_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -1101,7 +1121,8 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
             context={
                 "source_id": source_id,
                 "destination_id": destination_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -1233,7 +1254,8 @@ def delete_connection(
         raise AirbyteError(
             context={
                 "connection_id": connection_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -1296,6 +1318,8 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         message="Could not update connection.",
         context={
             "connection_id": connection_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -1542,7 +1566,8 @@ def list_custom_yaml_source_definitions(
             message="Failed to list custom YAML source definitions",
             context={
                 "workspace_id": workspace_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
     return response.declarative_source_definitions_response.data
@@ -1581,7 +1606,8 @@ def get_custom_yaml_source_definition(
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
     return response.declarative_source_definition_response
@@ -1625,7 +1651,8 @@ def update_custom_yaml_source_definition(
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
     return response.declarative_source_definition_response
@@ -1837,8 +1864,8 @@ def list_organizations_for_user(
     raise AirbyteError(
         message="Failed to list organizations for user.",
         context={
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
-            "response": response,
         },
     )
 
