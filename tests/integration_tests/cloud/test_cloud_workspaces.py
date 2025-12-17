@@ -6,6 +6,8 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
+import pytest
+
 import airbyte as ab
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
@@ -18,7 +20,7 @@ def test_deploy_destination(
 ) -> None:
     """Test deploying a source to a workspace."""
     cloud_destination = cloud_workspace.deploy_destination(
-        name="test-destination",
+        name="test-destination-deleteme",
         destination=deployable_dummy_destination,
         random_name_suffix=True,
     )
@@ -60,6 +62,10 @@ def test_deploy_dummy_source(
     cloud_workspace.permanently_delete_source(cloud_source)
 
 
+@pytest.mark.skip(
+    "Test is being flaky. TODO: Fix upstream Cloud API issue with missing secrets. "
+    "See: https://github.com/airbytehq/airbyte-internal-issues/issues/15502"
+)
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
     deployable_dummy_source: ab.Source,
@@ -68,18 +74,18 @@ def test_deploy_connection(
     """Test deploying a source and cache to a workspace as a new connection."""
     stream_names = deployable_dummy_source.get_selected_streams()
     cloud_source = cloud_workspace.deploy_source(
-        name="test-source",
+        name="test-source-deleteme",
         source=deployable_dummy_source,
         random_name_suffix=True,
     )
     cloud_destination = cloud_workspace.deploy_destination(
-        name="test-destination",
+        name="test-destination-deleteme",
         destination=deployable_dummy_destination,
         random_name_suffix=True,
     )
 
     connection: CloudConnection = cloud_workspace.deploy_connection(
-        connection_name="test-connection",
+        connection_name="test-connection-deleteme",
         source=cloud_source,
         destination=cloud_destination,
         selected_streams=stream_names,

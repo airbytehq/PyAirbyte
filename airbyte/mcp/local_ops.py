@@ -15,11 +15,11 @@ from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
 from airbyte.secrets.google_gsm import GoogleGSMSecretManager
 from airbyte.sources.base import Source
-from airbyte.sources.registry import get_connector_metadata
 
 
 if TYPE_CHECKING:
