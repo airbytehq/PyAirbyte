@@ -1283,6 +1283,7 @@ def _resolve_organization(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=None,  # Organization listing requires client credentials
     )
 
     if organization_id:
@@ -1406,6 +1407,7 @@ def list_cloud_workspaces(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=None,  # Workspace listing requires client credentials
         name_contains=name_contains,
         max_items_limit=max_items_limit,
     )

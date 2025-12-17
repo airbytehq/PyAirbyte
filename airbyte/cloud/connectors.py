@@ -198,6 +198,7 @@ class CloudSource(CloudConnector):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
 
     def rename(self, name: str) -> CloudSource:
@@ -214,6 +215,7 @@ class CloudSource(CloudConnector):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             name=name,
         )
         self._connector_info = updated_response
@@ -236,6 +238,7 @@ class CloudSource(CloudConnector):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             config=config,
         )
         self._connector_info = updated_response
@@ -280,6 +283,7 @@ class CloudDestination(CloudConnector):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
 
     def rename(self, name: str) -> CloudDestination:
@@ -296,6 +300,7 @@ class CloudDestination(CloudConnector):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             name=name,
         )
         self._connector_info = updated_response
@@ -318,6 +323,7 @@ class CloudDestination(CloudConnector):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             config=config,
         )
         self._connector_info = updated_response
@@ -378,6 +384,7 @@ class CustomCloudSourceDefinition:
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
             )
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -512,6 +519,7 @@ class CustomCloudSourceDefinition:
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
                 safe_mode=safe_mode,
             )
         else:
@@ -581,6 +589,7 @@ class CustomCloudSourceDefinition:
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
             )
             return CustomCloudSourceDefinition._from_yaml_response(self.workspace, result)
 
@@ -687,6 +696,7 @@ class CustomCloudSourceDefinition:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return CloudSource._from_source_response(  # noqa: SLF001  # Accessing Non-Public API
             workspace=self.workspace,
