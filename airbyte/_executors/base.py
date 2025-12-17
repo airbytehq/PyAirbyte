@@ -95,6 +95,7 @@ def _stream_from_subprocess(
                 stdin,
                 exception_holder,
             ),
+            daemon=True,  # Prevent blocking interpreter shutdown if thread gets stuck
         )
         input_thread.start()
         # Don't join here - let input and output happen concurrently to avoid deadlock.
