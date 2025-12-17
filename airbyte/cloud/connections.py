@@ -62,6 +62,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
 
     @classmethod
@@ -180,6 +181,7 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -242,6 +244,7 @@ class CloudConnection:
             order_by=order_by,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return [
             SyncResult(
@@ -298,6 +301,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         if state_response.get("stateType") == "not_set":
             return None
@@ -319,6 +323,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return connection_response.get("syncCatalog")
 
@@ -336,6 +341,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             name=name,
         )
         self._connection_info = updated_response
@@ -355,6 +361,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             prefix=prefix,
         )
         self._connection_info = updated_response
@@ -379,6 +386,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             configurations=configurations,
         )
         self._connection_info = updated_response
