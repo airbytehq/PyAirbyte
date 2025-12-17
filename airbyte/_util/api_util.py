@@ -127,11 +127,6 @@ def get_airbyte_server_instance(
         )
 
     # Option 2: Client credentials flow (guaranteed non-None by first guard)
-    if client_id is None or client_secret is None:
-        raise PyAirbyteInputError(
-            message="Client credentials incomplete.",
-            guidance="Provide both client_id and client_secret.",
-        )
 
     return airbyte_api.AirbyteAPI(
         security=models.Security(
