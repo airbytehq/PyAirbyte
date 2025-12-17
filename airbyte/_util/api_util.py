@@ -81,15 +81,57 @@ def get_web_url_root(api_root: str) -> str:
 def get_airbyte_server_instance(
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> airbyte_api.AirbyteAPI:
-    """Get an Airbyte instance."""
+    """Get an Airbyte API instance.
+
+    Supports two authentication methods (mutually exclusive):
+    1. OAuth2 client credentials (client_id + client_secret)
+    2. Bearer token authentication
+
+    Args:
+        api_root: The API root URL.
+        client_id: OAuth2 client ID (required if not using bearer_token).
+        client_secret: OAuth2 client secret (required if not using bearer_token).
+        bearer_token: Pre-generated bearer token (alternative to client credentials).
+
+    Returns:
+        An authenticated AirbyteAPI instance.
+
+    Raises:
+        PyAirbyteInputError: If authentication parameters are invalid.
+    """
+    has_client_credentials = client_id is not None and client_secret is not None
+    has_bearer_token = bearer_token is not None
+
+    if has_bearer_token and has_client_credentials:
+        raise PyAirbyteInputError(
+            message="Cannot use both client credentials and bearer token authentication.",
+            guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
+        )
+
+    if not has_bearer_token and not has_client_credentials:
+        raise PyAirbyteInputError(
+            message="No authentication credentials provided.",
+            guidance="Provide either client_id and client_secret, or bearer_token.",
+        )
+
+    if has_bearer_token:
+        return airbyte_api.AirbyteAPI(
+            security=models.Security(
+                bearer_auth=str(bearer_token),
+            ),
+            server_url=api_root,
+        )
+
+    # Use client credentials flow
     return airbyte_api.AirbyteAPI(
         security=models.Security(
             client_credentials=models.SchemeClientCredentials(
-                client_id=client_id,
-                client_secret=client_secret,
+                client_id=str(client_id),
+                client_secret=str(client_secret),
                 token_url=api_root + "/applications/token",
                 # e.g. https://api.airbyte.com/v1/applications/token
             ),
@@ -105,14 +147,16 @@ def get_workspace(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.WorkspaceResponse:
     """Get a workspace object."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     response = airbyte_instance.workspaces.get_workspace(
         api.GetWorkspaceRequest(
@@ -138,8 +182,9 @@ def list_connections(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.ConnectionResponse]:
@@ -153,6 +198,7 @@ def list_connections(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     result: list[models.ConnectionResponse] = []
@@ -189,8 +235,9 @@ def list_workspaces(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.WorkspaceResponse]:
@@ -204,6 +251,7 @@ def list_workspaces(
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     result: list[models.WorkspaceResponse] = []
@@ -238,8 +286,9 @@ def list_sources(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.SourceResponse]:
@@ -253,6 +302,7 @@ def list_sources(
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     result: list[models.SourceResponse] = []
@@ -286,8 +336,9 @@ def list_destinations(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
 ) -> list[models.DestinationResponse]:
@@ -301,6 +352,7 @@ def list_destinations(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     result: list[models.DestinationResponse] = []
@@ -342,14 +394,16 @@ def get_connection(
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.ConnectionResponse:
     """Get a connection."""
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.connections.get_connection(
@@ -372,8 +426,9 @@ def run_connection(
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.JobResponse:
     """Get a connection.
 
@@ -385,6 +440,7 @@ def run_connection(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.jobs.create_job(
@@ -408,14 +464,15 @@ def run_connection(
 # Get job info (logs)
 
 
-def get_job_logs(
+def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexibility
     workspace_id: str,
     connection_id: str,
     limit: int = 100,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     offset: int | None = None,
     order_by: str | None = None,
 ) -> list[models.JobResponse]:
@@ -428,6 +485,7 @@ def get_job_logs(
         api_root: The API root URL.
         client_id: The client ID for authentication.
         client_secret: The client secret for authentication.
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         offset: Number of jobs to skip from the beginning. Defaults to None (0).
         order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
 
@@ -437,6 +495,7 @@ def get_job_logs(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
@@ -465,13 +524,15 @@ def get_job_info(
     job_id: int,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.JobResponse:
     """Get a job."""
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.jobs.get_job(
@@ -499,8 +560,9 @@ def create_source(
     config: models.SourceConfiguration | dict[str, Any],
     definition_id: str | None = None,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.SourceResponse:
     """Create a source connector instance.
 
@@ -509,6 +571,7 @@ def create_source(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
@@ -533,13 +596,15 @@ def get_source(
     source_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.SourceResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.sources.get_source(
@@ -562,8 +627,9 @@ def delete_source(
     *,
     source_name: str | None = None,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     workspace_id: str | None = None,
     safe_mode: bool = True,
 ) -> None:
@@ -576,6 +642,7 @@ def delete_source(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         workspace_id: The workspace ID (not currently used)
         safe_mode: If True, requires the source name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
@@ -593,6 +660,7 @@ def delete_source(
                 api_root=api_root,
                 client_id=client_id,
                 client_secret=client_secret,
+                bearer_token=bearer_token,
             )
             source_name = source_info.name
 
@@ -614,6 +682,7 @@ def delete_source(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.sources.delete_source(
@@ -634,8 +703,9 @@ def patch_source(
     source_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     config: models.SourceConfiguration | dict[str, Any] | None = None,
 ) -> models.SourceResponse:
@@ -649,6 +719,7 @@ def patch_source(
         api_root: The API root URL
         client_id: Client ID for authentication
         client_secret: Client secret for authentication
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         name: Optional new name for the source
         config: Optional new configuration for the source
 
@@ -658,6 +729,7 @@ def patch_source(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.sources.patch_source(
@@ -712,13 +784,15 @@ def create_destination(
     workspace_id: str,
     config: DestinationConfiguration | dict[str, Any],
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     definition_id_override: str | None = None
@@ -747,13 +821,15 @@ def get_destination(
     destination_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.DestinationResponse:
     """Get a connection."""
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.get_destination(
@@ -794,8 +870,9 @@ def delete_destination(
     *,
     destination_name: str | None = None,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     workspace_id: str | None = None,
     safe_mode: bool = True,
 ) -> None:
@@ -808,6 +885,7 @@ def delete_destination(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         workspace_id: The workspace ID (not currently used)
         safe_mode: If True, requires the destination name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
@@ -825,6 +903,7 @@ def delete_destination(
                 api_root=api_root,
                 client_id=client_id,
                 client_secret=client_secret,
+                bearer_token=bearer_token,
             )
             destination_name = destination_info.name
 
@@ -847,6 +926,7 @@ def delete_destination(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.delete_destination(
@@ -867,8 +947,9 @@ def patch_destination(
     destination_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     config: DestinationConfiguration | dict[str, Any] | None = None,
 ) -> models.DestinationResponse:
@@ -882,6 +963,7 @@ def patch_destination(
         api_root: The API root URL
         client_id: Client ID for authentication
         client_secret: Client secret for authentication
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         name: Optional new name for the destination
         config: Optional new configuration for the destination
 
@@ -891,6 +973,7 @@ def patch_destination(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.destinations.patch_destination(
@@ -943,8 +1026,9 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     source_id: str,
     destination_id: str,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     workspace_id: str | None = None,
     prefix: str,
     selected_stream_names: list[str],
@@ -953,6 +1037,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     stream_configurations_obj = build_stream_configurations(selected_stream_names)
@@ -982,8 +1067,9 @@ def get_connection_by_name(
     connection_name: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.ConnectionResponse:
     """Get a connection."""
     connections = list_connections(
@@ -991,6 +1077,7 @@ def get_connection_by_name(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     found: list[models.ConnectionResponse] = [
         connection for connection in connections if connection.name == connection_name
@@ -1033,8 +1120,9 @@ def delete_connection(
     *,
     api_root: str,
     workspace_id: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     safe_mode: bool = True,
 ) -> None:
     """Delete a connection.
@@ -1047,6 +1135,7 @@ def delete_connection(
         workspace_id: The workspace ID
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         safe_mode: If True, requires the connection name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
@@ -1062,6 +1151,7 @@ def delete_connection(
                 api_root=api_root,
                 client_id=client_id,
                 client_secret=client_secret,
+                bearer_token=bearer_token,
             )
             connection_name = connection_info.name
 
@@ -1085,6 +1175,7 @@ def delete_connection(
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.connections.delete_connection(
@@ -1105,8 +1196,9 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     name: str | None = None,
     configurations: models.StreamConfigurationsInput | None = None,
     schedule: models.AirbyteAPIConnectionSchedule | None = None,
@@ -1123,6 +1215,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         api_root: The API root URL
         client_id: Client ID for authentication
         client_secret: Client secret for authentication
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         name: Optional new name for the connection
         configurations: Optional new stream configurations
         schedule: Optional new sync schedule
@@ -1135,6 +1228,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
         api_root=api_root,
     )
     response = airbyte_instance.connections.patch_connection(
@@ -1197,15 +1291,24 @@ def _make_config_api_request(
     api_root: str,
     path: str,
     json: dict[str, Any],
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     config_api_root = get_config_api_root(api_root)
-    bearer_token = get_bearer_token(
-        client_id=client_id,
-        client_secret=client_secret,
-        api_root=api_root,
-    )
+
+    # Use provided bearer token or generate one from client credentials
+    if bearer_token is None:
+        if client_id is None or client_secret is None:
+            raise PyAirbyteInputError(
+                message="No authentication credentials provided.",
+                guidance="Provide either client_id and client_secret, or bearer_token.",
+            )
+        bearer_token = get_bearer_token(
+            client_id=client_id,
+            client_secret=client_secret,
+            api_root=api_root,
+        )
     headers: dict[str, Any] = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {bearer_token}",
@@ -1245,8 +1348,9 @@ def check_connector(
     *,
     actor_id: str,
     connector_type: Literal["source", "destination"],
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     workspace_id: str | None = None,
     api_root: str = CLOUD_API_ROOT,
 ) -> tuple[bool, str | None]:
@@ -1267,6 +1371,7 @@ def check_connector(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     result, message = json_result.get("status"), json_result.get("message")
 
@@ -1330,14 +1435,16 @@ def create_custom_yaml_source_definition(
     workspace_id: str,
     manifest: dict[str, Any],
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.DeclarativeSourceDefinitionResponse:
     """Create a custom YAML source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     request_body = models.CreateDeclarativeSourceDefinitionRequest(
@@ -1363,14 +1470,16 @@ def list_custom_yaml_source_definitions(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> list[models.DeclarativeSourceDefinitionResponse]:
     """List all custom YAML source definitions in a workspace."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     request = api.ListDeclarativeSourceDefinitionsRequest(
@@ -1398,14 +1507,16 @@ def get_custom_yaml_source_definition(
     definition_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.DeclarativeSourceDefinitionResponse:
     """Get a specific custom YAML source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     request = api.GetDeclarativeSourceDefinitionRequest(
@@ -1436,14 +1547,16 @@ def update_custom_yaml_source_definition(
     *,
     manifest: dict[str, Any],
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> models.DeclarativeSourceDefinitionResponse:
     """Update a custom YAML source definition."""
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     request_body = models.UpdateDeclarativeSourceDefinitionRequest(
@@ -1477,8 +1590,9 @@ def delete_custom_yaml_source_definition(
     definition_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
     safe_mode: bool = True,
 ) -> None:
     """Delete a custom YAML source definition.
@@ -1489,6 +1603,7 @@ def delete_custom_yaml_source_definition(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
         safe_mode: If True, requires the connector name to contain "delete-me" or "deleteme"
             (case insensitive) to prevent accidental deletion. Defaults to True.
 
@@ -1503,6 +1618,7 @@ def delete_custom_yaml_source_definition(
             api_root=api_root,
             client_id=client_id,
             client_secret=client_secret,
+            bearer_token=bearer_token,
         )
         connector_name = definition_info.name
 
@@ -1529,6 +1645,7 @@ def delete_custom_yaml_source_definition(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
     request = api.DeleteDeclarativeSourceDefinitionRequest(
@@ -1553,8 +1670,9 @@ def get_connector_builder_project_for_definition_id(
     workspace_id: str,
     definition_id: str,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> str | None:
     """Get the connector builder project ID for a declarative source definition.
 
@@ -1569,6 +1687,7 @@ def get_connector_builder_project_for_definition_id(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
         The builder project ID if found, None otherwise (can be null in API response)
@@ -1582,6 +1701,7 @@ def get_connector_builder_project_for_definition_id(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     return json_result.get("builderProjectId")
 
@@ -1593,8 +1713,9 @@ def update_connector_builder_project_testing_values(
     testing_values: dict[str, Any],
     spec: dict[str, Any],
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Update the testing values for a connector builder project.
 
@@ -1613,6 +1734,7 @@ def update_connector_builder_project_testing_values(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
         The updated testing values from the API response
@@ -1628,6 +1750,7 @@ def update_connector_builder_project_testing_values(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
@@ -1745,8 +1868,9 @@ def get_workspace_organization_info(
     workspace_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Get organization info for a workspace.
 
@@ -1760,6 +1884,7 @@ def get_workspace_organization_info(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
         Dictionary containing organization info:
@@ -1774,6 +1899,7 @@ def get_workspace_organization_info(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
@@ -1781,8 +1907,9 @@ def get_connection_state(
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Get the state for a connection.
 
@@ -1793,6 +1920,7 @@ def get_connection_state(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
         Dictionary containing the connection state.
@@ -1803,6 +1931,7 @@ def get_connection_state(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 
@@ -1810,8 +1939,9 @@ def get_connection_catalog(
     connection_id: str,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None = None,
+    client_secret: SecretString | None = None,
+    bearer_token: SecretString | None = None,
 ) -> dict[str, Any]:
     """Get the configured catalog for a connection.
 
@@ -1825,6 +1955,7 @@ def get_connection_catalog(
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
         Dictionary containing the connection info with syncCatalog.
@@ -1835,4 +1966,5 @@ def get_connection_catalog(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )

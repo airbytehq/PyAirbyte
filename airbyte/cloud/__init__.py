@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING
 
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
+from airbyte.cloud.credentials import CloudCredentials
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -62,7 +63,7 @@ from airbyte.cloud.workspaces import CloudWorkspace
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
 if TYPE_CHECKING:
     # ruff: noqa: TC004
-    from airbyte.cloud import connections, constants, sync_results, workspaces
+    from airbyte.cloud import connections, constants, credentials, sync_results, workspaces
 
 
 __all__ = [
@@ -70,10 +71,12 @@ __all__ = [
     "workspaces",
     "connections",
     "constants",
+    "credentials",
     "sync_results",
     # Classes
     "CloudWorkspace",
     "CloudConnection",
+    "CloudCredentials",
     "SyncResult",
     # Enums
     "JobStatusEnum",

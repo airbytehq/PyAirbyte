@@ -165,6 +165,7 @@ class CloudConnector(abc.ABC):
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         check_result = CheckResult(
             success=result[0],
@@ -463,6 +464,7 @@ class CustomCloudSourceDefinition:
                 api_root=self.workspace.api_root,
                 client_id=self.workspace.client_id,
                 client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
             )
         )
 
@@ -754,6 +756,7 @@ class CustomCloudSourceDefinition:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
 
         return self

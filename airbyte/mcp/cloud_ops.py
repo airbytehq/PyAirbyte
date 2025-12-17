@@ -13,7 +13,6 @@ from airbyte.cloud.auth import (
     resolve_cloud_api_url,
     resolve_cloud_client_id,
     resolve_cloud_client_secret,
-    resolve_cloud_workspace_id,
 )
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -26,7 +25,12 @@ from airbyte.mcp._tool_utils import (
     register_guid_created_in_session,
     register_tools,
 )
-from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.mcp._util import (
+    resolve_cloud_credentials,
+    resolve_config,
+    resolve_list_of_strings,
+    resolve_workspace_id,
+)
 from airbyte.secrets import SecretString
 
 
@@ -214,15 +218,23 @@ class SyncJobListResult(BaseModel):
 def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
 
+    Resolves credentials from multiple sources in order:
+    1. HTTP headers (when running as MCP server with HTTP/SSE transport)
+    2. Environment variables
+
     Args:
-        workspace_id: Optional workspace ID. If not provided, uses the
-            AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
+        workspace_id: Optional workspace ID. If not provided, uses HTTP headers
+            or the AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
     """
+    credentials = resolve_cloud_credentials()
+    resolved_workspace_id = resolve_workspace_id(workspace_id)
+
     return CloudWorkspace(
-        workspace_id=resolve_cloud_workspace_id(workspace_id),
-        client_id=resolve_cloud_client_id(),
-        client_secret=resolve_cloud_client_secret(),
-        api_root=resolve_cloud_api_url(),
+        workspace_id=resolved_workspace_id,
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        bearer_token=credentials.bearer_token,
+        api_root=credentials.api_root,
     )
 
 
@@ -503,16 +515,14 @@ def check_airbyte_cloud_workspace(
     Returns workspace details including workspace ID, name, and organization info.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
-    api_root = resolve_cloud_api_url()
-    client_id = resolve_cloud_client_id()
-    client_secret = resolve_cloud_client_secret()
 
-    # Get workspace details from the public API
+    # Get workspace details from the public API using workspace's credentials
     workspace_response = api_util.get_workspace(
         workspace_id=workspace.workspace_id,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
     )
 
     # Try to get organization info, but fail gracefully if we don't have permissions.
