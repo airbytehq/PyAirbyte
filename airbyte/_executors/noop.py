@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from typing import IO
 
     from airbyte._message_iterators import AirbyteMessageIterator
-    from airbyte.sources.registry import ConnectorMetadata
+    from airbyte.registry import ConnectorMetadata
 
 
 logger = logging.getLogger("airbyte")

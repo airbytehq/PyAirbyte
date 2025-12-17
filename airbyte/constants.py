@@ -222,6 +222,14 @@ CLOUD_API_ROOT_ENV_VAR: str = "AIRBYTE_CLOUD_API_URL"
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
 
+CLOUD_BEARER_TOKEN_ENV_VAR: str = "AIRBYTE_CLOUD_BEARER_TOKEN"
+"""The environment variable name for the Airbyte Cloud bearer token.
+
+When set, this bearer token will be used for authentication instead of
+client credentials (client_id + client_secret). This is useful when you
+already have a valid bearer token and want to skip the OAuth2 token exchange.
+"""
+
 CLOUD_API_ROOT: str = "https://api.airbyte.com/v1"
 """The Airbyte Cloud API root URL.
 
@@ -236,4 +244,40 @@ CLOUD_CONFIG_API_ROOT: str = "https://cloud.airbyte.com/api/v1"
 Documentation:
 - https://docs.airbyte.com/api-documentation#configuration-api-deprecated
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
+"""
+
+# MCP (Model Context Protocol) Constants
+
+MCP_TOOL_DOMAINS: list[str] = ["cloud", "local", "registry"]
+"""Valid MCP tool domains available in the server.
+
+- `cloud`: Tools for managing Airbyte Cloud resources (sources, destinations, connections)
+- `local`: Tools for local operations (connector validation, caching, SQL queries)
+- `registry`: Tools for querying the Airbyte connector registry
+"""
+
+AIRBYTE_MCP_DOMAINS: list[str] | None = [
+    d.strip().lower() for d in os.getenv("AIRBYTE_MCP_DOMAINS", "").split(",") if d.strip()
+] or None
+"""Enabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS` environment variable.
+
+Accepts a comma-separated list of domain names (e.g., "registry,cloud").
+If set, only tools from these domains will be advertised by the MCP server.
+If not set (None), all domains are enabled by default.
+
+Values are case-insensitive and whitespace is trimmed.
+"""
+
+AIRBYTE_MCP_DOMAINS_DISABLED: list[str] | None = [
+    d.strip().lower() for d in os.getenv("AIRBYTE_MCP_DOMAINS_DISABLED", "").split(",") if d.strip()
+] or None
+"""Disabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS_DISABLED` environment variable.
+
+Accepts a comma-separated list of domain names (e.g., "registry").
+Tools from these domains will not be advertised by the MCP server.
+
+When both `AIRBYTE_MCP_DOMAINS` and `AIRBYTE_MCP_DOMAINS_DISABLED` are set,
+the disabled list takes precedence (subtracts from the enabled list).
+
+Values are case-insensitive and whitespace is trimmed.
 """
