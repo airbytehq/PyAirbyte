@@ -197,7 +197,7 @@ def get_workspace(
         resource_type="workspace",
         context={
             "workspace_id": workspace_id,
-            "api_root": api_root,
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
     )
@@ -447,7 +447,7 @@ def get_connection(
         resource_type="connection",
         log_text=response.raw_response.text,
         context={
-            "api_root": api_root,
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
     )
@@ -548,7 +548,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         context={
             "workspace_id": workspace_id,
             "connection_id": connection_id,
-            "api_root": api_root,
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
     )
@@ -582,7 +582,7 @@ def get_job_info(
         resource_type="job",
         log_text=response.raw_response.text,
         context={
-            "api_root": api_root,
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
     )
@@ -658,7 +658,7 @@ def get_source(
         resource_type="source",
         log_text=response.raw_response.text,
         context={
-            "api_root": api_root,
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
     )
@@ -905,7 +905,7 @@ def get_destination(
         resource_type="destination",
         log_text=response.raw_response.text,
         context={
-            "api_root": api_root,
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
     )
