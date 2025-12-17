@@ -2,7 +2,7 @@
 """Airbyte Cloud MCP operations."""
 
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, Literal, cast
 
 from fastmcp import FastMCP
 from pydantic import BaseModel, Field
@@ -13,7 +13,6 @@ from airbyte.cloud.auth import (
     resolve_cloud_api_url,
     resolve_cloud_client_id,
     resolve_cloud_client_secret,
-    resolve_cloud_workspace_id,
 )
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -26,7 +25,12 @@ from airbyte.mcp._tool_utils import (
     register_guid_created_in_session,
     register_tools,
 )
-from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.mcp._util import (
+    resolve_cloud_credentials,
+    resolve_config,
+    resolve_list_of_strings,
+    resolve_workspace_id,
+)
 from airbyte.secrets import SecretString
 
 
@@ -152,12 +156,16 @@ class CloudOrganizationResult(BaseModel):
 class CloudWorkspaceResult(BaseModel):
     """Information about a workspace in Airbyte Cloud."""
 
-    id: str
+    workspace_id: str
     """The workspace ID."""
-    name: str
+    workspace_name: str
     """Display name of the workspace."""
+    workspace_url: str | None = None
+    """URL to access the workspace in Airbyte Cloud."""
     organization_id: str
-    """ID of the organization this workspace belongs to."""
+    """ID of the organization (requires ORGANIZATION_READER permission)."""
+    organization_name: str | None = None
+    """Name of the organization (requires ORGANIZATION_READER permission)."""
 
 
 class LogReadResult(BaseModel):
@@ -177,18 +185,56 @@ class LogReadResult(BaseModel):
     """Total number of log lines available, shows if any lines were missed due to the limit."""
 
 
+class SyncJobResult(BaseModel):
+    """Information about a sync job."""
+
+    job_id: int
+    """The job ID."""
+    status: str
+    """The job status (e.g., 'succeeded', 'failed', 'running', 'pending')."""
+    bytes_synced: int
+    """Number of bytes synced in this job."""
+    records_synced: int
+    """Number of records synced in this job."""
+    start_time: str
+    """ISO 8601 timestamp of when the job started."""
+    job_url: str
+    """URL to view the job in Airbyte Cloud."""
+
+
+class SyncJobListResult(BaseModel):
+    """Result of listing sync jobs with pagination support."""
+
+    jobs: list[SyncJobResult]
+    """List of sync jobs."""
+    jobs_count: int
+    """Number of jobs returned in this response."""
+    jobs_offset: int
+    """Offset used for this request (0 if not specified)."""
+    from_tail: bool
+    """Whether jobs are ordered newest-first (True) or oldest-first (False)."""
+
+
 def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
 
+    Resolves credentials from multiple sources in order:
+    1. HTTP headers (when running as MCP server with HTTP/SSE transport)
+    2. Environment variables
+
     Args:
-        workspace_id: Optional workspace ID. If not provided, uses the
-            AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
+        workspace_id: Optional workspace ID. If not provided, uses HTTP headers
+            or the AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
     """
+    credentials = resolve_cloud_credentials()
+    resolved_workspace_id = resolve_workspace_id(workspace_id)
+
     return CloudWorkspace(
-        workspace_id=resolve_cloud_workspace_id(workspace_id),
-        client_id=resolve_cloud_client_id(),
-        client_secret=resolve_cloud_client_secret(),
-        api_root=resolve_cloud_api_url(),
+        workspace_id=resolved_workspace_id,
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        bearer_token=credentials.bearer_token,
+        api_root=credentials.api_root,
     )
 
 
@@ -463,18 +509,37 @@ def check_airbyte_cloud_workspace(
             default=None,
         ),
     ],
-) -> str:
+) -> CloudWorkspaceResult:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
-    Returns workspace ID and workspace URL for verification.
+    Returns workspace details including workspace ID, name, and organization info.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
-    workspace.connect()
 
-    return (
-        f"✅ Successfully connected to Airbyte Cloud workspace.\n"
-        f"Workspace ID: {workspace.workspace_id}\n"
-        f"Workspace URL: {workspace.workspace_url}"
+    # Get workspace details from the public API using workspace's credentials
+    workspace_response = api_util.get_workspace(
+        workspace_id=workspace.workspace_id,
+        api_root=workspace.api_root,
+        client_id=workspace.client_id,
+        client_secret=workspace.client_secret,
+        bearer_token=workspace.bearer_token,
+    )
+
+    # Try to get organization info, but fail gracefully if we don't have permissions.
+    # Fetching organization info requires ORGANIZATION_READER permissions on the organization,
+    # which may not be available with workspace-scoped credentials.
+    organization = workspace.get_organization(raise_on_error=False)
+
+    return CloudWorkspaceResult(
+        workspace_id=workspace_response.workspace_id,
+        workspace_name=workspace_response.name,
+        workspace_url=workspace.workspace_url,
+        organization_id=(
+            organization.organization_id
+            if organization
+            else "[unavailable - requires ORGANIZATION_READER permission]"
+        ),
+        organization_name=organization.organization_name if organization else None,
     )
 
 
@@ -583,6 +648,111 @@ def get_cloud_sync_status(
         ]
 
     return result
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def list_cloud_sync_jobs(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the Airbyte Cloud connection."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+    max_jobs: Annotated[
+        int,
+        Field(
+            description=(
+                "Maximum number of jobs to return. "
+                "Defaults to 20 if not specified. "
+                "Maximum allowed value is 500."
+            ),
+            default=20,
+        ),
+    ],
+    from_tail: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "When True, jobs are ordered newest-first (createdAt DESC). "
+                "When False, jobs are ordered oldest-first (createdAt ASC). "
+                "Defaults to True if `jobs_offset` is not specified. "
+                "Cannot combine `from_tail=True` with `jobs_offset`."
+            ),
+            default=None,
+        ),
+    ],
+    jobs_offset: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Number of jobs to skip from the beginning. "
+                "Cannot be combined with `from_tail=True`."
+            ),
+            default=None,
+        ),
+    ],
+) -> SyncJobListResult:
+    """List sync jobs for a connection with pagination support.
+
+    This tool allows you to retrieve a list of sync jobs for a connection,
+    with control over ordering and pagination. By default, jobs are returned
+    newest-first (from_tail=True).
+    """
+    # Validate that jobs_offset and from_tail are not both set
+    if jobs_offset is not None and from_tail is True:
+        raise PyAirbyteInputError(
+            message="Cannot specify both 'jobs_offset' and 'from_tail=True' parameters.",
+            context={"jobs_offset": jobs_offset, "from_tail": from_tail},
+        )
+
+    # Default to from_tail=True if neither is specified
+    if from_tail is None and jobs_offset is None:
+        from_tail = True
+    elif from_tail is None:
+        from_tail = False
+
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    # Cap at 500 to avoid overloading agent context
+    effective_limit = min(max_jobs, 500) if max_jobs > 0 else 20
+
+    sync_results = connection.get_previous_sync_logs(
+        limit=effective_limit,
+        offset=jobs_offset,
+        from_tail=from_tail,
+    )
+
+    jobs = [
+        SyncJobResult(
+            job_id=sync_result.job_id,
+            status=str(sync_result.get_job_status()),
+            bytes_synced=sync_result.bytes_synced,
+            records_synced=sync_result.records_synced,
+            start_time=sync_result.start_time.isoformat(),
+            job_url=sync_result.job_url,
+        )
+        for sync_result in sync_results
+    ]
+
+    return SyncJobListResult(
+        jobs=jobs,
+        jobs_count=len(jobs),
+        jobs_offset=jobs_offset or 0,
+        from_tail=from_tail,
+    )
 
 
 @mcp_tool(
@@ -1113,6 +1283,7 @@ def _resolve_organization(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=None,  # Organization listing requires client credentials
     )
 
     if organization_id:
@@ -1236,14 +1407,15 @@ def list_cloud_workspaces(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=None,  # Workspace listing requires client credentials
         name_contains=name_contains,
         max_items_limit=max_items_limit,
     )
 
     return [
         CloudWorkspaceResult(
-            id=ws.get("workspaceId", ""),
-            name=ws.get("name", ""),
+            workspace_id=ws.get("workspaceId", ""),
+            workspace_name=ws.get("name", ""),
             organization_id=ws.get("organizationId", ""),
         )
         for ws in workspaces
@@ -1356,6 +1528,32 @@ def publish_custom_source_definition(
             default=True,
         ),
     ] = True,
+    testing_values: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "Optional testing configuration values for the Builder UI. "
+                "Can be provided as a JSON object or JSON string. "
+                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
+                "If provided, these values replace any existing testing values "
+                "for the connector builder project, allowing immediate test read operations."
+            ),
+            default=None,
+        ),
+    ],
+    testing_values_secret_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional name of a secret containing testing configuration values "
+                "in JSON or YAML format. The secret will be resolved by the MCP "
+                "server and merged into testing_values, with secret values taking "
+                "precedence. This lets the agent reference secrets without sending "
+                "raw values as tool arguments."
+            ),
+            default=None,
+        ),
+    ],
 ) -> str:
     """Publish a custom YAML source connector definition to Airbyte Cloud.
 
@@ -1366,12 +1564,24 @@ def publish_custom_source_definition(
     if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
         processed_manifest = Path(manifest_yaml)
 
+    # Resolve testing values from inline config and/or secret
+    testing_values_dict: dict[str, Any] | None = None
+    if testing_values is not None or testing_values_secret_name is not None:
+        testing_values_dict = (
+            resolve_config(
+                config=testing_values,
+                config_secret_name=testing_values_secret_name,
+            )
+            or None
+        )
+
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
         unique=unique,
         pre_validate=pre_validate,
+        testing_values=testing_values_dict,
     )
     register_guid_created_in_session(custom_source.definition_id)
     return (
@@ -1431,11 +1641,15 @@ def update_custom_source_definition(
         Field(description="The ID of the definition to update."),
     ],
     manifest_yaml: Annotated[
-        str | Path,
+        str | Path | None,
         Field(
-            description="New manifest as YAML string or file path.",
+            description=(
+                "New manifest as YAML string or file path. "
+                "Optional; omit to update only testing values."
+            ),
+            default=None,
         ),
-    ],
+    ] = None,
     *,
     workspace_id: Annotated[
         str | None,
@@ -1451,26 +1665,85 @@ def update_custom_source_definition(
             default=True,
         ),
     ] = True,
+    testing_values: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "Optional testing configuration values for the Builder UI. "
+                "Can be provided as a JSON object or JSON string. "
+                "Supports inline secret refs via 'secret_reference::ENV_VAR_NAME' syntax. "
+                "If provided, these values replace any existing testing values "
+                "for the connector builder project. The entire testing values object "
+                "is overwritten, so pass the full set of values you want to persist."
+            ),
+            default=None,
+        ),
+    ],
+    testing_values_secret_name: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional name of a secret containing testing configuration values "
+                "in JSON or YAML format. The secret will be resolved by the MCP "
+                "server and merged into testing_values, with secret values taking "
+                "precedence. This lets the agent reference secrets without sending "
+                "raw values as tool arguments."
+            ),
+            default=None,
+        ),
+    ],
 ) -> str:
     """Update a custom YAML source definition in Airbyte Cloud.
 
-    Note: Only YAML (declarative) connectors are currently supported.
-    Docker-based custom sources are not yet available.
+    Updates the manifest and/or testing values for an existing custom source definition.
+    At least one of manifest_yaml, testing_values, or testing_values_secret_name must be provided.
     """
     check_guid_created_in_session(definition_id)
-    processed_manifest = manifest_yaml
+
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+
+    if manifest_yaml is None and testing_values is None and testing_values_secret_name is None:
+        raise PyAirbyteInputError(
+            message=(
+                "At least one of manifest_yaml, testing_values, or testing_values_secret_name "
+                "must be provided to update a custom source definition."
+            ),
+            context={
+                "definition_id": definition_id,
+                "workspace_id": workspace.workspace_id,
+            },
+        )
+
+    processed_manifest: str | Path | None = manifest_yaml
     if isinstance(manifest_yaml, str) and "\n" not in manifest_yaml:
         processed_manifest = Path(manifest_yaml)
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    # Resolve testing values from inline config and/or secret
+    testing_values_dict: dict[str, Any] | None = None
+    if testing_values is not None or testing_values_secret_name is not None:
+        testing_values_dict = (
+            resolve_config(
+                config=testing_values,
+                config_secret_name=testing_values_secret_name,
+            )
+            or None
+        )
+
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
     )
-    custom_source: CustomCloudSourceDefinition = definition.update_definition(
-        manifest_yaml=processed_manifest,
-        pre_validate=pre_validate,
-    )
+    custom_source: CustomCloudSourceDefinition = definition
+
+    if processed_manifest is not None:
+        custom_source = definition.update_definition(
+            manifest_yaml=processed_manifest,
+            pre_validate=pre_validate,
+        )
+
+    if testing_values_dict is not None:
+        custom_source.set_testing_values(testing_values_dict)
+
     return (
         "Successfully updated custom YAML source definition:\n"
         + _get_custom_source_definition_description(
@@ -2021,6 +2294,55 @@ def set_cloud_connection_selected_streams(
         f"Successfully set selected streams for connection '{connection_id}' "
         f"to {resolved_streams_list}. URL: {connection.connection_url}"
     )
+
+
+@mcp_tool(
+    domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def get_connection_artifact(
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the Airbyte Cloud connection."),
+    ],
+    artifact_type: Annotated[
+        Literal["state", "catalog"],
+        Field(description="The type of artifact to retrieve: 'state' or 'catalog'."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Get a connection artifact (state or catalog) from Airbyte Cloud.
+
+    Retrieves the specified artifact for a connection:
+    - 'state': Returns the persisted state for incremental syncs as a list of
+      stream state objects, or {"ERROR": "..."} if no state is set.
+    - 'catalog': Returns the configured catalog (syncCatalog) as a dict,
+      or {"ERROR": "..."} if not found.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    if artifact_type == "state":
+        result = connection.get_state_artifacts()
+        if result is None:
+            return {"ERROR": "No state is set for this connection (stateType: not_set)"}
+        return result
+
+    # artifact_type == "catalog"
+    result = connection.get_catalog_artifact()
+    if result is None:
+        return {"ERROR": "No catalog found for this connection"}
+    return result
 
 
 def register_cloud_ops_tools(app: FastMCP) -> None:

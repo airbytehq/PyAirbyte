@@ -35,6 +35,7 @@ jobs:
             test-pr
             poetry-lock
             poe
+            prerelease
           static-args: |
             pr=${{ github.event.issue.number }}
             comment-id=${{ github.event.comment.id }}

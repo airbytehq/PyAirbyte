@@ -68,10 +68,9 @@ PyAirbyte supports a very basic form of schema evolution:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-import pytz
 from uuid_extensions import uuid7str
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer, NameNormalizerBase
@@ -236,7 +235,7 @@ class StreamRecord(dict[str, Any]):
             self.update(
                 {
                     AB_RAW_ID_COLUMN: uuid7str(),
-                    AB_EXTRACTED_AT_COLUMN: extracted_at or datetime.now(pytz.utc),
+                    AB_EXTRACTED_AT_COLUMN: extracted_at or datetime.now(timezone.utc),
                     AB_META_COLUMN: {},
                 }
             )
@@ -254,7 +253,7 @@ class StreamRecord(dict[str, Any]):
             from_dict=data_dict,
             stream_record_handler=stream_record_handler,
             with_internal_columns=True,
-            extracted_at=datetime.fromtimestamp(record_message.emitted_at / 1000, tz=pytz.utc),
+            extracted_at=datetime.fromtimestamp(record_message.emitted_at / 1000, tz=timezone.utc),
         )
 
     def __getitem__(self, key: str) -> Any:  # noqa: ANN401

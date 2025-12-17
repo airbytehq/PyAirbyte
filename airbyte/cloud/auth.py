@@ -6,6 +6,31 @@ from airbyte.secrets import SecretString
 from airbyte.secrets.util import get_secret, try_get_secret
 
 
+def resolve_cloud_bearer_token(
+    input_value: str | SecretString | None = None,
+    /,
+) -> SecretString | None:
+    """Get the Airbyte Cloud bearer token from the environment.
+
+    Unlike other resolve functions, this returns None if no bearer token is found,
+    since bearer token authentication is optional (client credentials can be used instead).
+
+    Args:
+        input_value: Optional explicit bearer token value. If provided, it will be
+            returned directly (wrapped in SecretString if needed).
+
+    Returns:
+        The bearer token as a SecretString, or None if not found.
+    """
+    if input_value is not None:
+        return SecretString(input_value)
+
+    result = try_get_secret(constants.CLOUD_BEARER_TOKEN_ENV_VAR, default=None)
+    if result:
+        return SecretString(result)
+    return None
+
+
 def resolve_cloud_client_secret(
     input_value: str | SecretString | None = None,
     /,
