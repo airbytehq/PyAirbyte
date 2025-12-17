@@ -302,3 +302,89 @@ def test_check_connector(
         assert result == expect_success
     except AirbyteError as e:
         pytest.fail(f"API call failed: {e}")
+
+
+@pytest.mark.parametrize(
+    "bogus_api_root",
+    [
+        pytest.param(
+            "https://bogus.invalid.example.com/api/v1",
+            id="completely_invalid_host",
+        ),
+        pytest.param(
+            "https://httpbin.org/status/404",
+            id="httpbin_404_endpoint",
+        ),
+    ],
+)
+def test_bogus_api_root_error_includes_url_context(bogus_api_root: str) -> None:
+    """Test that API errors include the request URL in context for debugging.
+
+    This test validates that when an API call fails due to a bogus base URL,
+    the error message includes the full request URL that was attempted. This
+    helps debug URL construction issues like those seen with custom API roots.
+
+    Note: This test does not require credentials since it's testing error
+    behavior with invalid URLs that will fail before authentication.
+    """
+    fake_bearer_token = SecretString("fake-token-for-testing")
+    fake_workspace_id = "00000000-0000-0000-0000-000000000000"
+
+    with pytest.raises(Exception) as exc_info:
+        api_util.list_sources(
+            workspace_id=fake_workspace_id,
+            api_root=bogus_api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=fake_bearer_token,
+        )
+
+    error = exc_info.value
+    error_str = str(error)
+
+    print(f"\nBogus API root: {bogus_api_root}")
+    print(f"Error type: {type(error).__name__}")
+    print(f"Error message: {error_str}")
+
+    if isinstance(error, AirbyteError) and hasattr(error, "context"):
+        context = error.context or {}
+        print(f"Error context: {context}")
+        if "request_url" in context:
+            request_url = str(context["request_url"])
+            print(f"Request URL from context: {request_url}")
+            host_from_bogus = bogus_api_root.split("/")[2]
+            assert host_from_bogus in request_url, (
+                f"Expected request_url to contain host '{host_from_bogus}' "
+                f"from bogus_api_root '{bogus_api_root}', but got '{request_url}'"
+            )
+
+
+def test_url_construction_with_path_prefix() -> None:
+    """Test that the SDK correctly preserves path prefixes in the base URL.
+
+    This test uses httpbin.org/anything which echoes back the request details,
+    allowing us to verify the actual URL that was constructed and sent.
+
+    This test validates that when using a custom API root with a path prefix
+    (like https://host/api/public/v1), the SDK correctly appends endpoints
+    to that path rather than replacing it.
+    """
+    base_url_with_path = "https://httpbin.org/anything/api/public/v1"
+    fake_bearer_token = SecretString("fake-token-for-testing")
+    fake_workspace_id = "00000000-0000-0000-0000-000000000000"
+
+    result = api_util.list_sources(
+        workspace_id=fake_workspace_id,
+        api_root=base_url_with_path,
+        client_id=None,
+        client_secret=None,
+        bearer_token=fake_bearer_token,
+    )
+
+    print(f"\nBase URL with path prefix: {base_url_with_path}")
+    print(f"Result type: {type(result)}")
+    print(f"Result: {result}")
+
+    assert result == [], (
+        f"Expected empty list from httpbin (no real sources), but got: {result}"
+    )

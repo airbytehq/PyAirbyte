@@ -21,7 +21,6 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 
-from airbyte.cloud.auth import resolve_cloud_config_api_url
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
@@ -31,6 +30,7 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.secrets.base import SecretString
+from airbyte.secrets.util import try_get_secret
 
 
 if TYPE_CHECKING:
@@ -76,9 +76,9 @@ def get_config_api_root(api_root: str) -> str:
         NotImplementedError: If the Config API root cannot be determined.
     """
     # First, check if the Config API URL is explicitly set via environment variable
-    config_api_override = resolve_cloud_config_api_url()
+    config_api_override = try_get_secret(CLOUD_CONFIG_API_ROOT_ENV_VAR, default=None)
     if config_api_override:
-        return config_api_override
+        return str(config_api_override)
 
     # Fall back to deriving from the main API root
     if api_root == CLOUD_API_ROOT:
