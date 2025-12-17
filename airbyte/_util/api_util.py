@@ -103,35 +103,41 @@ def get_airbyte_server_instance(
     Raises:
         PyAirbyteInputError: If authentication parameters are invalid.
     """
-    has_client_credentials = client_id is not None and client_secret is not None
-    has_bearer_token = bearer_token is not None
-
-    if has_bearer_token and has_client_credentials:
-        raise PyAirbyteInputError(
-            message="Cannot use both client credentials and bearer token authentication.",
-            guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
-        )
-
-    if not has_bearer_token and not has_client_credentials:
+    # Guard: must provide either bearer token OR both client credentials
+    if bearer_token is None and (client_id is None or client_secret is None):
         raise PyAirbyteInputError(
             message="No authentication credentials provided.",
             guidance="Provide either client_id and client_secret, or bearer_token.",
         )
 
-    if has_bearer_token:
+    # Guard: cannot provide both auth methods
+    if bearer_token is not None and (client_id is not None or client_secret is not None):
+        raise PyAirbyteInputError(
+            message="Cannot use both client credentials and bearer token authentication.",
+            guidance="Provide either client_id and client_secret, or bearer_token, but not both.",
+        )
+
+    # Option 1: Bearer token authentication
+    if bearer_token is not None:
         return airbyte_api.AirbyteAPI(
             security=models.Security(
-                bearer_auth=str(bearer_token),
+                bearer_auth=bearer_token,
             ),
             server_url=api_root,
         )
 
-    # Use client credentials flow
+    # Option 2: Client credentials flow (guaranteed non-None by first guard)
+    if client_id is None or client_secret is None:
+        raise PyAirbyteInputError(
+            message="Client credentials incomplete.",
+            guidance="Provide both client_id and client_secret.",
+        )
+
     return airbyte_api.AirbyteAPI(
         security=models.Security(
             client_credentials=models.SchemeClientCredentials(
-                client_id=str(client_id),
-                client_secret=str(client_secret),
+                client_id=client_id,
+                client_secret=client_secret,
                 token_url=api_root + "/applications/token",
                 # e.g. https://api.airbyte.com/v1/applications/token
             ),
