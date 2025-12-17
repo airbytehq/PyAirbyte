@@ -304,59 +304,62 @@ def test_check_connector(
         pytest.fail(f"API call failed: {e}")
 
 
-@pytest.mark.parametrize(
-    "bogus_api_root",
-    [
-        pytest.param(
-            "https://bogus.invalid.example.com/api/v1",
-            id="completely_invalid_host",
-        ),
-        pytest.param(
-            "https://httpbin.org/status/404",
-            id="httpbin_404_endpoint",
-        ),
-    ],
-)
-def test_bogus_api_root_error_includes_url_context(bogus_api_root: str) -> None:
-    """Test that API errors include the request URL in context for debugging.
+def test_404_error_includes_request_url_context() -> None:
+    """Test that 404 API errors include the full request URL in context.
 
-    This test validates that when an API call fails due to a bogus base URL,
-    the error message includes the full request URL that was attempted. This
-    helps debug URL construction issues like those seen with custom API roots.
+    This test validates that when an API call fails with a 404, the error
+    includes the full request URL that was attempted. This helps debug URL
+    construction issues like those seen with custom API roots.
 
-    Note: This test does not require credentials since it's testing error
-    behavior with invalid URLs that will fail before authentication.
+    Uses httpbin.org which returns 404 for /sources endpoint, allowing us
+    to verify the error context contains the expected URL information.
     """
-    fake_bearer_token = SecretString("fake-token-for-testing")
-    fake_workspace_id = "00000000-0000-0000-0000-000000000000"
+    from urllib.parse import parse_qs, urlparse
 
-    with pytest.raises(Exception) as exc_info:
+    api_root = "https://httpbin.org"
+    workspace_id = "00000000-0000-0000-0000-000000000000"
+    fake_bearer_token = SecretString("fake-token-for-testing")
+
+    with pytest.raises(AirbyteError) as exc_info:
         api_util.list_sources(
-            workspace_id=fake_workspace_id,
-            api_root=bogus_api_root,
+            workspace_id=workspace_id,
+            api_root=api_root,
             client_id=None,
             client_secret=None,
             bearer_token=fake_bearer_token,
         )
 
     error = exc_info.value
-    error_str = str(error)
 
-    print(f"\nBogus API root: {bogus_api_root}")
-    print(f"Error type: {type(error).__name__}")
-    print(f"Error message: {error_str}")
+    # Assert error has context
+    assert error.context is not None, "Error should have context dict"
 
-    if isinstance(error, AirbyteError) and hasattr(error, "context"):
-        context = error.context or {}
-        print(f"Error context: {context}")
-        if "request_url" in context:
-            request_url = str(context["request_url"])
-            print(f"Request URL from context: {request_url}")
-            host_from_bogus = bogus_api_root.split("/")[2]
-            assert host_from_bogus in request_url, (
-                f"Expected request_url to contain host '{host_from_bogus}' "
-                f"from bogus_api_root '{bogus_api_root}', but got '{request_url}'"
-            )
+    # Assert required context keys exist
+    assert "api_root" in error.context, "Error context should contain 'api_root'"
+    assert "status_code" in error.context, "Error context should contain 'status_code'"
+    assert "request_url" in error.context, "Error context should contain 'request_url'"
+
+    # Assert context values
+    assert error.context["api_root"] == api_root
+    assert error.context["status_code"] == 404
+
+    # Parse and validate the request URL
+    request_url = str(error.context["request_url"])
+    parsed = urlparse(request_url)
+
+    assert parsed.netloc == "httpbin.org", (
+        f"Expected host 'httpbin.org', got '{parsed.netloc}'"
+    )
+    assert parsed.path.endswith("/sources"), (
+        f"Expected path ending with '/sources', got '{parsed.path}'"
+    )
+
+    # Validate query params include workspace ID
+    query_params = parse_qs(parsed.query)
+    assert "workspaceIds" in query_params, "Expected 'workspaceIds' in query params"
+    assert query_params["workspaceIds"] == [workspace_id], (
+        f"Expected workspaceIds=['{workspace_id}'], got {query_params['workspaceIds']}"
+    )
 
 
 def test_url_construction_with_path_prefix() -> None:
