@@ -20,7 +20,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
 )
-from airbyte.cloud.credentials import CloudCredentials
+from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.secrets import (
     DotenvSecretManager,
     GoogleGSMSecretManager,
@@ -351,8 +351,8 @@ def resolve_cloud_credentials(
     client_secret: SecretString | str | None = None,
     bearer_token: SecretString | str | None = None,
     api_root: str | None = None,
-) -> CloudCredentials:
-    """Resolve CloudCredentials from multiple sources.
+) -> CloudClientConfig:
+    """Resolve CloudClientConfig from multiple sources.
 
     This function resolves authentication credentials for Airbyte Cloud
     from multiple sources in the following priority order:
@@ -378,7 +378,7 @@ def resolve_cloud_credentials(
         api_root: Optional explicit API root URL.
 
     Returns:
-        A CloudCredentials instance with resolved authentication.
+        A CloudClientConfig instance with resolved authentication.
 
     Raises:
         PyAirbyteInputError: If no valid authentication can be resolved.
@@ -398,7 +398,7 @@ def resolve_cloud_credentials(
             resolved_bearer_token = resolve_cloud_bearer_token()
 
     if resolved_bearer_token:
-        return CloudCredentials(
+        return CloudClientConfig(
             bearer_token=resolved_bearer_token,
             api_root=resolved_api_root,
         )
@@ -421,7 +421,7 @@ def resolve_cloud_credentials(
         if resolved_client_secret is None:
             resolved_client_secret = resolve_cloud_client_secret()
 
-    return CloudCredentials(
+    return CloudClientConfig(
         client_id=resolved_client_id,
         client_secret=resolved_client_secret,
         api_root=resolved_api_root,

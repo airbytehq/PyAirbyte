@@ -52,13 +52,13 @@ from airbyte.cloud.auth import (
     resolve_cloud_client_secret,
     resolve_cloud_workspace_id,
 )
+from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
     CloudDestination,
     CloudSource,
     CustomCloudSourceDefinition,
 )
-from airbyte.cloud.credentials import CloudCredentials
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
 from airbyte.secrets.base import SecretString
@@ -120,7 +120,7 @@ class CloudWorkspace:
     bearer_token: SecretString | None = None
 
     # Internal credentials object (set in __post_init__, excluded from __init__)
-    _credentials: CloudCredentials | None = field(default=None, init=False, repr=False)
+    _credentials: CloudClientConfig | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate and initialize credentials."""
@@ -132,8 +132,8 @@ class CloudWorkspace:
         if self.bearer_token is not None:
             self.bearer_token = SecretString(self.bearer_token)
 
-        # Create internal CloudCredentials object (validates mutual exclusivity)
-        self._credentials = CloudCredentials(
+        # Create internal CloudClientConfig object (validates mutual exclusivity)
+        self._credentials = CloudClientConfig(
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,

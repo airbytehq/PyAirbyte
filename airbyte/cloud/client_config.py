@@ -1,8 +1,9 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Cloud credentials configuration for Airbyte Cloud API authentication.
+"""Cloud client configuration for Airbyte Cloud API authentication.
 
-This module provides the CloudCredentials class for managing authentication
-credentials when connecting to Airbyte Cloud, OSS, or Enterprise instances.
+This module provides the CloudClientConfig class for managing authentication
+credentials and API configuration when connecting to Airbyte Cloud, OSS, or
+Enterprise instances.
 
 Two authentication methods are supported (mutually exclusive):
 1. OAuth2 client credentials (client_id + client_secret)
@@ -10,9 +11,9 @@ Two authentication methods are supported (mutually exclusive):
 
 Example usage with client credentials:
     ```python
-    from airbyte.cloud.credentials import CloudCredentials
+    from airbyte.cloud.client_config import CloudClientConfig
 
-    credentials = CloudCredentials(
+    config = CloudClientConfig(
         client_id="your-client-id",
         client_secret="your-client-secret",
     )
@@ -20,20 +21,20 @@ Example usage with client credentials:
 
 Example usage with bearer token:
     ```python
-    from airbyte.cloud.credentials import CloudCredentials
+    from airbyte.cloud.client_config import CloudClientConfig
 
-    credentials = CloudCredentials(
+    config = CloudClientConfig(
         bearer_token="your-bearer-token",
     )
     ```
 
 Example using environment variables:
     ```python
-    from airbyte.cloud.credentials import CloudCredentials
+    from airbyte.cloud.client_config import CloudClientConfig
 
     # Resolves from AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET,
     # AIRBYTE_CLOUD_BEARER_TOKEN, and AIRBYTE_CLOUD_API_URL environment variables
-    credentials = CloudCredentials.from_env()
+    config = CloudClientConfig.from_env()
     ```
 """
 
@@ -53,10 +54,10 @@ from airbyte.secrets.base import SecretString
 
 
 @dataclass
-class CloudCredentials:
-    """Authentication credentials for Airbyte Cloud API.
+class CloudClientConfig:
+    """Client configuration for Airbyte Cloud API.
 
-    This class encapsulates the authentication configuration needed to connect
+    This class encapsulates the authentication and API configuration needed to connect
     to Airbyte Cloud, OSS, or Enterprise instances. It supports two mutually
     exclusive authentication methods:
 
@@ -142,8 +143,8 @@ class CloudCredentials:
         cls,
         *,
         api_root: str | None = None,
-    ) -> CloudCredentials:
-        """Create CloudCredentials from environment variables.
+    ) -> CloudClientConfig:
+        """Create CloudClientConfig from environment variables.
 
         This factory method resolves credentials from environment variables,
         providing a convenient way to create credentials without explicitly
@@ -164,7 +165,7 @@ class CloudCredentials:
                 the Airbyte Cloud API.
 
         Returns:
-            A CloudCredentials instance configured with credentials from the environment.
+            A CloudClientConfig instance configured with credentials from the environment.
 
         Raises:
             PyAirbyteSecretNotFoundError: If required credentials are not found in
