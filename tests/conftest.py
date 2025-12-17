@@ -259,17 +259,15 @@ def source_test_registry(monkeypatch):
         return LOCAL_TEST_REGISTRY_URL
 
     # Replace _get_registry_url() with the mock function
-    monkeypatch.setattr(
-        airbyte.sources.registry, "_get_registry_url", mock_get_registry_cache
-    )
+    monkeypatch.setattr(airbyte.registry, "_get_registry_url", mock_get_registry_cache)
 
     # reset the registry cache
-    airbyte.sources.registry.__cache = None
+    airbyte.registry.__cache = None
 
     yield
 
     # reset the registry cache (clean up)
-    airbyte.sources.registry.__cache = None
+    airbyte.registry.__cache = None
 
 
 @pytest.fixture(autouse=True)

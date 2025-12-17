@@ -126,7 +126,6 @@ def test_yaml_validation_error(
     "name_template,expect_allow",
     [
         ("test-yaml-source-{suffix}", False),
-        ("delete:test-yaml-source-{suffix}", True),
         ("test-delete-me-yaml-source-{suffix}", True),
     ],
 )
@@ -164,7 +163,7 @@ def test_safe_mode_deletion(
 
             error_message = str(exc_info.value).lower()
             assert "safe_mode" in error_message
-            assert "delete:" in error_message or "delete-me" in error_message
+            assert "delete-me" in error_message or "deleteme" in error_message
 
         finally:
             definition.permanently_delete(safe_mode=False)
