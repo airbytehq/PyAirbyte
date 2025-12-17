@@ -85,7 +85,7 @@ def get_config_api_root(api_root: str) -> str:
         return CLOUD_CONFIG_API_ROOT
 
     raise NotImplementedError(
-        "Configuration API root not implemented for this API root. "
+        f"Configuration API root not implemented for api_root='{api_root}'. "
         f"Set the '{CLOUD_CONFIG_API_ROOT_ENV_VAR}' environment variable "
         "to specify the Config API URL."
     )
@@ -197,7 +197,8 @@ def get_workspace(
         resource_type="workspace",
         context={
             "workspace_id": workspace_id,
-            "response": response,
+            "api_root": api_root,
+            "status_code": response.status_code,
         },
     )
 
@@ -445,6 +446,10 @@ def get_connection(
         resource_name_or_id=connection_id,
         resource_type="connection",
         log_text=response.raw_response.text,
+        context={
+            "api_root": api_root,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -543,6 +548,8 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         context={
             "workspace_id": workspace_id,
             "connection_id": connection_id,
+            "api_root": api_root,
+            "status_code": response.status_code,
         },
     )
 
@@ -574,6 +581,10 @@ def get_job_info(
         resource_name_or_id=str(job_id),
         resource_type="job",
         log_text=response.raw_response.text,
+        context={
+            "api_root": api_root,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -646,6 +657,10 @@ def get_source(
         resource_name_or_id=source_id,
         resource_type="source",
         log_text=response.raw_response.text,
+        context={
+            "api_root": api_root,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -889,6 +904,10 @@ def get_destination(
         resource_name_or_id=destination_id,
         resource_type="destination",
         log_text=response.raw_response.text,
+        context={
+            "api_root": api_root,
+            "status_code": response.status_code,
+        },
     )
 
 
