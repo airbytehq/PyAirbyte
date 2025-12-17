@@ -9,11 +9,6 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
-from airbyte.cloud.auth import (
-    resolve_cloud_api_url,
-    resolve_cloud_client_id,
-    resolve_cloud_client_secret,
-)
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -1249,8 +1244,9 @@ def _resolve_organization(
     organization_name: str | None,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> api_util.models.OrganizationResponse:
     """Resolve organization from either ID or exact name match.
 
@@ -1258,8 +1254,9 @@ def _resolve_organization(
         organization_id: The organization ID (if provided directly)
         organization_name: The organization name (exact match required)
         api_root: The API root URL
-        client_id: OAuth client ID
-        client_secret: OAuth client secret
+        client_id: OAuth client ID (optional if bearer_token is provided)
+        client_secret: OAuth client secret (optional if bearer_token is provided)
+        bearer_token: Bearer token for authentication (optional if client credentials provided)
 
     Returns:
         The resolved OrganizationResponse object
@@ -1283,7 +1280,7 @@ def _resolve_organization(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
-        bearer_token=None,  # Organization listing requires client credentials
+        bearer_token=bearer_token,
     )
 
     if organization_id:
@@ -1327,8 +1324,9 @@ def _resolve_organization_id(
     organization_name: str | None,
     *,
     api_root: str,
-    client_id: SecretString,
-    client_secret: SecretString,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None = None,
 ) -> str:
     """Resolve organization ID from either ID or exact name match.
 
@@ -1340,6 +1338,7 @@ def _resolve_organization_id(
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
+        bearer_token=bearer_token,
     )
     return org.organization_id
 
@@ -1390,24 +1389,23 @@ def list_cloud_workspaces(
     This tool will NOT list workspaces across all organizations - you must specify
     which organization to list workspaces from.
     """
-    api_root = resolve_cloud_api_url()
-    client_id = resolve_cloud_client_id()
-    client_secret = resolve_cloud_client_secret()
+    credentials = resolve_cloud_credentials()
 
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
+        api_root=credentials.api_root,
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        bearer_token=credentials.bearer_token,
     )
 
     workspaces = api_util.list_workspaces_in_organization(
         organization_id=resolved_org_id,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,  # Workspace listing requires client credentials
+        api_root=credentials.api_root,
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        bearer_token=credentials.bearer_token,
         name_contains=name_contains,
         max_items_limit=max_items_limit,
     )
@@ -1453,16 +1451,15 @@ def describe_cloud_organization(
     Requires either organization_id OR organization_name (exact match) to be provided.
     This tool is useful for looking up an organization's ID from its name, or vice versa.
     """
-    api_root = resolve_cloud_api_url()
-    client_id = resolve_cloud_client_id()
-    client_secret = resolve_cloud_client_secret()
+    credentials = resolve_cloud_credentials()
 
     org = _resolve_organization(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
+        api_root=credentials.api_root,
+        client_id=credentials.client_id,
+        client_secret=credentials.client_secret,
+        bearer_token=credentials.bearer_token,
     )
 
     return CloudOrganizationResult(
