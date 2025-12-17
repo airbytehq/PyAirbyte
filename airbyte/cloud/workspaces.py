@@ -35,7 +35,7 @@ workspace.permanently_delete_source(deployed_source)
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
@@ -116,11 +116,11 @@ class CloudWorkspace:
     workspace_id: str
     client_id: SecretString | None = None
     client_secret: SecretString | None = None
-    bearer_token: SecretString | None = None
     api_root: str = api_util.CLOUD_API_ROOT
+    bearer_token: SecretString | None = None
 
-    # Internal credentials object (set in __post_init__)
-    _credentials: CloudCredentials | None = None
+    # Internal credentials object (set in __post_init__, excluded from __init__)
+    _credentials: CloudCredentials | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         """Validate and initialize credentials."""
