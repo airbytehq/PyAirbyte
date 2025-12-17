@@ -6,6 +6,8 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
+import pytest
+
 import airbyte as ab
 from airbyte.cloud import CloudWorkspace
 from airbyte.cloud.connections import CloudConnection
@@ -60,6 +62,10 @@ def test_deploy_dummy_source(
     cloud_workspace.permanently_delete_source(cloud_source)
 
 
+@pytest.mark.skip(
+    "Test is being flaky. TODO: Fix upstream Cloud API issue with missing secrets. "
+    "See: https://github.com/airbytehq/airbyte-internal-issues/issues/15502"
+)
 def test_deploy_connection(
     cloud_workspace: CloudWorkspace,
     deployable_dummy_source: ab.Source,

@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
@@ -62,6 +62,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
 
     @classmethod
@@ -180,6 +181,7 @@ class CloudConnection:
             workspace_id=self.workspace.workspace_id,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         sync_result = SyncResult(
             workspace=self.workspace,
@@ -208,16 +210,41 @@ class CloudConnection:
     def get_previous_sync_logs(
         self,
         *,
-        limit: int = 10,
+        limit: int = 20,
+        offset: int | None = None,
+        from_tail: bool = True,
     ) -> list[SyncResult]:
-        """Get the previous sync logs for a connection."""
+        """Get previous sync jobs for a connection with pagination support.
+
+        Returns SyncResult objects containing job metadata (job_id, status, bytes_synced,
+        rows_synced, start_time). Full log text can be fetched lazily via
+        `SyncResult.get_full_log_text()`.
+
+        Args:
+            limit: Maximum number of jobs to return. Defaults to 20.
+            offset: Number of jobs to skip from the beginning. Defaults to None (0).
+            from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
+                If False, returns jobs ordered oldest-first (createdAt ASC).
+                Defaults to True.
+
+        Returns:
+            A list of SyncResult objects representing the sync jobs.
+        """
+        order_by = (
+            api_util.JOB_ORDER_BY_CREATED_AT_DESC
+            if from_tail
+            else api_util.JOB_ORDER_BY_CREATED_AT_ASC
+        )
         sync_logs: list[JobResponse] = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
+            offset=offset,
+            order_by=order_by,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
         return [
             SyncResult(
@@ -256,6 +283,50 @@ class CloudConnection:
             job_id=job_id,
         )
 
+    # Artifacts
+
+    def get_state_artifacts(self) -> list[dict[str, Any]] | None:
+        """Get the connection state artifacts.
+
+        Returns the persisted state for this connection, which can be used
+        when debugging incremental syncs.
+
+        Uses the Config API endpoint: POST /v1/state/get
+
+        Returns:
+            List of state objects for each stream, or None if no state is set.
+        """
+        state_response = api_util.get_connection_state(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        if state_response.get("stateType") == "not_set":
+            return None
+        return state_response.get("streamState", [])
+
+    def get_catalog_artifact(self) -> dict[str, Any] | None:
+        """Get the configured catalog for this connection.
+
+        Returns the full configured catalog (syncCatalog) for this connection,
+        including stream schemas, sync modes, cursor fields, and primary keys.
+
+        Uses the Config API endpoint: POST /v1/web_backend/connections/get
+
+        Returns:
+            Dictionary containing the configured catalog, or `None` if not found.
+        """
+        connection_response = api_util.get_connection_catalog(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return connection_response.get("syncCatalog")
+
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
 
@@ -270,6 +341,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             name=name,
         )
         self._connection_info = updated_response
@@ -289,6 +361,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             prefix=prefix,
         )
         self._connection_info = updated_response
@@ -313,6 +386,7 @@ class CloudConnection:
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
             configurations=configurations,
         )
         self._connection_info = updated_response
