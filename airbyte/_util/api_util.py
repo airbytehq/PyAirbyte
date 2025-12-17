@@ -21,7 +21,8 @@ import airbyte_api
 import requests
 from airbyte_api import api, models
 
-from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.cloud.auth import resolve_cloud_config_api_url
+from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
@@ -58,11 +59,36 @@ def status_ok(status_code: int) -> bool:
 
 
 def get_config_api_root(api_root: str) -> str:
-    """Get the configuration API root from the main API root."""
+    """Get the configuration API root from the main API root.
+
+    Resolution order:
+    1. If `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable is set, use that value.
+    2. If `api_root` matches the default Cloud API root, return the default Config API root.
+    3. Otherwise, raise NotImplementedError (cannot derive Config API from custom API root).
+
+    Args:
+        api_root: The main API root URL being used.
+
+    Returns:
+        The configuration API root URL.
+
+    Raises:
+        NotImplementedError: If the Config API root cannot be determined.
+    """
+    # First, check if the Config API URL is explicitly set via environment variable
+    config_api_override = resolve_cloud_config_api_url()
+    if config_api_override:
+        return config_api_override
+
+    # Fall back to deriving from the main API root
     if api_root == CLOUD_API_ROOT:
         return CLOUD_CONFIG_API_ROOT
 
-    raise NotImplementedError("Configuration API root not implemented for this API root.")
+    raise NotImplementedError(
+        "Configuration API root not implemented for this API root. "
+        f"Set the '{CLOUD_CONFIG_API_ROOT_ENV_VAR}' environment variable "
+        "to specify the Config API URL."
+    )
 
 
 def get_web_url_root(api_root: str) -> str:

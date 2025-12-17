@@ -219,6 +219,16 @@ CLOUD_CLIENT_SECRET_ENV_VAR: str = "AIRBYTE_CLOUD_CLIENT_SECRET"
 CLOUD_API_ROOT_ENV_VAR: str = "AIRBYTE_CLOUD_API_URL"
 """The environment variable name for the Airbyte Cloud API URL."""
 
+CLOUD_CONFIG_API_ROOT_ENV_VAR: str = "AIRBYTE_CLOUD_CONFIG_API_URL"
+"""The environment variable name for the Airbyte Cloud Config API URL.
+
+The Config API is a separate internal API used for certain operations like
+connector builder projects and custom source definitions. This environment
+variable allows overriding the default Config API URL, which is useful when
+the public API URL has been overridden and the Config API cannot be derived
+from it automatically.
+"""
+
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
 
