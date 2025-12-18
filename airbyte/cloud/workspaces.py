@@ -267,7 +267,7 @@ class CloudWorkspace:
         """
         try:
             info = self._organization_info
-        except AirbyteError:
+        except (AirbyteError, NotImplementedError):
             if raise_on_error:
                 raise
             return None
