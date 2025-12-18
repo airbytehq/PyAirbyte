@@ -20,8 +20,9 @@ from typing import TYPE_CHECKING, Any, Literal
 import airbyte_api
 import requests
 from airbyte_api import api, models
+from airbyte_api.errors import SDKError
 
-from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
     AirbyteConnectionSyncError,
     AirbyteError,
@@ -30,6 +31,7 @@ from airbyte.exceptions import (
     PyAirbyteInputError,
 )
 from airbyte.secrets.base import SecretString
+from airbyte.secrets.util import try_get_secret
 
 
 if TYPE_CHECKING:
@@ -57,12 +59,73 @@ def status_ok(status_code: int) -> bool:
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
 
 
+def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
+    """Extract context information from an SDKError for debugging.
+
+    This helper extracts the actual request URL and other useful debugging
+    information from the Speakeasy SDK's SDKError exception. The SDK stores
+    the raw response object which contains the request details.
+    """
+    context: dict[str, Any] = {
+        "status_code": error.status_code,
+        "error_message": error.message,
+    }
+
+    if error.raw_response is not None:
+        request = error.raw_response.request
+        if request is not None:
+            context["request_url"] = str(request.url)
+            context["request_method"] = request.method
+        context["response_content_type"] = error.raw_response.headers.get("content-type")
+
+    return context
+
+
+def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None) -> AirbyteError:
+    """Wrap an SDKError with additional context for debugging.
+
+    This function converts a Speakeasy SDK error into an AirbyteError with
+    full URL context, making it easier to debug API issues like 404 errors.
+    """
+    sdk_context = _get_sdk_error_context(error)
+    merged_context = {**(base_context or {}), **sdk_context}
+    return AirbyteError(
+        message=f"API error occurred: {error.message}",
+        context=merged_context,
+    )
+
+
 def get_config_api_root(api_root: str) -> str:
-    """Get the configuration API root from the main API root."""
+    """Get the configuration API root from the main API root.
+
+    Resolution order:
+    1. If `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable is set, use that value.
+    2. If `api_root` matches the default Cloud API root, return the default Config API root.
+    3. Otherwise, raise NotImplementedError (cannot derive Config API from custom API root).
+
+    Args:
+        api_root: The main API root URL being used.
+
+    Returns:
+        The configuration API root URL.
+
+    Raises:
+        NotImplementedError: If the Config API root cannot be determined.
+    """
+    # First, check if the Config API URL is explicitly set via environment variable
+    config_api_override = try_get_secret(CLOUD_CONFIG_API_ROOT_ENV_VAR, default=None)
+    if config_api_override:
+        return str(config_api_override)
+
+    # Fall back to deriving from the main API root
     if api_root == CLOUD_API_ROOT:
         return CLOUD_CONFIG_API_ROOT
 
-    raise NotImplementedError("Configuration API root not implemented for this API root.")
+    raise NotImplementedError(
+        f"Configuration API root not implemented for api_root='{api_root}'. "
+        f"Set the '{CLOUD_CONFIG_API_ROOT_ENV_VAR}' environment variable "
+        "to specify the Config API URL."
+    )
 
 
 def get_web_url_root(api_root: str) -> str:
@@ -159,11 +222,16 @@ def get_workspace(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.workspaces.get_workspace(
-        api.GetWorkspaceRequest(
-            workspace_id=workspace_id,
-        ),
-    )
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
+    try:
+        response = airbyte_instance.workspaces.get_workspace(
+            api.GetWorkspaceRequest(
+                workspace_id=workspace_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.workspace_response:
         return response.workspace_response
 
@@ -171,7 +239,8 @@ def get_workspace(
         resource_type="workspace",
         context={
             "workspace_id": workspace_id,
-            "response": response,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
     )
 
@@ -205,23 +274,29 @@ def list_connections(
     result: list[models.ConnectionResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response = airbyte_instance.connections.list_connections(
-            api.ListConnectionsRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size,
-            ),
-        )
+        try:
+            response = airbyte_instance.connections.list_connections(
+                api.ListConnectionsRequest(
+                    workspace_ids=[workspace_id],
+                    offset=offset,
+                    limit=page_size,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.connections_response and response.connections_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.connections_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
         assert response.connections_response is not None
         result += [
@@ -258,19 +333,27 @@ def list_workspaces(
     result: list[models.WorkspaceResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-            api.ListWorkspacesRequest(workspace_ids=[workspace_id], offset=offset, limit=page_size),
-        )
+        try:
+            response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
+                api.ListWorkspacesRequest(
+                    workspace_ids=[workspace_id], offset=offset, limit=page_size
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.workspaces_response and response.workspaces_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.workspaces_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
 
         assert response.workspaces_response is not None
@@ -309,23 +392,29 @@ def list_sources(
     result: list[models.SourceResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
-            api.ListSourcesRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size,
-            ),
-        )
+        try:
+            response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
+                api.ListSourcesRequest(
+                    workspace_ids=[workspace_id],
+                    offset=offset,
+                    limit=page_size,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.sources_response and response.sources_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.sources_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
         assert response.sources_response is not None
         result += [source for source in response.sources_response.data if name_filter(source.name)]
@@ -359,23 +448,29 @@ def list_destinations(
     result: list[models.DestinationResponse] = []
     has_more = True
     offset, page_size = 0, 100
+    base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while has_more:
-        response = airbyte_instance.destinations.list_destinations(
-            api.ListDestinationsRequest(
-                workspace_ids=[workspace_id],
-                offset=offset,
-                limit=page_size,
-            ),
-        )
+        try:
+            response = airbyte_instance.destinations.list_destinations(
+                api.ListDestinationsRequest(
+                    workspace_ids=[workspace_id],
+                    offset=offset,
+                    limit=page_size,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
+
         has_more = bool(response.destinations_response and response.destinations_response.next)
         offset += page_size
 
-        if not status_ok(response.status_code) and response.destinations_response:
+        if not status_ok(response.status_code):
             raise AirbyteError(
                 context={
                     "workspace_id": workspace_id,
-                    "response": response,
-                }
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
             )
         assert response.destinations_response is not None
         result += [
@@ -407,11 +502,20 @@ def get_connection(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.connections.get_connection(
-        api.GetConnectionRequest(
-            connection_id=connection_id,
-        ),
-    )
+    base_context = {
+        "workspace_id": workspace_id,
+        "connection_id": connection_id,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.connections.get_connection(
+            api.GetConnectionRequest(
+                connection_id=connection_id,
+            ),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if status_ok(response.status_code) and response.connection_response:
         return response.connection_response
 
@@ -419,6 +523,10 @@ def get_connection(
         resource_name_or_id=connection_id,
         resource_type="connection",
         log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -457,6 +565,8 @@ def run_connection(
         connection_id=connection_id,
         context={
             "workspace_id": workspace_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -517,6 +627,8 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         context={
             "workspace_id": workspace_id,
             "connection_id": connection_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
     )
 
@@ -548,6 +660,10 @@ def get_job_info(
         resource_name_or_id=str(job_id),
         resource_type="job",
         log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -589,6 +705,10 @@ def create_source(
 
     raise AirbyteError(
         message="Could not create source.",
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
         response=response,
     )
 
@@ -620,6 +740,10 @@ def get_source(
         resource_name_or_id=source_id,
         resource_type="source",
         log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -695,7 +819,8 @@ def delete_source(
         raise AirbyteError(
             context={
                 "source_id": source_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -749,6 +874,8 @@ def patch_source(
         message="Could not update source.",
         context={
             "source_id": source_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -814,6 +941,10 @@ def create_destination(
 
     raise AirbyteError(
         message="Could not create destination.",
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
         response=response,
     )
 
@@ -863,6 +994,10 @@ def get_destination(
         resource_name_or_id=destination_id,
         resource_type="destination",
         log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
     )
 
 
@@ -939,7 +1074,8 @@ def delete_destination(
         raise AirbyteError(
             context={
                 "destination_id": destination_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -993,6 +1129,8 @@ def patch_destination(
         message="Could not update destination.",
         context={
             "destination_id": destination_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -1056,7 +1194,8 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
             context={
                 "source_id": source_id,
                 "destination_id": destination_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -1188,7 +1327,8 @@ def delete_connection(
         raise AirbyteError(
             context={
                 "connection_id": connection_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
 
@@ -1251,6 +1391,8 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         message="Could not update connection.",
         context={
             "connection_id": connection_id,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
         },
         response=response,
     )
@@ -1497,7 +1639,8 @@ def list_custom_yaml_source_definitions(
             message="Failed to list custom YAML source definitions",
             context={
                 "workspace_id": workspace_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
     return response.declarative_source_definitions_response.data
@@ -1536,7 +1679,8 @@ def get_custom_yaml_source_definition(
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
     return response.declarative_source_definition_response
@@ -1580,7 +1724,8 @@ def update_custom_yaml_source_definition(
             context={
                 "workspace_id": workspace_id,
                 "definition_id": definition_id,
-                "response": response,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
             },
         )
     return response.declarative_source_definition_response
@@ -1792,8 +1937,8 @@ def list_organizations_for_user(
     raise AirbyteError(
         message="Failed to list organizations for user.",
         context={
+            "request_url": response.raw_response.url,
             "status_code": response.status_code,
-            "response": response,
         },
     )
 

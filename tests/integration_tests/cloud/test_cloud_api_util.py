@@ -302,3 +302,92 @@ def test_check_connector(
         assert result == expect_success
     except AirbyteError as e:
         pytest.fail(f"API call failed: {e}")
+
+
+def test_404_error_includes_request_url_context() -> None:
+    """Test that 404 API errors include the full request URL in context.
+
+    This test validates that when an API call fails with a 404, the error
+    includes the full request URL that was attempted. This helps debug URL
+    construction issues like those seen with custom API roots.
+
+    Uses httpbin.org which returns 404 for /sources endpoint, allowing us
+    to verify the error context contains the expected URL information.
+    """
+    from urllib.parse import parse_qs, urlparse
+
+    api_root = "https://httpbin.org"
+    workspace_id = "00000000-0000-0000-0000-000000000000"
+    fake_bearer_token = SecretString("fake-token-for-testing")
+
+    with pytest.raises(AirbyteError) as exc_info:
+        api_util.list_sources(
+            workspace_id=workspace_id,
+            api_root=api_root,
+            client_id=None,
+            client_secret=None,
+            bearer_token=fake_bearer_token,
+        )
+
+    error = exc_info.value
+
+    # Assert error has context
+    assert error.context is not None, "Error should have context dict"
+
+    # Assert required context keys exist
+    assert "api_root" in error.context, "Error context should contain 'api_root'"
+    assert "status_code" in error.context, "Error context should contain 'status_code'"
+    assert "request_url" in error.context, "Error context should contain 'request_url'"
+
+    # Assert context values
+    assert error.context["api_root"] == api_root
+    assert error.context["status_code"] == 404
+
+    # Parse and validate the request URL
+    request_url = str(error.context["request_url"])
+    parsed = urlparse(request_url)
+
+    assert parsed.netloc == "httpbin.org", (
+        f"Expected host 'httpbin.org', got '{parsed.netloc}'"
+    )
+    assert parsed.path.endswith("/sources"), (
+        f"Expected path ending with '/sources', got '{parsed.path}'"
+    )
+
+    # Validate query params include workspace ID
+    query_params = parse_qs(parsed.query)
+    assert "workspaceIds" in query_params, "Expected 'workspaceIds' in query params"
+    assert query_params["workspaceIds"] == [workspace_id], (
+        f"Expected workspaceIds=['{workspace_id}'], got {query_params['workspaceIds']}"
+    )
+
+
+def test_url_construction_with_path_prefix() -> None:
+    """Test that the SDK correctly preserves path prefixes in the base URL.
+
+    This test uses httpbin.org/anything which echoes back the request details,
+    allowing us to verify the actual URL that was constructed and sent.
+
+    This test validates that when using a custom API root with a path prefix
+    (like https://host/api/public/v1), the SDK correctly appends endpoints
+    to that path rather than replacing it.
+    """
+    base_url_with_path = "https://httpbin.org/anything/api/public/v1"
+    fake_bearer_token = SecretString("fake-token-for-testing")
+    fake_workspace_id = "00000000-0000-0000-0000-000000000000"
+
+    result = api_util.list_sources(
+        workspace_id=fake_workspace_id,
+        api_root=base_url_with_path,
+        client_id=None,
+        client_secret=None,
+        bearer_token=fake_bearer_token,
+    )
+
+    print(f"\nBase URL with path prefix: {base_url_with_path}")
+    print(f"Result type: {type(result)}")
+    print(f"Result: {result}")
+
+    assert result == [], (
+        f"Expected empty list from httpbin (no real sources), but got: {result}"
+    )

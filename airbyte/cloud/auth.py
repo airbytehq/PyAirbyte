@@ -64,3 +64,21 @@ def resolve_cloud_workspace_id(
 ) -> str:
     """Get the Airbyte Cloud workspace ID from the environment, or return None if not set."""
     return str(get_secret(constants.CLOUD_WORKSPACE_ID_ENV_VAR, default=input_value))
+
+
+def resolve_cloud_config_api_url(
+    input_value: str | None = None,
+    /,
+) -> str | None:
+    """Get the Airbyte Cloud Config API URL from the environment, or return None if not set.
+
+    The Config API is a separate internal API used for certain operations like
+    connector builder projects and custom source definitions.
+
+    Returns:
+        The Config API URL if set via environment variable or input, None otherwise.
+    """
+    result = try_get_secret(constants.CLOUD_CONFIG_API_ROOT_ENV_VAR, default=input_value)
+    if result:
+        return str(result)
+    return None
