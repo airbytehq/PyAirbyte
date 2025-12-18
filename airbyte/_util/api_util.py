@@ -118,7 +118,8 @@ def get_config_api_root(api_root: str) -> str:
         return str(config_api_override)
 
     # Fall back to deriving from the main API root
-    if api_root == CLOUD_API_ROOT:
+    # Normalize URLs by stripping trailing slashes to handle common variants
+    if api_root.rstrip("/") == CLOUD_API_ROOT.rstrip("/"):
         return CLOUD_CONFIG_API_ROOT
 
     raise NotImplementedError(
