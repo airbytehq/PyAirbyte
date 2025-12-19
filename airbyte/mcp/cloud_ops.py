@@ -1,12 +1,12 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
-from typing import Annotated, Any, Literal, cast
+from __future__ import annotations
 
-from fastmcp import FastMCP
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
+
 from pydantic import BaseModel, Field
 
-from airbyte import cloud
 from airbyte._util import api_util
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -22,8 +22,13 @@ from airbyte.mcp._util import (
     resolve_list_of_strings,
     resolve_workspace_id,
 )
-from airbyte.secrets import SecretString
 
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
+
+    from airbyte import cloud
+    from airbyte.secrets import SecretString
 
 CLOUD_AUTH_TIP_TEXT = (
     "By default, the `AIRBYTE_CLOUD_CLIENT_ID`, `AIRBYTE_CLOUD_CLIENT_SECRET`, "
