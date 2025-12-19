@@ -2299,88 +2299,49 @@ def set_cloud_connection_selected_streams(
     destructive=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def enable_cloud_connection(
-    connection_id: Annotated[
-        str,
-        Field(description="The ID of the connection to enable."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> str:
-    """Enable a connection on Airbyte Cloud.
-
-    Sets the connection status to 'active', allowing scheduled syncs to run.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
-    connection = workspace.get_connection(connection_id=connection_id)
-    connection.set_enabled(enabled=True)
-    return (
-        f"Successfully enabled connection '{connection_id}'. " f"URL: {connection.connection_url}"
-    )
-
-
-@mcp_tool(
-    domain="cloud",
-    open_world=True,
-    destructive=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def disable_cloud_connection(
-    connection_id: Annotated[
-        str,
-        Field(description="The ID of the connection to disable."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> str:
-    """Disable a connection on Airbyte Cloud.
-
-    Sets the connection status to 'inactive', preventing scheduled syncs from running.
-    Manual syncs can still be triggered using the run_cloud_sync tool.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
-    connection = workspace.get_connection(connection_id=connection_id)
-    connection.set_enabled(enabled=False)
-    return (
-        f"Successfully disabled connection '{connection_id}'. " f"URL: {connection.connection_url}"
-    )
-
-
-@mcp_tool(
-    domain="cloud",
-    open_world=True,
-    destructive=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def set_cloud_connection_schedule(
+def update_cloud_connection(
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to update."),
     ],
+    *,
+    enabled: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Set the connection's enabled status. "
+                "True enables the connection (status='active'), "
+                "False disables it (status='inactive'). "
+                "Leave unset to keep the current status."
+            ),
+            default=None,
+        ),
+    ],
     cron_expression: Annotated[
-        str,
+        str | None,
         Field(
             description=(
                 "A cron expression defining when syncs should run. "
                 "Examples: '0 0 * * *' (daily at midnight UTC), "
                 "'0 */6 * * *' (every 6 hours), "
-                "'0 0 * * 0' (weekly on Sunday at midnight UTC)."
-            )
+                "'0 0 * * 0' (weekly on Sunday at midnight UTC). "
+                "Leave unset to keep the current schedule. "
+                "Cannot be used together with 'manual_schedule'."
+            ),
+            default=None,
         ),
     ],
-    *,
+    manual_schedule: Annotated[
+        bool | None,
+        Field(
+            description=(
+                "Set to True to disable automatic syncs (manual scheduling only). "
+                "Syncs will only run when manually triggered. "
+                "Cannot be used together with 'cron_expression'."
+            ),
+            default=None,
+        ),
+    ],
     workspace_id: Annotated[
         str | None,
         Field(
@@ -2389,49 +2350,53 @@ def set_cloud_connection_schedule(
         ),
     ],
 ) -> str:
-    """Set a cron schedule for a connection on Airbyte Cloud.
+    """Update a connection's settings on Airbyte Cloud.
 
-    Configures the connection to automatically sync on the specified schedule.
+    This tool allows updating multiple connection settings in a single call:
+    - Enable or disable the connection
+    - Set a cron schedule for automatic syncs
+    - Switch to manual scheduling (no automatic syncs)
+
+    At least one setting must be provided. The 'cron_expression' and 'manual_schedule'
+    parameters are mutually exclusive.
     """
+    # Validate that at least one setting is provided
+    if enabled is None and cron_expression is None and manual_schedule is None:
+        raise ValueError(
+            "At least one setting must be provided: 'enabled', 'cron_expression', "
+            "or 'manual_schedule'."
+        )
+
+    # Validate mutually exclusive schedule options
+    if cron_expression is not None and manual_schedule is True:
+        raise ValueError(
+            "Cannot specify both 'cron_expression' and 'manual_schedule=True'. "
+            "Use 'cron_expression' for scheduled syncs or 'manual_schedule=True' "
+            "for manual-only syncs."
+        )
+
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
-    connection.set_schedule(cron_expression=cron_expression)
+
+    changes_made: list[str] = []
+
+    # Apply enabled status change
+    if enabled is not None:
+        connection.set_enabled(enabled=enabled)
+        status_str = "enabled" if enabled else "disabled"
+        changes_made.append(f"status set to '{status_str}'")
+
+    # Apply schedule change
+    if cron_expression is not None:
+        connection.set_schedule(cron_expression=cron_expression)
+        changes_made.append(f"schedule set to '{cron_expression}'")
+    elif manual_schedule is True:
+        connection.set_manual_schedule()
+        changes_made.append("schedule set to 'manual'")
+
+    changes_summary = ", ".join(changes_made)
     return (
-        f"Successfully set schedule for connection '{connection_id}' "
-        f"to '{cron_expression}'. URL: {connection.connection_url}"
-    )
-
-
-@mcp_tool(
-    domain="cloud",
-    open_world=True,
-    destructive=True,
-    extra_help_text=CLOUD_AUTH_TIP_TEXT,
-)
-def set_cloud_connection_manual_schedule(
-    connection_id: Annotated[
-        str,
-        Field(description="The ID of the connection to update."),
-    ],
-    *,
-    workspace_id: Annotated[
-        str | None,
-        Field(
-            description=WORKSPACE_ID_TIP_TEXT,
-            default=None,
-        ),
-    ],
-) -> str:
-    """Set a connection to manual scheduling on Airbyte Cloud.
-
-    Disables automatic syncs. Syncs will only run when manually triggered
-    using the run_cloud_sync tool.
-    """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
-    connection = workspace.get_connection(connection_id=connection_id)
-    connection.set_manual_schedule()
-    return (
-        f"Successfully set connection '{connection_id}' to manual scheduling. "
+        f"Successfully updated connection '{connection_id}': {changes_summary}. "
         f"URL: {connection.connection_url}"
     )
 
