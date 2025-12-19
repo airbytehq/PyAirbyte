@@ -2319,7 +2319,7 @@ def enable_cloud_connection(
     """
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
-    connection.enable()
+    connection.set_enabled(enabled=True)
     return (
         f"Successfully enabled connection '{connection_id}'. " f"URL: {connection.connection_url}"
     )
@@ -2352,7 +2352,7 @@ def disable_cloud_connection(
     """
     workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
-    connection.disable()
+    connection.set_enabled(enabled=False)
     return (
         f"Successfully disabled connection '{connection_id}'. " f"URL: {connection.connection_url}"
     )

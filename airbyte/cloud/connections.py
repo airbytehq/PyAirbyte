@@ -394,41 +394,75 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     # Enable/Disable
 
-    def enable(self) -> CloudConnection:
-        """Enable the connection.
+    @property
+    def enabled(self) -> bool:
+        """Get the current enabled status of the connection.
 
-        Sets the connection status to 'active', allowing scheduled syncs to run.
+        This property always fetches fresh data from the API to ensure accuracy,
+        as another process or user may have toggled the setting.
 
         Returns:
-            Updated CloudConnection object with refreshed info
+            True if the connection status is 'active', False otherwise.
         """
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            status=api_util.models.ConnectionStatusEnum.ACTIVE,
+        self._connection_info = self._fetch_connection_info()
+        return self._connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Set the enabled status of the connection.
+
+        Args:
+            value: True to enable (set status to 'active'), False to disable
+                (set status to 'inactive').
+        """
+        self.set_enabled(enabled=value)
+
+    def set_enabled(
+        self,
+        *,
+        enabled: bool,
+        ignore_noop: bool = True,
+    ) -> CloudConnection:
+        """Set the enabled status of the connection.
+
+        Args:
+            enabled: True to enable (set status to 'active'), False to disable
+                (set status to 'inactive').
+            ignore_noop: If True (default), silently return if the connection is already
+                in the requested state. If False, raise ValueError when the requested
+                state matches the current state.
+
+        Returns:
+            Updated CloudConnection object with refreshed info.
+
+        Raises:
+            ValueError: If ignore_noop is False and the connection is already in the
+                requested state.
+        """
+        # Always fetch fresh data to check current status
+        self._connection_info = self._fetch_connection_info()
+        current_status = self._connection_info.status
+        desired_status = (
+            api_util.models.ConnectionStatusEnum.ACTIVE
+            if enabled
+            else api_util.models.ConnectionStatusEnum.INACTIVE
         )
-        self._connection_info = updated_response
-        return self
 
-    def disable(self) -> CloudConnection:
-        """Disable the connection.
+        if current_status == desired_status:
+            if ignore_noop:
+                return self
+            raise ValueError(
+                f"Connection is already {'enabled' if enabled else 'disabled'}. "
+                f"Current status: {current_status}"
+            )
 
-        Sets the connection status to 'inactive', preventing scheduled syncs from running.
-        Manual syncs can still be triggered.
-
-        Returns:
-            Updated CloudConnection object with refreshed info
-        """
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
-            status=api_util.models.ConnectionStatusEnum.INACTIVE,
+            status=desired_status,
         )
         self._connection_info = updated_response
         return self
