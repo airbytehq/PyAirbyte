@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
-class CloudConnection:
+class CloudConnection:  # noqa: PLR0904  # Too many public methods
     """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
 
     You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
@@ -388,6 +388,103 @@ class CloudConnection:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
             configurations=configurations,
+        )
+        self._connection_info = updated_response
+        return self
+
+    # Enable/Disable
+
+    def enable(self) -> CloudConnection:
+        """Enable the connection.
+
+        Sets the connection status to 'active', allowing scheduled syncs to run.
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            status=api_util.models.ConnectionStatusEnum.ACTIVE,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def disable(self) -> CloudConnection:
+        """Disable the connection.
+
+        Sets the connection status to 'inactive', preventing scheduled syncs from running.
+        Manual syncs can still be triggered.
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            status=api_util.models.ConnectionStatusEnum.INACTIVE,
+        )
+        self._connection_info = updated_response
+        return self
+
+    # Scheduling
+
+    def set_schedule(
+        self,
+        cron_expression: str,
+    ) -> CloudConnection:
+        """Set a cron schedule for the connection.
+
+        Args:
+            cron_expression: A cron expression defining when syncs should run.
+
+        Examples:
+                - "0 0 * * *" - Daily at midnight UTC
+                - "0 */6 * * *" - Every 6 hours
+                - "0 0 * * 0" - Weekly on Sunday at midnight UTC
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        schedule = api_util.models.AirbyteAPIConnectionSchedule(
+            schedule_type=api_util.models.ScheduleTypeEnum.CRON,
+            cron_expression=cron_expression,
+        )
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            schedule=schedule,
+        )
+        self._connection_info = updated_response
+        return self
+
+    def set_manual_schedule(self) -> CloudConnection:
+        """Set the connection to manual scheduling.
+
+        Disables automatic syncs. Syncs will only run when manually triggered.
+
+        Returns:
+            Updated CloudConnection object with refreshed info
+        """
+        schedule = api_util.models.AirbyteAPIConnectionSchedule(
+            schedule_type=api_util.models.ScheduleTypeEnum.MANUAL,
+        )
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            schedule=schedule,
         )
         self._connection_info = updated_response
         return self
