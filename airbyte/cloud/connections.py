@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
-class CloudConnection:
+class CloudConnection:  # noqa: PLR0904  # Too many public methods
     """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
 
     You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
