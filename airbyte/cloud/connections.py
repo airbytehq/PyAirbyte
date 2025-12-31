@@ -114,7 +114,8 @@ class CloudConnection:
         """
         if connection_info.workspace_id != self.workspace.workspace_id:
             raise AirbyteWorkspaceMismatchError(
-                connection_id=self.connection_id,
+                resource_type="connection",
+                resource_id=self.connection_id,
                 workspace=self.workspace,
                 expected_workspace_id=self.workspace.workspace_id,
                 actual_workspace_id=connection_info.workspace_id,
