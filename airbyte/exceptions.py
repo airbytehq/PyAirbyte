@@ -491,6 +491,21 @@ class AirbyteConnectionSyncError(AirbyteConnectionError):
 
 
 @dataclass
+class AirbyteWorkspaceMismatchError(AirbyteConnectionError):
+    """Connection does not belong to the expected workspace.
+
+    This error is raised when a connection is fetched from the API and the workspace ID
+    in the response does not match the workspace ID associated with the CloudConnection object.
+    """
+
+    expected_workspace_id: str | None = None
+    """The workspace ID that was expected (from the CloudConnection's workspace)."""
+
+    actual_workspace_id: str | None = None
+    """The workspace ID returned by the API."""
+
+
+@dataclass
 class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
     """An timeout occurred while waiting for the remote Airbyte job to complete."""
 
