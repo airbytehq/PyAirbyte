@@ -98,12 +98,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
 
+        # Cache the result first (before verification may raise)
+        self._connection_info = connection_info
+
         # Verify if requested
         if verify:
             self._verify_workspace_match(connection_info)
 
-        # Cache the result
-        self._connection_info = connection_info
         return connection_info
 
     def _verify_workspace_match(self, connection_info: ConnectionResponse) -> None:
