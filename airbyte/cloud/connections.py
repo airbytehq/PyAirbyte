@@ -482,7 +482,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             True if the connection status is 'active', False otherwise.
         """
-        connection_info = self._fetch_connection_info()
+        connection_info = self._fetch_connection_info(force_refresh=True)
         return connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
 
     @enabled.setter
@@ -518,7 +518,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 requested state.
         """
         # Always fetch fresh data to check current status
-        connection_info = self._fetch_connection_info()
+        connection_info = self._fetch_connection_info(force_refresh=True)
         current_status = connection_info.status
         desired_status = (
             api_util.models.ConnectionStatusEnum.ACTIVE
