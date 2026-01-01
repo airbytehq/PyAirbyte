@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: release-drafter
+  cancel-in-progress: false
+
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
@@ -19,7 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Drafts the next Release notes as Pull Requests are merged into "main"
-      - uses: release-drafter/release-drafter@b1476f6e6eb133afa41ed8589daba6dc69b4d3f5 # v6.1.0
+      # Pinned to v6.0.0 to avoid v6.1.0 bug: https://github.com/release-drafter/release-drafter/issues/1425
+      - uses: release-drafter/release-drafter@805574fd5375e6902a5875239fb834f515c41111 # v6.0.0
         with:
           config-name: release-drafter.yml
           disable-autolabeler: false
