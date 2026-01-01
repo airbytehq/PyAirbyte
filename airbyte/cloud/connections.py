@@ -404,8 +404,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             True if the connection status is 'active', False otherwise.
         """
-        self._connection_info = self._fetch_connection_info()
-        return self._connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
+        connection_info = self._fetch_connection_info()
+        return connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
@@ -440,8 +440,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 requested state.
         """
         # Always fetch fresh data to check current status
-        self._connection_info = self._fetch_connection_info()
-        current_status = self._connection_info.status
+        connection_info = self._fetch_connection_info()
+        current_status = connection_info.status
         desired_status = (
             api_util.models.ConnectionStatusEnum.ACTIVE
             if enabled
