@@ -500,7 +500,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         *,
         enabled: bool,
         ignore_noop: bool = True,
-    ) -> CloudConnection:
+    ) -> None:
         """Set the enabled status of the connection.
 
         Args:
@@ -509,9 +509,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             ignore_noop: If True (default), silently return if the connection is already
                 in the requested state. If False, raise ValueError when the requested
                 state matches the current state.
-
-        Returns:
-            Updated CloudConnection object with refreshed info.
 
         Raises:
             ValueError: If ignore_noop is False and the connection is already in the
@@ -528,7 +525,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         if current_status == desired_status:
             if ignore_noop:
-                return self
+                return
             raise ValueError(
                 f"Connection is already {'enabled' if enabled else 'disabled'}. "
                 f"Current status: {current_status}"
@@ -543,14 +540,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             status=desired_status,
         )
         self._connection_info = updated_response
-        return self
 
     # Scheduling
 
     def set_schedule(
         self,
         cron_expression: str,
-    ) -> CloudConnection:
+    ) -> None:
         """Set a cron schedule for the connection.
 
         Args:
@@ -560,9 +556,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 - "0 0 * * *" - Daily at midnight UTC
                 - "0 */6 * * *" - Every 6 hours
                 - "0 0 * * 0" - Weekly on Sunday at midnight UTC
-
-        Returns:
-            Updated CloudConnection object with refreshed info
         """
         schedule = api_util.models.AirbyteAPIConnectionSchedule(
             schedule_type=api_util.models.ScheduleTypeEnum.CRON,
@@ -577,15 +570,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             schedule=schedule,
         )
         self._connection_info = updated_response
-        return self
 
-    def set_manual_schedule(self) -> CloudConnection:
+    def set_manual_schedule(self) -> None:
         """Set the connection to manual scheduling.
 
         Disables automatic syncs. Syncs will only run when manually triggered.
-
-        Returns:
-            Updated CloudConnection object with refreshed info
         """
         schedule = api_util.models.AirbyteAPIConnectionSchedule(
             schedule_type=api_util.models.ScheduleTypeEnum.MANUAL,
@@ -599,7 +588,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             schedule=schedule,
         )
         self._connection_info = updated_response
-        return self
 
     # Deletions
 

@@ -2360,6 +2360,8 @@ def update_cloud_connection(
     At least one setting must be provided. The 'cron_expression' and 'manual_schedule'
     parameters are mutually exclusive.
     """
+    check_guid_created_in_session(connection_id)
+
     # Validate that at least one setting is provided
     if enabled is None and cron_expression is None and manual_schedule is None:
         raise ValueError(
