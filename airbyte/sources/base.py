@@ -30,7 +30,9 @@ from airbyte_protocol.models import (
 
 from airbyte import exceptions as exc
 from airbyte._connector_base import ConnectorBase
+from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte._message_iterators import AirbyteMessageIterator
+from airbyte._util.name_normalizers import LowerCaseNormalizer
 from airbyte._util.temp_files import as_temp_files
 from airbyte.caches.util import get_default_cache
 from airbyte.datasets._lazy import LazyDataset
@@ -417,6 +419,11 @@ class Source(ConnectorBase):  # noqa: PLR0904
         streams_filter: list[str] = self._selected_stream_names or self.get_available_streams()
         return self.get_configured_catalog(streams=streams_filter)
 
+    @property
+    def catalog_provider(self) -> CatalogProvider:
+        """Return a catalog provider for this source."""
+        return CatalogProvider(self.configured_catalog)
+
     def get_configured_catalog(
         self,
         streams: Literal["*"] | list[str] | None = None,
@@ -619,6 +626,136 @@ class Source(ConnectorBase):  # noqa: PLR0904
             content_properties=content_properties,
             metadata_properties=metadata_properties,
             render_metadata=render_metadata,
+        )
+
+    def _normalize_and_validate_pk_value(
+        self,
+        stream_name: str,
+        pk_value: Any,  # noqa: ANN401
+    ) -> str:
+        """Normalize and validate a primary key value.
+
+        Accepts:
+        - A string or int (converted to string)
+        - A dict with a single entry matching the stream's primary key field
+
+        Returns the PK value as a string.
+        """
+        primary_key_fields = self.catalog_provider.get_primary_keys(stream_name)
+
+        if not primary_key_fields:
+            raise exc.PyAirbyteInputError(
+                message=f"Stream '{stream_name}' does not have a primary key defined.",
+                input_value=str(pk_value),
+            )
+
+        if len(primary_key_fields) > 1:
+            raise NotImplementedError(
+                f"Stream '{stream_name}' has a composite primary key {primary_key_fields}. "
+                "Fetching by composite primary key is not yet supported."
+            )
+
+        pk_field = primary_key_fields[0]
+
+        if isinstance(pk_value, dict):
+            if len(pk_value) != 1:
+                raise exc.PyAirbyteInputError(
+                    message="When providing pk_value as a dict, it must contain exactly one entry.",
+                    input_value=str(pk_value),
+                )
+            provided_key = next(iter(pk_value.keys()))
+            normalized_provided_key = LowerCaseNormalizer.normalize(provided_key)
+            if normalized_provided_key != pk_field:
+                msg = (
+                    f"Primary key field '{provided_key}' does not match "
+                    f"stream's primary key '{pk_field}'."
+                )
+                raise exc.PyAirbyteInputError(
+                    message=msg,
+                    input_value=str(pk_value),
+                )
+            return str(pk_value[provided_key])
+
+        return str(pk_value)
+
+    def get_record(
+        self,
+        stream_name: str,
+        *,
+        pk_value: Any,  # noqa: ANN401
+        allow_scanning: bool = False,
+        scan_timeout_seconds: int = 5,
+    ) -> dict[str, Any]:
+        """Fetch a single record by primary key value.
+
+        This method is currently only supported for declarative (YAML-based) sources.
+
+        Args:
+            stream_name: The name of the stream to fetch from.
+            pk_value: The primary key value. Can be:
+                - A string or integer value (e.g., "123" or 123)
+                - A dict with a single entry (e.g., {"id": "123"})
+            allow_scanning: If True, fall back to scanning the stream if direct fetch fails.
+            scan_timeout_seconds: Maximum time to spend scanning for the record.
+
+        Returns:
+            The fetched record as a dictionary.
+
+        Raises:
+            exc.AirbyteStreamNotFoundError: If the stream does not exist.
+            exc.AirbyteRecordNotFoundError: If the record is not found.
+            exc.PyAirbyteInputError: If the pk_value format is invalid.
+            NotImplementedError: If the source is not declarative or uses composite keys.
+        """
+        if isinstance(self.executor, DeclarativeExecutor):
+            pk_value_str = self._normalize_and_validate_pk_value(stream_name, pk_value)
+            try:
+                return self.executor.fetch_record(
+                    stream_name=stream_name,
+                    primary_key_value=pk_value_str,
+                )
+            except (NotImplementedError, exc.AirbyteRecordNotFoundError) as e:
+                if not allow_scanning:
+                    raise
+                scan_reason = type(e).__name__
+
+        elif not allow_scanning:
+            raise NotImplementedError(
+                f"get_record() direct fetch is only supported for declarative sources. "
+                f"This source uses {type(self.executor).__name__}. "
+                f"Set allow_scanning=True to enable scanning fallback."
+            )
+        else:
+            scan_reason = "non-declarative source"
+
+        pk_value_str = self._normalize_and_validate_pk_value(stream_name, pk_value)
+        primary_key_fields = self.catalog_provider.get_primary_keys(stream_name)
+        pk_field = primary_key_fields[0]
+
+        start_time = time.monotonic()
+        for record in self.get_records(stream_name):
+            if time.monotonic() - start_time > scan_timeout_seconds:
+                raise exc.AirbyteRecordNotFoundError(
+                    stream_name=stream_name,
+                    context={
+                        "primary_key_field": pk_field,
+                        "primary_key_value": pk_value_str,
+                        "scan_timeout_seconds": scan_timeout_seconds,
+                        "scan_reason": scan_reason,
+                    },
+                )
+
+            record_data = record if isinstance(record, dict) else record.data
+            if str(record_data.get(pk_field)) == pk_value_str:
+                return record_data
+
+        raise exc.AirbyteRecordNotFoundError(
+            stream_name=stream_name,
+            context={
+                "primary_key_field": pk_field,
+                "primary_key_value": pk_value_str,
+                "scan_reason": scan_reason,
+            },
         )
 
     def get_samples(
