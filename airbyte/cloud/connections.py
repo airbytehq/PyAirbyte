@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
+from airbyte.exceptions import AirbyteWorkspaceMismatchError
 
 
 if TYPE_CHECKING:
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
-class CloudConnection:
+class CloudConnection:  # noqa: PLR0904  # Too many public methods
     """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
 
     You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
@@ -54,9 +55,41 @@ class CloudConnection:
         self._cloud_destination_object: CloudDestination | None = None
         """The destination object. (Cached.)"""
 
-    def _fetch_connection_info(self) -> ConnectionResponse:
-        """Populate the connection with data from the API."""
-        return api_util.get_connection(
+    def _fetch_connection_info(
+        self,
+        *,
+        force_refresh: bool = False,
+        verify: bool = True,
+    ) -> ConnectionResponse:
+        """Fetch and cache connection info from the API.
+
+        By default, this method will only fetch from the API if connection info is not
+        already cached. It also verifies that the connection belongs to the expected
+        workspace unless verification is explicitly disabled.
+
+        Args:
+            force_refresh: If True, always fetch from the API even if cached.
+                If False (default), only fetch if not already cached.
+            verify: If True (default), verify that the connection is valid (e.g., that
+                the workspace_id matches this object's workspace). Raises an error if
+                validation fails.
+
+        Returns:
+            The ConnectionResponse from the API.
+
+        Raises:
+            AirbyteWorkspaceMismatchError: If verify is True and the connection's
+                workspace_id doesn't match the expected workspace.
+            AirbyteMissingResourceError: If the connection doesn't exist.
+        """
+        if not force_refresh and self._connection_info is not None:
+            # Use cached info, but still verify if requested
+            if verify:
+                self._verify_workspace_match(self._connection_info)
+            return self._connection_info
+
+        # Fetch from API
+        connection_info = api_util.get_connection(
             workspace_id=self.workspace.workspace_id,
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -64,6 +97,51 @@ class CloudConnection:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
+
+        # Cache the result first (before verification may raise)
+        self._connection_info = connection_info
+
+        # Verify if requested
+        if verify:
+            self._verify_workspace_match(connection_info)
+
+        return connection_info
+
+    def _verify_workspace_match(self, connection_info: ConnectionResponse) -> None:
+        """Verify that the connection belongs to the expected workspace.
+
+        Raises:
+            AirbyteWorkspaceMismatchError: If the workspace IDs don't match.
+        """
+        if connection_info.workspace_id != self.workspace.workspace_id:
+            raise AirbyteWorkspaceMismatchError(
+                resource_type="connection",
+                resource_id=self.connection_id,
+                workspace=self.workspace,
+                expected_workspace_id=self.workspace.workspace_id,
+                actual_workspace_id=connection_info.workspace_id,
+                message=(
+                    f"Connection '{self.connection_id}' belongs to workspace "
+                    f"'{connection_info.workspace_id}', not '{self.workspace.workspace_id}'."
+                ),
+            )
+
+    def check_is_valid(self) -> bool:
+        """Check if this connection exists and belongs to the expected workspace.
+
+        This method fetches connection info from the API (if not already cached) and
+        verifies that the connection's workspace_id matches the workspace associated
+        with this CloudConnection object.
+
+        Returns:
+            True if the connection exists and belongs to the expected workspace.
+
+        Raises:
+            AirbyteWorkspaceMismatchError: If the connection belongs to a different workspace.
+            AirbyteMissingResourceError: If the connection doesn't exist.
+        """
+        self._fetch_connection_info(force_refresh=False, verify=True)
+        return True
 
     @classmethod
     def _from_connection_response(
@@ -391,6 +469,125 @@ class CloudConnection:
         )
         self._connection_info = updated_response
         return self
+
+    # Enable/Disable
+
+    @property
+    def enabled(self) -> bool:
+        """Get the current enabled status of the connection.
+
+        This property always fetches fresh data from the API to ensure accuracy,
+        as another process or user may have toggled the setting.
+
+        Returns:
+            True if the connection status is 'active', False otherwise.
+        """
+        connection_info = self._fetch_connection_info(force_refresh=True)
+        return connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Set the enabled status of the connection.
+
+        Args:
+            value: True to enable (set status to 'active'), False to disable
+                (set status to 'inactive').
+        """
+        self.set_enabled(enabled=value)
+
+    def set_enabled(
+        self,
+        *,
+        enabled: bool,
+        ignore_noop: bool = True,
+    ) -> None:
+        """Set the enabled status of the connection.
+
+        Args:
+            enabled: True to enable (set status to 'active'), False to disable
+                (set status to 'inactive').
+            ignore_noop: If True (default), silently return if the connection is already
+                in the requested state. If False, raise ValueError when the requested
+                state matches the current state.
+
+        Raises:
+            ValueError: If ignore_noop is False and the connection is already in the
+                requested state.
+        """
+        # Always fetch fresh data to check current status
+        connection_info = self._fetch_connection_info(force_refresh=True)
+        current_status = connection_info.status
+        desired_status = (
+            api_util.models.ConnectionStatusEnum.ACTIVE
+            if enabled
+            else api_util.models.ConnectionStatusEnum.INACTIVE
+        )
+
+        if current_status == desired_status:
+            if ignore_noop:
+                return
+            raise ValueError(
+                f"Connection is already {'enabled' if enabled else 'disabled'}. "
+                f"Current status: {current_status}"
+            )
+
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            status=desired_status,
+        )
+        self._connection_info = updated_response
+
+    # Scheduling
+
+    def set_schedule(
+        self,
+        cron_expression: str,
+    ) -> None:
+        """Set a cron schedule for the connection.
+
+        Args:
+            cron_expression: A cron expression defining when syncs should run.
+
+        Examples:
+                - "0 0 * * *" - Daily at midnight UTC
+                - "0 */6 * * *" - Every 6 hours
+                - "0 0 * * 0" - Weekly on Sunday at midnight UTC
+        """
+        schedule = api_util.models.AirbyteAPIConnectionSchedule(
+            schedule_type=api_util.models.ScheduleTypeEnum.CRON,
+            cron_expression=cron_expression,
+        )
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            schedule=schedule,
+        )
+        self._connection_info = updated_response
+
+    def set_manual_schedule(self) -> None:
+        """Set the connection to manual scheduling.
+
+        Disables automatic syncs. Syncs will only run when manually triggered.
+        """
+        schedule = api_util.models.AirbyteAPIConnectionSchedule(
+            schedule_type=api_util.models.ScheduleTypeEnum.MANUAL,
+        )
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            schedule=schedule,
+        )
+        self._connection_info = updated_response
 
     # Deletions
 
