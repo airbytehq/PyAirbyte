@@ -470,6 +470,125 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         self._connection_info = updated_response
         return self
 
+    # Enable/Disable
+
+    @property
+    def enabled(self) -> bool:
+        """Get the current enabled status of the connection.
+
+        This property always fetches fresh data from the API to ensure accuracy,
+        as another process or user may have toggled the setting.
+
+        Returns:
+            True if the connection status is 'active', False otherwise.
+        """
+        connection_info = self._fetch_connection_info(force_refresh=True)
+        return connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Set the enabled status of the connection.
+
+        Args:
+            value: True to enable (set status to 'active'), False to disable
+                (set status to 'inactive').
+        """
+        self.set_enabled(enabled=value)
+
+    def set_enabled(
+        self,
+        *,
+        enabled: bool,
+        ignore_noop: bool = True,
+    ) -> None:
+        """Set the enabled status of the connection.
+
+        Args:
+            enabled: True to enable (set status to 'active'), False to disable
+                (set status to 'inactive').
+            ignore_noop: If True (default), silently return if the connection is already
+                in the requested state. If False, raise ValueError when the requested
+                state matches the current state.
+
+        Raises:
+            ValueError: If ignore_noop is False and the connection is already in the
+                requested state.
+        """
+        # Always fetch fresh data to check current status
+        connection_info = self._fetch_connection_info(force_refresh=True)
+        current_status = connection_info.status
+        desired_status = (
+            api_util.models.ConnectionStatusEnum.ACTIVE
+            if enabled
+            else api_util.models.ConnectionStatusEnum.INACTIVE
+        )
+
+        if current_status == desired_status:
+            if ignore_noop:
+                return
+            raise ValueError(
+                f"Connection is already {'enabled' if enabled else 'disabled'}. "
+                f"Current status: {current_status}"
+            )
+
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            status=desired_status,
+        )
+        self._connection_info = updated_response
+
+    # Scheduling
+
+    def set_schedule(
+        self,
+        cron_expression: str,
+    ) -> None:
+        """Set a cron schedule for the connection.
+
+        Args:
+            cron_expression: A cron expression defining when syncs should run.
+
+        Examples:
+                - "0 0 * * *" - Daily at midnight UTC
+                - "0 */6 * * *" - Every 6 hours
+                - "0 0 * * 0" - Weekly on Sunday at midnight UTC
+        """
+        schedule = api_util.models.AirbyteAPIConnectionSchedule(
+            schedule_type=api_util.models.ScheduleTypeEnum.CRON,
+            cron_expression=cron_expression,
+        )
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            schedule=schedule,
+        )
+        self._connection_info = updated_response
+
+    def set_manual_schedule(self) -> None:
+        """Set the connection to manual scheduling.
+
+        Disables automatic syncs. Syncs will only run when manually triggered.
+        """
+        schedule = api_util.models.AirbyteAPIConnectionSchedule(
+            schedule_type=api_util.models.ScheduleTypeEnum.MANUAL,
+        )
+        updated_response = api_util.patch_connection(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+            schedule=schedule,
+        )
+        self._connection_info = updated_response
+
     # Deletions
 
     def permanently_delete(
