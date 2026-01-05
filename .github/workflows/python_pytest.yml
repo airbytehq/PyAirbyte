@@ -63,14 +63,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: fasttest-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: pytest-fast-test-logs
         path: /tmp/airbyte/logs/
@@ -130,14 +130,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: nocreds-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: pytest-no-creds-test-logs
         path: /tmp/airbyte/logs/
@@ -215,14 +215,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-logs
         path: /tmp/airbyte/logs/
