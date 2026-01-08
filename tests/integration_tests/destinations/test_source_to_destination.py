@@ -43,8 +43,8 @@ def new_duckdb_destination(new_duckdb_destination_executor: Destination) -> Dest
     return Destination(
         name="destination-duckdb",
         config={
-            # This path is relative to the container:
-            "destination_path": "/local/temp/db.duckdb",
+            # This path is relative to the container's /local volume mount.
+            "destination_path": "/local/db.duckdb",
         },
         executor=new_duckdb_destination_executor,
     )
