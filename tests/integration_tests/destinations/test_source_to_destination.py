@@ -30,13 +30,11 @@ def new_duckdb_destination_executor() -> Executor:
     if local_mount_dir.exists():
         shutil.rmtree(local_mount_dir, ignore_errors=True)
 
-    # Create the directory structure with world-writable permissions
+    # Create the directory with world-writable permissions
     # This is needed for Docker volume mounts in CI environments where
     # user namespace remapping may cause permission issues
     local_mount_dir.mkdir(parents=True, exist_ok=True)
-    (local_mount_dir / "temp").mkdir(parents=True, exist_ok=True)
     local_mount_dir.chmod(0o777)
-    (local_mount_dir / "temp").chmod(0o777)
 
     return get_connector_executor(
         name="destination-duckdb",
