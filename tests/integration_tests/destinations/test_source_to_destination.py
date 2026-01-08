@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import pytest
 from airbyte import get_source
 from airbyte._executors.base import Executor
@@ -23,6 +26,10 @@ from airbyte_protocol.models import AirbyteMessage, AirbyteRecordMessage, Type
 @pytest.fixture
 def new_duckdb_destination_executor() -> Executor:
     """Return a new JSONL destination executor."""
+    local_mount_dir = Path.cwd() / "destination-duckdb"
+    if local_mount_dir.exists():
+        shutil.rmtree(local_mount_dir, ignore_errors=True)
+
     return get_connector_executor(
         name="destination-duckdb",
         docker_image="airbyte/destination-duckdb:latest",

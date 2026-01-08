@@ -1629,6 +1629,50 @@ def list_custom_source_definitions(
 
 @mcp_tool(
     domain="cloud",
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
+def get_custom_source_definition(
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the custom source definition to retrieve."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> dict[str, Any]:
+    """Get a custom YAML source definition from Airbyte Cloud, including its manifest.
+
+    Returns the full definition details including the manifest YAML content,
+    which can be used to inspect or store the connector configuration locally.
+
+    Note: Only YAML (declarative) connectors are currently supported.
+    Docker-based custom sources are not yet available.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    definition = workspace.get_custom_source_definition(
+        definition_id=definition_id,
+        definition_type="yaml",
+    )
+
+    return {
+        "definition_id": definition.definition_id,
+        "name": definition.name,
+        "version": definition.version,
+        "connector_builder_project_id": definition.connector_builder_project_id,
+        "connector_builder_project_url": definition.connector_builder_project_url,
+        "manifest": definition.manifest,
+    }
+
+
+@mcp_tool(
+    domain="cloud",
     destructive=True,
     open_world=True,
 )
