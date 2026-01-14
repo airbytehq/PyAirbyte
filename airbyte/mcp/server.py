@@ -34,7 +34,7 @@ Use this server for:
 - Running cloud syncs and monitoring sync status
 - Managing custom connector definitions in Airbyte Cloud
 - Local connector execution for data extraction without cloud deployment
-- Listing and managing environment variables for connector configuration
+- Listing and describing environment variables for connector configuration
 
 Operational modes:
 - Cloud operations: Deploy and manage connectors on Airbyte Cloud (requires
