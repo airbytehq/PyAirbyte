@@ -14,10 +14,44 @@ from airbyte.mcp.local_ops import register_local_ops_tools
 from airbyte.mcp.prompts import register_prompts
 
 
+# =============================================================================
+# Server Instructions
+# =============================================================================
+# This text is provided to AI agents via the MCP protocol's "instructions" field.
+# It helps agents understand when to use this server's tools, especially when
+# tool search is enabled. For more context, see:
+# - FastMCP docs: https://gofastmcp.com/servers/overview
+# - Claude tool search: https://www.anthropic.com/news/tool-use-improvements
+# =============================================================================
+
+MCP_SERVER_INSTRUCTIONS = """
+PyAirbyte connector management and data integration server for discovering,
+deploying, and running Airbyte connectors.
+
+Use this server for:
+- Discovering connectors from the Airbyte registry (sources and destinations)
+- Deploying sources, destinations, and connections to Airbyte Cloud
+- Running cloud syncs and monitoring sync status
+- Managing custom connector definitions in Airbyte Cloud
+- Local connector execution for data extraction without cloud deployment
+- Listing and managing environment variables for connector configuration
+
+Operational modes:
+- Cloud operations: Deploy and manage connectors on Airbyte Cloud (requires
+  AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET, AIRBYTE_CLOUD_WORKSPACE_ID)
+- Local operations: Run connectors locally for data extraction (requires
+  AIRBYTE_PROJECT_DIR for artifact storage)
+
+Safety features:
+- Safe mode (default): Restricts destructive operations to objects created in
+  the current session
+- Read-only mode: Disables all write operations for cloud resources
+""".strip()
+
 set_mcp_mode()
 initialize_secrets()
 
-app: FastMCP = FastMCP("airbyte-mcp")
+app: FastMCP = FastMCP("airbyte-mcp", instructions=MCP_SERVER_INSTRUCTIONS)
 """The Airbyte MCP Server application instance."""
 
 register_connector_registry_tools(app)
