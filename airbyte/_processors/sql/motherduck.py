@@ -29,7 +29,7 @@ warnings.filterwarnings(
 class MotherDuckSqlProcessor(DuckDBSqlProcessor):
     """A cache implementation for MotherDuck."""
 
-    supports_merge_insert = False
+    supports_merge_insert = True  # MotherDuck runs on DuckDB 1.4.0+ with native MERGE INTO support
     file_writer_class = JsonlWriter
     cache: MotherDuckCache
 
