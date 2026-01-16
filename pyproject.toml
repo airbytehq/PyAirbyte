@@ -157,6 +157,7 @@ mcp-serve-http = { cmd = "poetry run python -c \"from airbyte.mcp.server import 
 mcp-serve-sse = { cmd = "poetry run python -c \"from airbyte.mcp.server import app; app.run(transport='sse', host='127.0.0.1', port=8000)\"", help = "Start the MCP server with SSE transport" }
 mcp-inspect = { cmd = "poetry run fastmcp inspect airbyte/mcp/server.py:app", help = "Inspect MCP tools and resources (supports --tools, --health, etc.)" }
 mcp-tool-test = { cmd = "poetry run python bin/test_mcp_tool.py", help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'" }
+mcp-measure-tools = { cmd = "poetry run python bin/measure_mcp_tool_list.py", help = "Measure the size of the MCP tool list output (tool count and character count)" }
 
 # Claude Code MCP Testing Tasks
 [tool.poe.tasks.test-my-tools]
