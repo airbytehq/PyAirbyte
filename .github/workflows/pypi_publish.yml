@@ -36,6 +36,8 @@ jobs:
     name: Download Release Assets
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
+    permissions:
+      contents: read
     steps:
       - name: Download wheel and sdist from release
         env:
