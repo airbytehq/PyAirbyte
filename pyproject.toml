@@ -131,6 +131,7 @@ venv = ".venv"
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
 airbyte-mcp = "airbyte.mcp.server:main"
+airbyte-mcp-cli = "airbyte.mcp.cli:main"
 
 [tool.poe.tasks]
 test = { shell = "pytest" }
