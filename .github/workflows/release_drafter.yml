@@ -1,6 +1,7 @@
 name: Release Drafter
 
 on:
+  workflow_dispatch: {}
   push:
     branches:
       - main
@@ -10,12 +11,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update_release_draft:
+  draft_release:
+    name: Draft Release
     permissions:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - uses: aaronsteers/semantic-pr-release-drafter@v0.3.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build package
+        run: uv build
+
+      - name: Create or update draft release
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        id: release-drafter
+        with:
+          attach-files: |
+            dist/*.whl
+            dist/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
