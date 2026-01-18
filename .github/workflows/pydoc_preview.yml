@@ -26,6 +26,7 @@ jobs:
         python-version: '3.10'
 
     - name: Install dependencies
+      # Only dev dependencies are needed for docs generation (poe, pdoc, etc.)
       run: uv sync --group dev
 
     - name: Generate documentation
