@@ -1,92 +1,189 @@
-name: Build and/or Publish
+# This workflow publishes the python package to PyPI.
+#
+# Triggers:
+# - release: published - When user clicks "Publish" on a draft release (downloads pre-built assets)
+# - workflow_dispatch - Manual trigger for prereleases (builds fresh)
+#
+# Authentication: This workflow expects GitHub OIDC for passwordless PyPI publishing.
+# For more info: https://docs.pypi.org/trusted-publishers/
+
+name: Publish Package
 
 on:
-  push:
-
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
-      git_ref:
-        description: 'Git ref (SHA or branch) to checkout and build'
+      version:
+        description: >
+          Note that this workflow is intended for prereleases. For public-facing stable releases,
+          please use the GitHub Releases workflow instead.
+          For prereleases, please leave the version blank to use the detected version. Alternatively,
+          you can override the dynamic versioning for special use cases.
         required: false
-        type: string
-      version_override:
-        description: 'Version to use (overrides dynamic versioning)'
-        required: false
-        type: string
-      publish:
-        description: 'Whether to publish to PyPI (true/false)'
-        required: false
-        type: string
-        default: 'false'
-
-  workflow_call:
-    inputs:
-      git_ref:
-        description: 'Git ref (SHA or branch) to checkout and build'
-        required: true
-        type: string
-      version_override:
-        description: 'Version to use (overrides dynamic versioning)'
-        required: false
-        type: string
-      publish:
-        description: 'Whether to publish to PyPI'
-        required: false
+      publish_to_pypi:
+        description: "Publish to PyPI. If true, the workflow will publish to PyPI."
         type: boolean
-        default: false
+        required: true
+        default: true
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
 jobs:
-  build:
+  # Download pre-built assets from the release (only on release: published)
+  download_release_assets:
+    name: Download Release Assets
     runs-on: ubuntu-latest
+    if: github.event_name == 'release'
     steps:
-    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      with:
-        ref: ${{ inputs.git_ref || github.ref }}
-        fetch-depth: 0
-    - name: Prepare version override
-      id: version
-      run: |
-        echo "override=${{ inputs.version_override }}" >> $GITHUB_OUTPUT
-        echo "has_override=${{ inputs.version_override != '' }}" >> $GITHUB_OUTPUT
-    - name: Build package (with version override)
-      if: steps.version.outputs.has_override == 'true'
-      uses: hynek/build-and-inspect-python-package@efb823f52190ad02594531168b7a2d5790e66516 # v2.14.0
-      env:
-        POETRY_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.override }}
-    - name: Build package (dynamic version)
-      if: steps.version.outputs.has_override != 'true'
-      uses: hynek/build-and-inspect-python-package@efb823f52190ad02594531168b7a2d5790e66516 # v2.14.0
+      - name: Download wheel and sdist from release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          gh release download "${{ github.event.release.tag_name }}" \
+            --repo "${{ github.repository }}" \
+            --pattern "*.whl" \
+            --pattern "*.tar.gz" \
+            --dir dist
+          echo "Downloaded assets:"
+          ls -la dist/
 
-  publish:
-    name: Publish to PyPI
+      - name: Verify assets were downloaded
+        run: |
+          if [ ! -f dist/*.whl ]; then
+            echo "Error: No wheel file found in release assets"
+            exit 1
+          fi
+          if [ ! -f dist/*.tar.gz ]; then
+            echo "Error: No sdist file found in release assets"
+            exit 1
+          fi
+          echo "Assets verified successfully"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Packages-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+    outputs:
+      VERSION: ${{ github.event.release.tag_name }}
+
+  # Build fresh package (only on workflow_dispatch, NOT on release)
+  build:
+    name: Build Python Package
     runs-on: ubuntu-latest
-    needs: [build]
+    if: github.event_name != 'release'
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Detect Prerelease Version using Dunamai
+        uses: mtkennerly/dunamai-action@v1
+        with:
+          args: --format "{base}.post{distance}.dev${{ github.run_id }}"
+          env-var: DETECTED_VERSION
+
+      - name: Detect Release Tag Version from git ref ('${{ github.ref_name }}')
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "Overriding Dunamai detected version: '${{ env.DETECTED_VERSION || 'none' }}'"
+          # Extract the version from the git ref
+          DETECTED_VERSION=${{ github.ref_name }}
+          # Remove the 'v' prefix if it exists
+          DETECTED_VERSION="${DETECTED_VERSION#v}"
+          echo "Setting detected version to '$DETECTED_VERSION'"
+          echo "DETECTED_VERSION=${DETECTED_VERSION}" >> $GITHUB_ENV
+
+      - name: Validate and set VERSION (detected='${{ env.DETECTED_VERSION }}', input='${{ github.event.inputs.version || 'none' }}')
+        id: set_version
+        run: |
+          INPUT_VERSION=${{ github.event.inputs.version }}
+          echo "Version input set to '${INPUT_VERSION}'"
+          # Exit with success if both detected and input versions are empty
+          if [ -z "${DETECTED_VERSION:-}" ] && [ -z "${INPUT_VERSION:-}" ]; then
+            echo "No version detected or input. Will publish to SHA tag instead."
+            echo 'VERSION=' >> $GITHUB_ENV
+            exit 0
+          fi
+          # Remove the 'v' prefix if it exists
+          INPUT_VERSION="${INPUT_VERSION#v}"
+          # Fail if detected version is non-empty and different from the input version
+          if [ -n "${DETECTED_VERSION:-}" ] && [ -n "${INPUT_VERSION:-}" ] && [ "${DETECTED_VERSION}" != "${INPUT_VERSION}" ]; then
+            echo "Warning: Version input '${INPUT_VERSION}' does not match detected version '${DETECTED_VERSION}'."
+            echo "Using input version '${INPUT_VERSION}' instead."
+          fi
+          # Set the version to the input version if non-empty, otherwise the detected version
+          VERSION="${INPUT_VERSION:-$DETECTED_VERSION}"
+          # Fail if the version is still empty
+          if [ -z "$VERSION" ]; then
+            echo "Error: VERSION is not set. Ensure the tag follows the format 'refs/tags/vX.Y.Z'."
+            exit 1
+          fi
+          echo "Setting version to '$VERSION'"
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+          # Check if version is a prerelease version (will not tag 'latest')
+          if [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "IS_PRERELEASE=false" >> $GITHUB_ENV
+            echo "IS_PRERELEASE=false" >> $GITHUB_OUTPUT
+          else
+            echo "IS_PRERELEASE=true" >> $GITHUB_ENV
+            echo "IS_PRERELEASE=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build package
+        uses: hynek/build-and-inspect-python-package@v2
+        env:
+          POETRY_DYNAMIC_VERSIONING_BYPASS: ${{ env.VERSION }}
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: Packages-${{ github.run_id }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+
+    outputs:
+      VERSION: ${{ steps.set_version.outputs.VERSION }}
+      IS_PRERELEASE: ${{ steps.set_version.outputs.IS_PRERELEASE }}
+
+  publish_to_pypi:
+    name: Publish Package to PyPI
+    runs-on: ubuntu-latest
+    # Depend on whichever job ran (build for dispatch, download for release)
+    needs: [build, download_release_assets]
+    # Always run if at least one of the needed jobs succeeded
+    if: |
+      always() &&
+      (needs.build.result == 'success' || needs.download_release_assets.result == 'success') &&
+      (
+        github.event_name == 'release' ||
+        (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to_pypi == 'true')
+      )
     permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
-      contents: write  # Needed to upload artifacts to the release
+      id-token: write
+      contents: write
     environment:
       name: PyPi
       url: https://pypi.org/p/airbyte
-    # Publish when: (1) triggered by a tag push, OR (2) called with publish=true (handles both boolean and string)
-    if: startsWith(github.ref, 'refs/tags/') || inputs.publish == true || inputs.publish == 'true'
+    env:
+      VERSION: ${{ needs.build.outputs.VERSION || needs.download_release_assets.outputs.VERSION }}
+      IS_PRERELEASE: ${{ needs.build.outputs.IS_PRERELEASE || 'false' }}
     steps:
-    - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
-      with:
-        name: Packages
-        path: dist
-    - name: Upload wheel to release
-      # Only upload to GitHub release when triggered by a tag
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: svenstaro/upload-release-action@81c65b7cd4de9b2570615ce3aad67a41de5b1a13 # latest
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: dist/*.whl
-        tag: ${{ github.ref }}
-        overwrite: true
-        file_glob: true
+      - uses: actions/download-artifact@v6
+        with:
+          name: Packages-${{ github.run_id }}
+          path: dist
 
-    - name: Publish
-      uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+      # Note: Wheel upload to GitHub release is handled by release-drafter.yml
+      # during the draft stage (before publish). This avoids the "immutable release"
+      # error that occurs when trying to upload assets after a release is published.
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.13.0
