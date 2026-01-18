@@ -9,12 +9,6 @@ concurrency:
   group: release-drafter
   cancel-in-progress: false
 
-env:
-  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
-
-permissions:
-  contents: read
-
 jobs:
   update_release_draft:
     permissions:
@@ -22,11 +16,6 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      # Drafts the next Release notes as Pull Requests are merged into "main"
-      # Pinned to v6.0.0 to avoid v6.1.0 bug: https://github.com/release-drafter/release-drafter/issues/1425
-      - uses: release-drafter/release-drafter@805574fd5375e6902a5875239fb834f515c41111 # v6.0.0
-        with:
-          config-name: release-drafter.yml
-          disable-autolabeler: false
+      - uses: aaronsteers/semantic-pr-release-drafter@v0.3.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
