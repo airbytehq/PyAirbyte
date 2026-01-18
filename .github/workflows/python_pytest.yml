@@ -26,57 +26,53 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
       with:
-        poetry-version: "2.2.0"
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     - name: Run Pytest with Coverage (Fast Tests Only)
       timeout-minutes: 60
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --durations=5 --exitfirst
         -m "not slow and not requires_creds and not linting and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: poetry run coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
-        poetry run coverage html -d htmlcov
-        poetry run coverage xml -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@v6
       with:
         name: fasttest-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@v6
       with:
         name: pytest-fast-test-logs
         path: /tmp/airbyte/logs/
 
     - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@34d7c956a59aed1bfebf31df77b8de55db9bbaaf # v2.21.0
+      uses: EnricoMi/publish-unit-test-result-action@v2
       if: always() && !cancelled()
       continue-on-error: true
       with:
@@ -91,21 +87,17 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
       with:
-        poetry-version: "2.2.0"
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     # Job-specific step(s):
     - name: Run Pytest (No-Creds)
@@ -114,30 +106,30 @@ jobs:
         # Force this to a blank value.
         GCP_GSM_CREDENTIALS: ""
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --durations=5 --exitfirst
         -m "not requires_creds and not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: poetry run coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
-        poetry run coverage html -d htmlcov
-        poetry run coverage xml -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@v6
       with:
         name: nocreds-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@v6
       with:
         name: pytest-no-creds-test-logs
         path: /tmp/airbyte/logs/
@@ -169,17 +161,17 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     # Job-specific step(s):
     - name: Run Pytest [all]
@@ -188,7 +180,7 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --verbose
         -m "not linting and not super_slow and not flaky"
 
@@ -198,37 +190,37 @@ jobs:
       env:
         GCP_GSM_CREDENTIALS: ${{ secrets.GCP_GSM_CREDENTIALS }}
       run: >
-        poetry run coverage run -m pytest
+        uv run coverage run -m pytest
         --verbose
         tests/unit_tests/
         -m "not linting and not super_slow and not flaky"
 
     - name: Print Coverage Report
       if: always()
-      run: poetry run coverage report
+      run: uv run coverage report
 
     - name: Create Coverage Artifacts
       if: always()
       run: |
-        poetry run coverage html -d htmlcov
-        poetry run coverage xml -o htmlcov/coverage.xml
+        uv run coverage html -d htmlcov
+        uv run coverage xml -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@v6
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+      uses: actions/upload-artifact@v6
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-logs
         path: /tmp/airbyte/logs/
 
     - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@34d7c956a59aed1bfebf31df77b8de55db9bbaaf # v2.21.0
+      uses: EnricoMi/publish-unit-test-result-action@v2
       if: always() && !cancelled() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
       continue-on-error: true
       with:
@@ -242,19 +234,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     # Job-specific step(s):
     - name: Run Deptry
       run: |
-        poetry run deptry .
+        uv run deptry .

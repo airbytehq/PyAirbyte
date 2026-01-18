@@ -18,25 +18,21 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
       with:
-        poetry-version: "2.2.0"
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     # Job-specifc step(s):
     - name: Format code
-      run: poetry run ruff check .
+      run: uv run ruff check .
 
   ruff-format-check:
     name: Ruff Format Check
@@ -44,21 +40,21 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     # Job-specifc step(s):
     - name: Check code format
-      run: poetry run ruff format --diff .
+      run: uv run ruff format --diff .
 
   python-type-checks:
     name: Python Type Checks
@@ -66,22 +62,18 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
+      uses: actions/checkout@v6
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
       with:
-        poetry-version: "2.2.0"
+        version: "latest"
     - name: Set up Python
-      uses: actions/setup-python@83679a892e2d95755f2dac6acb0bfd1e9ac5d548 # v6.1.0
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
     - name: Install dependencies
-      run: poetry install
+      run: uv sync --group dev
 
     # Job-specifc step(s):
     - name: Run Pyrefly Check
-      run: poetry run pyrefly check
+      run: uv run pyrefly check
