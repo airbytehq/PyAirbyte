@@ -18,14 +18,6 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - name: Get release version (dry-run)
-        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
-        id: release-drafter
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          dry-run: true
-
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -37,6 +29,14 @@ jobs:
         with:
           # Shallow clone is sufficient since we bypass dynamic versioning
           fetch-depth: 1
+
+      - name: Get release version (dry-run)
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        id: release-drafter
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          dry-run: true
 
       - name: Build package
         env:
