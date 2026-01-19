@@ -464,6 +464,124 @@ def read_source_stream_records(
 @mcp_tool(
     domain="local",
     read_only=True,
+    idempotent=True,
+    extra_help_text=_CONFIG_HELP,
+)
+def get_source_record(  # noqa: PLR0913, PLR0917
+    source_connector_name: Annotated[
+        str,
+        Field(description="The name of the source connector."),
+    ],
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream to fetch the record from."),
+    ],
+    pk_value: Annotated[
+        str | int | dict[str, Any],
+        Field(
+            description=(
+                "The primary key value to fetch. "
+                "Can be a string, int, or dict with PK field name(s) as keys."
+            )
+        ),
+    ],
+    config: Annotated[
+        dict | str | None,
+        Field(
+            description="The configuration for the source connector as a dict or JSON string.",
+            default=None,
+        ),
+    ],
+    config_file: Annotated[
+        str | Path | None,
+        Field(
+            description="Path to a YAML or JSON file containing the source connector config.",
+            default=None,
+        ),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(
+            description="The name of the secret containing the configuration.",
+            default=None,
+        ),
+    ],
+    override_execution_mode: Annotated[
+        Literal["docker", "python", "yaml", "auto"],
+        Field(
+            description="Optionally override the execution method to use for the connector. "
+            "This parameter is ignored if manifest_path is provided (yaml mode will be used).",
+            default="auto",
+        ),
+    ],
+    manifest_path: Annotated[
+        str | Path | None,
+        Field(
+            description="Path to a local YAML manifest file for declarative connectors.",
+            default=None,
+        ),
+    ],
+    allow_scanning: Annotated[
+        bool,
+        Field(
+            description="If True, fall back to scanning stream records if direct fetch fails.",
+            default=False,
+        ),
+    ],
+    scan_timeout_seconds: Annotated[
+        int,
+        Field(
+            description="Maximum time in seconds to spend scanning for the record.",
+            default=60,
+        ),
+    ],
+) -> dict[str, Any] | str:
+    """Fetch a single record from a source connector by primary key value.
+
+    This operation requires a valid configuration and only works with
+    declarative (YAML-based) sources. For sources with SimpleRetriever-based
+    streams, it will attempt a direct fetch by constructing the appropriate
+    API request. If allow_scanning is True and direct fetch fails, it will
+    fall back to scanning through stream records.
+    """
+    try:
+        source: Source = _get_mcp_source(
+            connector_name=source_connector_name,
+            override_execution_mode=override_execution_mode,
+            manifest_path=manifest_path,
+        )
+        config_dict = resolve_config(
+            config=config,
+            config_file=config_file,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=source.config_spec,
+        )
+        source.set_config(config_dict)
+
+        record = source.get_record(
+            stream_name=stream_name,
+            pk_value=pk_value,
+            allow_scanning=allow_scanning,
+            scan_timeout_seconds=scan_timeout_seconds,
+        )
+
+        print(
+            f"Retrieved record from stream '{stream_name}' with pk_value={pk_value!r}",
+            file=sys.stderr,
+        )
+
+    except Exception as ex:
+        tb_str = traceback.format_exc()
+        return (
+            f"Error fetching record from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
+        )
+    else:
+        return record
+
+
+@mcp_tool(
+    domain="local",
+    read_only=True,
     extra_help_text=_CONFIG_HELP,
 )
 def get_stream_previews(
