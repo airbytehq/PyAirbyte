@@ -1,10 +1,12 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Experimental MCP (Model Context Protocol) server for PyAirbyte connector management."""
 
+from __future__ import annotations
+
 import asyncio
 import sys
+from typing import TYPE_CHECKING
 
-from fastmcp import FastMCP
 from fastmcp_extensions import (
     MCPServerConfigArg,
     get_mcp_config,
@@ -17,7 +19,11 @@ from fastmcp_extensions.tool_filters import (
     ANNOTATION_READ_ONLY_HINT,
     get_annotation,
 )
-from mcp.types import Tool
+
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
+    from mcp.types import Tool
 
 import airbyte.mcp.cloud
 import airbyte.mcp.local
