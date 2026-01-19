@@ -35,7 +35,8 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Install dependencies
+    - name: Install dev dependencies
+      # We only need helper libraries
       run: uv sync --group dev
 
     - name: Run Pytest with Coverage (Fast Tests Only)
@@ -96,7 +97,8 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Install dependencies
+    - name: Install dev dependencies
+      # We only need helper libraries
       run: uv sync --group dev
 
     # Job-specific step(s):
@@ -170,7 +172,8 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Install dev dependencies
+      # We only need helper libraries
       run: uv sync --group dev
 
     # Job-specific step(s):
@@ -243,7 +246,8 @@ jobs:
       uses: actions/setup-python@v6
       with:
         python-version: '3.10'
-    - name: Install dependencies
+    - name: Install dev dependencies
+      # We only need helper libraries
       run: uv sync --group dev
 
     # Job-specific step(s):

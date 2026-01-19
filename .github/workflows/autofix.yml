@@ -23,7 +23,8 @@ jobs:
       with:
         python-version: '3.10'
 
-    - name: Install dependencies
+    - name: Install dev dependencies
+      # We only need helper libraries
       run: uv sync --group dev
 
     - name: Format code

@@ -44,7 +44,8 @@ jobs:
     - name: Setup Pages
       uses: actions/configure-pages@v5
 
-    - name: Install dependencies
+    - name: Install dev dependencies
+      # We only need helper libraries
       run: uv sync --group dev
 
     - name: Generate documentation
