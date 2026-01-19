@@ -32,7 +32,7 @@ jobs:
       run: uv sync --group dev
 
     # Job-specifc step(s):
-    - name: Format code
+    - name: Lint code
       run: uv run ruff check .
 
   ruff-format-check:
