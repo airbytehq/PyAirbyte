@@ -182,7 +182,6 @@ npx @anthropic-ai/claude-code --print "/mcp__airbyte-mcp__test-my-tools ${scope:
 args = [{ name = "scope", default = "", help = "Optional scope/context to focus testing (e.g., 'focus on areas of the code changed versus main')" }]
 
 [tool.airbyte_ci]
-extra_dependency_groups = ["dev"]
 poe_tasks = ["test"]
 required_environment_variables = ["GCP_GSM_CREDENTIALS"]
 side_car_docker_engine = true
