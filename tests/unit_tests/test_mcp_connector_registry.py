@@ -6,7 +6,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from airbyte import exceptions as exc
-from airbyte.mcp.connector_registry import get_api_docs_urls
+from airbyte.mcp.registry import get_api_docs_urls
 from airbyte.registry import (
     ApiDocsUrl,
     _fetch_manifest_dict,
@@ -132,9 +132,7 @@ class TestGetApiDocsUrls:
 
     def test_connector_not_found(self) -> None:
         """Test handling when connector is not found."""
-        with patch(
-            "airbyte.mcp.connector_registry.get_connector_api_docs_urls"
-        ) as mock_get_docs:
+        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.side_effect = exc.AirbyteConnectorNotRegisteredError(
                 connector_name="nonexistent-connector",
                 context={},
@@ -145,9 +143,7 @@ class TestGetApiDocsUrls:
 
     def test_deduplication_of_urls(self) -> None:
         """Test that duplicate URLs are deduplicated."""
-        with patch(
-            "airbyte.mcp.connector_registry.get_connector_api_docs_urls"
-        ) as mock_get_docs:
+        with patch("airbyte.mcp.registry.get_connector_api_docs_urls") as mock_get_docs:
             mock_get_docs.return_value = [
                 ApiDocsUrl(
                     title="Airbyte Documentation",
