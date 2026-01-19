@@ -32,7 +32,7 @@ jobs:
 
       - name: Get release version (dry-run)
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
-        id: release-drafter
+        id: dry-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -40,7 +40,7 @@ jobs:
 
       - name: Build package
         env:
-          VERSION: ${{ steps.release-drafter.outputs.tag_name }}
+          VERSION: ${{ steps.dry-run.outputs.tag_name }}
         run: POETRY_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Create or update draft release
