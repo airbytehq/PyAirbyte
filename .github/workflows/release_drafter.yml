@@ -30,6 +30,7 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           version: "latest"
+          python-version: "3.10"
 
       - name: Checkout Repo
         uses: actions/checkout@v6
