@@ -33,7 +33,6 @@ jobs:
 
       - name: Create or update draft release
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
-        id: release-drafter
         with:
           attach-files: |
             dist/*.whl
