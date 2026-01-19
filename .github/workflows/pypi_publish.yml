@@ -1,92 +1,38 @@
-name: Build and/or Publish
+# This workflow publishes the python package to PyPI.
+#
+# Triggers:
+# - release: published - When user clicks "Publish" on a draft release (downloads pre-built assets)
+#
+# Authentication: This workflow expects GitHub OIDC for passwordless PyPI publishing.
+# For more info: https://docs.pypi.org/trusted-publishers/
+
+name: Publish Package
 
 on:
-  push:
-
-  workflow_dispatch:
-    inputs:
-      git_ref:
-        description: 'Git ref (SHA or branch) to checkout and build'
-        required: false
-        type: string
-      version_override:
-        description: 'Version to use (overrides dynamic versioning)'
-        required: false
-        type: string
-      publish:
-        description: 'Whether to publish to PyPI (true/false)'
-        required: false
-        type: string
-        default: 'false'
-
-  workflow_call:
-    inputs:
-      git_ref:
-        description: 'Git ref (SHA or branch) to checkout and build'
-        required: true
-        type: string
-      version_override:
-        description: 'Version to use (overrides dynamic versioning)'
-        required: false
-        type: string
-      publish:
-        description: 'Whether to publish to PyPI'
-        required: false
-        type: boolean
-        default: false
+  release:
+    types: [published]
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
 jobs:
-  build:
+  publish_to_pypi:
+    name: Publish Package to PyPI
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
-      with:
-        ref: ${{ inputs.git_ref || github.ref }}
-        fetch-depth: 0
-    - name: Prepare version override
-      id: version
-      run: |
-        echo "override=${{ inputs.version_override }}" >> $GITHUB_OUTPUT
-        echo "has_override=${{ inputs.version_override != '' }}" >> $GITHUB_OUTPUT
-    - name: Build package (with version override)
-      if: steps.version.outputs.has_override == 'true'
-      uses: hynek/build-and-inspect-python-package@v2
-      env:
-        UV_DYNAMIC_VERSIONING_BYPASS: ${{ steps.version.outputs.override }}
-    - name: Build package (dynamic version)
-      if: steps.version.outputs.has_override != 'true'
-      uses: hynek/build-and-inspect-python-package@v2
-
-  publish:
-    name: Publish to PyPI
-    runs-on: ubuntu-latest
-    needs: [build]
     permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
-      contents: write  # Needed to upload artifacts to the release
+      id-token: write
+      contents: read
     environment:
       name: PyPi
       url: https://pypi.org/p/airbyte
-    # Publish when: (1) triggered by a tag push, OR (2) called with publish=true (handles both boolean and string)
-    if: startsWith(github.ref, 'refs/tags/') || inputs.publish == true || inputs.publish == 'true'
     steps:
-    - uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
-      with:
-        name: Packages
-        path: dist
-    - name: Upload wheel to release
-      # Only upload to GitHub release when triggered by a tag
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: svenstaro/upload-release-action@81c65b7cd4de9b2570615ce3aad67a41de5b1a13 # latest
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: dist/*.whl
-        tag: ${{ github.ref }}
-        overwrite: true
-        file_glob: true
+      - name: Download release assets
+        uses: robinraju/release-downloader@v1.12
+        with:
+          tag: ${{ github.event.release.tag_name }}
+          fileName: "*"
+          out-file-path: dist
 
-    - name: Publish
-      uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+      # Uses GitHub OIDC for passwordless authentication (see header comment)
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.13.0

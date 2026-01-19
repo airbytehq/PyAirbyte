@@ -1,6 +1,7 @@
 name: Release Drafter
 
 on:
+  workflow_dispatch: {}
   push:
     branches:
       - main
@@ -10,12 +11,45 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  update_release_draft:
+  draft_release:
+    name: Draft Release
     permissions:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      - uses: aaronsteers/semantic-pr-release-drafter@v0.3.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          python-version: "3.10"
+
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          # Shallow clone is sufficient since we bypass dynamic versioning
+          fetch-depth: 1
+
+      - name: Get release version (dry-run)
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        id: dry-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          dry-run: true
+
+      - name: Build package
+        env:
+          VERSION: ${{ steps.dry-run.outputs.tag_name }}
+        # Standardize by removing preceding 'v' char:
+        run: POETRY_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
+
+      - name: Create or update draft release
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version: ${{ steps.dry-run.outputs.tag_name }}
+          attach-files: |
+            dist/*.whl
+            dist/*.tar.gz
