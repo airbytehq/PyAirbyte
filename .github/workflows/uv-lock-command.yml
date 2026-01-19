@@ -12,6 +12,11 @@ on:
         type: string
         required: false
 
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
@@ -83,9 +88,6 @@ jobs:
       uses: astral-sh/setup-uv@v7
       with:
         version: "latest"
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
         python-version: ${{ matrix.python-version }}
 
     # Run `uv lock`
