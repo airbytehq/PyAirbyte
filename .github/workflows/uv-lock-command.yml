@@ -46,7 +46,7 @@ jobs:
         app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
     - name: Checkout Airbyte
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
       with:
         # Important that this is set so that CI checks are triggered again
         # Without this we would be forever waiting on required checks to pass
@@ -85,7 +85,7 @@ jobs:
           [1]: ${{ steps.vars.outputs.run-url }}
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
         python-version: ${{ matrix.python-version }}

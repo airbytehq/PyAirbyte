@@ -26,9 +26,9 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
         python-version: '3.10'
@@ -57,14 +57,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: fasttest-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: pytest-fast-test-logs
         path: /tmp/airbyte/logs/
@@ -85,9 +85,9 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
         python-version: '3.10'
@@ -118,14 +118,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: nocreds-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: pytest-no-creds-test-logs
         path: /tmp/airbyte/logs/
@@ -157,9 +157,9 @@ jobs:
     steps:
     # Common steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
         python-version: ${{ matrix.python-version }}
@@ -201,14 +201,14 @@ jobs:
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
         path: htmlcov/
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-logs
         path: /tmp/airbyte/logs/
@@ -228,9 +228,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v6
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
     - name: Install uv
-      uses: astral-sh/setup-uv@v7
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
         version: "latest"
         python-version: '3.10'
