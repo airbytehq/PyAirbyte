@@ -26,18 +26,11 @@ jobs:
       name: PyPi
       url: https://pypi.org/p/airbyte
     steps:
-      - name: Download wheel from release
+      - name: Download release assets
         uses: robinraju/release-downloader@v1.12
         with:
           tag: ${{ github.event.release.tag_name }}
-          fileName: "*.whl"
-          out-file-path: dist
-
-      - name: Download sdist from release
-        uses: robinraju/release-downloader@v1.12
-        with:
-          tag: ${{ github.event.release.tag_name }}
-          fileName: "*.tar.gz"
+          fileName: "*"
           out-file-path: dist
 
       - name: Publish to PyPI
