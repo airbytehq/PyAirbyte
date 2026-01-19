@@ -21,10 +21,10 @@ jobs:
       - name: Get release version (dry-run)
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
         id: release-drafter
-        with:
-          dry-run: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          dry-run: true
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -47,9 +47,9 @@ jobs:
 
       - name: Create or update draft release
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
