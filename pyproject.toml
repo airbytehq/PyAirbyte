@@ -91,6 +91,10 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 fallback-version = "0.0.0"
+# Format to produce PEP 440 compliant versions like "x.y.za0" for dev builds
+# This produces versions with 3 parts when split by "." (e.g., "0.35.7a17")
+format = "{base}a{distance}"
+format-jinja = "{% if distance == 0 %}{{ base }}{% else %}{{ base }}a{{ distance }}{% endif %}"
 
 [tool.hatch.metadata]
 allow-direct-references = true
