@@ -4,7 +4,20 @@
 import asyncio
 import sys
 
-from fastmcp_extensions import mcp_server, register_mcp_prompts, register_mcp_tools
+from fastmcp import FastMCP
+from fastmcp_extensions import (
+    MCPServerConfigArg,
+    get_mcp_config,
+    mcp_server,
+    register_mcp_prompts,
+    register_mcp_tools,
+)
+from fastmcp_extensions.tool_filters import (
+    ANNOTATION_MCP_MODULE,
+    ANNOTATION_READ_ONLY_HINT,
+    get_annotation,
+)
+from mcp.types import Tool
 
 import airbyte.mcp.cloud
 import airbyte.mcp.local
@@ -13,6 +26,98 @@ import airbyte.mcp.registry  # noqa: F401 - Import to register tools
 from airbyte._util.meta import set_mcp_mode
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp._util import initialize_secrets
+
+
+# =============================================================================
+# Backward-Compatible Config Args
+# =============================================================================
+# These config args support the legacy Airbyte-specific environment variables
+# while the standard fastmcp-extensions config args support the new MCP_* vars.
+# Both sets of filters are applied, so either env var will work.
+# =============================================================================
+
+AIRBYTE_READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
+    name="airbyte_readonly_mode",
+    env_var="AIRBYTE_CLOUD_MCP_READONLY_MODE",
+    default="0",
+    required=False,
+)
+"""Config arg for legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
+
+AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
+    name="airbyte_exclude_modules",
+    env_var="AIRBYTE_MCP_DOMAINS_DISABLED",
+    default="",
+    required=False,
+)
+"""Config arg for legacy AIRBYTE_MCP_DOMAINS_DISABLED env var."""
+
+AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
+    name="airbyte_include_modules",
+    env_var="AIRBYTE_MCP_DOMAINS",
+    default="",
+    required=False,
+)
+"""Config arg for legacy AIRBYTE_MCP_DOMAINS env var."""
+
+WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
+    name="workspace_id",
+    http_header_key="X-Airbyte-Workspace-Id",
+    env_var="AIRBYTE_CLOUD_WORKSPACE_ID",
+    required=False,
+    sensitive=False,
+)
+"""Config arg for workspace ID, supporting both HTTP header and env var."""
+
+
+def _parse_csv_config(value: str) -> list[str]:
+    """Parse a comma-separated config value into a list of strings."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
+    """Filter tools based on legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var.
+
+    When set to "1", only show tools with readOnlyHint=True.
+    """
+    config_value = get_mcp_config(app, "airbyte_readonly_mode").lower()
+    if config_value in {"1", "true"}:
+        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
+    return True
+
+
+def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
+    """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
+
+    When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
+    When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
+    """
+    exclude_modules = _parse_csv_config(get_mcp_config(app, "airbyte_exclude_modules"))
+    include_modules = _parse_csv_config(get_mcp_config(app, "airbyte_include_modules"))
+
+    # Get the tool's mcp_module from annotations
+    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
+
+    if exclude_modules:
+        # Hide tools from excluded modules
+        return not (tool_module and tool_module in exclude_modules)
+
+    if include_modules:
+        # Only show tools from included modules
+        return bool(tool_module and tool_module in include_modules)
+
+    return True
+
+
+AIRBYTE_CONFIG_ARGS: list[MCPServerConfigArg] = [
+    AIRBYTE_READONLY_MODE_CONFIG_ARG,
+    AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
+    AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
+    WORKSPACE_ID_CONFIG_ARG,
+]
+"""List of Airbyte-specific config args for backward compatibility."""
 
 
 # =============================================================================
@@ -57,6 +162,8 @@ app = mcp_server(
     package_name="airbyte",
     instructions=MCP_SERVER_INSTRUCTIONS,
     include_standard_tool_filters=True,
+    server_config_args=AIRBYTE_CONFIG_ARGS,
+    tool_filters=[airbyte_readonly_mode_filter, airbyte_module_filter],
 )
 """The Airbyte MCP Server application instance."""
 
