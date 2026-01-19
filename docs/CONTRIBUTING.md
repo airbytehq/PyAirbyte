@@ -4,13 +4,11 @@ Learn how you can become a contributor to PyAirbyte.
 
 ## Development
 
-- Make sure [Poetry is installed](https://python-poetry.org/docs/#) (version 2.0 or higher).
-- Run `poetry install`
-- For examples, check out the `examples` folder. They can be run via `poetry run python examples/<example file>`
+- Make sure [uv is installed](https://docs.astral.sh/uv/getting-started/installation/).
+- Run `uv sync --group dev`
+- For examples, check out the `examples` folder. They can be run via `uv run python examples/<example file>`
 
-Note: By default in Poetry 2.0, `poetry lock` only refreshes the lockfile without pulling new versions. This is the same behavior as the previous `poetry lock --no-update` command.
-
-- Unit tests and type checks can be run via `poetry run pytest`
+- Unit tests and type checks can be run via `uv run pytest`
 
 ## Documentation
 
@@ -28,7 +26,7 @@ Or to build and open in one step:
 poe docs-preview
 ```
 
-or `poetry run poe docs-preview` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
+or `uv run poe docs-preview` if you don't have [Poe](https://poethepoet.natn.io/index.html) installed.
 
 The `docs-generate` Poe task is mapped to the `run()` function of `docs/generate.py`.
 
@@ -46,20 +44,20 @@ To publish to PyPi, simply [create a GitHub Release](https://github.com/airbyteh
 
 > **Note**
 >
-> There is no version to bump. Version is calculated during build and publish, using the [poetry-dynamic-versioning](https://github.com/mtkennerly/poetry-dynamic-versioning) plugin.
+> There is no version to bump. Version is calculated during build and publish, using the [uv-dynamic-versioning](https://github.com/ninoseki/uv-dynamic-versioning) plugin.
 
 ## Coverage
 
 To run a coverage report, run:
 
 ```console
-poetry run poe coverage-html
+uv run poe coverage-html
 ```
 
 This will generate a coverage report in the `htmlcov` folder.
 
 Note: If you have pre-installed [Poe](https://poethepoet.natn.io/index.html)
-(`pipx install poethepoet`), then you can omit the `poetry run` prefix.
+(`pipx install poethepoet`), then you can omit the `uv run` prefix.
 
 ## Versioning
 
@@ -90,17 +88,17 @@ As a starting point, you can clone the repo and inspect the server definition us
 ### Testing the MCP Server From Source
 
 ```bash
-poetry install --all-extras
-poetry run poe mcp-inspect
+uv sync --group dev
+uv run poe mcp-inspect
 ```
 
-In your MCP config, you can test your development updates using `poetry` as the entrypoint:
+In your MCP config, you can test your development updates using `uv` as the entrypoint:
 
 ```json
 {
   "mcpServers": {
     "airbyte": {
-      "command": "poetry",
+      "command": "uv",
       "args": [
         "--directory=/path/to/repos/PyAirbyte",
         "run",
