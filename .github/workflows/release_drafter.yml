@@ -41,6 +41,7 @@ jobs:
       - name: Build package
         env:
           VERSION: ${{ steps.dry-run.outputs.tag_name }}
+        # Standardize by removing preceding 'v' char:
         run: POETRY_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Create or update draft release
