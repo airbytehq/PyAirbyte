@@ -40,12 +40,8 @@ jobs:
 
       - name: Build package
         env:
-          # Strip 'v' prefix for poetry-dynamic-versioning
-          POETRY_DYNAMIC_VERSIONING_BYPASS: ${{ steps.release-drafter.outputs.tag_name }}
-        run: |
-          VERSION="${POETRY_DYNAMIC_VERSIONING_BYPASS#v}"
-          echo "Building with version: $VERSION"
-          POETRY_DYNAMIC_VERSIONING_BYPASS="$VERSION" uv build
+          VERSION: ${{ steps.release-drafter.outputs.tag_name }}
+        run: POETRY_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Create or update draft release
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
