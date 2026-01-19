@@ -18,6 +18,14 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
+      - name: Get release version (dry-run)
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        id: release-drafter
+        with:
+          dry-run: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
@@ -29,7 +37,13 @@ jobs:
           fetch-depth: 0
 
       - name: Build package
-        run: uv build
+        env:
+          # Strip 'v' prefix for poetry-dynamic-versioning
+          POETRY_DYNAMIC_VERSIONING_BYPASS: ${{ steps.release-drafter.outputs.tag_name }}
+        run: |
+          VERSION="${POETRY_DYNAMIC_VERSIONING_BYPASS#v}"
+          echo "Building with version: $VERSION"
+          POETRY_DYNAMIC_VERSIONING_BYPASS="$VERSION" uv build
 
       - name: Create or update draft release
         uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
