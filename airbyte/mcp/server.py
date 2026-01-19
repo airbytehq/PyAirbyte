@@ -4,14 +4,15 @@
 import asyncio
 import sys
 
-from fastmcp import FastMCP
+from fastmcp_extensions import mcp_server, register_mcp_prompts, register_mcp_tools
 
+import airbyte.mcp.cloud_ops
+import airbyte.mcp.connector_registry
+import airbyte.mcp.local_ops
+import airbyte.mcp.prompts  # noqa: F401 - Import to register prompts
 from airbyte._util.meta import set_mcp_mode
+from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp._util import initialize_secrets
-from airbyte.mcp.cloud_ops import register_cloud_ops_tools
-from airbyte.mcp.connector_registry import register_connector_registry_tools
-from airbyte.mcp.local_ops import register_local_ops_tools
-from airbyte.mcp.prompts import register_prompts
 
 
 # =============================================================================
@@ -51,13 +52,24 @@ Safety features:
 set_mcp_mode()
 initialize_secrets()
 
-app: FastMCP = FastMCP("airbyte-mcp", instructions=MCP_SERVER_INSTRUCTIONS)
+app = mcp_server(
+    name="airbyte-mcp",
+    package_name="airbyte",
+    instructions=MCP_SERVER_INSTRUCTIONS,
+    include_standard_tool_filters=True,
+)
 """The Airbyte MCP Server application instance."""
 
-register_connector_registry_tools(app)
-register_local_ops_tools(app)
-register_cloud_ops_tools(app)
-register_prompts(app)
+# Register tools from each module
+# For cloud_ops, conditionally hide workspace_id when env var is set
+register_mcp_tools(
+    app,
+    mcp_module="cloud_ops",
+    exclude_args=["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None,
+)
+register_mcp_tools(app, mcp_module="local_ops")
+register_mcp_tools(app, mcp_module="connector_registry")
+register_mcp_prompts(app, mcp_module="prompts")
 
 
 def main() -> None:

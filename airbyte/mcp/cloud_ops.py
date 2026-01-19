@@ -4,7 +4,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
@@ -16,9 +16,7 @@ from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
 from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
-    mcp_tool,
     register_guid_created_in_session,
-    register_tools,
 )
 from airbyte.mcp._util import (
     resolve_cloud_credentials,
@@ -234,7 +232,6 @@ def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -304,7 +301,6 @@ def deploy_source_to_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -374,7 +370,6 @@ def deploy_destination_to_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -437,7 +432,6 @@ def create_connection_on_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -489,7 +483,6 @@ def run_cloud_sync(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -539,7 +532,6 @@ def check_airbyte_cloud_workspace(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -572,7 +564,6 @@ def deploy_noop_destination_to_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -646,7 +637,6 @@ def get_cloud_sync_status(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -751,7 +741,6 @@ def list_cloud_sync_jobs(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -806,7 +795,6 @@ def list_deployed_cloud_source_connectors(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -861,7 +849,6 @@ def list_deployed_cloud_destination_connectors(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -897,7 +884,6 @@ def describe_cloud_source(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -933,7 +919,6 @@ def describe_cloud_destination(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -971,7 +956,6 @@ def describe_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1119,7 +1103,6 @@ def get_cloud_sync_logs(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1344,7 +1327,6 @@ def _resolve_organization_id(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1421,7 +1403,6 @@ def list_cloud_workspaces(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1484,7 +1465,6 @@ def _get_custom_source_definition_description(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -1591,7 +1571,6 @@ def publish_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1628,7 +1607,6 @@ def list_custom_source_definitions(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1672,7 +1650,6 @@ def get_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
 )
@@ -1794,7 +1771,6 @@ def update_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
 )
@@ -1861,7 +1837,6 @@ def permanently_delete_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -1917,7 +1892,6 @@ def permanently_delete_cloud_source(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -1973,7 +1947,6 @@ def permanently_delete_cloud_destination(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -2050,7 +2023,6 @@ def permanently_delete_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -2080,7 +2052,6 @@ def rename_cloud_source(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -2132,7 +2103,6 @@ def update_cloud_source_config(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -2165,7 +2135,6 @@ def rename_cloud_destination(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -2219,7 +2188,6 @@ def update_cloud_destination_config(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
@@ -2252,7 +2220,6 @@ def rename_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -2291,7 +2258,6 @@ def set_cloud_connection_table_prefix(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -2338,7 +2304,6 @@ def set_cloud_connection_selected_streams(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     destructive=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
@@ -2448,7 +2413,6 @@ def update_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -2494,16 +2458,3 @@ def get_connection_artifact(
     if result is None:
         return {"ERROR": "No catalog found for this connection"}
     return result
-
-
-def register_cloud_ops_tools(app: FastMCP) -> None:
-    """@private Register tools with the FastMCP app.
-
-    This is an internal function and should not be called directly.
-
-    Tools are filtered based on mode settings:
-    - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
-    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: All tools are registered, but destructive
-      operations are protected by runtime session checks
-    """
-    register_tools(app, domain="cloud")

@@ -7,13 +7,10 @@ common workflows.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
+from fastmcp_extensions import mcp_prompt
 from pydantic import Field
-
-
-if TYPE_CHECKING:
-    from fastmcp import FastMCP
 
 
 TEST_MY_TOOLS_GUIDANCE = """
@@ -38,6 +35,10 @@ Be efficient and practical in your testing approach.
 """.strip()
 
 
+@mcp_prompt(
+    name="test-my-tools",
+    description="Test all available MCP tools to confirm they are working properly",
+)
 def test_my_tools_prompt(
     scope: Annotated[
         str | None,
@@ -62,11 +63,3 @@ def test_my_tools_prompt(
             "content": content,
         }
     ]
-
-
-def register_prompts(app: FastMCP) -> None:
-    """Register all prompts with the FastMCP app."""
-    app.prompt(
-        name="test-my-tools",
-        description="Test all available MCP tools to confirm they are working properly",
-    )(test_my_tools_prompt)

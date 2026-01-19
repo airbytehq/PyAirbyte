@@ -8,12 +8,11 @@ import logging
 from typing import Annotated, Any, Literal
 
 import requests
-from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
-from airbyte.mcp._tool_utils import mcp_tool, register_tools
 from airbyte.mcp._util import resolve_list_of_strings
 from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
@@ -33,7 +32,6 @@ logger = logging.getLogger("airbyte.mcp")
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -131,7 +129,6 @@ class ConnectorInfo(BaseModel):
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -176,7 +173,6 @@ def get_connector_info(
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -204,7 +200,6 @@ def get_api_docs_urls(
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -266,11 +261,3 @@ def get_connector_version_history(
         if limit is not None and limit > 0:
             return versions[:limit]
         return versions
-
-
-def register_connector_registry_tools(app: FastMCP) -> None:
-    """@private Register tools with the FastMCP app.
-
-    This is an internal function and should not be called directly.
-    """
-    register_tools(app, domain="registry")
