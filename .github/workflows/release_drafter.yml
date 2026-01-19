@@ -34,7 +34,8 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          # Shallow clone is sufficient since we bypass dynamic versioning
+          fetch-depth: 1
 
       - name: Build package
         env:
