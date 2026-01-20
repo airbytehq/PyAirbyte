@@ -180,18 +180,6 @@ API_URL_CONFIG_ARG = MCPServerConfigArg(
 )
 """Config arg for API URL, supporting HTTP header and env var."""
 
-AIRBYTE_CONFIG_ARGS: list[MCPServerConfigArg] = [
-    AIRBYTE_READONLY_MODE_CONFIG_ARG,
-    AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
-    AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
-    WORKSPACE_ID_CONFIG_ARG,
-    BEARER_TOKEN_CONFIG_ARG,
-    CLIENT_ID_CONFIG_ARG,
-    CLIENT_SECRET_CONFIG_ARG,
-    API_URL_CONFIG_ARG,
-]
-"""List of Airbyte-specific config args for backward compatibility."""
-
 
 # =============================================================================
 # Tool Filters for Backward Compatibility

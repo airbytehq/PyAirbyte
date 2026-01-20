@@ -11,7 +11,14 @@ from fastmcp_extensions import mcp_server
 from airbyte._util.meta import set_mcp_mode
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
-    AIRBYTE_CONFIG_ARGS,
+    AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
+    AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
+    AIRBYTE_READONLY_MODE_CONFIG_ARG,
+    API_URL_CONFIG_ARG,
+    BEARER_TOKEN_CONFIG_ARG,
+    CLIENT_ID_CONFIG_ARG,
+    CLIENT_SECRET_CONFIG_ARG,
+    WORKSPACE_ID_CONFIG_ARG,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
 )
@@ -64,8 +71,20 @@ app = mcp_server(
     package_name="airbyte",
     instructions=MCP_SERVER_INSTRUCTIONS,
     include_standard_tool_filters=True,
-    server_config_args=AIRBYTE_CONFIG_ARGS,
-    tool_filters=[airbyte_readonly_mode_filter, airbyte_module_filter],
+    server_config_args=[
+        AIRBYTE_READONLY_MODE_CONFIG_ARG,
+        AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
+        AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
+        WORKSPACE_ID_CONFIG_ARG,
+        BEARER_TOKEN_CONFIG_ARG,
+        CLIENT_ID_CONFIG_ARG,
+        CLIENT_SECRET_CONFIG_ARG,
+        API_URL_CONFIG_ARG,
+    ],
+    tool_filters=[
+        airbyte_readonly_mode_filter,
+        airbyte_module_filter,
+    ],
 )
 """The Airbyte MCP Server application instance."""
 
