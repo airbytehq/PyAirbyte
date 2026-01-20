@@ -36,8 +36,11 @@ def _load_dotenv_file(dotenv_path: Path | str) -> None:
     dotenv.load_dotenv(dotenv_path=dotenv_path)
 
 
-def initialize_secrets() -> None:
-    """Initialize dotenv to load environment variables from .env files.
+def load_secrets_to_env_vars() -> None:
+    """Load secrets from dotenv files and secret managers into environment variables.
+
+    This function must be called before mcp_server() so that config args can resolve
+    from the loaded environment variables.
 
     Note: Later secret manager registrations have higher priority than earlier ones.
     """

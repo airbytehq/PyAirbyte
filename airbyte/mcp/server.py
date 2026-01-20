@@ -15,7 +15,7 @@ from airbyte.mcp._tool_utils import (
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
 )
-from airbyte.mcp._util import initialize_secrets
+from airbyte.mcp._util import load_secrets_to_env_vars
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
@@ -57,7 +57,7 @@ Safety features:
 """.strip()
 
 set_mcp_mode()
-initialize_secrets()
+load_secrets_to_env_vars()
 
 app = mcp_server(
     name="airbyte-mcp",
