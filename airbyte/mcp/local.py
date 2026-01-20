@@ -7,7 +7,8 @@ from itertools import islice
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from fastmcp_extensions import mcp_tool
+from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
@@ -801,3 +802,12 @@ def run_sql_query(
         ]
     finally:
         del cache  # Ensure the cache is closed properly
+
+
+def register_local_tools(app: FastMCP) -> None:
+    """Register local tools with the FastMCP app.
+
+    Args:
+        app: FastMCP application instance
+    """
+    register_mcp_tools(app, mcp_module=__name__)

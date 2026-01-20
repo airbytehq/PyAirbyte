@@ -4,7 +4,8 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from fastmcp_extensions import mcp_tool
+from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
@@ -2458,3 +2459,22 @@ def get_connection_artifact(
     if result is None:
         return {"ERROR": "No catalog found for this connection"}
     return result
+
+
+def register_cloud_tools(
+    app: FastMCP,
+    *,
+    exclude_workspace_id_arg: bool = False,
+) -> None:
+    """Register cloud tools with the FastMCP app.
+
+    Args:
+        app: FastMCP application instance
+        exclude_workspace_id_arg: If True, exclude the workspace_id argument from tool schemas.
+            This is useful when the workspace ID is set via environment variable.
+    """
+    register_mcp_tools(
+        app,
+        mcp_module=__name__,
+        exclude_args=["workspace_id"] if exclude_workspace_id_arg else None,
+    )

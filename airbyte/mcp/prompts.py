@@ -7,10 +7,14 @@ common workflows.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
-from fastmcp_extensions import mcp_prompt
+from fastmcp_extensions import mcp_prompt, register_mcp_prompts
 from pydantic import Field
+
+
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
 
 
 TEST_MY_TOOLS_GUIDANCE = """
@@ -63,3 +67,12 @@ def test_my_tools_prompt(
             "content": content,
         }
     ]
+
+
+def register_prompts(app: FastMCP) -> None:
+    """Register prompts with the FastMCP app.
+
+    Args:
+        app: FastMCP application instance
+    """
+    register_mcp_prompts(app, mcp_module=__name__)

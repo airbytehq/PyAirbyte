@@ -8,7 +8,8 @@ import logging
 from typing import Annotated, Any, Literal
 
 import requests
-from fastmcp_extensions import mcp_tool
+from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
@@ -261,3 +262,12 @@ def get_connector_version_history(
         if limit is not None and limit > 0:
             return versions[:limit]
         return versions
+
+
+def register_registry_tools(app: FastMCP) -> None:
+    """Register registry tools with the FastMCP app.
+
+    Args:
+        app: FastMCP application instance
+    """
+    register_mcp_tools(app, mcp_module=__name__)
