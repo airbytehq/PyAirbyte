@@ -9,6 +9,7 @@ import sys
 from fastmcp_extensions import mcp_server
 
 from airbyte._util.meta import set_mcp_mode
+from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -21,7 +22,6 @@ from airbyte.mcp._tool_utils import (
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
 )
-from airbyte.mcp._util import load_secrets_to_env_vars
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
