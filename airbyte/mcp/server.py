@@ -25,10 +25,10 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
     from mcp.types import Tool
 
-import airbyte.mcp.cloud  # noqa: F401 - Import to register tools
-import airbyte.mcp.local  # noqa: F401 - Import to register tools
-import airbyte.mcp.prompts  # noqa: F401 - Import to register prompts
-import airbyte.mcp.registry  # noqa: F401 - Import to register tools
+import airbyte.mcp.cloud  # Import for side effects: registers tools
+import airbyte.mcp.local  # Import for side effects: registers tools
+import airbyte.mcp.prompts  # Import for side effects: registers prompts
+import airbyte.mcp.registry  # noqa: F401 - Import for side effects: registers tools
 from airbyte._util.meta import set_mcp_mode
 from airbyte.constants import (
     CLOUD_WORKSPACE_ID_ENV_VAR,
