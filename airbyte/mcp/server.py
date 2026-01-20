@@ -25,9 +25,9 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
     from mcp.types import Tool
 
-import airbyte.mcp.cloud
-import airbyte.mcp.local
-import airbyte.mcp.prompts
+import airbyte.mcp.cloud  # noqa: F401 - Import to register tools
+import airbyte.mcp.local  # noqa: F401 - Import to register tools
+import airbyte.mcp.prompts  # noqa: F401 - Import to register prompts
 import airbyte.mcp.registry  # noqa: F401 - Import to register tools
 from airbyte._util.meta import set_mcp_mode
 from airbyte.constants import (
