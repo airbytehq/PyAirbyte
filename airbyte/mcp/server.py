@@ -30,6 +30,17 @@ import airbyte.mcp.local
 import airbyte.mcp.prompts
 import airbyte.mcp.registry  # noqa: F401 - Import to register tools
 from airbyte._util.meta import set_mcp_mode
+from airbyte.constants import (
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_CONFIG_EXCLUDE_MODULES,
+    MCP_CONFIG_INCLUDE_MODULES,
+    MCP_CONFIG_READONLY_MODE,
+    MCP_CONFIG_WORKSPACE_ID,
+    MCP_DOMAINS_DISABLED_ENV_VAR,
+    MCP_DOMAINS_ENV_VAR,
+    MCP_READONLY_MODE_ENV_VAR,
+    MCP_WORKSPACE_ID_HEADER,
+)
 from airbyte.mcp._tool_utils import AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET
 from airbyte.mcp._util import initialize_secrets
 
@@ -43,33 +54,33 @@ from airbyte.mcp._util import initialize_secrets
 # =============================================================================
 
 AIRBYTE_READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
-    name="airbyte_readonly_mode",
-    env_var="AIRBYTE_CLOUD_MCP_READONLY_MODE",
+    name=MCP_CONFIG_READONLY_MODE,
+    env_var=MCP_READONLY_MODE_ENV_VAR,
     default="0",
     required=False,
 )
 """Config arg for legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
 
 AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
-    name="airbyte_exclude_modules",
-    env_var="AIRBYTE_MCP_DOMAINS_DISABLED",
+    name=MCP_CONFIG_EXCLUDE_MODULES,
+    env_var=MCP_DOMAINS_DISABLED_ENV_VAR,
     default="",
     required=False,
 )
 """Config arg for legacy AIRBYTE_MCP_DOMAINS_DISABLED env var."""
 
 AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
-    name="airbyte_include_modules",
-    env_var="AIRBYTE_MCP_DOMAINS",
+    name=MCP_CONFIG_INCLUDE_MODULES,
+    env_var=MCP_DOMAINS_ENV_VAR,
     default="",
     required=False,
 )
 """Config arg for legacy AIRBYTE_MCP_DOMAINS env var."""
 
 WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
-    name="workspace_id",
-    http_header_key="X-Airbyte-Workspace-Id",
-    env_var="AIRBYTE_CLOUD_WORKSPACE_ID",
+    name=MCP_CONFIG_WORKSPACE_ID,
+    http_header_key=MCP_WORKSPACE_ID_HEADER,
+    env_var=CLOUD_WORKSPACE_ID_ENV_VAR,
     required=False,
     sensitive=False,
 )
@@ -88,7 +99,7 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
 
     When set to "1", only show tools with readOnlyHint=True.
     """
-    config_value = get_mcp_config(app, "airbyte_readonly_mode").lower()
+    config_value = get_mcp_config(app, MCP_CONFIG_READONLY_MODE).lower()
     if config_value in {"1", "true"}:
         return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
     return True
@@ -100,8 +111,8 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
     When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
     """
-    exclude_modules = _parse_csv_config(get_mcp_config(app, "airbyte_exclude_modules"))
-    include_modules = _parse_csv_config(get_mcp_config(app, "airbyte_include_modules"))
+    exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES))
+    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES))
 
     # Get the tool's mcp_module from annotations
     tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)

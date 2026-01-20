@@ -255,3 +255,45 @@ Documentation:
 - https://docs.airbyte.com/api-documentation#configuration-api-deprecated
 - https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml
 """
+
+# MCP (Model Context Protocol) Constants
+
+MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
+"""Environment variable to enable read-only mode for the MCP server.
+
+When set to "1" or "true", only tools with readOnlyHint=True will be available.
+"""
+
+MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
+"""Environment variable to disable specific MCP tool domains.
+
+Accepts a comma-separated list of domain names (e.g., "local,registry").
+Tools from these domains will not be advertised by the MCP server.
+"""
+
+MCP_DOMAINS_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS"
+"""Environment variable to enable specific MCP tool domains.
+
+Accepts a comma-separated list of domain names (e.g., "cloud,registry").
+If set, only tools from these domains will be advertised by the MCP server.
+"""
+
+MCP_WORKSPACE_ID_HEADER: str = "X-Airbyte-Workspace-Id"
+"""HTTP header key for passing workspace ID to the MCP server.
+
+This allows per-request workspace ID configuration when using HTTP transport.
+"""
+
+# MCP Config Arg Names (used with get_mcp_config)
+
+MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
+"""Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+
+MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
+"""Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
+
+MCP_CONFIG_INCLUDE_MODULES: str = "airbyte_include_modules"
+"""Config arg name for the legacy AIRBYTE_MCP_DOMAINS setting."""
+
+MCP_CONFIG_WORKSPACE_ID: str = "workspace_id"
+"""Config arg name for the workspace ID setting."""
