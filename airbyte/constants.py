@@ -258,36 +258,68 @@ Documentation:
 
 # MCP (Model Context Protocol) Constants
 
-MCP_TOOL_DOMAINS: list[str] = ["cloud", "local", "registry"]
-"""Valid MCP tool domains available in the server.
+MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
+"""Environment variable to enable read-only mode for the MCP server.
 
-- `cloud`: Tools for managing Airbyte Cloud resources (sources, destinations, connections)
-- `local`: Tools for local operations (connector validation, caching, SQL queries)
-- `registry`: Tools for querying the Airbyte connector registry
+When set to "1" or "true", only tools with readOnlyHint=True will be available.
 """
 
-AIRBYTE_MCP_DOMAINS: list[str] | None = [
-    d.strip().lower() for d in os.getenv("AIRBYTE_MCP_DOMAINS", "").split(",") if d.strip()
-] or None
-"""Enabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS` environment variable.
+MCP_DOMAINS_DISABLED_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS_DISABLED"
+"""Environment variable to disable specific MCP tool domains.
 
-Accepts a comma-separated list of domain names (e.g., "registry,cloud").
-If set, only tools from these domains will be advertised by the MCP server.
-If not set (None), all domains are enabled by default.
-
-Values are case-insensitive and whitespace is trimmed.
-"""
-
-AIRBYTE_MCP_DOMAINS_DISABLED: list[str] | None = [
-    d.strip().lower() for d in os.getenv("AIRBYTE_MCP_DOMAINS_DISABLED", "").split(",") if d.strip()
-] or None
-"""Disabled MCP tool domains from the `AIRBYTE_MCP_DOMAINS_DISABLED` environment variable.
-
-Accepts a comma-separated list of domain names (e.g., "registry").
+Accepts a comma-separated list of domain names (e.g., "local,registry").
 Tools from these domains will not be advertised by the MCP server.
-
-When both `AIRBYTE_MCP_DOMAINS` and `AIRBYTE_MCP_DOMAINS_DISABLED` are set,
-the disabled list takes precedence (subtracts from the enabled list).
-
-Values are case-insensitive and whitespace is trimmed.
 """
+
+MCP_DOMAINS_ENV_VAR: str = "AIRBYTE_MCP_DOMAINS"
+"""Environment variable to enable specific MCP tool domains.
+
+Accepts a comma-separated list of domain names (e.g., "cloud,registry").
+If set, only tools from these domains will be advertised by the MCP server.
+"""
+
+MCP_WORKSPACE_ID_HEADER: str = "X-Airbyte-Workspace-Id"
+"""HTTP header key for passing workspace ID to the MCP server.
+
+This allows per-request workspace ID configuration when using HTTP transport.
+"""
+
+# MCP Config Arg Names (used with get_mcp_config)
+
+MCP_CONFIG_READONLY_MODE: str = "airbyte_readonly_mode"
+"""Config arg name for the legacy AIRBYTE_CLOUD_MCP_READONLY_MODE setting."""
+
+MCP_CONFIG_EXCLUDE_MODULES: str = "airbyte_exclude_modules"
+"""Config arg name for the legacy AIRBYTE_MCP_DOMAINS_DISABLED setting."""
+
+MCP_CONFIG_INCLUDE_MODULES: str = "airbyte_include_modules"
+"""Config arg name for the legacy AIRBYTE_MCP_DOMAINS setting."""
+
+MCP_CONFIG_WORKSPACE_ID: str = "workspace_id"
+"""Config arg name for the workspace ID setting."""
+
+MCP_CONFIG_BEARER_TOKEN: str = "bearer_token"
+"""Config arg name for the bearer token setting."""
+
+MCP_CONFIG_CLIENT_ID: str = "client_id"
+"""Config arg name for the client ID setting."""
+
+MCP_CONFIG_CLIENT_SECRET: str = "client_secret"
+"""Config arg name for the client secret setting."""
+
+MCP_CONFIG_API_URL: str = "api_url"
+"""Config arg name for the API URL setting."""
+
+# MCP HTTP Header Keys for credentials
+
+MCP_BEARER_TOKEN_HEADER: str = "Authorization"
+"""HTTP header key for bearer token (standard Authorization header)."""
+
+MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
+"""HTTP header key for client ID."""
+
+MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
+"""HTTP header key for client secret."""
+
+MCP_API_URL_HEADER: str = "X-Airbyte-Cloud-Api-Url"
+"""HTTP header key for API URL."""

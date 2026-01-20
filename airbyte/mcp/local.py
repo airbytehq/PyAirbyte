@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
-from airbyte.mcp._tool_utils import mcp_tool, register_tools
-from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -106,7 +106,6 @@ def _get_mcp_source(
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -167,7 +166,7 @@ def validate_connector_config(
         return False, f"Failed to get connector '{connector_name}': {ex}"
 
     try:
-        config_dict = resolve_config(
+        config_dict = resolve_connector_config(
             config=config,
             config_file=config_file,
             config_secret_name=config_secret_name,
@@ -186,7 +185,6 @@ def validate_connector_config(
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
 )
@@ -216,7 +214,6 @@ def list_connector_config_secrets(
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -236,7 +233,6 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -292,7 +288,7 @@ def list_source_streams(
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -303,7 +299,6 @@ def list_source_streams(
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -360,7 +355,7 @@ def get_source_stream_json_schema(
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -371,7 +366,6 @@ def get_source_stream_json_schema(
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     extra_help_text=_CONFIG_HELP,
 )
@@ -436,7 +430,7 @@ def read_source_stream_records(
             override_execution_mode=override_execution_mode,
             manifest_path=manifest_path,
         )
-        config_dict = resolve_config(
+        config_dict = resolve_connector_config(
             config=config,
             config_file=config_file,
             config_secret_name=config_secret_name,
@@ -462,7 +456,6 @@ def read_source_stream_records(
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     extra_help_text=_CONFIG_HELP,
 )
@@ -537,7 +530,7 @@ def get_stream_previews(
         manifest_path=manifest_path,
     )
 
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -575,7 +568,6 @@ def get_stream_previews(
 
 
 @mcp_tool(
-    domain="local",
     destructive=False,
     extra_help_text=_CONFIG_HELP,
 )
@@ -634,7 +626,7 @@ def sync_source_to_cache(
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -684,7 +676,6 @@ class CachedDatasetInfo(BaseModel):
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -705,7 +696,6 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -757,7 +747,6 @@ def _is_safe_sql(sql_query: str) -> bool:
 
 
 @mcp_tool(
-    domain="local",
     read_only=True,
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
@@ -815,9 +804,10 @@ def run_sql_query(
         del cache  # Ensure the cache is closed properly
 
 
-def register_local_ops_tools(app: FastMCP) -> None:
-    """@private Register tools with the FastMCP app.
+def register_local_tools(app: FastMCP) -> None:
+    """Register local tools with the FastMCP app.
 
-    This is an internal function and should not be called directly.
+    Args:
+        app: FastMCP application instance
     """
-    register_tools(app, domain="local")
+    register_mcp_tools(app, mcp_module=__name__)

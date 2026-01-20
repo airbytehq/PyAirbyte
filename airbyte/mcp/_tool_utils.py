@@ -1,42 +1,71 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""MCP tool utility functions.
+"""MCP tool utility functions for safe mode and config args.
 
-This module provides a decorator to tag tool functions with MCP annotations
-for deferred registration with safe mode filtering.
+This module provides:
+- Safe mode functionality for MCP tools, allowing tracking of resources created
+  during a session to prevent accidental deletion of pre-existing resources.
+- Config args and filters for backward compatibility with legacy Airbyte env vars.
 """
 
 from __future__ import annotations
 
-import inspect
 import os
-import warnings
-from collections.abc import Callable
-from functools import lru_cache
-from typing import Any, Literal, TypeVar
+from typing import TYPE_CHECKING
+
+from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
+from fastmcp_extensions.tool_filters import (
+    ANNOTATION_MCP_MODULE,
+    ANNOTATION_READ_ONLY_HINT,
+    get_annotation,
+)
 
 from airbyte.constants import (
-    AIRBYTE_MCP_DOMAINS,
-    AIRBYTE_MCP_DOMAINS_DISABLED,
-    MCP_TOOL_DOMAINS,
-)
-from airbyte.mcp._annotations import (
-    DESTRUCTIVE_HINT,
-    IDEMPOTENT_HINT,
-    OPEN_WORLD_HINT,
-    READ_ONLY_HINT,
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_API_URL_HEADER,
+    MCP_BEARER_TOKEN_HEADER,
+    MCP_CLIENT_ID_HEADER,
+    MCP_CLIENT_SECRET_HEADER,
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_CLIENT_ID,
+    MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_EXCLUDE_MODULES,
+    MCP_CONFIG_INCLUDE_MODULES,
+    MCP_CONFIG_READONLY_MODE,
+    MCP_CONFIG_WORKSPACE_ID,
+    MCP_DOMAINS_DISABLED_ENV_VAR,
+    MCP_DOMAINS_ENV_VAR,
+    MCP_READONLY_MODE_ENV_VAR,
+    MCP_WORKSPACE_ID_HEADER,
 )
 
 
-F = TypeVar("F", bound=Callable[..., Any])
+if TYPE_CHECKING:
+    from fastmcp import FastMCP
+    from mcp.types import Tool
 
-AIRBYTE_CLOUD_MCP_READONLY_MODE = (
-    os.environ.get("AIRBYTE_CLOUD_MCP_READONLY_MODE", "").strip() == "1"
-)
+
+# =============================================================================
+# Safe Mode Configuration
+# =============================================================================
+
 AIRBYTE_CLOUD_MCP_SAFE_MODE = os.environ.get("AIRBYTE_CLOUD_MCP_SAFE_MODE", "1").strip() != "0"
+"""Whether safe mode is enabled for cloud operations.
+
+When enabled (default), destructive operations are only allowed on resources
+created during the current session.
+"""
+
 AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET = bool(os.environ.get("AIRBYTE_CLOUD_WORKSPACE_ID", "").strip())
+"""Whether the AIRBYTE_CLOUD_WORKSPACE_ID environment variable is set.
 
+When set, the workspace_id parameter is hidden from cloud tools.
+"""
 
-_REGISTERED_TOOLS: list[tuple[Callable[..., Any], dict[str, Any]]] = []
 _GUIDS_CREATED_IN_SESSION: set[str] = set()
 
 
@@ -74,191 +103,125 @@ def check_guid_created_in_session(guid: str) -> None:
         )
 
 
-@lru_cache(maxsize=1)
-def _resolve_mcp_domain_filters() -> tuple[set[str], set[str]]:
-    """Resolve MCP domain filters from environment variables.
+# =============================================================================
+# Backward-Compatible Config Args
+# =============================================================================
+# These config args support the legacy Airbyte-specific environment variables
+# while the standard fastmcp-extensions config args support the new MCP_* vars.
+# Both sets of filters are applied, so either env var will work.
+# =============================================================================
 
-    This function is cached to ensure warnings are only emitted once per process.
+AIRBYTE_READONLY_MODE_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_READONLY_MODE,
+    env_var=MCP_READONLY_MODE_ENV_VAR,
+    default="0",
+    required=False,
+)
+"""Config arg for legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var."""
 
-    Returns:
-        Tuple of (enabled_domains, disabled_domains) as sets.
-        If an env var is not set, the corresponding set will be empty.
+AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_EXCLUDE_MODULES,
+    env_var=MCP_DOMAINS_DISABLED_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for legacy AIRBYTE_MCP_DOMAINS_DISABLED env var."""
+
+AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_INCLUDE_MODULES,
+    env_var=MCP_DOMAINS_ENV_VAR,
+    default="",
+    required=False,
+)
+"""Config arg for legacy AIRBYTE_MCP_DOMAINS env var."""
+
+WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_WORKSPACE_ID,
+    http_header_key=MCP_WORKSPACE_ID_HEADER,
+    env_var=CLOUD_WORKSPACE_ID_ENV_VAR,
+    required=False,
+    sensitive=False,
+)
+"""Config arg for workspace ID, supporting both HTTP header and env var."""
+
+BEARER_TOKEN_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_BEARER_TOKEN,
+    http_header_key=MCP_BEARER_TOKEN_HEADER,
+    env_var=CLOUD_BEARER_TOKEN_ENV_VAR,
+    required=False,
+    sensitive=True,
+)
+"""Config arg for bearer token, supporting Authorization header and env var."""
+
+CLIENT_ID_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_CLIENT_ID,
+    http_header_key=MCP_CLIENT_ID_HEADER,
+    env_var=CLOUD_CLIENT_ID_ENV_VAR,
+    required=False,
+    sensitive=True,
+)
+"""Config arg for client ID, supporting HTTP header and env var."""
+
+CLIENT_SECRET_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_CLIENT_SECRET,
+    http_header_key=MCP_CLIENT_SECRET_HEADER,
+    env_var=CLOUD_CLIENT_SECRET_ENV_VAR,
+    required=False,
+    sensitive=True,
+)
+"""Config arg for client secret, supporting HTTP header and env var."""
+
+API_URL_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_API_URL,
+    http_header_key=MCP_API_URL_HEADER,
+    env_var=CLOUD_API_ROOT_ENV_VAR,
+    required=False,
+    sensitive=False,
+)
+"""Config arg for API URL, supporting HTTP header and env var."""
+
+
+# =============================================================================
+# Tool Filters for Backward Compatibility
+# =============================================================================
+
+
+def _parse_csv_config(value: str) -> list[str]:
+    """Parse a comma-separated config value into a list of strings."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
+    """Filter tools based on legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var.
+
+    When set to "1", only show tools with readOnlyHint=True.
     """
-    known_domains = set(MCP_TOOL_DOMAINS)
-    enabled = set(AIRBYTE_MCP_DOMAINS or [])
-    disabled = set(AIRBYTE_MCP_DOMAINS_DISABLED or [])
-
-    # Check for unknown domains and warn
-    unknown_enabled = enabled - known_domains
-    unknown_disabled = disabled - known_domains
-
-    if unknown_enabled or unknown_disabled:
-        parts: list[str] = []
-        if unknown_enabled:
-            parts.append(
-                f"AIRBYTE_MCP_DOMAINS contains unknown domain(s): {sorted(unknown_enabled)}"
-            )
-        if unknown_disabled:
-            parts.append(
-                "AIRBYTE_MCP_DOMAINS_DISABLED contains unknown domain(s): "
-                f"{sorted(unknown_disabled)}"
-            )
-        known_list = ", ".join(sorted(known_domains))
-        warning_message = "; ".join(parts) + f". Known MCP domains are: [{known_list}]."
-        warnings.warn(warning_message, stacklevel=3)
-
-    return enabled, disabled
-
-
-def is_domain_enabled(domain: str) -> bool:
-    """Check if a domain is enabled based on AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
-
-    The logic is:
-    - If neither env var is set: all domains are enabled
-    - If only AIRBYTE_MCP_DOMAINS is set: only those domains are enabled
-    - If only AIRBYTE_MCP_DOMAINS_DISABLED is set: all domains except those are enabled
-    - If both are set: disabled domains subtract from enabled domains
-
-    Args:
-        domain: The domain to check (e.g., "cloud", "local", "registry")
-
-    Returns:
-        True if the domain is enabled, False otherwise
-    """
-    enabled, disabled = _resolve_mcp_domain_filters()
-    domain_lower = domain.lower()
-
-    # If neither env var is set, all domains are enabled
-    if not enabled and not disabled:
-        return True
-
-    # If only disabled list is set, enable all except disabled
-    if not enabled and disabled:
-        return domain_lower not in disabled
-
-    # If only enabled list is set, only enable those domains
-    if enabled and not disabled:
-        return domain_lower in enabled
-
-    # Both are set: disabled list subtracts from enabled list
-    return domain_lower in enabled and domain_lower not in disabled
-
-
-def should_register_tool(annotations: dict[str, Any]) -> bool:
-    """Check if a tool should be registered based on mode settings.
-
-    Args:
-        annotations: Tool annotations dict containing domain, readOnlyHint, and destructiveHint
-
-    Returns:
-        True if the tool should be registered, False if it should be filtered out
-    """
-    domain = annotations.get("domain")
-    domain_normalized = domain.lower() if isinstance(domain, str) else None
-
-    # Check domain filtering first
-    if domain_normalized and not is_domain_enabled(domain_normalized):
-        return False
-
-    # Cloud-specific readonly mode check (case-insensitive)
-    if domain_normalized == "cloud" and AIRBYTE_CLOUD_MCP_READONLY_MODE:
-        is_readonly = annotations.get(READ_ONLY_HINT, False)
-        if not is_readonly:
-            return False
-
+    config_value = (get_mcp_config(app, MCP_CONFIG_READONLY_MODE) or "").lower()
+    if config_value in {"1", "true"}:
+        return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
     return True
 
 
-def get_registered_tools(
-    domain: Literal["cloud", "local", "registry"] | None = None,
-) -> list[tuple[Callable[..., Any], dict[str, Any]]]:
-    """Get all registered tools, optionally filtered by domain.
+def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
+    """Filter tools based on legacy AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED.
 
-    Args:
-        domain: The domain to filter by (e.g., "cloud", "local", "registry").
-            If None, returns all tools.
-
-    Returns:
-        List of tuples containing (function, annotations) for each registered tool
+    When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
+    When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
     """
-    if domain is None:
-        return _REGISTERED_TOOLS.copy()
-    return [(func, ann) for func, ann in _REGISTERED_TOOLS if ann.get("domain") == domain]
+    exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
+    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
 
+    # Get the tool's mcp_module from annotations
+    tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
 
-def mcp_tool(
-    domain: Literal["cloud", "local", "registry"],
-    *,
-    read_only: bool = False,
-    destructive: bool = False,
-    idempotent: bool = False,
-    open_world: bool = False,
-    extra_help_text: str | None = None,
-) -> Callable[[F], F]:
-    """Decorator to tag an MCP tool function with annotations for deferred registration.
+    if exclude_modules:
+        # Hide tools from excluded modules
+        return not (tool_module and tool_module in exclude_modules)
 
-    This decorator stores the annotations on the function for later use during
-    deferred registration. It does not register the tool immediately.
+    if include_modules:
+        # Only show tools from included modules
+        return bool(tool_module and tool_module in include_modules)
 
-    Args:
-        domain: The domain this tool belongs to (e.g., "cloud", "local", "registry")
-        read_only: If True, tool only reads without making changes (default: False)
-        destructive: If True, tool modifies/deletes existing data (default: False)
-        idempotent: If True, repeated calls have same effect (default: False)
-        open_world: If True, tool interacts with external systems (default: False)
-        extra_help_text: Optional text to append to the function's docstring
-            with a newline delimiter
-
-    Returns:
-        Decorator function that tags the tool with annotations
-
-    Example:
-        @mcp_tool("cloud", read_only=True, idempotent=True)
-        def list_sources():
-            ...
-    """
-    annotations: dict[str, Any] = {
-        "domain": domain,
-        READ_ONLY_HINT: read_only,
-        DESTRUCTIVE_HINT: destructive,
-        IDEMPOTENT_HINT: idempotent,
-        OPEN_WORLD_HINT: open_world,
-    }
-
-    def decorator(func: F) -> F:
-        func._mcp_annotations = annotations  # type: ignore[attr-defined]  # noqa: SLF001
-        func._mcp_domain = domain  # type: ignore[attr-defined]  # noqa: SLF001
-        func._mcp_extra_help_text = extra_help_text  # type: ignore[attr-defined]  # noqa: SLF001
-        _REGISTERED_TOOLS.append((func, annotations))
-        return func
-
-    return decorator
-
-
-def register_tools(app: Any, domain: Literal["cloud", "local", "registry"]) -> None:  # noqa: ANN401
-    """Register tools with the FastMCP app, filtered by domain and safe mode settings.
-
-    Args:
-        app: The FastMCP app instance
-        domain: The domain to register tools for (e.g., "cloud", "local", "registry")
-    """
-    for func, tool_annotations in get_registered_tools(domain):
-        if should_register_tool(tool_annotations):
-            extra_help_text = getattr(func, "_mcp_extra_help_text", None)
-            description: str | None = None
-            if extra_help_text:
-                description = (func.__doc__ or "").rstrip() + "\n" + extra_help_text
-
-            # For cloud tools, conditionally hide workspace_id parameter when env var is set
-            exclude_args: list[str] | None = None
-            if domain == "cloud" and AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET:
-                params = set(inspect.signature(func).parameters.keys())
-                excluded = [name for name in ["workspace_id"] if name in params]
-                exclude_args = excluded or None
-
-            app.tool(
-                func,
-                annotations=tool_annotations,
-                description=description,
-                exclude_args=exclude_args,
-            )
+    return True

@@ -9,12 +9,12 @@ from typing import Annotated, Any, Literal
 
 import requests
 from fastmcp import FastMCP
+from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
-from airbyte.mcp._tool_utils import mcp_tool, register_tools
-from airbyte.mcp._util import resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
     ApiDocsUrl,
@@ -33,7 +33,6 @@ logger = logging.getLogger("airbyte.mcp")
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -131,7 +130,6 @@ class ConnectorInfo(BaseModel):
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -176,7 +174,6 @@ def get_connector_info(
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -204,7 +201,6 @@ def get_api_docs_urls(
 
 
 @mcp_tool(
-    domain="registry",
     read_only=True,
     idempotent=True,
 )
@@ -268,9 +264,10 @@ def get_connector_version_history(
         return versions
 
 
-def register_connector_registry_tools(app: FastMCP) -> None:
-    """@private Register tools with the FastMCP app.
+def register_registry_tools(app: FastMCP) -> None:
+    """Register registry tools with the FastMCP app.
 
-    This is an internal function and should not be called directly.
+    Args:
+        app: FastMCP application instance
     """
-    register_tools(app, domain="registry")
+    register_mcp_tools(app, mcp_module=__name__)

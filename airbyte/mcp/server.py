@@ -1,17 +1,31 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Experimental MCP (Model Context Protocol) server for PyAirbyte connector management."""
 
+from __future__ import annotations
+
 import asyncio
 import sys
 
-from fastmcp import FastMCP
+from fastmcp_extensions import mcp_server
 
 from airbyte._util.meta import set_mcp_mode
-from airbyte.mcp._util import initialize_secrets
-from airbyte.mcp.cloud_ops import register_cloud_ops_tools
-from airbyte.mcp.connector_registry import register_connector_registry_tools
-from airbyte.mcp.local_ops import register_local_ops_tools
+from airbyte.mcp._config import load_secrets_to_env_vars
+from airbyte.mcp._tool_utils import (
+    AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
+    AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
+    AIRBYTE_READONLY_MODE_CONFIG_ARG,
+    API_URL_CONFIG_ARG,
+    BEARER_TOKEN_CONFIG_ARG,
+    CLIENT_ID_CONFIG_ARG,
+    CLIENT_SECRET_CONFIG_ARG,
+    WORKSPACE_ID_CONFIG_ARG,
+    airbyte_module_filter,
+    airbyte_readonly_mode_filter,
+)
+from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
+from airbyte.mcp.registry import register_registry_tools
 
 
 # =============================================================================
@@ -49,14 +63,34 @@ Safety features:
 """.strip()
 
 set_mcp_mode()
-initialize_secrets()
+load_secrets_to_env_vars()
 
-app: FastMCP = FastMCP("airbyte-mcp", instructions=MCP_SERVER_INSTRUCTIONS)
+app = mcp_server(
+    name="airbyte-mcp",
+    package_name="airbyte",
+    instructions=MCP_SERVER_INSTRUCTIONS,
+    include_standard_tool_filters=True,
+    server_config_args=[
+        AIRBYTE_READONLY_MODE_CONFIG_ARG,
+        AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
+        AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
+        WORKSPACE_ID_CONFIG_ARG,
+        BEARER_TOKEN_CONFIG_ARG,
+        CLIENT_ID_CONFIG_ARG,
+        CLIENT_SECRET_CONFIG_ARG,
+        API_URL_CONFIG_ARG,
+    ],
+    tool_filters=[
+        airbyte_readonly_mode_filter,
+        airbyte_module_filter,
+    ],
+)
 """The Airbyte MCP Server application instance."""
 
-register_connector_registry_tools(app)
-register_local_ops_tools(app)
-register_cloud_ops_tools(app)
+# Register tools from each module
+register_cloud_tools(app)
+register_local_tools(app)
+register_registry_tools(app)
 register_prompts(app)
 
 

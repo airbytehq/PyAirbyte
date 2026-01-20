@@ -210,13 +210,13 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import cloud_ops, connector_registry, local_ops, server
+from airbyte.mcp import cloud, local, registry, server
 
 
 __all__: list[str] = [
-    "cloud_ops",
-    "connector_registry",
-    "local_ops",
+    "cloud",
+    "local",
+    "registry",
     "server",
 ]
 

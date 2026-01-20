@@ -4,7 +4,8 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
+from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
@@ -12,19 +13,20 @@ from airbyte._util import api_util
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.constants import (
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_CLIENT_ID,
+    MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_WORKSPACE_ID,
+)
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._tool_utils import (
+    AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
-    mcp_tool,
     register_guid_created_in_session,
-    register_tools,
-)
-from airbyte.mcp._util import (
-    resolve_cloud_credentials,
-    resolve_config,
-    resolve_list_of_strings,
-    resolve_workspace_id,
 )
 from airbyte.secrets import SecretString
 
@@ -210,35 +212,47 @@ class SyncJobListResult(BaseModel):
     """Whether jobs are ordered newest-first (True) or oldest-first (False)."""
 
 
-def _get_cloud_workspace(workspace_id: str | None = None) -> CloudWorkspace:
+def _get_cloud_workspace(
+    ctx: Context,
+    workspace_id: str | None = None,
+) -> CloudWorkspace:
     """Get an authenticated CloudWorkspace.
 
-    Resolves credentials from multiple sources in order:
+    Resolves credentials from multiple sources via MCP config args in order:
     1. HTTP headers (when running as MCP server with HTTP/SSE transport)
     2. Environment variables
 
-    Args:
-        workspace_id: Optional workspace ID. If not provided, uses HTTP headers
-            or the AIRBYTE_CLOUD_WORKSPACE_ID environment variable.
+    The ctx parameter provides access to MCP config values that are resolved
+    from HTTP headers or environment variables based on the config args
+    defined in server.py.
     """
-    credentials = resolve_cloud_credentials()
-    resolved_workspace_id = resolve_workspace_id(workspace_id)
+    resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
+    if not resolved_workspace_id:
+        raise PyAirbyteInputError(
+            message="Workspace ID is required but not provided.",
+            guidance="Set AIRBYTE_CLOUD_WORKSPACE_ID env var or pass workspace_id parameter.",
+        )
+
+    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
+    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
+    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
 
     return CloudWorkspace(
         workspace_id=resolved_workspace_id,
-        client_id=credentials.client_id,
-        client_secret=credentials.client_secret,
-        bearer_token=credentials.bearer_token,
-        api_root=credentials.api_root,
+        client_id=SecretString(client_id) if client_id else None,
+        client_secret=SecretString(client_secret) if client_secret else None,
+        bearer_token=SecretString(bearer_token) if bearer_token else None,
+        api_root=api_url,
     )
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_source_to_cloud(
+    ctx: Context,
     source_name: Annotated[
         str,
         Field(description="The name to use when deploying the source."),
@@ -282,14 +296,14 @@ def deploy_source_to_cloud(
         source_connector_name,
         no_executor=True,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
     )
     source.set_config(config_dict, validate=True)
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_source = workspace.deploy_source(
         name=source_name,
         source=source,
@@ -304,11 +318,11 @@ def deploy_source_to_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_destination_to_cloud(
+    ctx: Context,
     destination_name: Annotated[
         str,
         Field(description="The name to use when deploying the destination."),
@@ -352,14 +366,14 @@ def deploy_destination_to_cloud(
         destination_connector_name,
         no_executor=True,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=destination.config_spec,
     )
     destination.set_config(config_dict, validate=True)
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_destination = workspace.deploy_destination(
         name=destination_name,
         destination=destination,
@@ -374,11 +388,11 @@ def deploy_destination_to_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def create_connection_on_cloud(
+    ctx: Context,
     connection_name: Annotated[
         str,
         Field(description="The name of the connection."),
@@ -419,7 +433,7 @@ def create_connection_on_cloud(
 ) -> str:
     """Create a connection between a deployed source and destination on Airbyte Cloud."""
     resolved_streams_list: list[str] = resolve_list_of_strings(selected_streams)
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_connection = workspace.deploy_connection(
         connection_name=connection_name,
         source=source_id,
@@ -437,11 +451,11 @@ def create_connection_on_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def run_cloud_sync(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the Airbyte Cloud connection."),
@@ -474,7 +488,7 @@ def run_cloud_sync(
     ],
 ) -> str:
     """Run a sync job on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     sync_result = connection.run_sync(wait=wait, wait_timeout=wait_timeout)
 
@@ -489,13 +503,13 @@ def run_cloud_sync(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def check_airbyte_cloud_workspace(
+    ctx: Context,
     *,
     workspace_id: Annotated[
         str | None,
@@ -509,7 +523,7 @@ def check_airbyte_cloud_workspace(
 
     Returns workspace details including workspace ID, name, and organization info.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
     # Get workspace details from the public API using workspace's credentials
     workspace_response = api_util.get_workspace(
@@ -539,11 +553,11 @@ def check_airbyte_cloud_workspace(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def deploy_noop_destination_to_cloud(
+    ctx: Context,
     name: str = "No-op Destination",
     *,
     workspace_id: Annotated[
@@ -557,7 +571,7 @@ def deploy_noop_destination_to_cloud(
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes."""
     destination = get_noop_destination()
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     deployed_destination = workspace.deploy_destination(
         name=name,
         destination=destination,
@@ -572,13 +586,13 @@ def deploy_noop_destination_to_cloud(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_sync_status(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(
@@ -609,7 +623,7 @@ def get_cloud_sync_status(
     ],
 ) -> dict[str, Any]:
     """Get the status of a sync job from the Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     # If a job ID is provided, get the job by ID.
@@ -646,13 +660,13 @@ def get_cloud_sync_status(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_sync_jobs(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the Airbyte Cloud connection."),
@@ -718,7 +732,7 @@ def list_cloud_sync_jobs(
     elif from_tail is None:
         from_tail = False
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     # Cap at 500 to avoid overloading agent context
@@ -751,13 +765,13 @@ def list_cloud_sync_jobs(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_deployed_cloud_source_connectors(
+    ctx: Context,
     *,
     workspace_id: Annotated[
         str | None,
@@ -782,7 +796,7 @@ def list_deployed_cloud_source_connectors(
     ],
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     sources = workspace.list_sources()
 
     # Filter by name if requested
@@ -806,13 +820,13 @@ def list_deployed_cloud_source_connectors(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_deployed_cloud_destination_connectors(
+    ctx: Context,
     *,
     workspace_id: Annotated[
         str | None,
@@ -837,7 +851,7 @@ def list_deployed_cloud_destination_connectors(
     ],
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destinations = workspace.list_destinations()
 
     # Filter by name if requested
@@ -861,13 +875,13 @@ def list_deployed_cloud_destination_connectors(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_source(
+    ctx: Context,
     source_id: Annotated[
         str,
         Field(description="The ID of the source to describe."),
@@ -882,7 +896,7 @@ def describe_cloud_source(
     ],
 ) -> CloudSourceDetails:
     """Get detailed information about a specific deployed source connector."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
 
     # Access name property to ensure _connector_info is populated
@@ -897,13 +911,13 @@ def describe_cloud_source(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_destination(
+    ctx: Context,
     destination_id: Annotated[
         str,
         Field(description="The ID of the destination to describe."),
@@ -918,7 +932,7 @@ def describe_cloud_destination(
     ],
 ) -> CloudDestinationDetails:
     """Get detailed information about a specific deployed destination connector."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
     # Access name property to ensure _connector_info is populated
@@ -933,13 +947,13 @@ def describe_cloud_destination(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_connection(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to describe."),
@@ -954,7 +968,7 @@ def describe_cloud_connection(
     ],
 ) -> CloudConnectionDetails:
     """Get detailed information about a specific deployed connection."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     return CloudConnectionDetails(
@@ -971,13 +985,13 @@ def describe_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_cloud_sync_logs(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the Airbyte Cloud connection."),
@@ -1043,7 +1057,7 @@ def get_cloud_sync_logs(
 
     if from_tail is None and line_offset is None:
         from_tail = True
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     sync_result: cloud.SyncResult | None = connection.get_sync_result(job_id=job_id)
@@ -1119,13 +1133,13 @@ def get_cloud_sync_logs(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_deployed_cloud_connections(
+    ctx: Context,
     *,
     workspace_id: Annotated[
         str | None,
@@ -1173,7 +1187,7 @@ def list_deployed_cloud_connections(
     recent completed sync job failed or was cancelled will be returned.
     This implicitly enables with_connection_status.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connections = workspace.list_connections()
 
     # Filter by name if requested
@@ -1344,13 +1358,13 @@ def _resolve_organization_id(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def list_cloud_workspaces(
+    ctx: Context,
     *,
     organization_id: Annotated[
         str | None,
@@ -1389,23 +1403,26 @@ def list_cloud_workspaces(
     This tool will NOT list workspaces across all organizations - you must specify
     which organization to list workspaces from.
     """
-    credentials = resolve_cloud_credentials()
+    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
+    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
+    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
 
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=credentials.api_root,
-        client_id=credentials.client_id,
-        client_secret=credentials.client_secret,
-        bearer_token=credentials.bearer_token,
+        api_root=api_url,
+        client_id=SecretString(client_id) if client_id else None,
+        client_secret=SecretString(client_secret) if client_secret else None,
+        bearer_token=SecretString(bearer_token) if bearer_token else None,
     )
 
     workspaces = api_util.list_workspaces_in_organization(
         organization_id=resolved_org_id,
-        api_root=credentials.api_root,
-        client_id=credentials.client_id,
-        client_secret=credentials.client_secret,
-        bearer_token=credentials.bearer_token,
+        api_root=api_url,
+        client_id=SecretString(client_id) if client_id else None,
+        client_secret=SecretString(client_secret) if client_secret else None,
+        bearer_token=SecretString(bearer_token) if bearer_token else None,
         name_contains=name_contains,
         max_items_limit=max_items_limit,
     )
@@ -1421,13 +1438,13 @@ def list_cloud_workspaces(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def describe_cloud_organization(
+    ctx: Context,
     *,
     organization_id: Annotated[
         str | None,
@@ -1451,15 +1468,18 @@ def describe_cloud_organization(
     Requires either organization_id OR organization_name (exact match) to be provided.
     This tool is useful for looking up an organization's ID from its name, or vice versa.
     """
-    credentials = resolve_cloud_credentials()
+    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
+    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
+    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
 
     org = _resolve_organization(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=credentials.api_root,
-        client_id=credentials.client_id,
-        client_secret=credentials.client_secret,
-        bearer_token=credentials.bearer_token,
+        api_root=api_url,
+        client_id=SecretString(client_id) if client_id else None,
+        client_secret=SecretString(client_secret) if client_secret else None,
+        bearer_token=SecretString(bearer_token) if bearer_token else None,
     )
 
     return CloudOrganizationResult(
@@ -1484,11 +1504,11 @@ def _get_custom_source_definition_description(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def publish_custom_source_definition(
+    ctx: Context,
     name: Annotated[
         str,
         Field(description="The name for the custom connector definition."),
@@ -1565,14 +1585,14 @@ def publish_custom_source_definition(
     testing_values_dict: dict[str, Any] | None = None
     if testing_values is not None or testing_values_secret_name is not None:
         testing_values_dict = (
-            resolve_config(
+            resolve_connector_config(
                 config=testing_values,
                 config_secret_name=testing_values_secret_name,
             )
             or None
         )
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     custom_source = workspace.publish_custom_source_definition(
         name=name,
         manifest_yaml=processed_manifest,
@@ -1591,12 +1611,12 @@ def publish_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
 )
 def list_custom_source_definitions(
+    ctx: Context,
     *,
     workspace_id: Annotated[
         str | None,
@@ -1611,7 +1631,7 @@ def list_custom_source_definitions(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     definitions = workspace.list_custom_source_definitions(
         definition_type="yaml",
     )
@@ -1628,12 +1648,12 @@ def list_custom_source_definitions(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
 )
 def get_custom_source_definition(
+    ctx: Context,
     definition_id: Annotated[
         str,
         Field(description="The ID of the custom source definition to retrieve."),
@@ -1655,7 +1675,7 @@ def get_custom_source_definition(
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
@@ -1672,11 +1692,11 @@ def get_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
 )
 def update_custom_source_definition(
+    ctx: Context,
     definition_id: Annotated[
         str,
         Field(description="The ID of the definition to update."),
@@ -1741,7 +1761,7 @@ def update_custom_source_definition(
     """
     check_guid_created_in_session(definition_id)
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
     if manifest_yaml is None and testing_values is None and testing_values_secret_name is None:
         raise PyAirbyteInputError(
@@ -1763,7 +1783,7 @@ def update_custom_source_definition(
     testing_values_dict: dict[str, Any] | None = None
     if testing_values is not None or testing_values_secret_name is not None:
         testing_values_dict = (
-            resolve_config(
+            resolve_connector_config(
                 config=testing_values,
                 config_secret_name=testing_values_secret_name,
             )
@@ -1794,11 +1814,11 @@ def update_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
 )
 def permanently_delete_custom_source_definition(
+    ctx: Context,
     definition_id: Annotated[
         str,
         Field(description="The ID of the custom source definition to delete."),
@@ -1832,7 +1852,7 @@ def permanently_delete_custom_source_definition(
     Docker-based custom sources are not yet available.
     """
     check_guid_created_in_session(definition_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     definition = workspace.get_custom_source_definition(
         definition_id=definition_id,
         definition_type="yaml",
@@ -1861,12 +1881,12 @@ def permanently_delete_custom_source_definition(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def permanently_delete_cloud_source(
+    ctx: Context,
     source_id: Annotated[
         str,
         Field(description="The ID of the deployed source to delete."),
@@ -1889,7 +1909,7 @@ def permanently_delete_cloud_source(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(source_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
     source = workspace.get_source(source_id=source_id)
     actual_name: str = cast(str, source.name)
 
@@ -1917,12 +1937,12 @@ def permanently_delete_cloud_source(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def permanently_delete_cloud_destination(
+    ctx: Context,
     destination_id: Annotated[
         str,
         Field(description="The ID of the deployed destination to delete."),
@@ -1945,7 +1965,7 @@ def permanently_delete_cloud_destination(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
     destination = workspace.get_destination(destination_id=destination_id)
     actual_name: str = cast(str, destination.name)
 
@@ -1973,12 +1993,12 @@ def permanently_delete_cloud_destination(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def permanently_delete_cloud_connection(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to delete."),
@@ -2020,7 +2040,7 @@ def permanently_delete_cloud_connection(
     This is a safety measure to ensure you are deleting the correct resource.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace()
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx)
     connection = workspace.get_connection(connection_id=connection_id)
     actual_name: str = cast(str, connection.name)
 
@@ -2050,11 +2070,11 @@ def permanently_delete_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_source(
+    ctx: Context,
     source_id: Annotated[
         str,
         Field(description="The ID of the deployed source to rename."),
@@ -2073,19 +2093,19 @@ def rename_cloud_source(
     ],
 ) -> str:
     """Rename a deployed source connector on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
     source.rename(name=name)
     return f"Successfully renamed source '{source_id}' to '{name}'. URL: {source.connector_url}"
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_source_config(
+    ctx: Context,
     source_id: Annotated[
         str,
         Field(description="The ID of the deployed source to update."),
@@ -2118,10 +2138,10 @@ def update_cloud_source_config(
     configuration is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(source_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
 
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=None,  # We don't have the spec here
@@ -2132,11 +2152,11 @@ def update_cloud_source_config(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_destination(
+    ctx: Context,
     destination_id: Annotated[
         str,
         Field(description="The ID of the deployed destination to rename."),
@@ -2155,7 +2175,7 @@ def rename_cloud_destination(
     ],
 ) -> str:
     """Rename a deployed destination connector on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
     destination.rename(name=name)
     return (
@@ -2165,12 +2185,12 @@ def rename_cloud_destination(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_destination_config(
+    ctx: Context,
     destination_id: Annotated[
         str,
         Field(description="The ID of the deployed destination to update."),
@@ -2203,10 +2223,10 @@ def update_cloud_destination_config(
     configuration is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(destination_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=None,  # We don't have the spec here
@@ -2219,11 +2239,11 @@ def update_cloud_destination_config(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def rename_cloud_connection(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to rename."),
@@ -2242,7 +2262,7 @@ def rename_cloud_connection(
     ],
 ) -> str:
     """Rename a connection on Airbyte Cloud."""
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     connection.rename(name=name)
     return (
@@ -2252,12 +2272,12 @@ def rename_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_cloud_connection_table_prefix(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to update."),
@@ -2281,7 +2301,7 @@ def set_cloud_connection_table_prefix(
     table prefix is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
     connection.set_table_prefix(prefix=prefix)
     return (
@@ -2291,12 +2311,12 @@ def set_cloud_connection_table_prefix(
 
 
 @mcp_tool(
-    domain="cloud",
     destructive=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def set_cloud_connection_selected_streams(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to update."),
@@ -2325,7 +2345,7 @@ def set_cloud_connection_selected_streams(
     stream selection is changed incorrectly. Use with caution.
     """
     check_guid_created_in_session(connection_id)
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     resolved_streams_list: list[str] = resolve_list_of_strings(stream_names)
@@ -2338,12 +2358,12 @@ def set_cloud_connection_selected_streams(
 
 
 @mcp_tool(
-    domain="cloud",
     open_world=True,
     destructive=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def update_cloud_connection(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the connection to update."),
@@ -2421,7 +2441,7 @@ def update_cloud_connection(
             "for manual-only syncs."
         )
 
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     changes_made: list[str] = []
@@ -2448,13 +2468,13 @@ def update_cloud_connection(
 
 
 @mcp_tool(
-    domain="cloud",
     read_only=True,
     idempotent=True,
     open_world=True,
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
 def get_connection_artifact(
+    ctx: Context,
     connection_id: Annotated[
         str,
         Field(description="The ID of the Airbyte Cloud connection."),
@@ -2480,7 +2500,7 @@ def get_connection_artifact(
     - 'catalog': Returns the configured catalog (syncCatalog) as a dict,
       or {"ERROR": "..."} if not found.
     """
-    workspace: CloudWorkspace = _get_cloud_workspace(workspace_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     if artifact_type == "state":
@@ -2496,14 +2516,14 @@ def get_connection_artifact(
     return result
 
 
-def register_cloud_ops_tools(app: FastMCP) -> None:
-    """@private Register tools with the FastMCP app.
+def register_cloud_tools(app: FastMCP) -> None:
+    """Register cloud tools with the FastMCP app.
 
-    This is an internal function and should not be called directly.
-
-    Tools are filtered based on mode settings:
-    - AIRBYTE_CLOUD_MCP_READONLY_MODE=1: Only read-only tools are registered
-    - AIRBYTE_CLOUD_MCP_SAFE_MODE=1: All tools are registered, but destructive
-      operations are protected by runtime session checks
+    Args:
+        app: FastMCP application instance
     """
-    register_tools(app, domain="cloud")
+    register_mcp_tools(
+        app,
+        mcp_module=__name__,
+        exclude_args=["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None,
+    )
