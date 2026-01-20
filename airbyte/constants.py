@@ -297,3 +297,29 @@ MCP_CONFIG_INCLUDE_MODULES: str = "airbyte_include_modules"
 
 MCP_CONFIG_WORKSPACE_ID: str = "workspace_id"
 """Config arg name for the workspace ID setting."""
+
+MCP_CONFIG_BEARER_TOKEN: str = "bearer_token"
+"""Config arg name for the bearer token setting."""
+
+MCP_CONFIG_CLIENT_ID: str = "client_id"
+"""Config arg name for the client ID setting."""
+
+MCP_CONFIG_CLIENT_SECRET: str = "client_secret"
+"""Config arg name for the client secret setting."""
+
+MCP_CONFIG_API_URL: str = "api_url"
+"""Config arg name for the API URL setting."""
+
+# MCP HTTP Header Keys for credentials
+
+MCP_BEARER_TOKEN_HEADER: str = "Authorization"
+"""HTTP header key for bearer token (standard Authorization header)."""
+
+MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
+"""HTTP header key for client ID."""
+
+MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
+"""HTTP header key for client secret."""
+
+MCP_API_URL_HEADER: str = "X-Airbyte-Cloud-Api-Url"
+"""HTTP header key for API URL."""

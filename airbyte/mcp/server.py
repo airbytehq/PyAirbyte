@@ -25,7 +25,19 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte.constants import (
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_API_URL_HEADER,
+    MCP_BEARER_TOKEN_HEADER,
+    MCP_CLIENT_ID_HEADER,
+    MCP_CLIENT_SECRET_HEADER,
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_CLIENT_ID,
+    MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_READONLY_MODE,
@@ -84,6 +96,42 @@ WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
 )
 """Config arg for workspace ID, supporting both HTTP header and env var."""
 
+BEARER_TOKEN_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_BEARER_TOKEN,
+    http_header_key=MCP_BEARER_TOKEN_HEADER,
+    env_var=CLOUD_BEARER_TOKEN_ENV_VAR,
+    required=False,
+    sensitive=True,
+)
+"""Config arg for bearer token, supporting Authorization header and env var."""
+
+CLIENT_ID_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_CLIENT_ID,
+    http_header_key=MCP_CLIENT_ID_HEADER,
+    env_var=CLOUD_CLIENT_ID_ENV_VAR,
+    required=False,
+    sensitive=True,
+)
+"""Config arg for client ID, supporting HTTP header and env var."""
+
+CLIENT_SECRET_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_CLIENT_SECRET,
+    http_header_key=MCP_CLIENT_SECRET_HEADER,
+    env_var=CLOUD_CLIENT_SECRET_ENV_VAR,
+    required=False,
+    sensitive=True,
+)
+"""Config arg for client secret, supporting HTTP header and env var."""
+
+API_URL_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_API_URL,
+    http_header_key=MCP_API_URL_HEADER,
+    env_var=CLOUD_API_ROOT_ENV_VAR,
+    required=False,
+    sensitive=False,
+)
+"""Config arg for API URL, supporting HTTP header and env var."""
+
 
 def _parse_csv_config(value: str) -> list[str]:
     """Parse a comma-separated config value into a list of strings."""
@@ -131,6 +179,10 @@ AIRBYTE_CONFIG_ARGS: list[MCPServerConfigArg] = [
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
     WORKSPACE_ID_CONFIG_ARG,
+    BEARER_TOKEN_CONFIG_ARG,
+    CLIENT_ID_CONFIG_ARG,
+    CLIENT_SECRET_CONFIG_ARG,
+    API_URL_CONFIG_ARG,
 ]
 """List of Airbyte-specific config args for backward compatibility."""
 
