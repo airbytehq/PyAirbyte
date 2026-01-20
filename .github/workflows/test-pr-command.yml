@@ -86,7 +86,7 @@ jobs:
         private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
     - name: Checkout PR
-      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         ref: ${{ needs.start-workflow.outputs.commit-sha }}
@@ -108,16 +108,14 @@ jobs:
 
     # Same as the `python_pytest.yml` file:
 
-    - name: Set up Python
-      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+    - name: Install uv
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
+        version: "latest"
         python-version: ${{ matrix.python-version }}
-    - name: Set up Poetry
-      uses: Gr1N/setup-poetry@48b0f77c8c1b1b19cb962f0f00dff7b4be8f81ec # v9
-      with:
-        poetry-version: "2.2.0"
-    - name: Install dependencies
-      run: poetry install
+    - name: Install dev dependencies
+      # We only need helper libraries
+      run: uv sync --group dev
 
     - name: Run Pytest
       timeout-minutes: 60
@@ -126,7 +124,7 @@ jobs:
       # We exclude super-slow and flaky tests in order to expedite PR reviews
       # and to reduce chance of unrelated noise in the review process.
       run: >
-        poetry run pytest
+        uv run pytest
         --verbose
         -m "not super_slow and not flaky"
 

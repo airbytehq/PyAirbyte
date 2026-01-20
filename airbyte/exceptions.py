@@ -491,6 +491,27 @@ class AirbyteConnectionSyncError(AirbyteConnectionError):
 
 
 @dataclass
+class AirbyteWorkspaceMismatchError(AirbyteError):
+    """Resource does not belong to the expected workspace.
+
+    This error is raised when a resource (connection, source, or destination) is fetched
+    from the API and the workspace ID in the response does not match the expected workspace.
+    """
+
+    resource_type: str | None = None
+    """The type of resource (e.g., 'connection', 'source', 'destination')."""
+
+    resource_id: str | None = None
+    """The ID of the resource that was fetched."""
+
+    expected_workspace_id: str | None = None
+    """The workspace ID that was expected."""
+
+    actual_workspace_id: str | None = None
+    """The workspace ID returned by the API."""
+
+
+@dataclass
 class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
     """An timeout occurred while waiting for the remote Airbyte job to complete."""
 

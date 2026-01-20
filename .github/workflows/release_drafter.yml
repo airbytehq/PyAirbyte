@@ -1,27 +1,55 @@
 name: Release Drafter
 
 on:
+  workflow_dispatch: {}
   push:
     branches:
       - main
 
-env:
-  AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
-
-permissions:
-  contents: read
+concurrency:
+  group: release-drafter
+  cancel-in-progress: false
 
 jobs:
-  update_release_draft:
+  draft_release:
+    name: Draft Release
     permissions:
       contents: write
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      # Drafts the next Release notes as Pull Requests are merged into "main"
-      - uses: release-drafter/release-drafter@b1476f6e6eb133afa41ed8589daba6dc69b4d3f5 # v6.1.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
         with:
-          config-name: release-drafter.yml
-          disable-autolabeler: false
+          version: "latest"
+          python-version: "3.10"
+
+      - name: Checkout Repo
+        uses: actions/checkout@v6
+        with:
+          # Shallow clone is sufficient since we bypass dynamic versioning
+          fetch-depth: 1
+
+      - name: Get release version (dry-run)
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        id: dry-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          dry-run: true
+
+      - name: Build package
+        env:
+          VERSION: ${{ steps.dry-run.outputs.tag_name }}
+        # Standardize by removing preceding 'v' char:
+        run: POETRY_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
+
+      - name: Create or update draft release
+        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          version: ${{ steps.dry-run.outputs.tag_name }}
+          attach-files: |
+            dist/*.whl
+            dist/*.tar.gz
