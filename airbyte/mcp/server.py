@@ -97,7 +97,7 @@ def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
 
     When set to "1", only show tools with readOnlyHint=True.
     """
-    config_value = get_mcp_config(app, MCP_CONFIG_READONLY_MODE).lower()
+    config_value = (get_mcp_config(app, MCP_CONFIG_READONLY_MODE) or "").lower()
     if config_value in {"1", "true"}:
         return bool(get_annotation(tool, ANNOTATION_READ_ONLY_HINT, default=False))
     return True
@@ -109,8 +109,8 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
     When AIRBYTE_MCP_DOMAINS_DISABLED is set, hide tools from those modules.
     When AIRBYTE_MCP_DOMAINS is set, only show tools from those modules.
     """
-    exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES))
-    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES))
+    exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
+    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
 
     # Get the tool's mcp_module from annotations
     tool_module = get_annotation(tool, ANNOTATION_MCP_MODULE, None)
