@@ -24,6 +24,7 @@ from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._tool_utils import (
+    AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
@@ -2515,20 +2516,14 @@ def get_connection_artifact(
     return result
 
 
-def register_cloud_tools(
-    app: FastMCP,
-    *,
-    exclude_workspace_id_arg: bool = False,
-) -> None:
+def register_cloud_tools(app: FastMCP) -> None:
     """Register cloud tools with the FastMCP app.
 
     Args:
         app: FastMCP application instance
-        exclude_workspace_id_arg: If True, exclude the workspace_id argument from tool schemas.
-            This is useful when the workspace ID is set via environment variable.
     """
     register_mcp_tools(
         app,
         mcp_module=__name__,
-        exclude_args=["workspace_id"] if exclude_workspace_id_arg else None,
+        exclude_args=["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None,
     )

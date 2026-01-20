@@ -10,7 +10,6 @@ from fastmcp_extensions import mcp_server
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte.mcp._tool_utils import (
-    AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_READONLY_MODE_CONFIG_ARG,
@@ -89,7 +88,7 @@ app = mcp_server(
 """The Airbyte MCP Server application instance."""
 
 # Register tools from each module
-register_cloud_tools(app, exclude_workspace_id_arg=AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET)
+register_cloud_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_prompts(app)
