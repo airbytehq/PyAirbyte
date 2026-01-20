@@ -236,7 +236,7 @@ def _get_cloud_workspace(
     bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
-    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
 
     return CloudWorkspace(
         workspace_id=resolved_workspace_id,
@@ -1406,7 +1406,7 @@ def list_cloud_workspaces(
     bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
-    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
 
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
@@ -1471,7 +1471,7 @@ def describe_cloud_organization(
     bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
-    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
 
     org = _resolve_organization(
         organization_id=organization_id,

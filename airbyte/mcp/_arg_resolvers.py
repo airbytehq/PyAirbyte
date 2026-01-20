@@ -82,10 +82,10 @@ def resolve_connector_config(  # noqa: PLR0912
     """Resolve a configuration dictionary, JSON string, or file path to a dictionary.
 
     Returns:
-        Resolved configuration dictionary
+        Resolved configuration dictionary (empty if no inputs provided)
 
     Raises:
-        ValueError: If no configuration provided or if JSON parsing fails
+        ValueError: If JSON parsing fails or a provided input is invalid
 
     We reject hardcoded secrets in a config dict if we detect them.
     """
