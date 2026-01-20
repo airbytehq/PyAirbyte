@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
-from airbyte.mcp._util import resolve_config, resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -166,7 +166,7 @@ def validate_connector_config(
         return False, f"Failed to get connector '{connector_name}': {ex}"
 
     try:
-        config_dict = resolve_config(
+        config_dict = resolve_connector_config(
             config=config,
             config_file=config_file,
             config_secret_name=config_secret_name,
@@ -288,7 +288,7 @@ def list_source_streams(
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -355,7 +355,7 @@ def get_source_stream_json_schema(
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -430,7 +430,7 @@ def read_source_stream_records(
             override_execution_mode=override_execution_mode,
             manifest_path=manifest_path,
         )
-        config_dict = resolve_config(
+        config_dict = resolve_connector_config(
             config=config,
             config_file=config_file,
             config_secret_name=config_secret_name,
@@ -530,7 +530,7 @@ def get_stream_previews(
         manifest_path=manifest_path,
     )
 
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,
@@ -626,7 +626,7 @@ def sync_source_to_cache(
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_file=config_file,
         config_secret_name=config_secret_name,

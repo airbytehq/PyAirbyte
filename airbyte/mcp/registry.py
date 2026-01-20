@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
 from airbyte._util.meta import is_docker_installed
-from airbyte.mcp._util import resolve_list_of_strings
+from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
     ApiDocsUrl,

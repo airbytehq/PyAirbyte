@@ -22,13 +22,10 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     register_guid_created_in_session,
-)
-from airbyte.mcp._util import (
-    resolve_config,
-    resolve_list_of_strings,
 )
 from airbyte.secrets import SecretString
 
@@ -298,7 +295,7 @@ def deploy_source_to_cloud(
         source_connector_name,
         no_executor=True,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=source.config_spec,
@@ -368,7 +365,7 @@ def deploy_destination_to_cloud(
         destination_connector_name,
         no_executor=True,
     )
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=destination.config_spec,
@@ -1587,7 +1584,7 @@ def publish_custom_source_definition(
     testing_values_dict: dict[str, Any] | None = None
     if testing_values is not None or testing_values_secret_name is not None:
         testing_values_dict = (
-            resolve_config(
+            resolve_connector_config(
                 config=testing_values,
                 config_secret_name=testing_values_secret_name,
             )
@@ -1785,7 +1782,7 @@ def update_custom_source_definition(
     testing_values_dict: dict[str, Any] | None = None
     if testing_values is not None or testing_values_secret_name is not None:
         testing_values_dict = (
-            resolve_config(
+            resolve_connector_config(
                 config=testing_values,
                 config_secret_name=testing_values_secret_name,
             )
@@ -2143,7 +2140,7 @@ def update_cloud_source_config(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
 
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=None,  # We don't have the spec here
@@ -2228,7 +2225,7 @@ def update_cloud_destination_config(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
-    config_dict = resolve_config(
+    config_dict = resolve_connector_config(
         config=config,
         config_secret_name=config_secret_name,
         config_spec_jsonschema=None,  # We don't have the spec here
