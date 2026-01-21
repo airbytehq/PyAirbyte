@@ -67,6 +67,6 @@ jobs:
             >
             > As soon as your PR is ready for formal review, you can proceed to convert the PR to "ready for review" status by clicking the "Ready for review" button at the bottom of the PR page.
             >
-            > To skip this draft status in the future, please include `[ready]` in your PR title or add the `skip-draft-status` label when creating your PR.
+            > To skip draft status in future PRs, please include `[ready]` in your PR title or add the `skip-draft-status` label when creating your PR.
             >
             > </details>
