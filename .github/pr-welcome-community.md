@@ -25,7 +25,7 @@ pip install 'git+https://github.com/{{ .repo_name }}.git@{{ .branch_name }}'
 As needed or by request, Airbyte Maintainers can execute the following slash commands on your PR:
 
 - `/fix-pr` - Fixes most formatting and linting issues
-- `/poetry-lock` - Updates poetry.lock file
+- `/uv-lock` - Updates uv.lock file
 - `/test-pr` - Runs tests with the updated PyAirbyte
 - `/prerelease` - Builds and publishes a prerelease version to PyPI
 

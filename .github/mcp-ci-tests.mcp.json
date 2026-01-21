@@ -2,7 +2,7 @@
   "mcpServers": {
     "airbyte-mcp": {
       "type": "stdio",
-      "command": "poetry",
+      "command": "uv",
       "args": [
         "run",
         "airbyte-mcp"

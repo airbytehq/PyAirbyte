@@ -33,7 +33,7 @@ jobs:
           commands: |
             fix-pr
             test-pr
-            poetry-lock
+            uv-lock
             poe
             prerelease
           static-args: |

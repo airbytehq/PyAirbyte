@@ -16,8 +16,8 @@ dependencies = [
     # TODO: Restore broader version constraints after verifying compatibility
     # "duckdb>=1.4.0,<2.0",
     # "duckdb-engine>=0.17.0,<1.0",
-    "duckdb==1.4.3",  # Pinned to match poetry.lock
-    "duckdb-engine==0.17.0",  # Pinned to match poetry.lock
+    "duckdb==1.4.3",  # Pinned to match uv.lock
+    "duckdb-engine==0.17.0",  # Pinned to match uv.lock
     "google-auth>=2.27.0,<3.0",
     "google-cloud-bigquery>=3.12.0,<4.0",
     "google-cloud-bigquery-storage>=2.25.0,<3.0",
@@ -41,7 +41,7 @@ dependencies = [
     "structlog>=24.4.0,<25.0",
     # TODO: Restore broader version constraints after verifying compatibility
     # "sqlalchemy>=1.4.51,!=2.0.36,<3.0",
-    "sqlalchemy==2.0.43",  # Pinned to match poetry.lock
+    "sqlalchemy==2.0.43",  # Pinned to match uv.lock
     "sqlalchemy-bigquery==1.12.0",
     "typing-extensions",
     "uuid7>=0.1.0,<1.0",
