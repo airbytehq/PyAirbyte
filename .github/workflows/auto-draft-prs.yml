@@ -63,10 +63,10 @@ jobs:
             > <details>
             > <summary>More info...</summary>
             >
-            > Thank you for creating this PR. As a policy to protect our engineers' time, we require all PRs to be created first in draft status. Your PR has been converted to draft status in respect for this policy.
+            > Thank you for creating this PR. As a policy to protect our engineers' time, Airbyte requires all PRs to be created first in draft status. Your PR has been automatically converted to draft status in respect for this policy.
             >
-            > Once the PR has been tested and is ready for review, you can proceed to convert the PR to "ready for review" status by clicking the "Ready for review" button at the bottom of the PR page.
+            > As soon as your PR is ready for formal review, you can proceed to convert the PR to "ready for review" status by clicking the "Ready for review" button at the bottom of the PR page.
             >
-            > To skip this auto-draft behavior, include `[ready]` in your PR title or add the `skip-draft-status` label when creating the PR.
+            > To skip this draft status in the future, please include `[ready]` in your PR title or add the `skip-draft-status` label when creating your PR.
             >
             > </details>
