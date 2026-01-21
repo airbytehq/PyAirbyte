@@ -54,12 +54,19 @@ jobs:
       - name: Add comment explaining draft status
         uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
         with:
+          token: ${{ steps.get-app-token.outputs.token }}
           issue-number: ${{ github.event.pull_request.number }}
           body: |
-            📝 **PR Converted to Draft**
-
-            Thank you for creating this PR. As a policy to protect our engineers' time, we require all PRs to be created first in draft status. Your PR has been converted to draft status in respect for this policy.
-
-            Once the PR has been tested and is ready for review, you can proceed to convert the PR to "ready for review" status by clicking the "Ready for review" button at the bottom of the PR page.
-
-            To skip this auto-draft behavior, include `[ready]` in your PR title or add the `skip-draft-status` label when creating the PR.
+            > [!NOTE]
+            > 📝 **PR Converted to Draft**
+            >
+            > <details>
+            > <summary>More info...</summary>
+            >
+            > Thank you for creating this PR. As a policy to protect our engineers' time, we require all PRs to be created first in draft status. Your PR has been converted to draft status in respect for this policy.
+            >
+            > Once the PR has been tested and is ready for review, you can proceed to convert the PR to "ready for review" status by clicking the "Ready for review" button at the bottom of the PR page.
+            >
+            > To skip this auto-draft behavior, include `[ready]` in your PR title or add the `skip-draft-status` label when creating the PR.
+            >
+            > </details>
