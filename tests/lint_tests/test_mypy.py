@@ -10,7 +10,7 @@ import pytest
 def test_mypy_typing():
     # Run the pyrefly check command
     check_result = subprocess.run(
-        ["poetry", "run", "pyrefly", "check"],
+        ["uv", "run", "pyrefly", "check"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
@@ -19,5 +19,5 @@ def test_mypy_typing():
     assert check_result.returncode == 0, (
         "Pyrefly checks failed:\n"
         + f"{check_result.stdout.decode()}\n{check_result.stderr.decode()}\n\n"
-        + "Run `poetry run pyrefly check` to see all failures."
+        + "Run `uv run pyrefly check` to see all failures."
     )
