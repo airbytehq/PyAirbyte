@@ -2,10 +2,6 @@
 
 Thank you for your contribution from **{{ .repo_name }}**! We're excited to have you in the Airbyte community.
 
-If you have any questions, feel free to ask in the PR comments or join our community:
-- [Airbyte Slack](https://airbytehq.slack.com/) - Join the [#pyairbyte channel](https://airbytehq.slack.com/archives/C06FZ238P8W)
-- [GitHub Discussions](https://github.com/airbytehq/PyAirbyte/discussions)
-
 <details>
 <summary><b>💡 Show Tips and Tricks</b></summary>
 
@@ -40,6 +36,10 @@ As needed or by request, Airbyte Maintainers can execute the following slash com
 - [Contributing Guidelines](https://github.com/airbytehq/PyAirbyte/blob/main/docs/CONTRIBUTING.md)
 - [PyAirbyte Documentation](https://docs.airbyte.com/using-airbyte/pyairbyte/getting-started)
 - [API Reference](https://airbytehq.github.io/PyAirbyte/)
+
+If you have any questions, feel free to ask in the PR comments or join our community:
+- [Airbyte Slack](https://airbytehq.slack.com/) - Join the [#pyairbyte channel](https://airbytehq.slack.com/archives/C06FZ238P8W)
+- [GitHub Discussions](https://github.com/airbytehq/PyAirbyte/discussions)
 
 [📝 _Edit this welcome message._](https://github.com/airbytehq/PyAirbyte/blob/main/.github/pr-welcome-community.md)
 
