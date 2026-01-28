@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -555,18 +556,18 @@ def check_airbyte_cloud_workspace(
     # organization, which may not be available with workspace-scoped credentials.
     organization = workspace.get_organization(raise_on_error=False)
 
-    # Extract billing information from the organization info if available
-    org_info = (
-        api_util.get_workspace_organization_info(
-            workspace_id=workspace.workspace_id,
-            api_root=workspace.api_root,
-            client_id=workspace.client_id,
-            client_secret=workspace.client_secret,
-            bearer_token=workspace.bearer_token,
-        )
-        if organization
-        else {}
-    )
+    # Extract billing information from the organization info if available.
+    # API call may fail if permissions are insufficient; suppress and default to empty dict.
+    org_info: dict[str, Any] = {}
+    with suppress(Exception):
+        if organization:
+            org_info = api_util.get_workspace_organization_info(
+                workspace_id=workspace.workspace_id,
+                api_root=workspace.api_root,
+                client_id=workspace.client_id,
+                client_secret=workspace.client_secret,
+                bearer_token=workspace.bearer_token,
+            )
     billing = org_info.get("billing") or {}
     payment_status = billing.get("paymentStatus")
     subscription_status = billing.get("subscriptionStatus")
