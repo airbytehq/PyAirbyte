@@ -70,18 +70,130 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
-@dataclass
 class CloudOrganization:
     """Information about an organization in Airbyte Cloud.
 
-    This is a minimal value object returned by CloudWorkspace.get_organization().
+    This class provides lazy loading of organization attributes including billing status.
+    It is typically created via CloudWorkspace.get_organization().
     """
 
-    organization_id: str
-    """The organization ID."""
+    def __init__(
+        self,
+        organization_id: str,
+        organization_name: str | None = None,
+        email: str | None = None,
+        *,
+        api_root: str = api_util.CLOUD_API_ROOT,
+        client_id: SecretString | None = None,
+        client_secret: SecretString | None = None,
+        bearer_token: SecretString | None = None,
+    ) -> None:
+        """Initialize a CloudOrganization.
 
-    organization_name: str | None = None
-    """Display name of the organization."""
+        Args:
+            organization_id: The organization ID.
+            organization_name: Display name of the organization.
+            email: Email associated with the organization.
+            api_root: The API root URL.
+            client_id: OAuth client ID for authentication.
+            client_secret: OAuth client secret for authentication.
+            bearer_token: Bearer token for authentication (alternative to client credentials).
+        """
+        self.organization_id = organization_id
+        """The organization ID."""
+
+        self._organization_name = organization_name
+        """Display name of the organization."""
+
+        self._email = email
+        """Email associated with the organization."""
+
+        self._api_root = api_root
+        self._client_id = client_id
+        self._client_secret = client_secret
+        self._bearer_token = bearer_token
+
+        # Cached organization info (billing, etc.)
+        self._organization_info: dict[str, Any] | None = None
+
+    def _fetch_organization_info(self, *, force_refresh: bool = False) -> dict[str, Any]:
+        """Fetch and cache organization info including billing status.
+
+        Args:
+            force_refresh: If True, always fetch from the API even if cached.
+
+        Returns:
+            Dictionary containing organization info including billing data.
+        """
+        if not force_refresh and self._organization_info is not None:
+            return self._organization_info
+
+        self._organization_info = api_util.get_organization_info(
+            organization_id=self.organization_id,
+            api_root=self._api_root,
+            client_id=self._client_id,
+            client_secret=self._client_secret,
+            bearer_token=self._bearer_token,
+        )
+        return self._organization_info
+
+    @property
+    def organization_name(self) -> str | None:
+        """Display name of the organization."""
+        if self._organization_name is not None:
+            return self._organization_name
+        # Try to fetch from API if not set
+        try:
+            info = self._fetch_organization_info()
+            return info.get("organizationName")
+        except Exception:
+            return None
+
+    @property
+    def email(self) -> str | None:
+        """Email associated with the organization."""
+        if self._email is not None:
+            return self._email
+        # Try to fetch from API if not set
+        try:
+            info = self._fetch_organization_info()
+            return info.get("email")
+        except Exception:
+            return None
+
+    @property
+    def payment_status(self) -> str | None:
+        """Payment status of the organization.
+
+        Possible values: 'uninitialized', 'okay', 'grace_period', 'disabled', 'locked', 'manual'.
+        When 'disabled', syncs are blocked due to unpaid invoices.
+        """
+        try:
+            info = self._fetch_organization_info()
+            return (info.get("billing") or {}).get("paymentStatus")
+        except Exception:
+            return None
+
+    @property
+    def subscription_status(self) -> str | None:
+        """Subscription status of the organization.
+
+        Possible values: 'pre_subscription', 'subscribed', 'unsubscribed'.
+        """
+        try:
+            info = self._fetch_organization_info()
+            return (info.get("billing") or {}).get("subscriptionStatus")
+        except Exception:
+            return None
+
+    @property
+    def account_is_locked(self) -> bool:
+        """Whether the account is locked due to billing issues.
+
+        Returns True if payment_status is 'disabled'/'locked' or subscription_status is
+        'unsubscribed'. Defaults to False unless we have affirmative evidence of a locked state.
+        """
+        return api_util.is_account_locked(self.payment_status, self.subscription_status)
 
 
 @dataclass
@@ -290,6 +402,10 @@ class CloudWorkspace:
         return CloudOrganization(
             organization_id=organization_id,
             organization_name=organization_name,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
         )
 
     # Test connection and creds

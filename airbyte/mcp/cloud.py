@@ -13,7 +13,7 @@ from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.cloud.workspaces import CloudOrganization, CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
@@ -1302,7 +1302,7 @@ def _resolve_organization(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None = None,
-) -> api_util.models.OrganizationResponse:
+) -> CloudOrganization:
     """Resolve organization from either ID or exact name match.
 
     Args:
@@ -1314,7 +1314,7 @@ def _resolve_organization(
         bearer_token: Bearer token for authentication (optional if client credentials provided)
 
     Returns:
-        The resolved OrganizationResponse object
+        A CloudOrganization object with credentials for lazy loading of billing info.
 
     Raises:
         PyAirbyteInputError: If neither or both parameters are provided,
@@ -1338,6 +1338,8 @@ def _resolve_organization(
         bearer_token=bearer_token,
     )
 
+    org_response: api_util.models.OrganizationResponse | None = None
+
     if organization_id:
         # Find by ID
         matching_orgs = [org for org in orgs if org.organization_id == organization_id]
@@ -1350,28 +1352,39 @@ def _resolve_organization(
                     "for the current user.",
                 },
             )
-        return matching_orgs[0]
+        org_response = matching_orgs[0]
+    else:
+        # Find by exact name match (case-sensitive)
+        matching_orgs = [org for org in orgs if org.organization_name == organization_name]
 
-    # Find by exact name match (case-sensitive)
-    matching_orgs = [org for org in orgs if org.organization_name == organization_name]
+        if not matching_orgs:
+            raise AirbyteMissingResourceError(
+                resource_type="organization",
+                context={
+                    "organization_name": organization_name,
+                    "message": f"No organization found with exact name '{organization_name}' "
+                    "for the current user.",
+                },
+            )
 
-    if not matching_orgs:
-        raise AirbyteMissingResourceError(
-            resource_type="organization",
-            context={
-                "organization_name": organization_name,
-                "message": f"No organization found with exact name '{organization_name}' "
-                "for the current user.",
-            },
-        )
+        if len(matching_orgs) > 1:
+            raise PyAirbyteInputError(
+                message=f"Multiple organizations found with name '{organization_name}'. "
+                "Please use 'organization_id' instead to specify the exact organization."
+            )
 
-    if len(matching_orgs) > 1:
-        raise PyAirbyteInputError(
-            message=f"Multiple organizations found with name '{organization_name}'. "
-            "Please use 'organization_id' instead to specify the exact organization."
-        )
+        org_response = matching_orgs[0]
 
-    return matching_orgs[0]
+    # Return a CloudOrganization with credentials for lazy loading of billing info
+    return CloudOrganization(
+        organization_id=org_response.organization_id,
+        organization_name=org_response.organization_name,
+        email=org_response.email,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
 
 
 def _resolve_organization_id(
@@ -1523,26 +1536,14 @@ def describe_cloud_organization(
         bearer_token=SecretString(bearer_token) if bearer_token else None,
     )
 
-    # Fetch organization info including billing status
-    org_info: dict[str, Any] = {}
-    with suppress(Exception):
-        org_info = api_util.get_organization_info(
-            organization_id=org.organization_id,
-            api_root=api_url,
-            client_id=SecretString(client_id) if client_id else None,
-            client_secret=SecretString(client_secret) if client_secret else None,
-            bearer_token=SecretString(bearer_token) if bearer_token else None,
-        )
-    payment_status = (org_info.get("billing") or {}).get("paymentStatus")
-    subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
-
+    # CloudOrganization has lazy loading of billing properties
     return CloudOrganizationResult(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
-        payment_status=payment_status,
-        subscription_status=subscription_status,
-        account_is_locked=api_util.is_account_locked(payment_status, subscription_status),
+        payment_status=org.payment_status,
+        subscription_status=org.subscription_status,
+        account_is_locked=org.account_is_locked,
     )
 
 
