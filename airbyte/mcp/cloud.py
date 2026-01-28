@@ -173,7 +173,7 @@ class CloudWorkspaceResult(BaseModel):
     When 'disabled', syncs are blocked due to unpaid invoices.
     Requires ORGANIZATION_READER permission."""
     subscription_status: str | None = None
-    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed').
+    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed', 'unsubscribed').
     Requires ORGANIZATION_READER permission."""
     account_is_locked: bool = False
     """Whether the account is locked due to billing issues.
