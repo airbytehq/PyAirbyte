@@ -175,10 +175,10 @@ class CloudWorkspaceResult(BaseModel):
     subscription_status: str | None = None
     """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed').
     Requires ORGANIZATION_READER permission."""
-    can_run_syncs: bool | None = None
-    """Whether the workspace can run syncs based on billing status.
-    True if either payment_status is valid (not 'disabled'/'locked') or subscription_status is
-    valid (not 'unsubscribed'). A null status does not block syncs on its own.
+    account_is_locked: bool = False
+    """Whether the account is locked due to billing issues.
+    True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
+    Defaults to False unless we have affirmative evidence of a locked state.
     Requires ORGANIZATION_READER permission."""
 
 
@@ -571,9 +571,9 @@ def check_airbyte_cloud_workspace(
     payment_status = (org_info.get("billing") or {}).get("paymentStatus")
     subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
 
-    # Syncs can run if either status indicates a non-locked state
-    can_run_syncs = (payment_status and payment_status not in LOCKED_PAYMENT_STATUSES) or (
-        subscription_status and subscription_status not in LOCKED_SUBSCRIPTION_STATUSES
+    # Account is locked if either status indicates a locked state
+    account_is_locked = (payment_status in LOCKED_PAYMENT_STATUSES) or (
+        subscription_status in LOCKED_SUBSCRIPTION_STATUSES
     )
 
     return CloudWorkspaceResult(
@@ -588,7 +588,7 @@ def check_airbyte_cloud_workspace(
         organization_name=organization.organization_name if organization else None,
         payment_status=payment_status,
         subscription_status=subscription_status,
-        can_run_syncs=can_run_syncs,
+        account_is_locked=account_is_locked,
     )
 
 
