@@ -197,7 +197,7 @@ class CloudOrganization:
         return (info.get("billing") or {}).get("subscriptionStatus")
 
     @property
-    def account_is_locked(self) -> bool:
+    def is_account_locked(self) -> bool:
         """Whether the account is locked due to billing issues.
 
         Returns True if payment_status is 'disabled'/'locked' or subscription_status is

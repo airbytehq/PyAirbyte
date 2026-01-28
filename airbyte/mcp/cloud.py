@@ -1,7 +1,6 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
-from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -155,7 +154,7 @@ class CloudOrganizationResult(BaseModel):
     subscription_status: str | None = None
     """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
     'unsubscribed')."""
-    account_is_locked: bool = False
+    is_account_locked: bool = False
     """Whether the account is locked due to billing issues.
     True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
     Defaults to False unless we have affirmative evidence of a locked state."""
@@ -181,7 +180,7 @@ class CloudWorkspaceResult(BaseModel):
     subscription_status: str | None = None
     """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
     'unsubscribed'). Requires ORGANIZATION_READER permission."""
-    account_is_locked: bool = False
+    is_account_locked: bool = False
     """Whether the account is locked due to billing issues.
     True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
     Defaults to False unless we have affirmative evidence of a locked state.
@@ -562,21 +561,6 @@ def check_airbyte_cloud_workspace(
     # organization, which may not be available with workspace-scoped credentials.
     organization = workspace.get_organization(raise_on_error=False)
 
-    # Extract billing information from the organization info if available.
-    # API call may fail if permissions are insufficient; suppress and default to empty dict.
-    org_info: dict[str, Any] = {}
-    with suppress(Exception):
-        if organization:
-            org_info = api_util.get_workspace_organization_info(
-                workspace_id=workspace.workspace_id,
-                api_root=workspace.api_root,
-                client_id=workspace.client_id,
-                client_secret=workspace.client_secret,
-                bearer_token=workspace.bearer_token,
-            )
-    payment_status = (org_info.get("billing") or {}).get("paymentStatus")
-    subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
-
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
@@ -587,9 +571,9 @@ def check_airbyte_cloud_workspace(
             else "[unavailable - requires ORGANIZATION_READER permission]"
         ),
         organization_name=organization.organization_name if organization else None,
-        payment_status=payment_status,
-        subscription_status=subscription_status,
-        account_is_locked=api_util.is_account_locked(payment_status, subscription_status),
+        payment_status=organization.payment_status if organization else None,
+        subscription_status=organization.subscription_status if organization else None,
+        is_account_locked=organization.is_account_locked if organization else False,
     )
 
 
@@ -1543,7 +1527,7 @@ def describe_cloud_organization(
         email=org.email,
         payment_status=org.payment_status,
         subscription_status=org.subscription_status,
-        account_is_locked=org.account_is_locked,
+        is_account_locked=org.is_account_locked,
     )
 
 
