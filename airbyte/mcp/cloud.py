@@ -39,9 +39,9 @@ CLOUD_AUTH_TIP_TEXT = (
 )
 WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
 
-# Billing statuses that block syncs
-LOCKED_PAYMENT_STATUSES: set[str] = {"disabled", "locked"}
-LOCKED_SUBSCRIPTION_STATUSES: set[str] = {"unsubscribed"}
+# Billing statuses that block syncs (using tuples for safe `in` checks with unhashable types)
+LOCKED_PAYMENT_STATUSES: tuple[str, ...] = ("disabled", "locked")
+LOCKED_SUBSCRIPTION_STATUSES: tuple[str, ...] = ("unsubscribed",)
 
 
 class CloudSourceResult(BaseModel):
