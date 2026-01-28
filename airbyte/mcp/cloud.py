@@ -176,7 +176,8 @@ class CloudWorkspaceResult(BaseModel):
     Requires ORGANIZATION_READER permission."""
     can_run_syncs: bool | None = None
     """Whether the workspace can run syncs based on billing status.
-    False when payment_status is 'disabled' or 'locked', or subscription_status is 'unsubscribed'.
+    True if either payment_status is valid (not 'disabled'/'locked') or subscription_status is
+    valid (not 'unsubscribed'). A null status does not block syncs on its own.
     Requires ORGANIZATION_READER permission."""
 
 
