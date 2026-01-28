@@ -568,9 +568,8 @@ def check_airbyte_cloud_workspace(
                 client_secret=workspace.client_secret,
                 bearer_token=workspace.bearer_token,
             )
-    billing = org_info.get("billing") or {}
-    payment_status = billing.get("paymentStatus")
-    subscription_status = billing.get("subscriptionStatus")
+    payment_status = (org_info.get("billing") or {}).get("paymentStatus")
+    subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
 
     # Syncs can run if either status indicates a non-locked state
     can_run_syncs = (payment_status and payment_status not in LOCKED_PAYMENT_STATUSES) or (
