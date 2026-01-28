@@ -571,11 +571,10 @@ def check_airbyte_cloud_workspace(
                 # Determine if syncs can run based on billing status
                 # Syncs are blocked when payment_status is 'disabled' or 'locked',
                 # or when subscription_status is 'unsubscribed'
-                if payment_status and subscription_status:
-                    can_run_syncs = (
-                        payment_status not in {"disabled", "locked"}
-                        and subscription_status != "unsubscribed"
-                    )
+                if payment_status or subscription_status:
+                    blocked_by_payment = payment_status in {"disabled", "locked"}
+                    blocked_by_subscription = subscription_status == "unsubscribed"
+                    can_run_syncs = not (blocked_by_payment or blocked_by_subscription)
         except Exception:
             pass
 
