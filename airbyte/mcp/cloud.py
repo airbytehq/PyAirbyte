@@ -38,6 +38,10 @@ CLOUD_AUTH_TIP_TEXT = (
 )
 WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
 
+# Billing statuses that block syncs
+LOCKED_PAYMENT_STATUSES: set[str] = {"disabled", "locked"}
+LOCKED_SUBSCRIPTION_STATUSES: set[str] = {"unsubscribed"}
+
 
 class CloudSourceResult(BaseModel):
     """Information about a deployed source connector in Airbyte Cloud."""
@@ -568,14 +572,14 @@ def check_airbyte_cloud_workspace(
             if billing:
                 payment_status = billing.get("paymentStatus")
                 subscription_status = billing.get("subscriptionStatus")
-                # Determine if syncs can run based on billing status
-                # Syncs are blocked when payment_status is 'disabled' or 'locked',
-                # or when subscription_status is 'unsubscribed'
-                if payment_status or subscription_status:
-                    blocked_by_payment = payment_status in {"disabled", "locked"}
-                    blocked_by_subscription = subscription_status == "unsubscribed"
-                    can_run_syncs = not (blocked_by_payment or blocked_by_subscription)
+                # Syncs can run if either status indicates a non-locked state
+                can_run_syncs = (
+                    payment_status and payment_status not in LOCKED_PAYMENT_STATUSES
+                ) or (
+                    subscription_status and subscription_status not in LOCKED_SUBSCRIPTION_STATUSES
+                )
         except Exception:
+            # Billing lookup failures are non-critical; fields remain None
             pass
 
     return CloudWorkspaceResult(
