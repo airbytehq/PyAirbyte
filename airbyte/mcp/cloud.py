@@ -558,30 +558,23 @@ def check_airbyte_cloud_workspace(
     # Extract billing information from the organization info if available
     payment_status: str | None = None
     subscription_status: str | None = None
-    can_run_syncs: bool | None = None
 
     if organization:
-        try:
-            org_info = api_util.get_workspace_organization_info(
-                workspace_id=workspace.workspace_id,
-                api_root=workspace.api_root,
-                client_id=workspace.client_id,
-                client_secret=workspace.client_secret,
-                bearer_token=workspace.bearer_token,
-            )
-            billing = org_info.get("billing", {})
-            if billing:
-                payment_status = billing.get("paymentStatus")
-                subscription_status = billing.get("subscriptionStatus")
-                # Syncs can run if either status indicates a non-locked state
-                can_run_syncs = (
-                    payment_status and payment_status not in LOCKED_PAYMENT_STATUSES
-                ) or (
-                    subscription_status and subscription_status not in LOCKED_SUBSCRIPTION_STATUSES
-                )
-        except Exception:
-            # Billing lookup failures are non-critical; fields remain None
-            pass
+        org_info = api_util.get_workspace_organization_info(
+            workspace_id=workspace.workspace_id,
+            api_root=workspace.api_root,
+            client_id=workspace.client_id,
+            client_secret=workspace.client_secret,
+            bearer_token=workspace.bearer_token,
+        )
+        billing = org_info.get("billing") or {}
+        payment_status = billing.get("paymentStatus")
+        subscription_status = billing.get("subscriptionStatus")
+
+    # Syncs can run if either status indicates a non-locked state
+    can_run_syncs = (payment_status and payment_status not in LOCKED_PAYMENT_STATUSES) or (
+        subscription_status and subscription_status not in LOCKED_SUBSCRIPTION_STATUSES
+    )
 
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
