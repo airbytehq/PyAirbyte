@@ -2121,3 +2121,70 @@ def get_connection_catalog(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
+
+
+def get_organization_info(
+    organization_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get organization info including billing status.
+
+    Uses the Config API endpoint: POST /v1/organizations/get_organization_info
+
+    Args:
+        organization_id: The organization ID to look up
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        Dictionary containing organization info:
+        - organizationId: The organization ID
+        - organizationName: The organization name
+        - sso: Whether SSO is enabled
+        - billing: Billing information (optional, contains paymentStatus, subscriptionStatus, etc.)
+    """
+    return _make_config_api_request(
+        path="/organizations/get_organization_info",
+        json={"organizationId": organization_id},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+# Billing status constants (using tuples for safe `in` checks with unhashable types)
+LOCKED_PAYMENT_STATUSES: tuple[str, ...] = ("disabled", "locked")
+LOCKED_SUBSCRIPTION_STATUSES: tuple[str, ...] = ("unsubscribed",)
+
+
+def is_account_locked(
+    payment_status: str | None,
+    subscription_status: str | None,
+) -> bool:
+    """Determine if an account is locked based on billing status.
+
+    An account is considered locked if either:
+    - payment_status is 'disabled' or 'locked'
+    - subscription_status is 'unsubscribed'
+
+    Returns False if billing info is unavailable (both statuses are None),
+    as we default to assuming the account is not locked unless we have
+    affirmative evidence of a locked state.
+
+    Args:
+        payment_status: Payment status string (e.g., 'okay', 'disabled', 'locked')
+        subscription_status: Subscription status string (e.g., 'subscribed', 'unsubscribed')
+
+    Returns:
+        True if the account is locked, False otherwise.
+    """
+    return (payment_status in LOCKED_PAYMENT_STATUSES) or (
+        subscription_status in LOCKED_SUBSCRIPTION_STATUSES
+    )

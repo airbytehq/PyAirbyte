@@ -39,10 +39,6 @@ CLOUD_AUTH_TIP_TEXT = (
 )
 WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
 
-# Billing statuses that block syncs (using tuples for safe `in` checks with unhashable types)
-LOCKED_PAYMENT_STATUSES: tuple[str, ...] = ("disabled", "locked")
-LOCKED_SUBSCRIPTION_STATUSES: tuple[str, ...] = ("unsubscribed",)
-
 
 class CloudSourceResult(BaseModel):
     """Information about a deployed source connector in Airbyte Cloud."""
@@ -153,6 +149,16 @@ class CloudOrganizationResult(BaseModel):
     """Display name of the organization."""
     email: str
     """Email associated with the organization."""
+    payment_status: str | None = None
+    """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
+    When 'disabled', syncs are blocked due to unpaid invoices."""
+    subscription_status: str | None = None
+    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
+    'unsubscribed')."""
+    account_is_locked: bool = False
+    """Whether the account is locked due to billing issues.
+    True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
+    Defaults to False unless we have affirmative evidence of a locked state."""
 
 
 class CloudWorkspaceResult(BaseModel):
@@ -571,11 +577,6 @@ def check_airbyte_cloud_workspace(
     payment_status = (org_info.get("billing") or {}).get("paymentStatus")
     subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
 
-    # Account is locked if either status indicates a locked state
-    account_is_locked = (payment_status in LOCKED_PAYMENT_STATUSES) or (
-        subscription_status in LOCKED_SUBSCRIPTION_STATUSES
-    )
-
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
         workspace_name=workspace_response.name,
@@ -588,7 +589,7 @@ def check_airbyte_cloud_workspace(
         organization_name=organization.organization_name if organization else None,
         payment_status=payment_status,
         subscription_status=subscription_status,
-        account_is_locked=account_is_locked,
+        account_is_locked=api_util.is_account_locked(payment_status, subscription_status),
     )
 
 
@@ -1503,7 +1504,7 @@ def describe_cloud_organization(
         ),
     ],
 ) -> CloudOrganizationResult:
-    """Get details about a specific organization.
+    """Get details about a specific organization including billing status.
 
     Requires either organization_id OR organization_name (exact match) to be provided.
     This tool is useful for looking up an organization's ID from its name, or vice versa.
@@ -1522,10 +1523,26 @@ def describe_cloud_organization(
         bearer_token=SecretString(bearer_token) if bearer_token else None,
     )
 
+    # Fetch organization info including billing status
+    org_info: dict[str, Any] = {}
+    with suppress(Exception):
+        org_info = api_util.get_organization_info(
+            organization_id=org.organization_id,
+            api_root=api_url,
+            client_id=SecretString(client_id) if client_id else None,
+            client_secret=SecretString(client_secret) if client_secret else None,
+            bearer_token=SecretString(bearer_token) if bearer_token else None,
+        )
+    payment_status = (org_info.get("billing") or {}).get("paymentStatus")
+    subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
+
     return CloudOrganizationResult(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+        payment_status=payment_status,
+        subscription_status=subscription_status,
+        account_is_locked=api_util.is_account_locked(payment_status, subscription_status),
     )
 
 
