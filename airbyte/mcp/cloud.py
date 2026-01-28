@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Airbyte Cloud MCP operations."""
 
+from contextlib import suppress
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -12,7 +13,7 @@ from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.cloud.workspaces import CloudOrganization, CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
@@ -148,6 +149,16 @@ class CloudOrganizationResult(BaseModel):
     """Display name of the organization."""
     email: str
     """Email associated with the organization."""
+    payment_status: str | None = None
+    """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
+    When 'disabled', syncs are blocked due to unpaid invoices."""
+    subscription_status: str | None = None
+    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
+    'unsubscribed')."""
+    account_is_locked: bool = False
+    """Whether the account is locked due to billing issues.
+    True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
+    Defaults to False unless we have affirmative evidence of a locked state."""
 
 
 class CloudWorkspaceResult(BaseModel):
@@ -163,6 +174,18 @@ class CloudWorkspaceResult(BaseModel):
     """ID of the organization (requires ORGANIZATION_READER permission)."""
     organization_name: str | None = None
     """Name of the organization (requires ORGANIZATION_READER permission)."""
+    payment_status: str | None = None
+    """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
+    When 'disabled', syncs are blocked due to unpaid invoices.
+    Requires ORGANIZATION_READER permission."""
+    subscription_status: str | None = None
+    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed',
+    'unsubscribed'). Requires ORGANIZATION_READER permission."""
+    account_is_locked: bool = False
+    """Whether the account is locked due to billing issues.
+    True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
+    Defaults to False unless we have affirmative evidence of a locked state.
+    Requires ORGANIZATION_READER permission."""
 
 
 class LogReadResult(BaseModel):
@@ -521,7 +544,7 @@ def check_airbyte_cloud_workspace(
 ) -> CloudWorkspaceResult:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
-    Returns workspace details including workspace ID, name, and organization info.
+    Returns workspace details including workspace ID, name, organization info, and billing status.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
@@ -534,10 +557,25 @@ def check_airbyte_cloud_workspace(
         bearer_token=workspace.bearer_token,
     )
 
-    # Try to get organization info, but fail gracefully if we don't have permissions.
-    # Fetching organization info requires ORGANIZATION_READER permissions on the organization,
-    # which may not be available with workspace-scoped credentials.
+    # Try to get organization info (including billing), but fail gracefully if we don't have
+    # permissions. Fetching organization info requires ORGANIZATION_READER permissions on the
+    # organization, which may not be available with workspace-scoped credentials.
     organization = workspace.get_organization(raise_on_error=False)
+
+    # Extract billing information from the organization info if available.
+    # API call may fail if permissions are insufficient; suppress and default to empty dict.
+    org_info: dict[str, Any] = {}
+    with suppress(Exception):
+        if organization:
+            org_info = api_util.get_workspace_organization_info(
+                workspace_id=workspace.workspace_id,
+                api_root=workspace.api_root,
+                client_id=workspace.client_id,
+                client_secret=workspace.client_secret,
+                bearer_token=workspace.bearer_token,
+            )
+    payment_status = (org_info.get("billing") or {}).get("paymentStatus")
+    subscription_status = (org_info.get("billing") or {}).get("subscriptionStatus")
 
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
@@ -549,6 +587,9 @@ def check_airbyte_cloud_workspace(
             else "[unavailable - requires ORGANIZATION_READER permission]"
         ),
         organization_name=organization.organization_name if organization else None,
+        payment_status=payment_status,
+        subscription_status=subscription_status,
+        account_is_locked=api_util.is_account_locked(payment_status, subscription_status),
     )
 
 
@@ -1261,7 +1302,7 @@ def _resolve_organization(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None = None,
-) -> api_util.models.OrganizationResponse:
+) -> CloudOrganization:
     """Resolve organization from either ID or exact name match.
 
     Args:
@@ -1273,7 +1314,7 @@ def _resolve_organization(
         bearer_token: Bearer token for authentication (optional if client credentials provided)
 
     Returns:
-        The resolved OrganizationResponse object
+        A CloudOrganization object with credentials for lazy loading of billing info.
 
     Raises:
         PyAirbyteInputError: If neither or both parameters are provided,
@@ -1297,6 +1338,8 @@ def _resolve_organization(
         bearer_token=bearer_token,
     )
 
+    org_response: api_util.models.OrganizationResponse | None = None
+
     if organization_id:
         # Find by ID
         matching_orgs = [org for org in orgs if org.organization_id == organization_id]
@@ -1309,28 +1352,39 @@ def _resolve_organization(
                     "for the current user.",
                 },
             )
-        return matching_orgs[0]
+        org_response = matching_orgs[0]
+    else:
+        # Find by exact name match (case-sensitive)
+        matching_orgs = [org for org in orgs if org.organization_name == organization_name]
 
-    # Find by exact name match (case-sensitive)
-    matching_orgs = [org for org in orgs if org.organization_name == organization_name]
+        if not matching_orgs:
+            raise AirbyteMissingResourceError(
+                resource_type="organization",
+                context={
+                    "organization_name": organization_name,
+                    "message": f"No organization found with exact name '{organization_name}' "
+                    "for the current user.",
+                },
+            )
 
-    if not matching_orgs:
-        raise AirbyteMissingResourceError(
-            resource_type="organization",
-            context={
-                "organization_name": organization_name,
-                "message": f"No organization found with exact name '{organization_name}' "
-                "for the current user.",
-            },
-        )
+        if len(matching_orgs) > 1:
+            raise PyAirbyteInputError(
+                message=f"Multiple organizations found with name '{organization_name}'. "
+                "Please use 'organization_id' instead to specify the exact organization."
+            )
 
-    if len(matching_orgs) > 1:
-        raise PyAirbyteInputError(
-            message=f"Multiple organizations found with name '{organization_name}'. "
-            "Please use 'organization_id' instead to specify the exact organization."
-        )
+        org_response = matching_orgs[0]
 
-    return matching_orgs[0]
+    # Return a CloudOrganization with credentials for lazy loading of billing info
+    return CloudOrganization(
+        organization_id=org_response.organization_id,
+        organization_name=org_response.organization_name,
+        email=org_response.email,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
 
 
 def _resolve_organization_id(
@@ -1463,7 +1517,7 @@ def describe_cloud_organization(
         ),
     ],
 ) -> CloudOrganizationResult:
-    """Get details about a specific organization.
+    """Get details about a specific organization including billing status.
 
     Requires either organization_id OR organization_name (exact match) to be provided.
     This tool is useful for looking up an organization's ID from its name, or vice versa.
@@ -1482,10 +1536,14 @@ def describe_cloud_organization(
         bearer_token=SecretString(bearer_token) if bearer_token else None,
     )
 
+    # CloudOrganization has lazy loading of billing properties
     return CloudOrganizationResult(
         id=org.organization_id,
         name=org.organization_name,
         email=org.email,
+        payment_status=org.payment_status,
+        subscription_status=org.subscription_status,
+        account_is_locked=org.account_is_locked,
     )
 
 
