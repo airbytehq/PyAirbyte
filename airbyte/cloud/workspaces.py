@@ -115,51 +115,61 @@ class CloudOrganization:
 
         # Cached organization info (billing, etc.)
         self._organization_info: dict[str, Any] | None = None
+        # Flag to remember if fetching organization info failed (e.g., permission issues)
+        self._organization_info_fetch_failed: bool = False
 
     def _fetch_organization_info(self, *, force_refresh: bool = False) -> dict[str, Any]:
         """Fetch and cache organization info including billing status.
+
+        If fetching fails (e.g., due to permission issues), the failure is cached and
+        subsequent calls will return an empty dict without retrying.
 
         Args:
             force_refresh: If True, always fetch from the API even if cached.
 
         Returns:
             Dictionary containing organization info including billing data.
+            Returns empty dict if fetching failed or is not permitted.
         """
+        # If we already know fetching failed, return empty dict without retrying
+        if self._organization_info_fetch_failed:
+            return {}
+
         if not force_refresh and self._organization_info is not None:
             return self._organization_info
 
-        self._organization_info = api_util.get_organization_info(
-            organization_id=self.organization_id,
-            api_root=self._api_root,
-            client_id=self._client_id,
-            client_secret=self._client_secret,
-            bearer_token=self._bearer_token,
-        )
-        return self._organization_info
+        try:
+            self._organization_info = api_util.get_organization_info(
+                organization_id=self.organization_id,
+                api_root=self._api_root,
+                client_id=self._client_id,
+                client_secret=self._client_secret,
+                bearer_token=self._bearer_token,
+            )
+        except Exception:
+            # Cache the failure so we don't retry on subsequent property accesses
+            self._organization_info_fetch_failed = True
+            return {}
+        else:
+            return self._organization_info
 
     @property
     def organization_name(self) -> str | None:
         """Display name of the organization."""
         if self._organization_name is not None:
             return self._organization_name
-        # Try to fetch from API if not set
-        try:
-            info = self._fetch_organization_info()
-            return info.get("organizationName")
-        except Exception:
-            return None
+        # Try to fetch from API if not set (returns empty dict on failure)
+        info = self._fetch_organization_info()
+        return info.get("organizationName")
 
     @property
     def email(self) -> str | None:
         """Email associated with the organization."""
         if self._email is not None:
             return self._email
-        # Try to fetch from API if not set
-        try:
-            info = self._fetch_organization_info()
-            return info.get("email")
-        except Exception:
-            return None
+        # Try to fetch from API if not set (returns empty dict on failure)
+        info = self._fetch_organization_info()
+        return info.get("email")
 
     @property
     def payment_status(self) -> str | None:
@@ -167,24 +177,20 @@ class CloudOrganization:
 
         Possible values: 'uninitialized', 'okay', 'grace_period', 'disabled', 'locked', 'manual'.
         When 'disabled', syncs are blocked due to unpaid invoices.
+        Returns None if billing info is not available (e.g., due to permission issues).
         """
-        try:
-            info = self._fetch_organization_info()
-            return (info.get("billing") or {}).get("paymentStatus")
-        except Exception:
-            return None
+        info = self._fetch_organization_info()
+        return (info.get("billing") or {}).get("paymentStatus")
 
     @property
     def subscription_status(self) -> str | None:
         """Subscription status of the organization.
 
         Possible values: 'pre_subscription', 'subscribed', 'unsubscribed'.
+        Returns None if billing info is not available (e.g., due to permission issues).
         """
-        try:
-            info = self._fetch_organization_info()
-            return (info.get("billing") or {}).get("subscriptionStatus")
-        except Exception:
-            return None
+        info = self._fetch_organization_info()
+        return (info.get("billing") or {}).get("subscriptionStatus")
 
     @property
     def account_is_locked(self) -> bool:
