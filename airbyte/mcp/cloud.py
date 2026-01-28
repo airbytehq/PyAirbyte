@@ -556,20 +556,20 @@ def check_airbyte_cloud_workspace(
     organization = workspace.get_organization(raise_on_error=False)
 
     # Extract billing information from the organization info if available
-    payment_status: str | None = None
-    subscription_status: str | None = None
-
-    if organization:
-        org_info = api_util.get_workspace_organization_info(
+    org_info = (
+        api_util.get_workspace_organization_info(
             workspace_id=workspace.workspace_id,
             api_root=workspace.api_root,
             client_id=workspace.client_id,
             client_secret=workspace.client_secret,
             bearer_token=workspace.bearer_token,
         )
-        billing = org_info.get("billing") or {}
-        payment_status = billing.get("paymentStatus")
-        subscription_status = billing.get("subscriptionStatus")
+        if organization
+        else {}
+    )
+    billing = org_info.get("billing") or {}
+    payment_status = billing.get("paymentStatus")
+    subscription_status = billing.get("subscriptionStatus")
 
     # Syncs can run if either status indicates a non-locked state
     can_run_syncs = (payment_status and payment_status not in LOCKED_PAYMENT_STATUSES) or (
