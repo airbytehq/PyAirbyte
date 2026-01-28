@@ -163,6 +163,17 @@ class CloudWorkspaceResult(BaseModel):
     """ID of the organization (requires ORGANIZATION_READER permission)."""
     organization_name: str | None = None
     """Name of the organization (requires ORGANIZATION_READER permission)."""
+    payment_status: str | None = None
+    """Payment status of the organization (e.g., 'okay', 'grace_period', 'disabled', 'locked').
+    When 'disabled', syncs are blocked due to unpaid invoices.
+    Requires ORGANIZATION_READER permission."""
+    subscription_status: str | None = None
+    """Subscription status of the organization (e.g., 'pre_subscription', 'subscribed').
+    Requires ORGANIZATION_READER permission."""
+    can_run_syncs: bool | None = None
+    """Whether the workspace can run syncs based on billing status.
+    False when payment_status is 'disabled' or 'locked', or subscription_status is 'unsubscribed'.
+    Requires ORGANIZATION_READER permission."""
 
 
 class LogReadResult(BaseModel):
@@ -521,7 +532,7 @@ def check_airbyte_cloud_workspace(
 ) -> CloudWorkspaceResult:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
-    Returns workspace details including workspace ID, name, and organization info.
+    Returns workspace details including workspace ID, name, organization info, and billing status.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
@@ -534,10 +545,39 @@ def check_airbyte_cloud_workspace(
         bearer_token=workspace.bearer_token,
     )
 
-    # Try to get organization info, but fail gracefully if we don't have permissions.
-    # Fetching organization info requires ORGANIZATION_READER permissions on the organization,
-    # which may not be available with workspace-scoped credentials.
+    # Try to get organization info (including billing), but fail gracefully if we don't have
+    # permissions. Fetching organization info requires ORGANIZATION_READER permissions on the
+    # organization, which may not be available with workspace-scoped credentials.
     organization = workspace.get_organization(raise_on_error=False)
+
+    # Extract billing information from the organization info if available
+    payment_status: str | None = None
+    subscription_status: str | None = None
+    can_run_syncs: bool | None = None
+
+    if organization:
+        try:
+            org_info = api_util.get_workspace_organization_info(
+                workspace_id=workspace.workspace_id,
+                api_root=workspace.api_root,
+                client_id=workspace.client_id,
+                client_secret=workspace.client_secret,
+                bearer_token=workspace.bearer_token,
+            )
+            billing = org_info.get("billing", {})
+            if billing:
+                payment_status = billing.get("paymentStatus")
+                subscription_status = billing.get("subscriptionStatus")
+                # Determine if syncs can run based on billing status
+                # Syncs are blocked when payment_status is 'disabled' or 'locked',
+                # or when subscription_status is 'unsubscribed'
+                if payment_status and subscription_status:
+                    can_run_syncs = (
+                        payment_status not in {"disabled", "locked"}
+                        and subscription_status != "unsubscribed"
+                    )
+        except Exception:
+            pass
 
     return CloudWorkspaceResult(
         workspace_id=workspace_response.workspace_id,
@@ -549,6 +589,9 @@ def check_airbyte_cloud_workspace(
             else "[unavailable - requires ORGANIZATION_READER permission]"
         ),
         organization_name=organization.organization_name if organization else None,
+        payment_status=payment_status,
+        subscription_status=subscription_status,
+        can_run_syncs=can_run_syncs,
     )
 
 
