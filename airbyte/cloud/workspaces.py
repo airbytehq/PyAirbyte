@@ -131,6 +131,10 @@ class CloudOrganization:
             Dictionary containing organization info including billing data.
             Returns empty dict if fetching failed or is not permitted.
         """
+        # Reset failure flag if force_refresh is requested
+        if force_refresh:
+            self._organization_info_fetch_failed = False
+
         # If we already know fetching failed, return empty dict without retrying
         if self._organization_info_fetch_failed:
             return {}
