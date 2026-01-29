@@ -55,14 +55,14 @@ jobs:
             dist/*.tar.gz
           categories: |
             # MCP features as separate section
-            - title: '❇️ MCP Features'
+            - title: '❇️ New MCP Features'
               commit-scopes:
                 - 'mcp'
               commit-types:
                 - 'feat'
               display-order: 100
             # Generic categories
-            - title: '🚀 New Features'
+            - title: '🚀 New PyAirbyte Features'
               commit-types:
                 - 'feat'
               display-order: 101
