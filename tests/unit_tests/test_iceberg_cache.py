@@ -35,7 +35,9 @@ def test_iceberg_config_defaults() -> None:
     """Test IcebergConfig default values."""
     config = IcebergConfig(warehouse_path=UNIT_TEST_WAREHOUSE_PATH)
     assert config.namespace == "airbyte_raw"
-    assert config.schema_name == "airbyte_raw"
+    # schema_name is always "main" for SQLite compatibility (internal tables)
+    # namespace is used for Iceberg table organization instead
+    assert config.schema_name == "main"
     assert config.catalog_type == "sql"
 
 
