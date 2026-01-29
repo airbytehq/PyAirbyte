@@ -153,7 +153,7 @@ def get_additional_properties_column_name() -> str:
     return get_json_column_name(ADDITIONAL_PROPERTIES_COLUMN)
 
 
-def convert_value_to_arrow_type(  # noqa: PLR0911, PLR0912
+def convert_value_to_arrow_type(  # noqa: PLR0911, PLR0912, C901
     value: Any,  # noqa: ANN401
     arrow_type: pa.DataType,
 ) -> Any:  # noqa: ANN401
@@ -225,9 +225,16 @@ def convert_value_to_arrow_type(  # noqa: PLR0911, PLR0912
                 return float(value)
         return None  # Return None for unconvertible values
 
-    # Handle boolean
+    # Handle boolean - explicit handling for string representations
     if pa.types.is_boolean(arrow_type):
-        return bool(value) if value is not None else None
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            # Handle common string representations of boolean values
+            return value.lower() in {"true", "1", "yes"}
+        return bool(value)
 
     # Handle timestamp types - parse ISO format strings
     if pa.types.is_timestamp(arrow_type):
