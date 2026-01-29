@@ -17,6 +17,7 @@ from airbyte_cdk.models import (
     AirbyteConnectionStatus,
     AirbyteMessage,
     ConfiguredAirbyteCatalog,
+    ConnectorSpecification,
     DestinationSyncMode,
     Status,
     Type,
@@ -50,6 +51,77 @@ DESTINATION_TYPE_MOTHERDUCK = "motherduck"
 
 class DestinationPyAirbyteUniversal(Destination):
     """Universal destination that writes to any PyAirbyte-supported cache backend."""
+
+    def spec(self, logger: logging.Logger) -> ConnectorSpecification:  # noqa: ARG002
+        """Return the connector specification."""
+        return ConnectorSpecification(
+            documentationUrl="https://docs.airbyte.com/integrations/destinations/pyairbyte-universal",
+            connectionSpecification={
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "title": "PyAirbyte Universal Destination Spec",
+                "type": "object",
+                "required": ["destination_type"],
+                "properties": {
+                    "destination_type": {
+                        "type": "string",
+                        "title": "Destination Type",
+                        "description": "The type of destination to write to.",
+                        "enum": ["duckdb", "postgres", "snowflake", "bigquery", "motherduck"],
+                    },
+                    "duckdb": {
+                        "type": "object",
+                        "title": "DuckDB Configuration",
+                        "properties": {
+                            "db_path": {"type": "string", "default": "/local/pyairbyte.duckdb"},
+                            "schema_name": {"type": "string", "default": "main"},
+                        },
+                    },
+                    "postgres": {
+                        "type": "object",
+                        "title": "PostgreSQL Configuration",
+                        "properties": {
+                            "host": {"type": "string", "default": "localhost"},
+                            "port": {"type": "integer", "default": 5432},
+                            "username": {"type": "string"},
+                            "password": {"type": "string", "airbyte_secret": True},
+                            "database": {"type": "string"},
+                            "schema_name": {"type": "string", "default": "public"},
+                        },
+                    },
+                    "snowflake": {
+                        "type": "object",
+                        "title": "Snowflake Configuration",
+                        "properties": {
+                            "account": {"type": "string"},
+                            "username": {"type": "string"},
+                            "password": {"type": "string", "airbyte_secret": True},
+                            "warehouse": {"type": "string"},
+                            "database": {"type": "string"},
+                            "schema_name": {"type": "string", "default": "PUBLIC"},
+                            "role": {"type": "string"},
+                        },
+                    },
+                    "bigquery": {
+                        "type": "object",
+                        "title": "BigQuery Configuration",
+                        "properties": {
+                            "project_name": {"type": "string"},
+                            "dataset_name": {"type": "string"},
+                            "credentials_path": {"type": "string"},
+                        },
+                    },
+                    "motherduck": {
+                        "type": "object",
+                        "title": "MotherDuck Configuration",
+                        "properties": {
+                            "database": {"type": "string", "default": "my_db"},
+                            "schema_name": {"type": "string", "default": "main"},
+                            "api_key": {"type": "string", "airbyte_secret": True},
+                        },
+                    },
+                },
+            },
+        )
 
     def _get_cache(self, config: Mapping[str, Any]) -> CacheBase:
         """Create and return the appropriate cache based on configuration."""

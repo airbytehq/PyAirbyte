@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import datetime
+import json
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -12,14 +12,17 @@ from airbyte_cdk.models import (
     AirbyteConnectionStatus,
     AirbyteMessage,
     AirbyteRecordMessage,
+    AirbyteStream,
     ConfiguredAirbyteCatalog,
     ConnectorSpecification,
     Status,
+    SyncMode,
     Type,
 )
 from airbyte_cdk.sources.source import Source
 
 import airbyte as ab
+from airbyte.progress import ProgressStyle, ProgressTracker
 
 
 if TYPE_CHECKING:
@@ -118,20 +121,39 @@ class SourcePyAirbyteUniversal(Source):
     ) -> AirbyteCatalog:
         """Discover the catalog from the underlying source connector."""
         source = self._get_pyairbyte_source(config)
-        # The catalog types are compatible at runtime but differ in type annotations
-        return source.discovered_catalog  # pyrefly: ignore[bad-return]
+        # Convert PyAirbyte catalog to CDK catalog format
+        # Serialize to dict with enum values as strings, then construct CDK objects
+        catalog_json = source.discovered_catalog.model_dump_json()
+        catalog_dict = json.loads(catalog_json)
+
+        streams = []
+        for stream_dict in catalog_dict.get("streams", []):
+            # Convert sync mode strings to SyncMode enums
+            sync_modes = [SyncMode(mode) for mode in stream_dict.get("supported_sync_modes", [])]
+            streams.append(
+                AirbyteStream(
+                    name=stream_dict["name"],
+                    json_schema=stream_dict.get("json_schema", {}),
+                    supported_sync_modes=sync_modes,
+                    source_defined_cursor=stream_dict.get("source_defined_cursor"),
+                    default_cursor_field=stream_dict.get("default_cursor_field"),
+                    source_defined_primary_key=stream_dict.get("source_defined_primary_key"),
+                    namespace=stream_dict.get("namespace"),
+                )
+            )
+        return AirbyteCatalog(streams=streams)
 
     def read(
         self,
-        logger: logging.Logger,
+        logger: logging.Logger,  # noqa: ARG002
         config: Mapping[str, Any],
         catalog: ConfiguredAirbyteCatalog,
         state: list[Any] | None = None,  # noqa: ARG002
     ) -> Iterable[AirbyteMessage]:
         """Read data from the underlying source connector.
 
-        This method uses PyAirbyte's get_records functionality to stream
-        records from the configured source connector.
+        This method uses PyAirbyte's _read_with_catalog to stream
+        AirbyteMessages from the configured source connector.
         """
         source = self._get_pyairbyte_source(config)
 
@@ -139,18 +161,36 @@ class SourcePyAirbyteUniversal(Source):
         stream_names = [stream.stream.name for stream in catalog.streams]
         source.select_streams(stream_names)
 
-        # Use get_records to iterate through each stream and yield AirbyteMessages
-        for stream_name in stream_names:
-            logger.info(f"Reading stream: {stream_name}")
-            for record in source.get_records(stream_name):
-                # Convert the record to an AirbyteMessage
+        # Get the configured catalog from PyAirbyte
+        configured_catalog = source.get_configured_catalog(streams=stream_names)
+
+        # Use _read_with_catalog to get raw AirbyteMessages
+        progress_tracker = ProgressTracker(
+            ProgressStyle.PLAIN,
+            source=source,
+            cache=None,
+            destination=None,
+            expected_streams=stream_names,
+        )
+
+        # Convert PyAirbyte messages to CDK messages
+        # The types differ (airbyte_protocol.models vs airbyte_cdk.models) and enum values
+        # need to be serialized to strings for the CDK serializer
+        for message in source._read_with_catalog(  # noqa: SLF001
+            catalog=configured_catalog,
+            progress_tracker=progress_tracker,
+        ):
+            # Only yield RECORD messages - filter out LOG, TRACE, etc.
+            # The CDK will handle its own logging
+            if message.type.name == "RECORD" and message.record:
                 yield AirbyteMessage(
                     type=Type.RECORD,
                     record=AirbyteRecordMessage(
-                        stream=stream_name,
-                        data=dict(record),
-                        emitted_at=int(
-                            datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
-                        ),
+                        stream=message.record.stream,
+                        data=message.record.data,
+                        emitted_at=message.record.emitted_at,
+                        namespace=message.record.namespace,
                     ),
                 )
+            # Skip STATE messages for now - they require per-stream format conversion
+            # which is complex and not needed for basic full-refresh syncs
