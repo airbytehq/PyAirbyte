@@ -901,6 +901,10 @@ class IcebergProcessor(SqlProcessorBase):
         All field IDs are generated using the type_converter.next_field_id() method
         to ensure unique IDs across both top-level and nested fields.
         """
+        # Reset field ID counter for each new schema generation
+        # This ensures each table's schema has field IDs starting from 1
+        self.type_converter.reset_field_id_counter()
+
         properties = self.catalog_provider.get_stream_properties(stream_name)
         fields: list[NestedField] = []
 
