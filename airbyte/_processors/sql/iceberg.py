@@ -247,6 +247,7 @@ class IcebergProcessor(SqlProcessorBase):
 
     sql_config: IcebergConfig
 
+    type_converter_class = IcebergTypeConverter  # pyrefly: ignore[bad-assignment]
     type_converter: IcebergTypeConverter  # pyrefly: ignore[bad-override]
 
     @property
