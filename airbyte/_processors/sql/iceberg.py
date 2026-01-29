@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -113,11 +114,27 @@ class IcebergConfig(SqlConfig):
     """Cached catalog instance."""
 
     def model_post_init(self, _context: object, /) -> None:
-        """Sync schema_name with namespace after initialization."""
-        # Keep schema_name and namespace in sync
-        if self.namespace != self.schema_name:
-            # Use setattr to modify frozen pydantic model
+        """Sync schema_name with namespace after initialization.
+
+        This handles backward compatibility by allowing users to set either
+        'namespace' (preferred) or 'schema_name' (legacy SqlConfig compatibility).
+        """
+        fields_set = self.model_fields_set
+        namespace_set = "namespace" in fields_set
+        schema_name_set = "schema_name" in fields_set
+
+        if namespace_set and schema_name_set and self.namespace != self.schema_name:
+            raise ValueError(
+                f"namespace ({self.namespace!r}) and schema_name ({self.schema_name!r}) "
+                "must match when both are provided"
+            )
+
+        if namespace_set and not schema_name_set:
+            # User set namespace, sync to schema_name
             self.schema_name = self.namespace
+        elif schema_name_set and not namespace_set:
+            # User set schema_name (legacy), sync to namespace
+            self.namespace = self.schema_name
 
     def _get_catalog_uri(self) -> str:
         """Get the catalog URI, using default if not specified."""
@@ -163,11 +180,16 @@ class IcebergConfig(SqlConfig):
 
         Note: This is primarily used for catalog metadata storage with SQLite catalogs.
         The actual data is stored in Parquet files, not in the SQL database.
+
+        For non-SQL catalogs, we return a unique placeholder that includes catalog
+        attributes to avoid config_hash collisions between different catalogs.
         """
         if self.catalog_type == "sql":
             return SecretString(self._get_catalog_uri())
-        # For non-SQL catalogs, return a placeholder
-        return SecretString("iceberg://")
+        # For non-SQL catalogs, include unique attributes to avoid hash collisions
+        return SecretString(
+            f"iceberg://{self.catalog_type}:{self._get_catalog_uri()}:{self._get_warehouse_path()}"
+        )
 
     @overrides
     def get_database_name(self) -> str:
@@ -364,8 +386,21 @@ class IcebergProcessor(SqlProcessorBase):
             if col not in combined_df.columns:
                 combined_df[col] = None
 
-        # Convert to PyArrow table
-        arrow_table = pa.Table.from_pandas(combined_df, preserve_index=False)
+        # Serialize dict/list columns to JSON strings to match Iceberg StringType schema
+        # When pd.read_json reads JSONL, nested objects/arrays stay as Python dict/list,
+        # which causes PyArrow to infer struct/list types that mismatch Iceberg's StringType
+        for col in combined_df.columns:
+            if combined_df[col].apply(lambda x: isinstance(x, (dict, list))).any():
+                combined_df[col] = combined_df[col].apply(
+                    lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
+                )
+
+        # Convert to PyArrow table using the Iceberg table's Arrow schema for type alignment
+        arrow_table = pa.Table.from_pandas(
+            combined_df,
+            schema=iceberg_table.schema().as_arrow(),
+            preserve_index=False,
+        )
 
         # Append to the Iceberg table
         iceberg_table.append(arrow_table)
