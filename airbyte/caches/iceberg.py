@@ -1,52 +1,58 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """An Apache Iceberg implementation of the PyAirbyte cache.
 
-## Usage Example - Local SQLite Catalog
+This module provides the IcebergCache class for storing synced data in Apache Iceberg
+format. Iceberg is an open table format that provides ACID transactions, schema evolution,
+and efficient querying with any Iceberg-compatible query engine (Spark, Trino, DuckDB, etc.).
+
+.. warning::
+    **Experimental Feature**: The Iceberg cache is experimental and not necessarily
+    stable. During this preview period, features may change or be removed, and breaking
+    changes may be introduced without advanced notice.
+
+Usage Example - Local SQLite Catalog
+------------------------------------
 
 For local development, the Iceberg cache uses a SQLite database to store table metadata
-and writes Parquet files to a local warehouse directory:
+and writes Parquet files to a local warehouse directory::
 
-```python
-import airbyte as ab
-from airbyte.caches import IcebergCache
+    import airbyte as ab
+    from airbyte.caches import IcebergCache
 
-cache = IcebergCache(
-    warehouse_path="/path/to/warehouse",
-    namespace="my_namespace",
-)
-```
+    cache = IcebergCache(
+        warehouse_path="/path/to/warehouse",
+        namespace="my_namespace",
+    )
 
-## Usage Example - REST Catalog
+Usage Example - REST Catalog
+----------------------------
 
-For production use with REST-based catalogs (AWS Glue, Apache Polaris, etc.):
+For production use with REST-based catalogs (AWS Glue, Apache Polaris, etc.)::
 
-```python
-import airbyte as ab
-from airbyte.caches import IcebergCache
+    import airbyte as ab
+    from airbyte.caches import IcebergCache
 
-cache = IcebergCache(
-    catalog_type="rest",
-    catalog_uri="https://my-catalog.example.com",
-    namespace="my_namespace",
-    catalog_credential=ab.get_secret("ICEBERG_CATALOG_CREDENTIAL"),
-    warehouse_path="s3://my-bucket/warehouse",
-)
-```
+    cache = IcebergCache(
+        catalog_type="rest",
+        catalog_uri="https://my-catalog.example.com",
+        namespace="my_namespace",
+        catalog_credential=ab.get_secret("ICEBERG_CATALOG_CREDENTIAL"),
+        warehouse_path="s3://my-bucket/warehouse",
+    )
 
-## Reading Data
+Reading Data
+------------
 
-Once data is cached, you can read it using PyIceberg or any Iceberg-compatible query engine:
+Once data is cached, you can read it using PyIceberg or any Iceberg-compatible query engine::
 
-```python
-# Using PyIceberg directly
-catalog = cache.get_catalog()
-table = catalog.load_table(("my_namespace", "my_stream"))
-df = table.scan().to_pandas()
+    # Using PyIceberg directly
+    catalog = cache.get_catalog()
+    table = catalog.load_table(("my_namespace", "my_stream"))
+    df = table.scan().to_pandas()
 
-# Or use the cache's built-in methods
-records = cache.get_records("my_stream")
-df = records.to_pandas()
-```
+    # Or use the cache's built-in methods
+    records = cache.get_records("my_stream")
+    df = records.to_pandas()
 """
 
 from __future__ import annotations
@@ -80,6 +86,11 @@ class IcebergCache(IcebergConfig, CacheBase):
 
     The cache supports both local SQLite catalogs (for development) and REST catalogs
     (for production use with services like AWS Glue, Apache Polaris, etc.).
+
+    .. warning::
+        **Experimental Feature**: The Iceberg cache is experimental and not necessarily
+        stable. During this preview period, features may change or be removed, and
+        breaking changes may be introduced without advanced notice.
     """
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = IcebergProcessor

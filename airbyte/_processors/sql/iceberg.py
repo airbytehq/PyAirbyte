@@ -1,5 +1,27 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""An Apache Iceberg implementation of the cache using PyIceberg."""
+"""An Apache Iceberg implementation of the cache using PyIceberg.
+
+This module provides the core implementation for writing data to Apache Iceberg tables,
+including configuration, type conversion, and data processing. It supports both local
+SQLite catalogs (for development) and REST catalogs (for production use with services
+like AWS Glue, Apache Polaris, etc.).
+
+Key components:
+    IcebergConfig: Configuration class for Iceberg cache settings.
+    IcebergTypeConverter: Converts JSON schema types to Iceberg types.
+    IcebergProcessor: Processes and writes data to Iceberg tables.
+
+Type handling modes:
+    nested_types: Preserves nested structure as StructType/ListType for better query
+        performance. Stricter - will fail on incompatible schemas.
+    as_json_strings: Stringifies all complex objects to JSON. More permissive but
+        requires JSON parsing to access nested fields.
+
+.. warning::
+    **Experimental Feature**: The Iceberg cache is experimental and not necessarily
+    stable. During this preview period, features may change or be removed, and breaking
+    changes may be introduced without advanced notice.
+"""
 
 from __future__ import annotations
 
@@ -300,59 +322,61 @@ class IcebergConfig(SqlConfig):
     This configuration supports both local SQLite catalogs (for development)
     and REST catalogs (for production use with services like AWS Glue, Polaris, etc.).
 
-    ## Local SQLite Catalog (Default)
+    .. warning::
+        **Experimental Feature**: The Iceberg cache is experimental and not necessarily
+        stable. During this preview period, features may change or be removed, and
+        breaking changes may be introduced without advanced notice.
+
+    Local SQLite Catalog (Default)
+    ------------------------------
 
     For local development, PyIceberg uses a SQLite database to store table metadata
-    and writes Parquet files to a local warehouse directory:
+    and writes Parquet files to a local warehouse directory::
 
-    ```python
-    from airbyte.caches import IcebergCache
+        from airbyte.caches import IcebergCache
 
-    cache = IcebergCache(
-        warehouse_path="/path/to/warehouse",
-        catalog_uri="sqlite:////path/to/catalog.db",
-        namespace="my_namespace",
-    )
-    ```
+        cache = IcebergCache(
+            warehouse_path="/path/to/warehouse",
+            catalog_uri="sqlite:////path/to/catalog.db",
+            namespace="my_namespace",
+        )
 
-    ## REST Catalog with S3 Storage
+    REST Catalog with S3 Storage
+    ----------------------------
 
-    For production use with REST-based catalogs and S3 storage:
+    For production use with REST-based catalogs and S3 storage::
 
-    ```python
-    from airbyte.caches import IcebergCache
+        from airbyte.caches import IcebergCache
 
-    cache = IcebergCache(
-        catalog_type="rest",
-        catalog_uri="https://my-catalog.example.com",
-        namespace="my_namespace",
-        catalog_credential="my-api-key",
-        warehouse_path="s3://my-bucket/warehouse",
-        # S3 configuration
-        aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
-        aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        s3_bucket_name="my-bucket",
-        s3_bucket_region="us-east-1",
-    )
-    ```
+        cache = IcebergCache(
+            catalog_type="rest",
+            catalog_uri="https://my-catalog.example.com",
+            namespace="my_namespace",
+            catalog_credential="my-api-key",
+            warehouse_path="s3://my-bucket/warehouse",
+            # S3 configuration
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            s3_bucket_name="my-bucket",
+            s3_bucket_region="us-east-1",
+        )
 
-    ## AWS Glue Catalog
+    AWS Glue Catalog
+    ----------------
 
-    For AWS Glue-based catalogs:
+    For AWS Glue-based catalogs::
 
-    ```python
-    from airbyte.caches import IcebergCache
+        from airbyte.caches import IcebergCache
 
-    cache = IcebergCache(
-        catalog_type="glue",
-        namespace="my_database",
-        warehouse_path="s3://my-bucket/warehouse",
-        aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
-        aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-        s3_bucket_region="us-east-1",
-        glue_id="123456789012",  # AWS Account ID
-    )
-    ```
+        cache = IcebergCache(
+            catalog_type="glue",
+            namespace="my_database",
+            warehouse_path="s3://my-bucket/warehouse",
+            aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+            aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+            s3_bucket_region="us-east-1",
+            glue_id="123456789012",  # AWS Account ID
+        )
     """
 
     catalog_type: str = Field(default="sql")
