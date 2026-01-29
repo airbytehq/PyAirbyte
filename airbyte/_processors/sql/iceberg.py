@@ -549,9 +549,6 @@ class IcebergTypeConverter:
     - Schemaless objects/arrays are always stringified
     """
 
-    # Field ID counter for generating unique Iceberg field IDs
-    _field_id_counter: int = 0
-
     def __init__(self, conversion_map: dict | None = None) -> None:
         """Initialize the type converter.
 
@@ -560,16 +557,20 @@ class IcebergTypeConverter:
         """
         # Iceberg doesn't use SQLAlchemy types, but we keep this for interface compatibility
         self._conversion_map = conversion_map
+        # Field ID counter for generating unique Iceberg field IDs (instance-level)
+        self._field_id_counter: int = 0
 
-    @classmethod
-    def next_field_id(cls) -> int:
+    def next_field_id(self) -> int:
         """Generate a unique field ID for Iceberg nested fields."""
-        cls._field_id_counter += 1
-        return cls._field_id_counter
+        self._field_id_counter += 1
+        return self._field_id_counter
 
-    @classmethod
+    def reset_field_id_counter(self) -> None:
+        """Reset the field ID counter for a new schema generation."""
+        self._field_id_counter = 0
+
     def json_schema_to_iceberg_type(  # noqa: PLR0911, PLR0912
-        cls,
+        self,
         json_schema_property_def: dict[str, Any],
         *,
         object_typing: ObjectTypingMode = ObjectTypingMode.NESTED_TYPES,
@@ -605,7 +606,7 @@ class IcebergTypeConverter:
                 json_type = non_null_types[0]
             else:
                 # Multiple non-null types in array - treat as anyOf
-                return cls._handle_anyof_types(
+                return self._handle_anyof_types(
                     non_null_types, anyof_mode, object_typing, additional_props_mode
                 )
 
@@ -619,7 +620,7 @@ class IcebergTypeConverter:
                 opt_type = opt.get("type")
                 if opt_type and opt_type != "null":
                     option_types.append(opt_type)
-            return cls._handle_anyof_types(
+            return self._handle_anyof_types(
                 option_types, anyof_mode, object_typing, additional_props_mode
             )
 
@@ -645,7 +646,7 @@ class IcebergTypeConverter:
                 return StringType()
 
             # nested_types mode - convert to StructType
-            return cls._convert_object_to_struct(
+            return self._convert_object_to_struct(
                 properties,
                 has_additional_properties=has_additional,
                 additional_props_mode=additional_props_mode,
@@ -664,13 +665,13 @@ class IcebergTypeConverter:
                 return StringType()
 
             # nested_types mode: Convert to ListType with proper element type
-            element_type = cls.json_schema_to_iceberg_type(
+            element_type = self.json_schema_to_iceberg_type(
                 items,
                 object_typing=object_typing,
                 anyof_mode=anyof_mode,
                 additional_props_mode=additional_props_mode,
             )
-            return ListType(cls.next_field_id(), element_type)
+            return ListType(self.next_field_id(), element_type)
 
         # Map primitive JSON schema types to Iceberg types
         type_mapping: dict[str, IcebergType] = {
@@ -682,9 +683,8 @@ class IcebergTypeConverter:
 
         return type_mapping.get(str(json_type), StringType())
 
-    @classmethod
     def _handle_anyof_types(
-        cls,
+        self,
         option_types: list[str],
         anyof_mode: AnyOfPropertiesMode,
         object_typing: ObjectTypingMode,
@@ -709,7 +709,7 @@ class IcebergTypeConverter:
 
         # Single type - just convert it directly
         if len(option_types) == 1:
-            return cls.json_schema_to_iceberg_type(
+            return self.json_schema_to_iceberg_type(
                 {"type": option_types[0]},
                 object_typing=object_typing,
                 anyof_mode=anyof_mode,
@@ -741,8 +741,8 @@ class IcebergTypeConverter:
         nested_fields: list[NestedField] = []
         for type_name in option_types:
             branch_name = ANYOF_BRANCH_NAMES.get(type_name, f"{type_name}_val")
-            field_id = cls.next_field_id()
-            field_type = cls.json_schema_to_iceberg_type(
+            field_id = self.next_field_id()
+            field_type = self.json_schema_to_iceberg_type(
                 {"type": type_name},
                 object_typing=object_typing,
                 anyof_mode=anyof_mode,
@@ -759,9 +759,8 @@ class IcebergTypeConverter:
 
         return StructType(*nested_fields)
 
-    @classmethod
     def _convert_object_to_struct(
-        cls,
+        self,
         properties: dict[str, Any],
         *,
         has_additional_properties: bool = False,
@@ -782,9 +781,9 @@ class IcebergTypeConverter:
         nested_fields: list[NestedField] = []
 
         for prop_name, prop_def in properties.items():
-            field_id = cls.next_field_id()
+            field_id = self.next_field_id()
             # Recursively convert nested types (always use nested_types within structs)
-            field_type = cls.json_schema_to_iceberg_type(
+            field_type = self.json_schema_to_iceberg_type(
                 prop_def,
                 object_typing=ObjectTypingMode.NESTED_TYPES,
                 anyof_mode=anyof_mode,
@@ -813,7 +812,7 @@ class IcebergTypeConverter:
         ):
             nested_fields.append(
                 NestedField(
-                    field_id=cls.next_field_id(),
+                    field_id=self.next_field_id(),
                     name=get_additional_properties_column_name(),
                     field_type=StringType(),
                     required=False,
