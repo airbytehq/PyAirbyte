@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import contextlib
+import gzip
 import json
+from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import pandas as pd
 import pyarrow as pa
 from overrides import overrides
 from pydantic import Field, model_validator
@@ -150,6 +151,142 @@ def get_additional_properties_column_name() -> str:
         '__additional_properties__json'
     """
     return get_json_column_name(ADDITIONAL_PROPERTIES_COLUMN)
+
+
+def convert_value_to_arrow_type(  # noqa: PLR0911, PLR0912
+    value: Any,  # noqa: ANN401
+    arrow_type: pa.DataType,
+) -> Any:  # noqa: ANN401
+    """Recursively convert a Python value to match the expected Arrow type.
+
+    This function handles the conversion of Python dicts/lists to match
+    the expected Arrow struct/list types, and properly handles null values.
+
+    Args:
+        value: The Python value to convert.
+        arrow_type: The expected PyArrow type.
+
+    Returns:
+        The converted value that can be used to build an Arrow array.
+    """
+    # Handle null values - return None for any type
+    if value is None:
+        return None
+
+    # Handle struct types (Python dict -> Arrow struct)
+    if pa.types.is_struct(arrow_type):
+        if not isinstance(value, dict):
+            # If we expected a struct but got something else, try to serialize to JSON
+            return json.dumps(value) if isinstance(value, (dict, list)) else value
+
+        # Convert each field in the struct
+        result = {}
+        for i in range(arrow_type.num_fields):
+            field = arrow_type.field(i)
+            field_value = value.get(field.name)
+            result[field.name] = convert_value_to_arrow_type(field_value, field.type)
+        return result
+
+    # Handle list types (Python list -> Arrow list)
+    if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+        if not isinstance(value, list):
+            # If we expected a list but got something else, return as-is or serialize
+            return json.dumps(value) if isinstance(value, (dict, list)) else value
+
+        # Convert each element in the list
+        element_type = arrow_type.value_type
+        return [convert_value_to_arrow_type(item, element_type) for item in value]
+
+    # Handle string types - serialize dicts/lists to JSON
+    if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        return str(value) if value is not None else None
+
+    # Handle numeric types - try to convert strings to numbers
+    if pa.types.is_integer(arrow_type):
+        if isinstance(value, (int, float)):
+            return int(value)
+        if isinstance(value, str):
+            # Try to convert string to int
+            with contextlib.suppress(ValueError):
+                return int(value)
+            # Try float first then int (for "123.0" -> 123)
+            with contextlib.suppress(ValueError):
+                return int(float(value))
+        return None  # Return None for unconvertible values
+
+    if pa.types.is_floating(arrow_type):
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            # Try to convert string to float
+            with contextlib.suppress(ValueError):
+                return float(value)
+        return None  # Return None for unconvertible values
+
+    # Handle boolean
+    if pa.types.is_boolean(arrow_type):
+        return bool(value) if value is not None else None
+
+    # Handle timestamp types - parse ISO format strings
+    if pa.types.is_timestamp(arrow_type):
+        if isinstance(value, str):
+            # Use fromisoformat which handles most ISO 8601 formats
+            with contextlib.suppress(ValueError):
+                parsed = datetime.fromisoformat(value)
+                # Ensure timezone-aware (default to UTC if naive)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed
+            # If parsing fails, return as-is and let PyArrow try
+        return value
+
+    # Handle date types - parse ISO format strings
+    if pa.types.is_date(arrow_type):
+        if isinstance(value, str):
+            with contextlib.suppress(ValueError):
+                return date.fromisoformat(value[:10])  # Take just the date part
+        return value
+
+    # Handle time types
+    if pa.types.is_time(arrow_type):
+        return value
+
+    # Default: return as-is
+    return value
+
+
+def convert_record_to_arrow_schema(
+    record: dict[str, Any],
+    arrow_schema: pa.Schema,
+    normalizer: type[LowerCaseNormalizer],
+) -> dict[str, Any]:
+    """Convert a record (Python dict) to match the expected Arrow schema.
+
+    This function normalizes field names and converts values to match
+    the expected Arrow types.
+
+    Args:
+        record: The input record as a Python dict.
+        arrow_schema: The expected PyArrow schema.
+        normalizer: The name normalizer to use.
+
+    Returns:
+        A dict with normalized field names and converted values.
+    """
+    result: dict[str, Any] = {}
+
+    # First, normalize the record keys
+    normalized_record = {normalizer.normalize(k): v for k, v in record.items()}
+
+    # Convert each field according to the schema
+    for field in arrow_schema:
+        field_name = field.name
+        value = normalized_record.get(field_name)
+        result[field_name] = convert_value_to_arrow_type(value, field.type)
+
+    return result
 
 
 class IcebergConfig(SqlConfig):
@@ -431,7 +568,7 @@ class IcebergTypeConverter:
         return cls._field_id_counter
 
     @classmethod
-    def json_schema_to_iceberg_type(  # noqa: PLR0911
+    def json_schema_to_iceberg_type(  # noqa: PLR0911, PLR0912
         cls,
         json_schema_property_def: dict[str, Any],
         *,
@@ -515,13 +652,18 @@ class IcebergTypeConverter:
                 anyof_mode=anyof_mode,
             )
 
-        # Handle array type - always strongly typed regardless of object_typing mode
+        # Handle array type
         if json_type == "array":
             items = json_schema_property_def.get("items")
             if not items:
                 # Schemaless array - stringify
                 return StringType()
-            # Convert to ListType with proper element type
+
+            # In AS_JSON_STRINGS mode, stringify arrays too (for consistency)
+            if object_typing == ObjectTypingMode.AS_JSON_STRINGS:
+                return StringType()
+
+            # nested_types mode: Convert to ListType with proper element type
             element_type = cls.json_schema_to_iceberg_type(
                 items,
                 object_typing=object_typing,
@@ -896,87 +1038,49 @@ class IcebergProcessor(SqlProcessorBase):
 
         Unlike SQL databases, we write directly to the final table in Iceberg
         since Iceberg handles transactions and versioning natively.
+
+        This method reads JSONL files directly (without pandas) and uses a
+        recursive converter to transform Python objects to match the Iceberg
+        schema. This handles:
+        - Null values for struct/list columns
+        - Python dicts -> Arrow structs
+        - Python lists -> Arrow lists
+        - Schemaless arrays/objects -> JSON strings
         """
         table_name = self.get_sql_table_name(stream_name)
 
-        # Get or create the Iceberg table
+        # Get or create the Iceberg table (schema is declared before parsing records)
         iceberg_table = self._get_or_create_iceberg_table(stream_name, table_name)
-
-        # Read all JSONL files and combine into a single DataFrame
-        dataframes = []
-        for file_path in files:
-            file_df = pd.read_json(file_path, lines=True)
-            dataframes.append(file_df)
-
-        if not dataframes:
-            return table_name
-
-        combined_df = pd.concat(dataframes, ignore_index=True)
-
-        # Normalize column names
-        combined_df.columns = pd.Index(
-            [self.normalizer.normalize(col) for col in combined_df.columns]
-        )
-
-        # Get the expected columns from the Iceberg schema
-        expected_columns = {field.name for field in iceberg_table.schema().fields}
-
-        # Remove columns not in the schema
-        columns_to_drop = [col for col in combined_df.columns if col not in expected_columns]
-        if columns_to_drop:
-            combined_df = combined_df.drop(columns=columns_to_drop)
-
-        # Add missing columns with None values
-        for col in expected_columns:
-            if col not in combined_df.columns:
-                combined_df[col] = None
-
-        # Handle dict/list columns based on object_typing setting and Iceberg schema
-        # When pd.read_json reads JSONL, nested objects/arrays stay as Python dict/list
-        object_typing = self.sql_config.object_typing
         arrow_schema = iceberg_table.schema().as_arrow()
 
-        if object_typing == ObjectTypingMode.AS_JSON_STRINGS:
-            # Serialize all dict/list columns to JSON strings (except _airbyte_meta)
-            for col in combined_df.columns:
-                # Skip _airbyte_meta - it's always a struct, never stringified
-                if col == AB_META_COLUMN:
-                    continue
-                if combined_df[col].apply(lambda x: isinstance(x, (dict, list))).any():
-                    combined_df[col] = combined_df[col].apply(
-                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
+        # Read all JSONL files and convert records to match the Arrow schema
+        converted_records: list[dict[str, Any]] = []
+        for file_path in files:
+            # Read gzip-compressed JSONL file line by line (progressive read for large files)
+            with gzip.open(file_path, mode="rt", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():
+                        continue
+                    record = json.loads(line)
+                    # Convert record to match the Arrow schema
+                    converted = convert_record_to_arrow_schema(
+                        record, arrow_schema, self.normalizer
                     )
-        else:
-            # nested_types mode: Only serialize columns that have StringType in Iceberg schema
-            # but contain dict/list data (e.g., schemaless arrays/objects)
-            for col in combined_df.columns:
-                if col == AB_META_COLUMN:
-                    continue
-                # Check if this column has StringType in the Iceberg schema
-                try:
-                    arrow_field = arrow_schema.field(col)
-                    is_string_type = pa.types.is_large_string(
-                        arrow_field.type
-                    ) or pa.types.is_string(arrow_field.type)
-                except KeyError:
-                    # Column not in schema, skip
-                    continue
+                    converted_records.append(converted)
 
-                if (
-                    is_string_type
-                    and combined_df[col].apply(lambda x: isinstance(x, (dict, list))).any()
-                ):
-                    # This column should be a string but has dict/list data - serialize it
-                    combined_df[col] = combined_df[col].apply(
-                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
-                    )
+        if not converted_records:
+            return table_name
 
-        # Convert to PyArrow table using the Iceberg table's Arrow schema for type alignment
-        arrow_table = pa.Table.from_pandas(
-            combined_df,
-            schema=iceberg_table.schema().as_arrow(),
-            preserve_index=False,
-        )
+        # Build PyArrow arrays for each column
+        arrays: list[pa.Array] = []
+        for field in arrow_schema:
+            column_values = [record.get(field.name) for record in converted_records]
+            # Create array with the correct type
+            array = pa.array(column_values, type=field.type)
+            arrays.append(array)
+
+        # Create PyArrow table from arrays
+        arrow_table = pa.Table.from_arrays(arrays, schema=arrow_schema)
 
         # Append to the Iceberg table
         iceberg_table.append(arrow_table)

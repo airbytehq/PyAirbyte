@@ -45,14 +45,14 @@ def main() -> None:
         #       warehouse_path="s3://my-bucket/warehouse",
         #       catalog_credential="my-api-key",
         #   )
-        # Use as_json_strings mode which is the safe default (matches Kotlin destination behavior)
-        # This stores complex objects/arrays as JSON strings, which can be parsed at query time
-        # For production use with strict schemas, you can use nested_types mode instead
+        # Use nested_types mode to test the recursive data converter
+        # This preserves complex objects as Iceberg StructType and arrays as ListType
+        # For simpler use cases, you can use as_json_strings mode instead
         cache = IcebergCache(
             warehouse_path=warehouse_path,
             catalog_uri=f"sqlite:///{catalog_db}",
             namespace="spacex_data",
-            object_typing=ObjectTypingMode.AS_JSON_STRINGS,
+            object_typing=ObjectTypingMode.NESTED_TYPES,
         )
 
         # Use the SpaceX API source which has nested records

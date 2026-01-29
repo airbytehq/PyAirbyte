@@ -172,13 +172,24 @@ class IcebergCache(IcebergConfig, CacheBase):
         """
         return CachedDataset(self, stream_name)
 
-    def _get_warehouse_path_for_stream(self, stream_name: str) -> Path:
+    def _get_warehouse_path_for_stream(self, stream_name: str) -> Path | str:
         """Get the warehouse path for a specific stream's data files.
 
         This is useful for understanding where the Parquet files are stored.
+
+        Returns:
+            For local warehouses: a Path object.
+            For URI warehouses (s3://, gs://, etc.): a string URI.
         """
         table_name = self._read_processor.get_sql_table_name(stream_name)
         warehouse = self.warehouse_path
+
+        # Handle URI-style warehouses (s3://, gs://, etc.)
+        if isinstance(warehouse, str) and "://" in warehouse:
+            # Return as URI string, not Path
+            return f"{warehouse.rstrip('/')}/{self.namespace}/{table_name}"
+
+        # Handle local paths
         if isinstance(warehouse, str):
             warehouse = Path(warehouse)
         return warehouse / self.namespace / table_name
