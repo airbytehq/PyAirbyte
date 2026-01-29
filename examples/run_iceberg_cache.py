@@ -104,13 +104,14 @@ def main() -> None:
         # Iterate over records using Arrow dataset
         print("\nFirst 2 capsule records (via Arrow):")
         capsules_arrow = cache.get_arrow_dataset("capsules")
-        for i, batch in enumerate(capsules_arrow.to_batches()):
+        row_count = 0
+        for batch in capsules_arrow.to_batches():
             for row in batch.to_pylist():
-                if i >= 2:
+                if row_count >= 2:
                     break
                 print(f"  {row}")
-                i += 1
-            if i >= 2:
+                row_count += 1
+            if row_count >= 2:
                 break
 
         print("\nExample complete!")
