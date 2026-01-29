@@ -37,34 +37,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           dry-run: true
-          categories: |
-            # MCP features as separate section
-            - title: '❇️ New MCP Features'
-              commit-scopes:
-                - 'mcp'
-              commit-types:
-                - 'feat'
-              display-order: 100
-            # Generic categories
-            - title: '🚀 New PyAirbyte Features'
-              commit-types:
-                - 'feat'
-              display-order: 101
-            - title: '🐛 Bug Fixes'
-              commit-types:
-                - 'fix'
-              display-order: 102
-            - title: '⚙️ Under the Hood'
-              commit-types:
-                - 'chore'
-                - 'ci'
-                - 'build'
-                - 'refactor'
-                - 'test'
-                - 'perf'
-                - 'docs'
-              collapse-after: 3
-              display-order: 999
 
       - name: Build package
         env:
