@@ -192,5 +192,6 @@ class SourcePyAirbyteUniversal(Source):
                         namespace=message.record.namespace,
                     ),
                 )
-            # Skip STATE messages for now - they require per-stream format conversion
-            # which is complex and not needed for basic full-refresh syncs
+            # TK-TODO: Add STATE message handling for incremental sync support.
+            # STATE messages require per-stream format conversion which is complex.
+            # For now, only full-refresh syncs are supported.
