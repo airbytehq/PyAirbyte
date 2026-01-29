@@ -751,10 +751,12 @@ class IcebergProcessor(SqlProcessorBase):
 
         Note: _airbyte_meta is always stored as a StructType (strongly typed),
         matching the behavior of the Kotlin S3 Data Lake destination.
+
+        All field IDs are generated using the type_converter.next_field_id() method
+        to ensure unique IDs across both top-level and nested fields.
         """
         properties = self.catalog_provider.get_stream_properties(stream_name)
         fields: list[NestedField] = []
-        field_id = 1
 
         # Get typing configuration from config
         object_typing = self.sql_config.object_typing
@@ -771,13 +773,12 @@ class IcebergProcessor(SqlProcessorBase):
             )
             fields.append(
                 NestedField(
-                    field_id=field_id,
+                    field_id=self.type_converter.next_field_id(),
                     name=clean_prop_name,
                     field_type=iceberg_type,
                     required=False,
                 )
             )
-            field_id += 1
 
         # Add Airbyte internal columns
         # _airbyte_meta is always stored as a StructType (strongly typed)
@@ -786,19 +787,19 @@ class IcebergProcessor(SqlProcessorBase):
         fields.extend(
             [
                 NestedField(
-                    field_id=field_id,
+                    field_id=self.type_converter.next_field_id(),
                     name=AB_RAW_ID_COLUMN,
                     field_type=StringType(),
                     required=False,
                 ),
                 NestedField(
-                    field_id=field_id + 1,
+                    field_id=self.type_converter.next_field_id(),
                     name=AB_EXTRACTED_AT_COLUMN,
                     field_type=TimestamptzType(),
                     required=False,
                 ),
                 NestedField(
-                    field_id=field_id + 2,
+                    field_id=self.type_converter.next_field_id(),
                     name=AB_META_COLUMN,
                     field_type=airbyte_meta_type,
                     required=False,
