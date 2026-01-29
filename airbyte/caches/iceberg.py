@@ -40,6 +40,23 @@ For production use with REST-based catalogs (AWS Glue, Apache Polaris, etc.)::
         warehouse_path="s3://my-bucket/warehouse",
     )
 
+Type Handling Configuration
+---------------------------
+
+The cache supports two modes for handling complex nested objects, controlled by `object_typing`:
+
+- `nested_types` (default): Preserves nested structure as Iceberg StructType/ListType for
+  better query performance. Stricter - will fail on incompatible schemas.
+- `as_json_strings`: Stringifies all complex objects to JSON. More permissive but requires
+  JSON parsing to access nested fields.
+
+When using `nested_types`, additional options control edge cases:
+
+- `additional_properties`: How to handle undeclared properties (`fail`, `ignore`, `stringify`).
+- `anyof_properties`: How to handle anyOf/oneOf union types (`fail`, `branch`, `stringify`).
+
+See `IcebergConfig` for full configuration details.
+
 Reading Data
 ------------
 
