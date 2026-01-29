@@ -23,6 +23,7 @@ from pathlib import Path
 
 import airbyte as ab
 from airbyte.caches import IcebergCache
+from airbyte._processors.sql.iceberg import ObjectTypingMode
 
 
 def main() -> None:
@@ -44,10 +45,14 @@ def main() -> None:
         #       warehouse_path="s3://my-bucket/warehouse",
         #       catalog_credential="my-api-key",
         #   )
+        # Use as_json_strings mode which is the safe default (matches Kotlin destination behavior)
+        # This stores complex objects/arrays as JSON strings, which can be parsed at query time
+        # For production use with strict schemas, you can use nested_types mode instead
         cache = IcebergCache(
             warehouse_path=warehouse_path,
             catalog_uri=f"sqlite:///{catalog_db}",
             namespace="spacex_data",
+            object_typing=ObjectTypingMode.AS_JSON_STRINGS,
         )
 
         # Use the SpaceX API source which has nested records
