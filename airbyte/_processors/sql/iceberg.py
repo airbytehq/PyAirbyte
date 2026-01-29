@@ -101,40 +101,19 @@ class IcebergConfig(SqlConfig):
     """The path to the Iceberg warehouse directory (local) or URI (S3, GCS, etc.)."""
 
     namespace: str = Field(default="airbyte_raw")
-    """The Iceberg namespace (similar to a database schema)."""
+    """The Iceberg namespace for data tables (similar to a database schema)."""
 
-    # Override schema_name to use namespace instead
-    schema_name: str = Field(default="airbyte_raw")
-    """Alias for namespace - kept for compatibility with SqlConfig."""
+    # For Iceberg, schema_name is always "main" because SQLite (used for internal
+    # catalog/state tables) doesn't support schemas. The namespace field is used
+    # for Iceberg table organization instead.
+    schema_name: str = Field(default="main")
+    """Schema for internal SQLAlchemy tables. Always 'main' for SQLite compatibility."""
 
     table_prefix: str | None = Field(default="")
     """A prefix to add to created table names."""
 
     _catalog: Catalog | None = None
     """Cached catalog instance."""
-
-    def model_post_init(self, _context: object, /) -> None:
-        """Sync schema_name with namespace after initialization.
-
-        This handles backward compatibility by allowing users to set either
-        'namespace' (preferred) or 'schema_name' (legacy SqlConfig compatibility).
-        """
-        fields_set = self.model_fields_set
-        namespace_set = "namespace" in fields_set
-        schema_name_set = "schema_name" in fields_set
-
-        if namespace_set and schema_name_set and self.namespace != self.schema_name:
-            raise ValueError(
-                f"namespace ({self.namespace!r}) and schema_name ({self.schema_name!r}) "
-                "must match when both are provided"
-            )
-
-        if namespace_set and not schema_name_set:
-            # User set namespace, sync to schema_name
-            self.schema_name = self.namespace
-        elif schema_name_set and not namespace_set:
-            # User set schema_name (legacy), sync to namespace
-            self.namespace = self.schema_name
 
     def _get_catalog_uri(self) -> str:
         """Get the catalog URI, using default if not specified."""
@@ -198,7 +177,20 @@ class IcebergConfig(SqlConfig):
 
 
 class IcebergTypeConverter:
-    """Convert JSON schema types to Iceberg types."""
+    """Convert JSON schema types to Iceberg types.
+
+    This converter provides both Iceberg-native type conversion (json_schema_to_iceberg_type)
+    and a to_sql_type method for compatibility with the SqlProcessorBase interface.
+    """
+
+    def __init__(self, conversion_map: dict | None = None) -> None:
+        """Initialize the type converter.
+
+        Args:
+            conversion_map: Optional conversion map (ignored for Iceberg).
+        """
+        # Iceberg doesn't use SQLAlchemy types, but we keep this for interface compatibility
+        self._conversion_map = conversion_map
 
     @staticmethod
     def json_schema_to_iceberg_type(
@@ -229,6 +221,18 @@ class IcebergTypeConverter:
             return TimestamptzType()
 
         return type_mapping.get(str(json_type), StringType())
+
+    def to_sql_type(
+        self,
+        json_schema_property_def: dict[str, str | dict | list],
+    ) -> IcebergType:
+        """Convert a JSON schema property definition to a type.
+
+        Note: This method exists for compatibility with SqlProcessorBase interface.
+        For Iceberg, we return the Iceberg type instead of a SQLAlchemy type.
+        The actual type conversion for Iceberg tables uses json_schema_to_iceberg_type.
+        """
+        return self.json_schema_to_iceberg_type(json_schema_property_def)
 
 
 class IcebergProcessor(SqlProcessorBase):
@@ -425,6 +429,39 @@ class IcebergProcessor(SqlProcessorBase):
                 raise NoSuchTableError(f"Table {table_name} does not exist")
 
         return table_name
+
+    @overrides
+    def _ensure_compatible_table_schema(
+        self,
+        stream_name: str,
+        table_name: str,
+    ) -> None:
+        """Ensure the Iceberg table schema is compatible with the stream schema.
+
+        For Iceberg, we handle schema evolution differently than SQL databases.
+        Iceberg has native schema evolution support, so we don't need to add
+        columns via ALTER TABLE. The schema is managed when creating the table.
+        """
+        # Iceberg handles schema evolution natively - no action needed here
+        # The table schema is set when the table is created in _create_iceberg_table
+        pass
+
+    @overrides
+    def _emulated_merge_temp_table_to_final_table(
+        self,
+        stream_name: str,
+        temp_table_name: str,
+        final_table_name: str,
+    ) -> None:
+        """Emulate merge operation for Iceberg.
+
+        For Iceberg, this is a no-op because we write directly to the final table
+        in _write_files_to_new_table. Iceberg handles transactions natively, so
+        we don't need the temp table pattern used by SQL databases.
+        """
+        # In Iceberg, data is already written to the final table in _write_files_to_new_table
+        # No additional action needed here
+        pass
 
     @overrides
     def _drop_temp_table(
