@@ -428,20 +428,20 @@ class IcebergProcessor(SqlProcessorBase):
     @overrides
     def _drop_temp_table(
         self,
-        table_name: str,
+        table_name: str,  # Required by base class interface
         *,
-        if_exists: bool = True,
+        if_exists: bool = True,  # Required by base class interface
     ) -> None:
-        """Drop an Iceberg table.
+        """No-op for Iceberg since we don't use temp tables.
 
-        Note: In the Iceberg implementation, we typically don't use temp tables
-        since Iceberg handles transactions natively. This method is kept for
-        compatibility with the base class interface.
+        In the Iceberg implementation, we write directly to the final table
+        (not a temp table) since Iceberg handles transactions natively.
+        The base class may call this method with the final table name after
+        _write_files_to_new_table, so we must NOT drop anything here to
+        avoid data loss.
         """
-        if if_exists and not self._table_exists_iceberg(table_name):
-            return
-
-        self.catalog.drop_table(self._get_table_identifier(table_name))
+        # Intentionally a no-op - we don't use temp tables in Iceberg
+        pass
 
     @overrides
     def _append_temp_table_to_final_table(
