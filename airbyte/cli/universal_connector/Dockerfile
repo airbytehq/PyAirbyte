@@ -7,5 +7,5 @@ COPY airbyte ./airbyte
 
 RUN pip install --no-cache-dir .
 
-ENV AIRBYTE_ENTRYPOINT="python -m airbyte.destinations.universal.run"
-ENTRYPOINT ["python", "-m", "airbyte.destinations.universal.run"]
+ENV AIRBYTE_ENTRYPOINT="destination-pyairbyte"
+ENTRYPOINT ["destination-pyairbyte"]
