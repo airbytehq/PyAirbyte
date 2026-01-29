@@ -5,24 +5,29 @@ from __future__ import annotations
 
 import contextlib
 import json
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pyarrow as pa
 from overrides import overrides
-from pydantic import Field
+from pydantic import Field, model_validator
 from pyiceberg.catalog import Catalog, load_catalog
 from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.exceptions import NamespaceAlreadyExistsError, NoSuchTableError
 from pyiceberg.schema import NestedField, Schema
 from pyiceberg.types import (
     BooleanType,
+    DateType,
     DoubleType,
     IcebergType,
+    ListType,
     LongType,
     StringType,
+    StructType,
     TimestamptzType,
+    TimeType,
 )
 
 from airbyte._util.name_normalizers import LowerCaseNormalizer
@@ -33,6 +38,7 @@ from airbyte.constants import (
     AB_RAW_ID_COLUMN,
     DEFAULT_CACHE_ROOT,
 )
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 from airbyte.shared.sql_processor import SqlConfig, SqlProcessorBase
 
@@ -45,6 +51,105 @@ if TYPE_CHECKING:
 # Default warehouse path for local Iceberg storage
 DEFAULT_ICEBERG_WAREHOUSE = Path(DEFAULT_CACHE_ROOT) / "iceberg_warehouse"
 DEFAULT_ICEBERG_CATALOG_DB = Path(DEFAULT_CACHE_ROOT) / "iceberg_catalog.db"
+
+
+class ObjectTypingMode(str, Enum):
+    """Mode for handling complex object types in Iceberg schemas.
+
+    - `nested_types`: Always type nested fields as structs. Provides better query performance
+      but cannot handle all data types (will fail early on incompatible schemas).
+    - `as_json_strings`: Always stringify complex objects to JSON. Can write any data but
+      requires JSON parsing to access nested fields.
+    """
+
+    NESTED_TYPES = "nested_types"
+    AS_JSON_STRINGS = "as_json_strings"
+
+
+class AdditionalPropertiesMode(str, Enum):
+    """Mode for handling additional (undeclared) properties in objects.
+
+    Only applicable when object_typing is set to 'nested_types'.
+
+    - `fail`: Fail if we encounter an undeclared property at runtime.
+    - `ignore`: Silently drop additional properties.
+    - `stringify`: Create a placeholder column `_additional_properties_json` to hold
+      additional property data as a JSON string.
+    """
+
+    FAIL = "fail"
+    IGNORE = "ignore"
+    STRINGIFY = "stringify"
+
+
+class AnyOfPropertiesMode(str, Enum):
+    """Mode for handling anyOf/oneOf union types in schemas.
+
+    Only applicable when object_typing is set to 'nested_types'.
+
+    - `fail`: Fail if we encounter anyOf types in the schema.
+    - `branch`: Store each type option as a separate subcolumn within a struct.
+      E.g., column `sometimes_int` declared as `anyOf(str, int)` becomes
+      `sometimes_int: {str_val: str | None, int_val: int | None}`.
+      Note: Only compatible with simple types; complex anyOf types will fail.
+    - `stringify`: Store nondeterministic (anyOf) types as JSON strings.
+    """
+
+    FAIL = "fail"
+    BRANCH = "branch"
+    STRINGIFY = "stringify"
+
+
+# Simple types that can be used with the 'branch' anyOf mode
+SIMPLE_ANYOF_TYPES = {"string", "integer", "number", "boolean"}
+
+# Mapping from JSON schema type to branch subcolumn name
+ANYOF_BRANCH_NAMES: dict[str, str] = {
+    "string": "str_val",
+    "integer": "int_val",
+    "number": "num_val",
+    "boolean": "bool_val",
+}
+
+# Suffix for columns that have been stringified to JSON
+JSON_COLUMN_SUFFIX = "__json"
+
+# Name for the additional properties placeholder column
+ADDITIONAL_PROPERTIES_COLUMN = "__additional_properties"
+
+
+def get_json_column_name(base_name: str) -> str:
+    """Get the column name for a stringified JSON column.
+
+    When a complex type is stringified to JSON, we append a suffix to indicate
+    that the column contains JSON data that may need parsing.
+
+    Args:
+        base_name: The original column/property name.
+
+    Returns:
+        The column name with the JSON suffix appended.
+
+    Example:
+        >>> get_json_column_name("user_data")
+        'user_data__json'
+        >>> get_json_column_name("__additional_properties")
+        '__additional_properties__json'
+    """
+    return f"{base_name}{JSON_COLUMN_SUFFIX}"
+
+
+def get_additional_properties_column_name() -> str:
+    """Get the column name for storing additional (undeclared) properties.
+
+    Returns:
+        The column name for additional properties, with JSON suffix.
+
+    Example:
+        >>> get_additional_properties_column_name()
+        '__additional_properties__json'
+    """
+    return get_json_column_name(ADDITIONAL_PROPERTIES_COLUMN)
 
 
 class IcebergConfig(SqlConfig):
@@ -68,9 +173,9 @@ class IcebergConfig(SqlConfig):
     )
     ```
 
-    ## REST Catalog
+    ## REST Catalog with S3 Storage
 
-    For production use with REST-based catalogs (AWS Glue, Apache Polaris, etc.):
+    For production use with REST-based catalogs and S3 storage:
 
     ```python
     from airbyte.caches import IcebergCache
@@ -81,6 +186,29 @@ class IcebergConfig(SqlConfig):
         namespace="my_namespace",
         catalog_credential="my-api-key",
         warehouse_path="s3://my-bucket/warehouse",
+        # S3 configuration
+        aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+        aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        s3_bucket_name="my-bucket",
+        s3_bucket_region="us-east-1",
+    )
+    ```
+
+    ## AWS Glue Catalog
+
+    For AWS Glue-based catalogs:
+
+    ```python
+    from airbyte.caches import IcebergCache
+
+    cache = IcebergCache(
+        catalog_type="glue",
+        namespace="my_database",
+        warehouse_path="s3://my-bucket/warehouse",
+        aws_access_key_id="AKIAIOSFODNN7EXAMPLE",
+        aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        s3_bucket_region="us-east-1",
+        glue_id="123456789012",  # AWS Account ID
     )
     ```
     """
@@ -112,8 +240,57 @@ class IcebergConfig(SqlConfig):
     table_prefix: str | None = Field(default="")
     """A prefix to add to created table names."""
 
+    # S3 Configuration
+    aws_access_key_id: SecretString | None = Field(default=None)
+    """AWS Access Key ID for S3 and Glue operations."""
+
+    aws_secret_access_key: SecretString | None = Field(default=None)
+    """AWS Secret Access Key for S3 and Glue operations."""
+
+    s3_bucket_name: str | None = Field(default=None)
+    """The name of the S3 bucket for Iceberg data storage."""
+
+    s3_bucket_region: str | None = Field(default=None)
+    """The AWS region of the S3 bucket (e.g., 'us-east-1', 'eu-west-1')."""
+
+    s3_endpoint: str | None = Field(default=None)
+    """Custom S3 endpoint URL for S3-compatible storage (e.g., MinIO)."""
+
+    # Glue-specific configuration
+    glue_id: str | None = Field(default=None)
+    """AWS Account ID for Glue catalog operations."""
+
+    # Type handling configuration
+    object_typing: ObjectTypingMode = Field(default=ObjectTypingMode.NESTED_TYPES)
+    """Mode for handling complex object types.
+    - 'nested_types': Type nested fields as structs (better query performance, stricter).
+    - 'as_json_strings': Stringify all complex objects to JSON (more permissive)."""
+
+    additional_properties: AdditionalPropertiesMode = Field(default=AdditionalPropertiesMode.FAIL)
+    """How to handle additional (undeclared) properties in objects.
+    Only applicable when object_typing='nested_types'.
+    - 'fail': Fail if we encounter an undeclared property at runtime.
+    - 'ignore': Silently drop additional properties.
+    - 'stringify': Create `_additional_properties_json` column for extra data."""
+
+    anyof_properties: AnyOfPropertiesMode = Field(default=AnyOfPropertiesMode.FAIL)
+    """How to handle anyOf/oneOf union types in schemas.
+    Only applicable when object_typing='nested_types'.
+    - 'fail': Fail if we encounter anyOf types in the schema.
+    - 'branch': Store each type option as a separate subcolumn (simple types only).
+    - 'stringify': Store anyOf types as JSON strings."""
+
     _catalog: Catalog | None = None
     """Cached catalog instance."""
+
+    @model_validator(mode="after")
+    def _validate_typing_config(self) -> IcebergConfig:
+        """Validate that typing configuration options are consistent."""
+        if self.object_typing == ObjectTypingMode.AS_JSON_STRINGS:
+            # additional_properties and anyof_properties are ignored in this mode
+            # but we don't need to warn - they just have no effect
+            pass
+        return self
 
     def _get_catalog_uri(self) -> str:
         """Get the catalog URI, using default if not specified."""
@@ -131,6 +308,40 @@ class IcebergConfig(SqlConfig):
             return str(warehouse.absolute())
         return warehouse
 
+    def _get_s3_config(self) -> dict[str, str]:
+        """Get S3-specific configuration for PyIceberg.
+
+        Returns a dictionary of S3 configuration options that PyIceberg expects.
+        See: https://py.iceberg.apache.org/configuration/#s3
+        """
+        s3_config: dict[str, str] = {}
+
+        if self.aws_access_key_id:
+            s3_config["s3.access-key-id"] = str(self.aws_access_key_id)
+        if self.aws_secret_access_key:
+            s3_config["s3.secret-access-key"] = str(self.aws_secret_access_key)
+        if self.s3_bucket_region:
+            s3_config["s3.region"] = self.s3_bucket_region
+        if self.s3_endpoint:
+            s3_config["s3.endpoint"] = self.s3_endpoint
+
+        return s3_config
+
+    def _get_glue_config(self) -> dict[str, str]:
+        """Get Glue-specific configuration for PyIceberg.
+
+        Returns a dictionary of Glue configuration options that PyIceberg expects.
+        See: https://py.iceberg.apache.org/configuration/#glue-catalog
+        """
+        glue_config: dict[str, str] = {}
+
+        if self.glue_id:
+            glue_config["glue.id"] = self.glue_id
+        if self.s3_bucket_region:
+            glue_config["glue.region"] = self.s3_bucket_region
+
+        return glue_config
+
     def get_catalog(self) -> Catalog:
         """Get or create the Iceberg catalog instance."""
         if self._catalog is not None:
@@ -140,11 +351,19 @@ class IcebergConfig(SqlConfig):
             "warehouse": self._get_warehouse_path(),
         }
 
+        # Add S3 configuration if any S3 settings are provided
+        catalog_config.update(self._get_s3_config())
+
         if self.catalog_type == "sql":
             catalog_config["uri"] = self._get_catalog_uri()
             self._catalog = SqlCatalog(self.catalog_name, **catalog_config)
+        elif self.catalog_type == "glue":
+            # Glue catalog configuration
+            catalog_config["type"] = "glue"
+            catalog_config.update(self._get_glue_config())
+            self._catalog = load_catalog(self.catalog_name, **catalog_config)
         else:
-            # For REST, Glue, Hive, etc., use the generic load_catalog
+            # For REST, Hive, etc., use the generic load_catalog
             catalog_config["type"] = self.catalog_type
             catalog_config["uri"] = self._get_catalog_uri()
             if self.catalog_credential:
@@ -181,7 +400,20 @@ class IcebergTypeConverter:
 
     This converter provides both Iceberg-native type conversion (json_schema_to_iceberg_type)
     and a to_sql_type method for compatibility with the SqlProcessorBase interface.
+
+    The converter supports different modes controlled by IcebergConfig:
+    - object_typing: 'nested_types' or 'as_json_strings'
+    - additional_properties: 'fail', 'ignore', or 'stringify'
+    - anyof_properties: 'fail', 'branch', or 'stringify'
+
+    Special handling:
+    - The _airbyte_meta column is always preserved as a StructType (not stringified)
+    - Arrays are always strongly typed (ListType) regardless of object_typing mode
+    - Schemaless objects/arrays are always stringified
     """
+
+    # Field ID counter for generating unique Iceberg field IDs
+    _field_id_counter: int = 0
 
     def __init__(self, conversion_map: dict | None = None) -> None:
         """Initialize the type converter.
@@ -192,39 +424,265 @@ class IcebergTypeConverter:
         # Iceberg doesn't use SQLAlchemy types, but we keep this for interface compatibility
         self._conversion_map = conversion_map
 
-    @staticmethod
-    def json_schema_to_iceberg_type(
-        json_schema_property_def: dict[str, str | dict | list],
+    @classmethod
+    def next_field_id(cls) -> int:
+        """Generate a unique field ID for Iceberg nested fields."""
+        cls._field_id_counter += 1
+        return cls._field_id_counter
+
+    @classmethod
+    def json_schema_to_iceberg_type(  # noqa: PLR0911
+        cls,
+        json_schema_property_def: dict[str, Any],
+        *,
+        object_typing: ObjectTypingMode = ObjectTypingMode.NESTED_TYPES,
+        anyof_mode: AnyOfPropertiesMode = AnyOfPropertiesMode.FAIL,
+        additional_props_mode: AdditionalPropertiesMode = AdditionalPropertiesMode.FAIL,
     ) -> IcebergType:
-        """Convert a JSON schema property definition to an Iceberg type."""
+        """Convert a JSON schema property definition to an Iceberg type.
+
+        This method handles the full complexity of JSON schema to Iceberg type conversion,
+        including union types, format hints, objects, arrays, and primitives. The number
+        of return statements reflects the distinct type categories that need handling.
+
+        Args:
+            json_schema_property_def: The JSON schema property definition.
+            object_typing: Mode for handling complex objects.
+            anyof_mode: Mode for handling anyOf/oneOf types.
+            additional_props_mode: Mode for handling additional properties.
+
+        Returns:
+            The corresponding Iceberg type.
+
+        Raises:
+            PyAirbyteInputError: If schema contains incompatible types for the selected mode.
+        """
         json_type = json_schema_property_def.get("type")
 
-        # Handle array types (e.g., ["string", "null"])
+        # Handle union types in JSON schema (e.g., ["string", "null"])
         if isinstance(json_type, list):
-            # Filter out "null" and use the first non-null type
             non_null_types = [t for t in json_type if t != "null"]
-            json_type = non_null_types[0] if non_null_types else "string"
+            if len(non_null_types) == 0:
+                return StringType()
+            if len(non_null_types) == 1:
+                json_type = non_null_types[0]
+            else:
+                # Multiple non-null types in array - treat as anyOf
+                return cls._handle_anyof_types(
+                    non_null_types, anyof_mode, object_typing, additional_props_mode
+                )
 
-        # Map JSON schema types to Iceberg types
+        # Handle oneOf/anyOf (union types)
+        if "oneOf" in json_schema_property_def or "anyOf" in json_schema_property_def:
+            options: list[dict[str, Any]] = (
+                json_schema_property_def.get("anyOf", json_schema_property_def.get("oneOf")) or []
+            )
+            option_types: list[str] = []
+            for opt in options:
+                opt_type = opt.get("type")
+                if opt_type and opt_type != "null":
+                    option_types.append(opt_type)
+            return cls._handle_anyof_types(
+                option_types, anyof_mode, object_typing, additional_props_mode
+            )
+
+        # Check for format hints first (these override type)
+        json_format = json_schema_property_def.get("format")
+        if json_format == "date":
+            return DateType()
+        if json_format == "time":
+            return TimeType()
+        if json_format in {"date-time", "datetime"}:
+            return TimestamptzType()
+
+        # Handle object type
+        if json_type == "object":
+            properties = json_schema_property_def.get("properties")
+            has_additional = json_schema_property_def.get("additionalProperties", False)
+
+            if object_typing == ObjectTypingMode.AS_JSON_STRINGS:
+                return StringType()
+
+            if not properties:
+                # Schemaless object - always stringify
+                return StringType()
+
+            # nested_types mode - convert to StructType
+            return cls._convert_object_to_struct(
+                properties,
+                has_additional_properties=has_additional,
+                additional_props_mode=additional_props_mode,
+                anyof_mode=anyof_mode,
+            )
+
+        # Handle array type - always strongly typed regardless of object_typing mode
+        if json_type == "array":
+            items = json_schema_property_def.get("items")
+            if not items:
+                # Schemaless array - stringify
+                return StringType()
+            # Convert to ListType with proper element type
+            element_type = cls.json_schema_to_iceberg_type(
+                items,
+                object_typing=object_typing,
+                anyof_mode=anyof_mode,
+                additional_props_mode=additional_props_mode,
+            )
+            return ListType(cls.next_field_id(), element_type)
+
+        # Map primitive JSON schema types to Iceberg types
         type_mapping: dict[str, IcebergType] = {
             "string": StringType(),
             "integer": LongType(),
             "number": DoubleType(),
             "boolean": BooleanType(),
-            "object": StringType(),  # Store complex objects as JSON strings
-            "array": StringType(),  # Store arrays as JSON strings
         }
-
-        # Check for format hints
-        json_format = json_schema_property_def.get("format")
-        if json_format in {"date-time", "datetime"}:
-            return TimestamptzType()
 
         return type_mapping.get(str(json_type), StringType())
 
+    @classmethod
+    def _handle_anyof_types(
+        cls,
+        option_types: list[str],
+        anyof_mode: AnyOfPropertiesMode,
+        object_typing: ObjectTypingMode,
+        additional_props_mode: AdditionalPropertiesMode,
+    ) -> IcebergType:
+        """Handle anyOf/oneOf union types based on configuration.
+
+        Args:
+            option_types: List of type names in the union.
+            anyof_mode: Mode for handling anyOf types.
+            object_typing: Mode for handling complex objects.
+            additional_props_mode: Mode for handling additional properties.
+
+        Returns:
+            The Iceberg type for this union.
+
+        Raises:
+            PyAirbyteInputError: If mode is 'fail' or 'branch' with complex types.
+        """
+        if not option_types:
+            return StringType()
+
+        # Single type - just convert it directly
+        if len(option_types) == 1:
+            return cls.json_schema_to_iceberg_type(
+                {"type": option_types[0]},
+                object_typing=object_typing,
+                anyof_mode=anyof_mode,
+                additional_props_mode=additional_props_mode,
+            )
+
+        # Multiple types - handle based on mode
+        if anyof_mode == AnyOfPropertiesMode.STRINGIFY:
+            return StringType()
+
+        if anyof_mode == AnyOfPropertiesMode.FAIL:
+            raise PyAirbyteInputError(
+                message="Schema contains anyOf/oneOf union types which are not supported "
+                "in 'fail' mode. Set anyof_properties='stringify' or 'branch' to handle these.",
+                context={"option_types": option_types},
+            )
+
+        # Branch mode - create struct with subcolumns for each type
+        # Only works with simple types
+        complex_types = [t for t in option_types if t not in SIMPLE_ANYOF_TYPES]
+        if complex_types:
+            raise PyAirbyteInputError(
+                message="Schema contains anyOf/oneOf with complex types which cannot be "
+                "handled in 'branch' mode. Set anyof_properties='stringify' to handle these.",
+                context={"complex_types": complex_types, "all_types": option_types},
+            )
+
+        # Create struct with subcolumns for each simple type
+        nested_fields: list[NestedField] = []
+        for type_name in option_types:
+            branch_name = ANYOF_BRANCH_NAMES.get(type_name, f"{type_name}_val")
+            field_id = cls.next_field_id()
+            field_type = cls.json_schema_to_iceberg_type(
+                {"type": type_name},
+                object_typing=object_typing,
+                anyof_mode=anyof_mode,
+                additional_props_mode=additional_props_mode,
+            )
+            nested_fields.append(
+                NestedField(
+                    field_id=field_id,
+                    name=branch_name,
+                    field_type=field_type,
+                    required=False,  # All branches are optional
+                )
+            )
+
+        return StructType(*nested_fields)
+
+    @classmethod
+    def _convert_object_to_struct(
+        cls,
+        properties: dict[str, Any],
+        *,
+        has_additional_properties: bool = False,
+        additional_props_mode: AdditionalPropertiesMode = AdditionalPropertiesMode.FAIL,
+        anyof_mode: AnyOfPropertiesMode = AnyOfPropertiesMode.FAIL,
+    ) -> StructType:
+        """Convert JSON schema object properties to an Iceberg StructType.
+
+        Args:
+            properties: The properties dict from a JSON schema object definition.
+            has_additional_properties: Whether the schema allows additional properties.
+            additional_props_mode: Mode for handling additional properties.
+            anyof_mode: Mode for handling anyOf types.
+
+        Returns:
+            An Iceberg StructType with nested fields.
+        """
+        nested_fields: list[NestedField] = []
+
+        for prop_name, prop_def in properties.items():
+            field_id = cls.next_field_id()
+            # Recursively convert nested types (always use nested_types within structs)
+            field_type = cls.json_schema_to_iceberg_type(
+                prop_def,
+                object_typing=ObjectTypingMode.NESTED_TYPES,
+                anyof_mode=anyof_mode,
+                additional_props_mode=additional_props_mode,
+            )
+
+            # Check if field is nullable (default to True for safety)
+            prop_type = prop_def.get("type")
+            is_nullable = True
+            if isinstance(prop_type, list):
+                is_nullable = "null" in prop_type
+
+            nested_fields.append(
+                NestedField(
+                    field_id=field_id,
+                    name=prop_name,
+                    field_type=field_type,
+                    required=not is_nullable,
+                )
+            )
+
+        # Add placeholder for additional properties if needed
+        if (
+            has_additional_properties
+            and additional_props_mode == AdditionalPropertiesMode.STRINGIFY
+        ):
+            nested_fields.append(
+                NestedField(
+                    field_id=cls.next_field_id(),
+                    name=get_additional_properties_column_name(),
+                    field_type=StringType(),
+                    required=False,
+                )
+            )
+
+        return StructType(*nested_fields)
+
     def to_sql_type(
         self,
-        json_schema_property_def: dict[str, str | dict | list],
+        json_schema_property_def: dict[str, Any],
     ) -> IcebergType:
         """Convert a JSON schema property definition to a type.
 
@@ -286,15 +744,30 @@ class IcebergProcessor(SqlProcessorBase):
         return (self.namespace, table_name)
 
     def _get_iceberg_schema(self, stream_name: str) -> Schema:
-        """Build an Iceberg schema from the stream's JSON schema."""
+        """Build an Iceberg schema from the stream's JSON schema.
+
+        Uses the object_typing configuration to determine whether to preserve
+        nested structure (StructType/ListType) or stringify complex types to JSON.
+
+        Note: _airbyte_meta is always stored as a StructType (strongly typed),
+        matching the behavior of the Kotlin S3 Data Lake destination.
+        """
         properties = self.catalog_provider.get_stream_properties(stream_name)
         fields: list[NestedField] = []
         field_id = 1
+
+        # Get typing configuration from config
+        object_typing = self.sql_config.object_typing
+        anyof_mode = self.sql_config.anyof_properties
+        additional_props_mode = self.sql_config.additional_properties
 
         for property_name, json_schema_property_def in properties.items():
             clean_prop_name = self.normalizer.normalize(property_name)
             iceberg_type = self.type_converter.json_schema_to_iceberg_type(
                 json_schema_property_def,
+                object_typing=object_typing,
+                anyof_mode=anyof_mode,
+                additional_props_mode=additional_props_mode,
             )
             fields.append(
                 NestedField(
@@ -307,6 +780,9 @@ class IcebergProcessor(SqlProcessorBase):
             field_id += 1
 
         # Add Airbyte internal columns
+        # _airbyte_meta is always stored as a StructType (strongly typed)
+        # This matches the Kotlin S3 Data Lake destination behavior
+        airbyte_meta_type = self._get_airbyte_meta_type()
         fields.extend(
             [
                 NestedField(
@@ -324,13 +800,59 @@ class IcebergProcessor(SqlProcessorBase):
                 NestedField(
                     field_id=field_id + 2,
                     name=AB_META_COLUMN,
-                    field_type=StringType(),  # Store as JSON string
+                    field_type=airbyte_meta_type,
                     required=False,
                 ),
             ]
         )
 
         return Schema(*fields)
+
+    def _get_airbyte_meta_type(self) -> IcebergType:
+        """Get the Iceberg type for the _airbyte_meta column.
+
+        The _airbyte_meta column is always stored as a StructType with known fields,
+        matching the behavior of the Kotlin S3 Data Lake destination.
+
+        Returns:
+            A StructType representing the _airbyte_meta schema.
+        """
+        return StructType(
+            NestedField(
+                field_id=self.type_converter.next_field_id(),
+                name="sync_id",
+                field_type=LongType(),
+                required=False,
+            ),
+            NestedField(
+                field_id=self.type_converter.next_field_id(),
+                name="changes",
+                field_type=ListType(
+                    self.type_converter.next_field_id(),
+                    StructType(
+                        NestedField(
+                            field_id=self.type_converter.next_field_id(),
+                            name="field",
+                            field_type=StringType(),
+                            required=False,
+                        ),
+                        NestedField(
+                            field_id=self.type_converter.next_field_id(),
+                            name="change",
+                            field_type=StringType(),
+                            required=False,
+                        ),
+                        NestedField(
+                            field_id=self.type_converter.next_field_id(),
+                            name="reason",
+                            field_type=StringType(),
+                            required=False,
+                        ),
+                    ),
+                ),
+                required=False,
+            ),
+        )
 
     @overrides
     def _ensure_schema_exists(self) -> None:
@@ -408,14 +930,21 @@ class IcebergProcessor(SqlProcessorBase):
             if col not in combined_df.columns:
                 combined_df[col] = None
 
-        # Serialize dict/list columns to JSON strings to match Iceberg StringType schema
-        # When pd.read_json reads JSONL, nested objects/arrays stay as Python dict/list,
-        # which causes PyArrow to infer struct/list types that mismatch Iceberg's StringType
-        for col in combined_df.columns:
-            if combined_df[col].apply(lambda x: isinstance(x, (dict, list))).any():
-                combined_df[col] = combined_df[col].apply(
-                    lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
-                )
+        # Handle dict/list columns based on object_typing setting
+        # When pd.read_json reads JSONL, nested objects/arrays stay as Python dict/list
+        object_typing = self.sql_config.object_typing
+        if object_typing == ObjectTypingMode.AS_JSON_STRINGS:
+            # Serialize dict/list columns to JSON strings to match Iceberg StringType schema
+            for col in combined_df.columns:
+                # Skip _airbyte_meta - it's always a struct, never stringified
+                if col == AB_META_COLUMN:
+                    continue
+                if combined_df[col].apply(lambda x: isinstance(x, (dict, list))).any():
+                    combined_df[col] = combined_df[col].apply(
+                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
+                    )
+        # When object_typing=nested_types, we keep dict/list as-is for PyArrow to convert
+        # to struct/list types that match the Iceberg StructType/ListType schema
 
         # Convert to PyArrow table using the Iceberg table's Arrow schema for type alignment
         arrow_table = pa.Table.from_pandas(
