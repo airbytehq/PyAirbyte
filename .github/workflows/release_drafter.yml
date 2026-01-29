@@ -31,25 +31,81 @@ jobs:
           fetch-depth: 1
 
       - name: Get release version (dry-run)
-        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        uses: aaronsteers/semantic-pr-release-drafter@v0.9.0
         id: dry-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           dry-run: true
+          categories: |
+            # MCP features as separate section
+            - title: '✨ MCP Features'
+              commit-scopes:
+                - 'mcp'
+              commit-types:
+                - 'feat'
+              display-order: 100
+            # Generic categories
+            - title: '🚀 New Features'
+              commit-types:
+                - 'feat'
+              display-order: 101
+            - title: '🐛 Bug Fixes'
+              commit-types:
+                - 'fix'
+              display-order: 102
+            - title: '⚙️ Under the Hood'
+              commit-types:
+                - 'chore'
+                - 'ci'
+                - 'build'
+                - 'refactor'
+                - 'test'
+                - 'perf'
+                - 'docs'
+              collapse-after: 3
+              display-order: 999
 
       - name: Build package
         env:
-          VERSION: ${{ steps.dry-run.outputs.tag_name }}
+          VERSION: ${{ steps.dry-run.outputs.tag-name }}
         # Standardize by removing preceding 'v' char:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Create or update draft release
-        uses: aaronsteers/semantic-pr-release-drafter@v0.4.0
+        uses: aaronsteers/semantic-pr-release-drafter@v0.9.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          version: ${{ steps.dry-run.outputs.tag_name }}
+          version: ${{ steps.dry-run.outputs.tag-name }}
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
+          categories: |
+            # MCP features as separate section
+            - title: '✨ MCP Features'
+              commit-scopes:
+                - 'mcp'
+              commit-types:
+                - 'feat'
+              display-order: 100
+            # Generic categories
+            - title: '🚀 New Features'
+              commit-types:
+                - 'feat'
+              display-order: 101
+            - title: '🐛 Bug Fixes'
+              commit-types:
+                - 'fix'
+              display-order: 102
+            - title: '⚙️ Under the Hood'
+              commit-types:
+                - 'chore'
+                - 'ci'
+                - 'build'
+                - 'refactor'
+                - 'test'
+                - 'perf'
+                - 'docs'
+              collapse-after: 3
+              display-order: 999
