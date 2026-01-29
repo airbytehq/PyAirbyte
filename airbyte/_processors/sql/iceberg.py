@@ -931,11 +931,13 @@ class IcebergProcessor(SqlProcessorBase):
             if col not in combined_df.columns:
                 combined_df[col] = None
 
-        # Handle dict/list columns based on object_typing setting
+        # Handle dict/list columns based on object_typing setting and Iceberg schema
         # When pd.read_json reads JSONL, nested objects/arrays stay as Python dict/list
         object_typing = self.sql_config.object_typing
+        arrow_schema = iceberg_table.schema().as_arrow()
+
         if object_typing == ObjectTypingMode.AS_JSON_STRINGS:
-            # Serialize dict/list columns to JSON strings to match Iceberg StringType schema
+            # Serialize all dict/list columns to JSON strings (except _airbyte_meta)
             for col in combined_df.columns:
                 # Skip _airbyte_meta - it's always a struct, never stringified
                 if col == AB_META_COLUMN:
@@ -944,8 +946,29 @@ class IcebergProcessor(SqlProcessorBase):
                     combined_df[col] = combined_df[col].apply(
                         lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
                     )
-        # When object_typing=nested_types, we keep dict/list as-is for PyArrow to convert
-        # to struct/list types that match the Iceberg StructType/ListType schema
+        else:
+            # nested_types mode: Only serialize columns that have StringType in Iceberg schema
+            # but contain dict/list data (e.g., schemaless arrays/objects)
+            for col in combined_df.columns:
+                if col == AB_META_COLUMN:
+                    continue
+                # Check if this column has StringType in the Iceberg schema
+                try:
+                    arrow_field = arrow_schema.field(col)
+                    is_string_type = pa.types.is_large_string(
+                        arrow_field.type
+                    ) or pa.types.is_string(arrow_field.type)
+                except KeyError:
+                    # Column not in schema, skip
+                    continue
+
+                if is_string_type and combined_df[col].apply(
+                    lambda x: isinstance(x, (dict, list))
+                ).any():
+                    # This column should be a string but has dict/list data - serialize it
+                    combined_df[col] = combined_df[col].apply(
+                        lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
+                    )
 
         # Convert to PyArrow table using the Iceberg table's Arrow schema for type alignment
         arrow_table = pa.Table.from_pandas(
