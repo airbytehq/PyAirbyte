@@ -962,9 +962,10 @@ class IcebergProcessor(SqlProcessorBase):
                     # Column not in schema, skip
                     continue
 
-                if is_string_type and combined_df[col].apply(
-                    lambda x: isinstance(x, (dict, list))
-                ).any():
+                if (
+                    is_string_type
+                    and combined_df[col].apply(lambda x: isinstance(x, (dict, list))).any()
+                ):
                     # This column should be a string but has dict/list data - serialize it
                     combined_df[col] = combined_df[col].apply(
                         lambda x: json.dumps(x) if isinstance(x, (dict, list)) else x
