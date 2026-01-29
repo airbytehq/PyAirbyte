@@ -55,7 +55,7 @@ jobs:
             dist/*.tar.gz
           categories: |
             # MCP features as separate section
-            - title: '✨ MCP Features'
+            - title: '❇️ MCP Features'
               commit-scopes:
                 - 'mcp'
               commit-types:
