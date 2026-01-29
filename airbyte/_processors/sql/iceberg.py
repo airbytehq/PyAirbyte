@@ -234,6 +234,23 @@ class IcebergTypeConverter:
         """
         return self.json_schema_to_iceberg_type(json_schema_property_def)
 
+    @classmethod
+    def get_string_type(cls) -> IcebergType:
+        """Return the Iceberg type for string columns.
+
+        Required by SqlProcessorBase for internal column definitions.
+        """
+        return StringType()
+
+    @classmethod
+    def get_json_type(cls) -> IcebergType:
+        """Return the Iceberg type for JSON columns.
+
+        Required by SqlProcessorBase for internal column definitions.
+        Iceberg stores JSON as string type.
+        """
+        return StringType()
+
 
 class IcebergProcessor(SqlProcessorBase):
     """An Iceberg implementation of the cache processor.
