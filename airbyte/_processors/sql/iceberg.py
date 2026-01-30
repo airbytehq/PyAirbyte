@@ -1,26 +1,26 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 """An Apache Iceberg implementation of the cache using PyIceberg.
 
+.. warning::
+    **Experimental Feature**: The Iceberg cache is experimental and not necessarily
+    stable. During this preview period, features may change or be removed, and breaking
+    changes may be introduced without advanced notice.
+
 This module provides the core implementation for writing data to Apache Iceberg tables,
 including configuration, type conversion, and data processing. It supports both local
 SQLite catalogs (for development) and REST catalogs (for production use with services
 like AWS Glue, Apache Polaris, etc.).
 
 Key components:
-    IcebergConfig: Configuration class for Iceberg cache settings.
-    IcebergTypeConverter: Converts JSON schema types to Iceberg types.
-    IcebergProcessor: Processes and writes data to Iceberg tables.
+    `IcebergConfig`: Configuration class for Iceberg cache settings.
+    `IcebergTypeConverter`: Converts JSON schema types to Iceberg types.
+    `IcebergProcessor`: Processes and writes data to Iceberg tables.
 
 Type handling modes:
-    nested_types: Preserves nested structure as StructType/ListType for better query
+    `nested_types`: Preserves nested structure as StructType/ListType for better query
         performance. Stricter - will fail on incompatible schemas.
-    as_json_strings: Stringifies all complex objects to JSON. More permissive but
+    `as_json_strings`: Stringifies all complex objects to JSON. More permissive but
         requires JSON parsing to access nested fields.
-
-.. warning::
-    **Experimental Feature**: The Iceberg cache is experimental and not necessarily
-    stable. During this preview period, features may change or be removed, and breaking
-    changes may be introduced without advanced notice.
 """
 
 from __future__ import annotations
@@ -123,11 +123,8 @@ class AnyOfPropertiesMode(str, Enum):
     STRINGIFY = "stringify"
 
 
-# Simple types that can be used with the 'branch' anyOf mode
-SIMPLE_ANYOF_TYPES = {"string", "integer", "number", "boolean"}
-
 # Mapping from JSON schema type to branch subcolumn name
-ANYOF_BRANCH_NAMES: dict[str, str] = {
+SIMPLE_ANYOF_BRANCH_NAMES: dict[str, str] = {
     "string": "str_val",
     "integer": "int_val",
     "number": "num_val",
@@ -138,7 +135,7 @@ ANYOF_BRANCH_NAMES: dict[str, str] = {
 JSON_COLUMN_SUFFIX = "__json"
 
 # Name for the additional properties placeholder column
-ADDITIONAL_PROPERTIES_COLUMN = "__additional_properties"
+ADDITIONAL_PROPERTIES_COLUMN = "_additional_properties"
 
 
 def get_json_column_name(base_name: str) -> str:
@@ -156,8 +153,8 @@ def get_json_column_name(base_name: str) -> str:
     Example:
         >>> get_json_column_name("user_data")
         'user_data__json'
-        >>> get_json_column_name("__additional_properties")
-        '__additional_properties__json'
+        >>> get_json_column_name("_additional_properties")
+        '_additional_properties__json'
     """
     return f"{base_name}{JSON_COLUMN_SUFFIX}"
 
@@ -170,7 +167,7 @@ def get_additional_properties_column_name() -> str:
 
     Example:
         >>> get_additional_properties_column_name()
-        '__additional_properties__json'
+        '_additional_properties__json'
     """
     return get_json_column_name(ADDITIONAL_PROPERTIES_COLUMN)
 
@@ -564,16 +561,16 @@ class IcebergConfig(SqlConfig):
 class IcebergTypeConverter:
     """Convert JSON schema types to Iceberg types.
 
-    This converter provides both Iceberg-native type conversion (json_schema_to_iceberg_type)
+    This converter provides both Iceberg-native type conversion (`json_schema_to_iceberg_type`)
     and a to_sql_type method for compatibility with the SqlProcessorBase interface.
 
-    The converter supports different modes controlled by IcebergConfig:
-    - object_typing: 'nested_types' or 'as_json_strings'
-    - additional_properties: 'fail', 'ignore', or 'stringify'
-    - anyof_properties: 'fail', 'branch', or 'stringify'
+    The converter supports different modes controlled by `IcebergConfig`:
+    - object_typing: `nested_types` or `as_json_strings`
+    - additional_properties: `fail`, `ignore`, or `stringify`
+    - anyof_properties: `fail`, `branch`, or `stringify`
 
     Special handling:
-    - The _airbyte_meta column is always preserved as a StructType (not stringified)
+    - The `_airbyte_meta` column is always preserved as a StructType (not stringified)
     - Arrays are always strongly typed (ListType) regardless of object_typing mode
     - Schemaless objects/arrays are always stringified
     """
@@ -758,7 +755,7 @@ class IcebergTypeConverter:
 
         # Branch mode - create struct with subcolumns for each type
         # Only works with simple types
-        complex_types = [t for t in option_types if t not in SIMPLE_ANYOF_TYPES]
+        complex_types = [t for t in option_types if t not in SIMPLE_ANYOF_BRANCH_NAMES]
         if complex_types:
             raise PyAirbyteInputError(
                 message="Schema contains anyOf/oneOf with complex types which cannot be "
@@ -769,7 +766,7 @@ class IcebergTypeConverter:
         # Create struct with subcolumns for each simple type
         nested_fields: list[NestedField] = []
         for type_name in option_types:
-            branch_name = ANYOF_BRANCH_NAMES.get(type_name, f"{type_name}_val")
+            branch_name = SIMPLE_ANYOF_BRANCH_NAMES.get(type_name, f"{type_name}_val")
             field_id = self.next_field_id()
             field_type = self.json_schema_to_iceberg_type(
                 {"type": type_name},
