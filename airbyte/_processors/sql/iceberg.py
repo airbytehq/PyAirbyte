@@ -463,12 +463,21 @@ class IcebergConfig(SqlConfig):
         return f"sqlite:///{DEFAULT_ICEBERG_CATALOG_DB}"
 
     def _get_warehouse_path(self) -> str:
-        """Get the warehouse path as a string."""
+        """Get the warehouse path as a string.
+
+        For local paths (both Path objects and strings without URI schemes),
+        ensures the directory exists before returning.
+        """
         warehouse = self.warehouse_path
         if isinstance(warehouse, Path):
             # Ensure the directory exists for local warehouses
             warehouse.mkdir(parents=True, exist_ok=True)
             return str(warehouse.absolute())
+        # Handle string paths - create directory for local paths (no URI scheme)
+        if isinstance(warehouse, str) and "://" not in warehouse:
+            local_path = Path(warehouse)
+            local_path.mkdir(parents=True, exist_ok=True)
+            return str(local_path.absolute())
         return warehouse
 
     def _get_s3_config(self) -> dict[str, str]:
