@@ -882,6 +882,17 @@ class IcebergProcessor(SqlProcessorBase):
 
     This processor writes data to Apache Iceberg tables using PyIceberg.
     Data is stored as Parquet files with Iceberg metadata for efficient querying.
+
+    The processor uses a two-phase write approach:
+    1. `_write_files_to_new_table` reads JSONL files and stores the converted Arrow
+       table in memory (keyed by table name).
+    2. The appropriate write method (`_append_temp_table_to_final_table` or
+       `_emulated_merge_temp_table_to_final_table`) then writes the data to Iceberg
+       using the correct operation (append or upsert).
+
+    For MERGE mode, this processor uses PyIceberg's native upsert() method which
+    implements merge-on-read semantics - delete files are created for existing
+    records and new records are appended. Deduplication happens at read time.
     """
 
     file_writer_class = JsonlWriter  # pyrefly: ignore[bad-override]
@@ -895,6 +906,10 @@ class IcebergProcessor(SqlProcessorBase):
 
     type_converter_class = IcebergTypeConverter  # pyrefly: ignore[bad-assignment]
     type_converter: IcebergTypeConverter  # pyrefly: ignore[bad-override]
+
+    # Storage for pending Arrow tables (keyed by table name)
+    # This allows us to defer the actual write until we know the write method
+    _pending_arrow_tables: dict[str, pa.Table]
 
     @property
     def catalog(self) -> Catalog:
@@ -1056,6 +1071,11 @@ class IcebergProcessor(SqlProcessorBase):
         except NoSuchTableError:
             return self._create_iceberg_table(stream_name, table_name)
 
+    def _init_pending_tables(self) -> None:
+        """Initialize the pending Arrow tables storage if not already initialized."""
+        if not hasattr(self, "_pending_arrow_tables"):
+            self._pending_arrow_tables = {}
+
     @overrides
     def _write_files_to_new_table(
         self,
@@ -1063,19 +1083,23 @@ class IcebergProcessor(SqlProcessorBase):
         stream_name: str,
         batch_id: str,  # noqa: ARG002  # Required by base class interface
     ) -> str:
-        """Write files to a new Iceberg table.
+        """Read JSONL files and prepare data for writing to Iceberg.
 
-        Unlike SQL databases, we write directly to the final table in Iceberg
-        since Iceberg handles transactions and versioning natively.
+        This method reads JSONL files and converts records to an Arrow table,
+        storing it in memory for later writing. The actual write to Iceberg
+        happens in the appropriate write method (_append_temp_table_to_final_table
+        or _emulated_merge_temp_table_to_final_table).
 
-        This method reads JSONL files directly (without pandas) and uses a
-        recursive converter to transform Python objects to match the Iceberg
-        schema. This handles:
+        This two-phase approach allows us to use the correct Iceberg operation
+        (append vs upsert) based on the write method.
+
+        This method handles:
         - Null values for struct/list columns
         - Python dicts -> Arrow structs
         - Python lists -> Arrow lists
         - Schemaless arrays/objects -> JSON strings
         """
+        self._init_pending_tables()
         table_name = self.get_sql_table_name(stream_name)
 
         # Get or create the Iceberg table (schema is declared before parsing records)
@@ -1108,11 +1132,9 @@ class IcebergProcessor(SqlProcessorBase):
             array = pa.array(column_values, type=field.type)
             arrays.append(array)
 
-        # Create PyArrow table from arrays
+        # Create PyArrow table from arrays and store for later writing
         arrow_table = pa.Table.from_arrays(arrays, schema=arrow_schema)
-
-        # Append to the Iceberg table
-        iceberg_table.append(arrow_table)
+        self._pending_arrow_tables[table_name] = arrow_table
 
         return table_name
 
@@ -1154,18 +1176,43 @@ class IcebergProcessor(SqlProcessorBase):
     def _emulated_merge_temp_table_to_final_table(
         self,
         stream_name: str,
-        temp_table_name: str,
+        temp_table_name: str,  # noqa: ARG002  # Required by base class interface
         final_table_name: str,
     ) -> None:
-        """Emulate merge operation for Iceberg.
+        """Merge data into the final Iceberg table using upsert (merge-on-read).
 
-        For Iceberg, this is a no-op because we write directly to the final table
-        in _write_files_to_new_table. Iceberg handles transactions natively, so
-        we don't need the temp table pattern used by SQL databases.
+        This method uses PyIceberg's native upsert() method which implements
+        merge-on-read semantics:
+        - Delete files are created for existing records with matching primary keys
+        - New records are appended
+        - Deduplication happens at read time
+
+        This is more efficient than copy-on-write for high-volume streaming workloads.
         """
-        # In Iceberg, data is already written to the final table in _write_files_to_new_table
-        # No additional action needed here
-        pass
+        self._init_pending_tables()
+
+        # Get the pending Arrow table data
+        arrow_table = self._pending_arrow_tables.get(final_table_name)
+        if arrow_table is None:
+            # No data to write
+            return
+
+        # Get primary keys for the stream
+        pk_columns = self.catalog_provider.get_primary_keys(stream_name)
+
+        # Load the Iceberg table
+        iceberg_table = self.catalog.load_table(self._get_table_identifier(final_table_name))
+
+        if pk_columns:
+            # Use upsert for merge-on-read semantics
+            # This creates delete files for existing records and appends new records
+            iceberg_table.upsert(df=arrow_table, join_cols=pk_columns)
+        else:
+            # No primary keys - fall back to append (no deduplication possible)
+            iceberg_table.append(arrow_table)
+
+        # Clear the pending data
+        del self._pending_arrow_tables[final_table_name]
 
     @overrides
     def _drop_temp_table(
@@ -1188,29 +1235,53 @@ class IcebergProcessor(SqlProcessorBase):
     @overrides
     def _append_temp_table_to_final_table(
         self,
-        temp_table_name: str,
+        temp_table_name: str,  # noqa: ARG002  # Required by base class interface
         final_table_name: str,
-        stream_name: str,
+        stream_name: str,  # noqa: ARG002  # Required by base class interface
     ) -> None:
-        """Append data from temp table to final table.
+        """Append data to the final Iceberg table.
 
-        Note: In the Iceberg implementation, we write directly to the final table,
-        so this method is a no-op. The data is already in the final table.
+        This method writes the pending Arrow table data to Iceberg using append().
+        No deduplication is performed - all records are added to the table.
         """
-        # In Iceberg, we write directly to the final table, so this is a no-op
-        pass
+        self._init_pending_tables()
+
+        # Get the pending Arrow table data
+        arrow_table = self._pending_arrow_tables.get(final_table_name)
+        if arrow_table is None:
+            # No data to write
+            return
+
+        # Load the Iceberg table and append the data
+        iceberg_table = self.catalog.load_table(self._get_table_identifier(final_table_name))
+        iceberg_table.append(arrow_table)
+
+        # Clear the pending data
+        del self._pending_arrow_tables[final_table_name]
 
     @overrides
     def _swap_temp_table_with_final_table(
         self,
-        stream_name: str,
-        temp_table_name: str,
+        stream_name: str,  # noqa: ARG002  # Required by base class interface
+        temp_table_name: str,  # noqa: ARG002  # Required by base class interface
         final_table_name: str,
     ) -> None:
-        """Replace the final table with the temp table.
+        """Replace all data in the final Iceberg table.
 
-        For Iceberg, we use the overwrite operation instead of swapping tables.
+        This method uses PyIceberg's overwrite() to replace all existing data
+        with the new data. This is used for the REPLACE write method.
         """
-        # In Iceberg, the write already happened to the final table
-        # For a true replace, we would need to use overwrite mode during write
-        pass
+        self._init_pending_tables()
+
+        # Get the pending Arrow table data
+        arrow_table = self._pending_arrow_tables.get(final_table_name)
+        if arrow_table is None:
+            # No data to write
+            return
+
+        # Load the Iceberg table and overwrite all data
+        iceberg_table = self.catalog.load_table(self._get_table_identifier(final_table_name))
+        iceberg_table.overwrite(arrow_table)
+
+        # Clear the pending data
+        del self._pending_arrow_tables[final_table_name]
