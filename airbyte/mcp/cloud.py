@@ -4,6 +4,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
+from airbyte_api.models import JobTypeEnum
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -737,6 +738,17 @@ def list_cloud_sync_jobs(
             default=None,
         ),
     ],
+    job_type: Annotated[
+        JobTypeEnum | None,
+        Field(
+            description=(
+                "Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'. "
+                "If not specified, defaults to sync and reset jobs only (API default). "
+                "Use 'refresh' to find refresh jobs or 'clear' to find clear jobs."
+            ),
+            default=None,
+        ),
+    ],
 ) -> SyncJobListResult:
     """List sync jobs for a connection with pagination support.
 
@@ -767,6 +779,7 @@ def list_cloud_sync_jobs(
         limit=effective_limit,
         offset=jobs_offset,
         from_tail=from_tail,
+        job_type=job_type,
     )
 
     jobs = [
