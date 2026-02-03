@@ -587,7 +587,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
     bearer_token: SecretString | None,
     offset: int | None = None,
     order_by: str | None = None,
-    job_type: str | None = None,
+    job_type: models.JobTypeEnum | None = None,
 ) -> list[models.JobResponse]:
     """Get a list of jobs for a connection.
 
@@ -601,17 +601,12 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         bearer_token: Bearer token for authentication (alternative to client credentials).
         offset: Number of jobs to skip from the beginning. Defaults to None (0).
         order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
-        job_type: Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'.
+        job_type: Filter by job type (e.g., JobTypeEnum.SYNC, JobTypeEnum.REFRESH).
             If not specified, defaults to sync and reset jobs only (API default behavior).
 
     Returns:
         A list of JobResponse objects.
     """
-    # Convert string job_type to JobTypeEnum if provided
-    job_type_enum: models.JobTypeEnum | None = None
-    if job_type is not None:
-        job_type_enum = models.JobTypeEnum(job_type)
-
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -625,7 +620,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             limit=limit,
             offset=offset,
             order_by=order_by,
-            job_type=job_type_enum,
+            job_type=job_type,
         ),
     )
     if status_ok(response.status_code) and response.jobs_response:

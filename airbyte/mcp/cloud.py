@@ -4,6 +4,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
+from airbyte_api.models import JobTypeEnum
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -738,7 +739,7 @@ def list_cloud_sync_jobs(
         ),
     ],
     job_type: Annotated[
-        str | None,
+        JobTypeEnum | None,
         Field(
             description=(
                 "Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'. "

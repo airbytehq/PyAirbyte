@@ -12,7 +12,7 @@ from airbyte.exceptions import AirbyteWorkspaceMismatchError
 
 
 if TYPE_CHECKING:
-    from airbyte_api.models import ConnectionResponse, JobResponse
+    from airbyte_api.models import ConnectionResponse, JobResponse, JobTypeEnum
 
     from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -291,7 +291,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         limit: int = 20,
         offset: int | None = None,
         from_tail: bool = True,
-        job_type: str | None = None,
+        job_type: JobTypeEnum | None = None,
     ) -> list[SyncResult]:
         """Get previous sync jobs for a connection with pagination support.
 
@@ -305,7 +305,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
                 If False, returns jobs ordered oldest-first (createdAt ASC).
                 Defaults to True.
-            job_type: Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'.
+            job_type: Filter by job type (e.g., JobTypeEnum.SYNC, JobTypeEnum.REFRESH).
                 If not specified, defaults to sync and reset jobs only (API default behavior).
 
         Returns:
