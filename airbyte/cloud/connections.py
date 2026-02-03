@@ -291,6 +291,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         limit: int = 20,
         offset: int | None = None,
         from_tail: bool = True,
+        job_type: str | None = None,
     ) -> list[SyncResult]:
         """Get previous sync jobs for a connection with pagination support.
 
@@ -304,6 +305,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
                 If False, returns jobs ordered oldest-first (createdAt ASC).
                 Defaults to True.
+            job_type: Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'.
+                If not specified, defaults to sync and reset jobs only (API default behavior).
 
         Returns:
             A list of SyncResult objects representing the sync jobs.
@@ -320,6 +323,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             limit=limit,
             offset=offset,
             order_by=order_by,
+            job_type=job_type,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
