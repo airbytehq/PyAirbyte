@@ -398,40 +398,69 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return None
         return state_response.get("streamState", [])
 
-    def get_state(
-        self,
-        *,
-        stream_name: str | None = None,
-        stream_namespace: str | None = None,
-    ) -> ConnectionStateResponse | None:
-        """Get the current state for this connection as a typed model.
+    def get_state(self) -> dict[str, Any]:
+        """Get the full raw state for this connection.
 
-        Returns the connection's sync state, which tracks progress for incremental syncs.
-        The state can be one of: stream (per-stream), global, legacy, or not_set.
-
-        When stream_name is provided, filters the response to include only the
-        matching stream's state. Returns None if the stream is not found.
-
-        Args:
-            stream_name: Optional stream name to filter state for a single stream.
-            stream_namespace: Optional stream namespace to narrow the stream filter.
-                Only used when stream_name is also provided.
+        Returns the connection's sync state as a raw dictionary from the API.
+        This is the full state envelope including stateType, connectionId,
+        and all stream states.
 
         Returns:
-            A ConnectionStateResponse model with the connection's state,
-            or None if stream_name was provided but not found.
+            The full connection state as a dictionary.
         """
-        state_data = api_util.get_connection_state(
+        return api_util.get_connection_state(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        result = ConnectionStateResponse(**state_data)
 
-        if stream_name is None:
-            return result
+    def set_state(
+        self,
+        connection_state: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Set (create or update) the full state for this connection.
+
+        Uses the safe variant that prevents updates while a sync is running (HTTP 423).
+
+        Args:
+            connection_state: The full ConnectionState object to set. Must include:
+                - stateType: "global", "stream", or "legacy"
+                - connectionId: Must match this connection's ID
+                - One of: state (legacy), streamState (stream), globalState (global)
+
+        Returns:
+            The updated connection state as a dictionary.
+        """
+        return api_util.create_or_update_connection_state_safe(
+            connection_id=self.connection_id,
+            connection_state=connection_state,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+
+    def get_stream_state(
+        self,
+        stream_name: str,
+        stream_namespace: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get the state blob for a single stream within this connection.
+
+        Returns just the stream's state dictionary (e.g., {"cursor": "2024-01-01"}),
+        not the full connection state envelope.
+
+        Args:
+            stream_name: The name of the stream to get state for.
+            stream_namespace: Optional stream namespace to narrow the filter.
+
+        Returns:
+            The stream's state blob as a dictionary, or None if the stream is not found.
+        """
+        state_data = self.get_state()
+        result = ConnectionStateResponse(**state_data)
 
         streams = _get_stream_list(result)
         matching = [s for s in streams if _match_stream(s, stream_name, stream_namespace)]
@@ -447,68 +476,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
             return None
 
-        if result.state_type == "stream":
-            result.stream_state = matching
-        elif result.state_type == "global" and result.global_state:
-            result.global_state.stream_states = matching
-
-        return result
-
-    def set_state(
-        self,
-        connection_state: dict[str, Any],
-    ) -> ConnectionStateResponse:
-        """Set (create or update) the full state for this connection.
-
-        Uses the safe variant that prevents updates while a sync is running (HTTP 423).
-
-        Args:
-            connection_state: The full ConnectionState object to set. Must include:
-                - stateType: "global", "stream", or "legacy"
-                - connectionId: Must match this connection's ID
-                - One of: state (legacy), streamState (stream), globalState (global)
-
-        Returns:
-            A ConnectionStateResponse model with the updated state.
-        """
-        updated_data = api_util.create_or_update_connection_state_safe(
-            connection_id=self.connection_id,
-            connection_state=connection_state,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-        )
-        return ConnectionStateResponse(**updated_data)
-
-    def get_stream_state(
-        self,
-        stream_name: str,
-        stream_namespace: str | None = None,
-    ) -> ConnectionStateResponse | None:
-        """Get the state for a single stream within this connection.
-
-        This is a convenience wrapper around `get_state()` with stream filtering.
-
-        Args:
-            stream_name: The name of the stream to get state for.
-            stream_namespace: Optional stream namespace to narrow the filter.
-
-        Returns:
-            A ConnectionStateResponse filtered to include only the matching stream,
-            or None if the stream is not found.
-        """
-        return self.get_state(
-            stream_name=stream_name,
-            stream_namespace=stream_namespace,
-        )
+        return matching[0].stream_state
 
     def set_stream_state(
         self,
         stream_name: str,
         stream_state: dict[str, Any],
         stream_namespace: str | None = None,
-    ) -> ConnectionStateResponse:
+    ) -> dict[str, Any]:
         """Set the state for a single stream within this connection.
 
         Fetches the current full state, replaces only the specified stream's state,
@@ -523,17 +498,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             stream_namespace: Optional stream namespace to identify the stream.
 
         Returns:
-            A ConnectionStateResponse model with the updated state.
+            The updated connection state as a dictionary.
 
         Raises:
             PyAirbyteInputError: If the connection has no existing state or uses legacy state.
         """
-        current = self.get_state()
-        if current is None:
-            raise PyAirbyteInputError(
-                message="Cannot set stream state: failed to retrieve connection state.",
-                context={"connection_id": self.connection_id},
-            )
+        state_data = self.get_state()
+        current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
             raise PyAirbyteInputError(
