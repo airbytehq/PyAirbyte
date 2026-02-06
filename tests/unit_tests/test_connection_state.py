@@ -19,9 +19,15 @@ from airbyte.cloud.connection_state import (
     "stream_name,stream_namespace,descriptor_name,descriptor_namespace,expected",
     [
         pytest.param("users", None, "users", None, True, id="name_match_no_namespace"),
-        pytest.param("users", None, "users", "public", True, id="name_match_any_namespace"),
-        pytest.param("users", "public", "users", "public", True, id="name_and_namespace_match"),
-        pytest.param("users", "public", "users", "private", False, id="namespace_mismatch"),
+        pytest.param(
+            "users", None, "users", "public", True, id="name_match_any_namespace"
+        ),
+        pytest.param(
+            "users", "public", "users", "public", True, id="name_and_namespace_match"
+        ),
+        pytest.param(
+            "users", "public", "users", "private", False, id="namespace_mismatch"
+        ),
         pytest.param("orders", None, "users", None, False, id="name_mismatch"),
         pytest.param("users", "public", "users", None, False, id="namespace_vs_none"),
     ],
