@@ -398,7 +398,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return None
         return state_response.get("streamState", [])
 
-    def dump_state(self) -> dict[str, Any]:
+    def dump_raw_state(self) -> dict[str, Any]:
         """Dump the full raw state for this connection.
 
         Returns the connection's sync state as a raw dictionary from the API.
@@ -416,19 +416,19 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
 
-    def load_state(
+    def import_raw_state(
         self,
         connection_state: dict[str, Any],
     ) -> dict[str, Any]:
-        """Load (restore) the full state for this connection.
+        """Import (restore) the full raw state for this connection.
 
         Replaces the entire connection state with the provided state blob.
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
 
-        This is the counterpart to `dump_state()` for backup/restore workflows.
+        This is the counterpart to `dump_raw_state()` for backup/restore workflows.
 
         Args:
-            connection_state: The full connection state to load. Must include:
+            connection_state: The full connection state to import. Must include:
                 - stateType: "global", "stream", or "legacy"
                 - connectionId: Must match this connection's ID
                 - One of: state (legacy), streamState (stream), globalState (global)
@@ -462,7 +462,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             The stream's state blob as a dictionary, or None if the stream is not found.
         """
-        state_data = self.dump_state()
+        state_data = self.dump_raw_state()
         result = ConnectionStateResponse(**state_data)
 
         streams = _get_stream_list(result)
@@ -505,7 +505,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             PyAirbyteInputError: If the connection state type is not supported for
                 stream-level operations (not_set, legacy).
         """
-        state_data = self.dump_state()
+        state_data = self.dump_raw_state()
         current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
@@ -560,7 +560,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 "streamStates": updated_streams_raw,
             }
 
-        self.load_state(full_state)
+        self.import_raw_state(full_state)
 
     def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.
