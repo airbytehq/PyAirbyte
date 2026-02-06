@@ -6,9 +6,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
+from airbyte.cloud.connection_state import (
+    ConnectionStateResponse,
+    _get_stream_list,
+    _match_stream,
+)
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.exceptions import AirbyteWorkspaceMismatchError
+from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -388,6 +393,194 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         if state_response.get("stateType") == "not_set":
             return None
         return state_response.get("streamState", [])
+
+    def get_state(
+        self,
+        *,
+        stream_name: str | None = None,
+        stream_namespace: str | None = None,
+    ) -> ConnectionStateResponse:
+        """Get the current state for this connection as a typed model.
+
+        Returns the connection's sync state, which tracks progress for incremental syncs.
+        The state can be one of: stream (per-stream), global, legacy, or not_set.
+
+        When stream_name is provided, filters the response to include only the
+        matching stream's state. Raises an error if the stream is not found.
+
+        Args:
+            stream_name: Optional stream name to filter state for a single stream.
+            stream_namespace: Optional stream namespace to narrow the stream filter.
+                Only used when stream_name is also provided.
+
+        Returns:
+            A ConnectionStateResponse model with the connection's state.
+        """
+        state_data = api_util.get_connection_state(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        result = ConnectionStateResponse(**state_data)
+
+        if stream_name is None:
+            return result
+
+        streams = _get_stream_list(result)
+        matching = [s for s in streams if _match_stream(s, stream_name, stream_namespace)]
+
+        if not matching:
+            available = [s.stream_descriptor.name for s in streams]
+            raise PyAirbyteInputError(
+                message=f"Stream '{stream_name}' not found in connection state.",
+                context={
+                    "connection_id": self.connection_id,
+                    "stream_name": stream_name,
+                    "stream_namespace": stream_namespace,
+                    "available_streams": available,
+                },
+            )
+
+        if result.state_type == "stream":
+            result.stream_state = matching
+        elif result.state_type == "global" and result.global_state:
+            result.global_state.stream_states = matching
+
+        return result
+
+    def set_state(
+        self,
+        connection_state: dict[str, Any],
+    ) -> ConnectionStateResponse:
+        """Set (create or update) the full state for this connection.
+
+        Uses the safe variant that prevents updates while a sync is running (HTTP 423).
+
+        Args:
+            connection_state: The full ConnectionState object to set. Must include:
+                - stateType: "global", "stream", or "legacy"
+                - connectionId: Must match this connection's ID
+                - One of: state (legacy), streamState (stream), globalState (global)
+
+        Returns:
+            A ConnectionStateResponse model with the updated state.
+        """
+        updated_data = api_util.create_or_update_connection_state_safe(
+            connection_id=self.connection_id,
+            connection_state=connection_state,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return ConnectionStateResponse(**updated_data)
+
+    def get_stream_state(
+        self,
+        stream_name: str,
+        stream_namespace: str | None = None,
+    ) -> ConnectionStateResponse:
+        """Get the state for a single stream within this connection.
+
+        This is a convenience wrapper around `get_state()` with stream filtering.
+
+        Args:
+            stream_name: The name of the stream to get state for.
+            stream_namespace: Optional stream namespace to narrow the filter.
+
+        Returns:
+            A ConnectionStateResponse filtered to include only the matching stream.
+
+        Raises:
+            PyAirbyteInputError: If the stream is not found in the connection state.
+        """
+        return self.get_state(
+            stream_name=stream_name,
+            stream_namespace=stream_namespace,
+        )
+
+    def set_stream_state(
+        self,
+        stream_name: str,
+        stream_state: dict[str, Any],
+        stream_namespace: str | None = None,
+    ) -> ConnectionStateResponse:
+        """Set the state for a single stream within this connection.
+
+        Fetches the current full state, replaces only the specified stream's state,
+        then sends the full updated state back to the API. If the stream does not
+        exist in the current state, it is appended.
+
+        Uses the safe variant that prevents updates while a sync is running (HTTP 423).
+
+        Args:
+            stream_name: The name of the stream to update state for.
+            stream_state: The state blob for this stream (e.g., {"cursor": "2024-01-01"}).
+            stream_namespace: Optional stream namespace to identify the stream.
+
+        Returns:
+            A ConnectionStateResponse model with the updated state.
+
+        Raises:
+            PyAirbyteInputError: If the connection has no existing state or uses legacy state.
+        """
+        current = self.get_state()
+
+        if current.state_type == "not_set":
+            raise PyAirbyteInputError(
+                message="Cannot set stream state: connection has no existing state.",
+                context={"connection_id": self.connection_id},
+            )
+
+        if current.state_type == "legacy":
+            raise PyAirbyteInputError(
+                message="Cannot set stream state on a legacy-type connection state.",
+                context={"connection_id": self.connection_id},
+            )
+
+        new_stream_entry = {
+            "streamDescriptor": {
+                "name": stream_name,
+                **(
+                    {
+                        "namespace": stream_namespace,
+                    }
+                    if stream_namespace
+                    else {}
+                ),
+            },
+            "streamState": stream_state,
+        }
+
+        streams = _get_stream_list(current)
+        found = False
+        updated_streams_raw: list[dict[str, Any]] = []
+        for s in streams:
+            if _match_stream(s, stream_name, stream_namespace):
+                updated_streams_raw.append(new_stream_entry)
+                found = True
+            else:
+                updated_streams_raw.append(s.model_dump(by_alias=True))
+
+        if not found:
+            updated_streams_raw.append(new_stream_entry)
+
+        full_state: dict[str, Any] = {
+            "stateType": current.state_type,
+            "connectionId": self.connection_id,
+        }
+
+        if current.state_type == "stream":
+            full_state["streamState"] = updated_streams_raw
+        elif current.state_type == "global" and current.global_state:
+            full_state["globalState"] = {
+                "sharedState": current.global_state.shared_state,
+                "streamStates": updated_streams_raw,
+            }
+
+        return self.set_state(full_state)
 
     def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.

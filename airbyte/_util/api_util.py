@@ -2092,6 +2092,49 @@ def get_connection_state(
     )
 
 
+def create_or_update_connection_state_safe(
+    connection_id: str,
+    connection_state: dict[str, Any],
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Create or update the state for a connection (safe variant).
+
+    Uses the Config API endpoint: POST /v1/state/create_or_update_safe
+
+    This safe variant returns HTTP 423 if a sync is currently running,
+    preventing state corruption from concurrent modifications.
+
+    Args:
+        connection_id: The connection ID to update state for
+        connection_state: The ConnectionState object to set. Must include:
+            - stateType: "global", "stream", or "legacy"
+            - connectionId: Must match the connection_id parameter
+            - One of: state (legacy), streamState (stream), globalState (global)
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        Dictionary containing the updated ConnectionState object.
+    """
+    return _make_config_api_request(
+        path="/state/create_or_update_safe",
+        json={
+            "connectionId": connection_id,
+            "connectionState": connection_state,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def get_connection_catalog(
     connection_id: str,
     *,
