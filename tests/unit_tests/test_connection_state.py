@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from airbyte.cloud.connection_state import (
+from airbyte.cloud._connection_state import (
     ConnectionStateResponse,
     GlobalState,
     StreamDescriptor,

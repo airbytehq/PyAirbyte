@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
-from airbyte.cloud.connection_state import (
+from airbyte.cloud._connection_state import (
     ConnectionStateResponse,
     _get_stream_list,
     _match_stream,
@@ -398,12 +398,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return None
         return state_response.get("streamState", [])
 
-    def get_state(self) -> dict[str, Any]:
-        """Get the full raw state for this connection.
+    def dump_state(self) -> dict[str, Any]:
+        """Dump the full raw state for this connection.
 
         Returns the connection's sync state as a raw dictionary from the API.
         This is the full state envelope including stateType, connectionId,
-        and all stream states.
+        and all stream states. Useful for backup/restore operations.
 
         Returns:
             The full connection state as a dictionary.
@@ -416,16 +416,19 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
 
-    def set_state(
+    def load_state(
         self,
         connection_state: dict[str, Any],
     ) -> dict[str, Any]:
-        """Set (create or update) the full state for this connection.
+        """Load (restore) the full state for this connection.
 
+        Replaces the entire connection state with the provided state blob.
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
 
+        This is the counterpart to `dump_state()` for backup/restore workflows.
+
         Args:
-            connection_state: The full ConnectionState object to set. Must include:
+            connection_state: The full connection state to load. Must include:
                 - stateType: "global", "stream", or "legacy"
                 - connectionId: Must match this connection's ID
                 - One of: state (legacy), streamState (stream), globalState (global)
@@ -459,7 +462,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             The stream's state blob as a dictionary, or None if the stream is not found.
         """
-        state_data = self.get_state()
+        state_data = self.dump_state()
         result = ConnectionStateResponse(**state_data)
 
         streams = _get_stream_list(result)
@@ -483,7 +486,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         stream_name: str,
         stream_state: dict[str, Any],
         stream_namespace: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> None:
         """Set the state for a single stream within this connection.
 
         Fetches the current full state, replaces only the specified stream's state,
@@ -491,19 +494,18 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         exist in the current state, it is appended.
 
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
+        Only supported for stream-type and global-type states.
 
         Args:
             stream_name: The name of the stream to update state for.
             stream_state: The state blob for this stream (e.g., {"cursor": "2024-01-01"}).
             stream_namespace: Optional stream namespace to identify the stream.
 
-        Returns:
-            The updated connection state as a dictionary.
-
         Raises:
-            PyAirbyteInputError: If the connection has no existing state or uses legacy state.
+            PyAirbyteInputError: If the connection state type is not supported for
+                stream-level operations (not_set, legacy).
         """
-        state_data = self.get_state()
+        state_data = self.dump_state()
         current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
@@ -558,7 +560,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 "streamStates": updated_streams_raw,
             }
 
-        return self.set_state(full_state)
+        self.load_state(full_state)
 
     def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.

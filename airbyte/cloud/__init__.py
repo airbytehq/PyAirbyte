@@ -54,12 +54,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.cloud.client_config import CloudClientConfig
-from airbyte.cloud.connection_state import (
-    ConnectionStateResponse,
-    GlobalState,
-    StreamDescriptor,
-    StreamState,
-)
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
@@ -71,7 +65,6 @@ if TYPE_CHECKING:
     # ruff: noqa: TC004
     from airbyte.cloud import (
         client_config,
-        connection_state,
         connections,
         constants,
         sync_results,
@@ -83,7 +76,6 @@ __all__ = [
     # Submodules
     "workspaces",
     "connections",
-    "connection_state",
     "constants",
     "client_config",
     "sync_results",
@@ -91,10 +83,6 @@ __all__ = [
     "CloudWorkspace",
     "CloudConnection",
     "CloudClientConfig",
-    "ConnectionStateResponse",
-    "GlobalState",
-    "StreamDescriptor",
-    "StreamState",
     "SyncResult",
     # Enums
     "JobStatusEnum",
