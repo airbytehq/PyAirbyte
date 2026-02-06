@@ -2108,12 +2108,19 @@ def create_or_update_connection_state_safe(
     This safe variant returns HTTP 423 if a sync is currently running,
     preventing state corruption from concurrent modifications.
 
+    Important: This endpoint replaces the ENTIRE connection state. It does not
+    perform per-stream deduplication or merging on the backend. Callers that need
+    to update a single stream must first fetch the current state, merge the desired
+    stream change into the full state object, and then send the complete state back.
+    See ``CloudConnection.set_stream_state()`` for this fetch-modify-push pattern.
+
     Args:
         connection_id: The connection ID to update state for
-        connection_state: The ConnectionState object to set. Must include:
+        connection_state: The full ConnectionState object to set. Must include:
             - stateType: "global", "stream", or "legacy"
             - connectionId: Must match the connection_id parameter
             - One of: state (legacy), streamState (stream), globalState (global)
+            All streams must be included; any stream omitted will have its state dropped.
         api_root: The API root URL
         client_id: OAuth client ID
         client_secret: OAuth client secret
