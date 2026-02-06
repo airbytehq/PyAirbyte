@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
@@ -14,6 +15,9 @@ from airbyte.cloud.connection_state import (
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -399,14 +403,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         *,
         stream_name: str | None = None,
         stream_namespace: str | None = None,
-    ) -> ConnectionStateResponse:
+    ) -> ConnectionStateResponse | None:
         """Get the current state for this connection as a typed model.
 
         Returns the connection's sync state, which tracks progress for incremental syncs.
         The state can be one of: stream (per-stream), global, legacy, or not_set.
 
         When stream_name is provided, filters the response to include only the
-        matching stream's state. Raises an error if the stream is not found.
+        matching stream's state. Returns None if the stream is not found.
 
         Args:
             stream_name: Optional stream name to filter state for a single stream.
@@ -414,7 +418,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 Only used when stream_name is also provided.
 
         Returns:
-            A ConnectionStateResponse model with the connection's state.
+            A ConnectionStateResponse model with the connection's state,
+            or None if stream_name was provided but not found.
         """
         state_data = api_util.get_connection_state(
             connection_id=self.connection_id,
@@ -433,15 +438,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         if not matching:
             available = [s.stream_descriptor.name for s in streams]
-            raise PyAirbyteInputError(
-                message=f"Stream '{stream_name}' not found in connection state.",
-                context={
-                    "connection_id": self.connection_id,
-                    "stream_name": stream_name,
-                    "stream_namespace": stream_namespace,
-                    "available_streams": available,
-                },
+            logger.warning(
+                "Stream '%s' not found in connection state for connection '%s'. "
+                "Available streams: %s",
+                stream_name,
+                self.connection_id,
+                available,
             )
+            return None
 
         if result.state_type == "stream":
             result.stream_state = matching
@@ -481,7 +485,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         self,
         stream_name: str,
         stream_namespace: str | None = None,
-    ) -> ConnectionStateResponse:
+    ) -> ConnectionStateResponse | None:
         """Get the state for a single stream within this connection.
 
         This is a convenience wrapper around `get_state()` with stream filtering.
@@ -491,10 +495,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             stream_namespace: Optional stream namespace to narrow the filter.
 
         Returns:
-            A ConnectionStateResponse filtered to include only the matching stream.
-
-        Raises:
-            PyAirbyteInputError: If the stream is not found in the connection state.
+            A ConnectionStateResponse filtered to include only the matching stream,
+            or None if the stream is not found.
         """
         return self.get_state(
             stream_name=stream_name,
@@ -527,6 +529,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             PyAirbyteInputError: If the connection has no existing state or uses legacy state.
         """
         current = self.get_state()
+        if current is None:
+            raise PyAirbyteInputError(
+                message="Cannot set stream state: failed to retrieve connection state.",
+                context={"connection_id": self.connection_id},
+            )
 
         if current.state_type == "not_set":
             raise PyAirbyteInputError(
