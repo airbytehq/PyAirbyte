@@ -459,6 +459,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns just the stream's state dictionary (e.g., {"cursor": "2024-01-01"}),
         not the full connection state envelope.
 
+        This is compatible with ``stream``-type state and stream-level entries
+        within a ``global``-type state. It is not compatible with ``legacy`` state.
+        To get or set the entire connection-level state artifact, use
+        `dump_raw_state` and `import_raw_state` instead.
+
         Args:
             stream_name: The name of the stream to get state for.
             stream_namespace: The source-side stream namespace. This refers to the
@@ -499,8 +504,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         then sends the full updated state back to the API. If the stream does not
         exist in the current state, it is appended.
 
+        This is compatible with ``stream``-type state and stream-level entries
+        within a ``global``-type state. It is not compatible with ``legacy`` state.
+        To get or set the entire connection-level state artifact, use
+        `dump_raw_state` and `import_raw_state` instead.
+
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
-        Only supported for stream-type and global-type states.
 
         Args:
             stream_name: The name of the stream to update state for.
