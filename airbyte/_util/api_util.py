@@ -2224,7 +2224,7 @@ def replace_connection_catalog(
         json={
             "connectionId": connection_id,
             "syncCatalog": configured_catalog_dict,
-            "skipReset": False,
+            "skipReset": True,
         },
         api_root=api_root,
         client_id=client_id,
