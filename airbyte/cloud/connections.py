@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import TYPE_CHECKING, Any
 
 from airbyte._util import api_util
@@ -377,16 +378,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     # Artifacts
 
     def get_state_artifacts(self) -> list[dict[str, Any]] | None:
-        """Get the connection state artifacts.
-
-        Returns the persisted state for this connection, which can be used
-        when debugging incremental syncs.
-
-        Uses the Config API endpoint: POST /v1/state/get
-
-        Returns:
-            List of state objects for each stream, or None if no state is set.
-        """
+        """Deprecated. Use `dump_raw_state()` instead."""
+        warnings.warn(
+            "The 'get_state_artifacts' method is deprecated and will be removed"
+            " in a future version. Use 'dump_raw_state()' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         state_response = api_util.get_connection_state(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -402,8 +400,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """Dump the full raw state for this connection.
 
         Returns the connection's sync state as a raw dictionary from the API.
-        This is the full state envelope including stateType, connectionId,
-        and all stream states. Useful for backup/restore operations.
+        The result includes stateType, connectionId, and all state data.
+
+        The output of this method can be passed directly to `import_raw_state()`
+        on the same or a different connection (connectionId is overridden on import).
 
         Returns:
             The full connection state as a dictionary.
@@ -426,19 +426,22 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
 
         This is the counterpart to `dump_raw_state()` for backup/restore workflows.
+        The `connectionId` in the blob is always overridden with this connection's ID,
+        making state blobs portable across connections.
 
         Args:
             connection_state: The full connection state to import. Must include:
                 - stateType: "global", "stream", or "legacy"
-                - connectionId: Must match this connection's ID
                 - One of: state (legacy), streamState (stream), globalState (global)
+                - connectionId is optional and will be overridden.
 
         Returns:
             The updated connection state as a dictionary.
         """
+        state_to_send = {**connection_state, "connectionId": self.connection_id}
         return api_util.create_or_update_connection_state(
             connection_id=self.connection_id,
-            connection_state=connection_state,
+            connection_state=state_to_send,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
@@ -549,7 +552,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         full_state: dict[str, Any] = {
             "stateType": current.state_type,
-            "connectionId": self.connection_id,
         }
 
         if current.state_type == "stream":
