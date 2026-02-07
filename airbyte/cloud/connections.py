@@ -432,6 +432,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Returns:
             The updated connection state as a dictionary.
+
+        Raises:
+            AirbyteConnectionSyncActiveError: If a sync is currently running on this
+                connection (HTTP 423). Wait for the sync to complete before retrying.
         """
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
@@ -501,6 +505,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Raises:
             PyAirbyteInputError: If the connection state type is not supported for
                 stream-level operations (not_set, legacy).
+            AirbyteConnectionSyncActiveError: If a sync is currently running on this
+                connection (HTTP 423). Wait for the sync to complete before retrying.
         """
         state_data = self.dump_raw_state()
         current = ConnectionStateResponse(**state_data)
