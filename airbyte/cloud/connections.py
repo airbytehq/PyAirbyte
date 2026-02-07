@@ -621,19 +621,18 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         > \u26a0\ufe0f **WARNING:** Modifying the catalog directly is not recommended and
         > could result in broken connections, and/or incorrect sync behavior.
 
-        Accepts a raw catalog dict (the ``syncCatalog`` object) and replaces
-        the connection's entire catalog with it. All other connection settings
-        remain unchanged.
+        Accepts a configured catalog dict and replaces the connection's entire
+        catalog with it. All other connection settings remain unchanged.
 
         The catalog shape should match the output of ``dump_raw_catalog()``:
         ``{"streams": [{"stream": {...}, "config": {...}}, ...]}``.
 
         Args:
-            catalog: The full AirbyteCatalog dict to set.
+            catalog: The configured catalog dict to set.
         """
         api_util.replace_connection_catalog(
             connection_id=self.connection_id,
-            sync_catalog=catalog,
+            configured_catalog_dict=catalog,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,

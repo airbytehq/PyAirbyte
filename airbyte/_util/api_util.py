@@ -2194,7 +2194,7 @@ def get_connection_catalog(
 
 def replace_connection_catalog(
     connection_id: str,
-    sync_catalog: dict[str, Any],
+    configured_catalog_dict: dict[str, Any],
     *,
     api_root: str,
     client_id: SecretString | None,
@@ -2210,7 +2210,7 @@ def replace_connection_catalog(
 
     Args:
         connection_id: The connection ID to update catalog for.
-        sync_catalog: The full AirbyteCatalog object (``{"streams": [...]}``) to set.
+        configured_catalog_dict: The configured catalog dict (``{"streams": [...]}``) to set.
         api_root: The API root URL.
         client_id: OAuth client ID.
         client_secret: OAuth client secret.
@@ -2223,7 +2223,7 @@ def replace_connection_catalog(
         path="/web_backend/connections/update",
         json={
             "connectionId": connection_id,
-            "syncCatalog": sync_catalog,
+            "syncCatalog": configured_catalog_dict,
             "skipReset": False,
         },
         api_root=api_root,
