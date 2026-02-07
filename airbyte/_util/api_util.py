@@ -2224,7 +2224,7 @@ def replace_connection_catalog(
         json={
             "connectionId": connection_id,
             "syncCatalog": configured_catalog_dict,
-            # Resets are destructive and cause customer-side data outage. 
+            # Resets are destructive and cause customer-side data outage.
             # If a reset is desired, caller will need to decide & manage.
             "skipReset": True,
         },
