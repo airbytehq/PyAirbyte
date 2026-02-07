@@ -63,7 +63,13 @@ from airbyte.cloud.workspaces import CloudWorkspace
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
 if TYPE_CHECKING:
     # ruff: noqa: TC004
-    from airbyte.cloud import client_config, connections, constants, sync_results, workspaces
+    from airbyte.cloud import (
+        client_config,
+        connections,
+        constants,
+        sync_results,
+        workspaces,
+    )
 
 
 __all__ = [

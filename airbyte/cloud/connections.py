@@ -3,12 +3,23 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
+from typing_extensions import deprecated
+
 from airbyte._util import api_util
+from airbyte.cloud._connection_state import (
+    ConnectionStateResponse,
+    _get_stream_list,
+    _match_stream,
+)
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.exceptions import AirbyteWorkspaceMismatchError
+from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
+
+
+logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
@@ -367,17 +378,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     # Artifacts
 
+    @deprecated("Use 'dump_raw_state()' instead.")
     def get_state_artifacts(self) -> list[dict[str, Any]] | None:
-        """Get the connection state artifacts.
-
-        Returns the persisted state for this connection, which can be used
-        when debugging incremental syncs.
-
-        Uses the Config API endpoint: POST /v1/state/get
-
-        Returns:
-            List of state objects for each stream, or None if no state is set.
-        """
+        """Deprecated. Use `dump_raw_state()` instead."""
         state_response = api_util.get_connection_state(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -389,6 +392,204 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return None
         return state_response.get("streamState", [])
 
+    def dump_raw_state(self) -> dict[str, Any]:
+        """Dump the full raw state for this connection.
+
+        Returns the connection's sync state as a raw dictionary from the API.
+        The result includes stateType, connectionId, and all state data.
+
+        The output of this method can be passed directly to `import_raw_state()`
+        on the same or a different connection (connectionId is overridden on import).
+
+        Returns:
+            The full connection state as a dictionary.
+        """
+        return api_util.get_connection_state(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+
+    def import_raw_state(
+        self,
+        connection_state_dict: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Import (restore) the full raw state for this connection.
+
+        > ⚠️ **WARNING:** Modifying the state directly is not recommended and
+        > could result in broken connections, and/or incorrect sync behavior.
+
+        Replaces the entire connection state with the provided state blob.
+        Uses the safe variant that prevents updates while a sync is running (HTTP 423).
+
+        This is the counterpart to `dump_raw_state()` for backup/restore workflows.
+        The `connectionId` in the blob is always overridden with this connection's
+        ID, making state blobs portable across connections.
+
+        Args:
+            connection_state_dict: The full connection state dict to import. Must include:
+                - stateType: "global", "stream", or "legacy"
+                - One of: state (legacy), streamState (stream), globalState (global)
+
+        Returns:
+            The updated connection state as a dictionary.
+
+        Raises:
+            AirbyteConnectionSyncActiveError: If a sync is currently running on this
+                connection (HTTP 423). Wait for the sync to complete before retrying.
+        """
+        return api_util.replace_connection_state(
+            connection_id=self.connection_id,
+            connection_state_dict=connection_state_dict,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+
+    def get_stream_state(
+        self,
+        stream_name: str,
+        stream_namespace: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Get the state blob for a single stream within this connection.
+
+        Returns just the stream's state dictionary (e.g., {"cursor": "2024-01-01"}),
+        not the full connection state envelope.
+
+        This is compatible with `stream`-type state and stream-level entries
+        within a `global`-type state. It is not compatible with `legacy` state.
+        To get or set the entire connection-level state artifact, use
+        `dump_raw_state` and `import_raw_state` instead.
+
+        Args:
+            stream_name: The name of the stream to get state for.
+            stream_namespace: The source-side stream namespace. This refers to the
+                namespace from the source (e.g., database schema), not any destination
+                namespace override set in connection advanced settings.
+
+        Returns:
+            The stream's state blob as a dictionary, or None if the stream is not found.
+        """
+        state_data = self.dump_raw_state()
+        result = ConnectionStateResponse(**state_data)
+
+        streams = _get_stream_list(result)
+        matching = [s for s in streams if _match_stream(s, stream_name, stream_namespace)]
+
+        if not matching:
+            available = [s.stream_descriptor.name for s in streams]
+            logger.warning(
+                "Stream '%s' not found in connection state for connection '%s'. "
+                "Available streams: %s",
+                stream_name,
+                self.connection_id,
+                available,
+            )
+            return None
+
+        return matching[0].stream_state
+
+    def set_stream_state(
+        self,
+        stream_name: str,
+        state_blob_dict: dict[str, Any],
+        stream_namespace: str | None = None,
+    ) -> None:
+        """Set the state for a single stream within this connection.
+
+        Fetches the current full state, replaces only the specified stream's state,
+        then sends the full updated state back to the API. If the stream does not
+        exist in the current state, it is appended.
+
+        This is compatible with `stream`-type state and stream-level entries
+        within a `global`-type state. It is not compatible with `legacy` state.
+        To get or set the entire connection-level state artifact, use
+        `dump_raw_state` and `import_raw_state` instead.
+
+        Uses the safe variant that prevents updates while a sync is running (HTTP 423).
+
+        Args:
+            stream_name: The name of the stream to update state for.
+            state_blob_dict: The state blob dict for this stream (e.g., {"cursor": "2024-01-01"}).
+            stream_namespace: The source-side stream namespace. This refers to the
+                namespace from the source (e.g., database schema), not any destination
+                namespace override set in connection advanced settings.
+
+        Raises:
+            PyAirbyteInputError: If the connection state type is not supported for
+                stream-level operations (not_set, legacy).
+            AirbyteConnectionSyncActiveError: If a sync is currently running on this
+                connection (HTTP 423). Wait for the sync to complete before retrying.
+        """
+        state_data = self.dump_raw_state()
+        current = ConnectionStateResponse(**state_data)
+
+        if current.state_type == "not_set":
+            raise PyAirbyteInputError(
+                message="Cannot set stream state: connection has no existing state.",
+                context={"connection_id": self.connection_id},
+            )
+
+        if current.state_type == "legacy":
+            raise PyAirbyteInputError(
+                message="Cannot set stream state on a legacy-type connection state.",
+                context={"connection_id": self.connection_id},
+            )
+
+        new_stream_entry = {
+            "streamDescriptor": {
+                "name": stream_name,
+                **(
+                    {
+                        "namespace": stream_namespace,
+                    }
+                    if stream_namespace
+                    else {}
+                ),
+            },
+            "streamState": state_blob_dict,
+        }
+
+        raw_streams: list[dict[str, Any]]
+        if current.state_type == "stream":
+            raw_streams = state_data.get("streamState", [])
+        elif current.state_type == "global":
+            raw_streams = state_data.get("globalState", {}).get("streamStates", [])
+        else:
+            raw_streams = []
+
+        streams = _get_stream_list(current)
+        found = False
+        updated_streams_raw: list[dict[str, Any]] = []
+        for raw_s, parsed_s in zip(raw_streams, streams, strict=False):
+            if _match_stream(parsed_s, stream_name, stream_namespace):
+                updated_streams_raw.append(new_stream_entry)
+                found = True
+            else:
+                updated_streams_raw.append(raw_s)
+
+        if not found:
+            updated_streams_raw.append(new_stream_entry)
+
+        full_state: dict[str, Any] = {
+            **state_data,
+        }
+
+        if current.state_type == "stream":
+            full_state["streamState"] = updated_streams_raw
+        elif current.state_type == "global":
+            original_global = state_data.get("globalState", {})
+            full_state["globalState"] = {
+                **original_global,
+                "streamStates": updated_streams_raw,
+            }
+
+        self.import_raw_state(full_state)
+
+    @deprecated("Use 'dump_raw_catalog()' instead.")
     def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.
 
@@ -396,6 +597,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         including stream schemas, sync modes, cursor fields, and primary keys.
 
         Uses the Config API endpoint: POST /v1/web_backend/connections/get
+
+        Returns:
+            Dictionary containing the configured catalog, or `None` if not found.
+        """
+        return self.dump_raw_catalog()
+
+    def dump_raw_catalog(self) -> dict[str, Any] | None:
+        """Dump the full configured catalog (syncCatalog) for this connection.
+
+        Returns the raw catalog dict as returned by the API, including stream
+        schemas, sync modes, cursor fields, and primary keys.
+
+        The returned dict can be passed to `import_raw_catalog()` on this or
+        another connection to restore or clone the catalog configuration.
 
         Returns:
             Dictionary containing the configured catalog, or `None` if not found.
@@ -408,6 +623,30 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
         return connection_response.get("syncCatalog")
+
+    def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
+        """Replace the configured catalog for this connection.
+
+        > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and
+        > could result in broken connections, and/or incorrect sync behavior.
+
+        Accepts a configured catalog dict and replaces the connection's entire
+        catalog with it. All other connection settings remain unchanged.
+
+        The catalog shape should match the output of `dump_raw_catalog()`:
+        `{"streams": [{"stream": {...}, "config": {...}}, ...]}`.
+
+        Args:
+            catalog: The configured catalog dict to set.
+        """
+        api_util.replace_connection_catalog(
+            connection_id=self.connection_id,
+            configured_catalog_dict=catalog,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.

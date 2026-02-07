@@ -2546,12 +2546,12 @@ def get_connection_artifact(
             default=None,
         ),
     ],
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Get a connection artifact (state or catalog) from Airbyte Cloud.
 
     Retrieves the specified artifact for a connection:
-    - 'state': Returns the persisted state for incremental syncs as a list of
-      stream state objects, or {"ERROR": "..."} if no state is set.
+    - 'state': Returns the full raw connection state including stateType and all
+      state data, or {"ERROR": "..."} if no state is set.
     - 'catalog': Returns the configured catalog (syncCatalog) as a dict,
       or {"ERROR": "..."} if not found.
     """
@@ -2559,13 +2559,13 @@ def get_connection_artifact(
     connection = workspace.get_connection(connection_id=connection_id)
 
     if artifact_type == "state":
-        result = connection.get_state_artifacts()
-        if result is None:
+        result = connection.dump_raw_state()
+        if result.get("stateType") == "not_set":
             return {"ERROR": "No state is set for this connection (stateType: not_set)"}
         return result
 
     # artifact_type == "catalog"
-    result = connection.get_catalog_artifact()
+    result = connection.dump_raw_catalog()
     if result is None:
         return {"ERROR": "No catalog found for this connection"}
     return result

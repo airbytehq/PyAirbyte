@@ -24,6 +24,7 @@ from airbyte_api.errors import SDKError
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
+    AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteError,
     AirbyteMissingResourceError,
@@ -2092,6 +2093,70 @@ def get_connection_state(
     )
 
 
+def replace_connection_state(
+    connection_id: str,
+    connection_state_dict: dict[str, Any],
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Replace the state for a connection.
+
+    Uses the Config API endpoint: POST /v1/state/create_or_update_safe
+
+    Returns HTTP 423 if a sync is currently running, preventing state
+    corruption from concurrent modifications.
+
+    Important: This endpoint replaces the ENTIRE connection state. It does not
+    perform per-stream deduplication or merging on the backend. Callers that need
+    to update a single stream must first fetch the current state, merge the desired
+    stream change into the full state object, and then send the complete state back.
+    See ``CloudConnection.set_stream_state()`` for this fetch-modify-push pattern.
+
+    The provided ``connection_id`` is injected into both the outer request
+    wrapper and the inner ``connection_state`` payload to ensure consistency.
+
+    Args:
+        connection_id: The connection ID to update state for.
+        connection_state_dict: The full ConnectionState dict to set. Must include:
+            - stateType: "global", "stream", or "legacy"
+            - One of: state (legacy), streamState (stream), globalState (global)
+            All streams must be included; any stream omitted will have its state dropped.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        Dictionary containing the updated ConnectionState object.
+    """
+    try:
+        return _make_config_api_request(
+            path="/state/create_or_update_safe",
+            json={
+                "connectionId": connection_id,
+                "connectionState": {
+                    **connection_state_dict,
+                    "connectionId": connection_id,
+                },
+            },
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteError as ex:
+        if ex.context and ex.context.get("status_code") == HTTPStatus.LOCKED:
+            raise AirbyteConnectionSyncActiveError(
+                message="Cannot update connection state while a sync is running.",
+                connection_id=connection_id,
+                guidance="Wait for the current sync to complete before updating state.",
+            ) from ex
+        raise
+
+
 def get_connection_catalog(
     connection_id: str,
     *,
@@ -2120,6 +2185,49 @@ def get_connection_catalog(
     return _make_config_api_request(
         path="/web_backend/connections/get",
         json={"connectionId": connection_id, "withRefreshedCatalog": False},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def replace_connection_catalog(
+    connection_id: str,
+    configured_catalog_dict: dict[str, Any],
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Replace the configured catalog for a connection.
+
+    Uses the Config API endpoint: POST /v1/web_backend/connections/update
+
+    This is a patch-style update that replaces the connection's entire syncCatalog
+    with the provided catalog. All other connection settings remain unchanged.
+
+    Args:
+        connection_id: The connection ID to update catalog for.
+        configured_catalog_dict: The configured catalog dict (``{"streams": [...]}``) to set.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        Dictionary containing the updated WebBackendConnectionRead response.
+    """
+    return _make_config_api_request(
+        path="/web_backend/connections/update",
+        json={
+            "connectionId": connection_id,
+            "syncCatalog": configured_catalog_dict,
+            # Resets are destructive and cause customer-side data outage.
+            # If a reset is desired, caller will need to decide & manage.
+            "skipReset": True,
+        },
         api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
