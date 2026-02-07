@@ -414,7 +414,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     def import_raw_state(
         self,
-        connection_state: dict[str, Any],
+        connection_state_dict: dict[str, Any],
     ) -> dict[str, Any]:
         """Import (restore) the full raw state for this connection.
 
@@ -429,7 +429,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         ID, making state blobs portable across connections.
 
         Args:
-            connection_state: The full connection state to import. Must include:
+            connection_state_dict: The full connection state dict to import. Must include:
                 - stateType: "global", "stream", or "legacy"
                 - One of: state (legacy), streamState (stream), globalState (global)
 
@@ -442,7 +442,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
-            connection_state=connection_state,
+            connection_state_dict=connection_state_dict,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
@@ -490,7 +490,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def set_stream_state(
         self,
         stream_name: str,
-        stream_state: dict[str, Any],
+        state_blob_dict: dict[str, Any],
         stream_namespace: str | None = None,
     ) -> None:
         """Set the state for a single stream within this connection.
@@ -504,7 +504,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             stream_name: The name of the stream to update state for.
-            stream_state: The state blob for this stream (e.g., {"cursor": "2024-01-01"}).
+            state_blob_dict: The state blob dict for this stream (e.g., {"cursor": "2024-01-01"}).
             stream_namespace: The source-side stream namespace. This refers to the
                 namespace from the source (e.g., database schema), not any destination
                 namespace override set in connection advanced settings.
@@ -541,7 +541,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     else {}
                 ),
             },
-            "streamState": stream_state,
+            "streamState": state_blob_dict,
         }
 
         raw_streams: list[dict[str, Any]]

@@ -2095,7 +2095,7 @@ def get_connection_state(
 
 def replace_connection_state(
     connection_id: str,
-    connection_state: dict[str, Any],
+    connection_state_dict: dict[str, Any],
     *,
     api_root: str,
     client_id: SecretString | None,
@@ -2120,7 +2120,7 @@ def replace_connection_state(
 
     Args:
         connection_id: The connection ID to update state for.
-        connection_state: The full ConnectionState object to set. Must include:
+        connection_state_dict: The full ConnectionState dict to set. Must include:
             - stateType: "global", "stream", or "legacy"
             - One of: state (legacy), streamState (stream), globalState (global)
             All streams must be included; any stream omitted will have its state dropped.
@@ -2138,7 +2138,7 @@ def replace_connection_state(
             json={
                 "connectionId": connection_id,
                 "connectionState": {
-                    **connection_state,
+                    **connection_state_dict,
                     "connectionId": connection_id,
                 },
             },
