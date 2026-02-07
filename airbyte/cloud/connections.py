@@ -425,7 +425,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
 
         This is the counterpart to `dump_raw_state()` for backup/restore workflows.
-        The ``connectionId`` in the blob is always overridden with this connection's
+        The `connectionId` in the blob is always overridden with this connection's
         ID, making state blobs portable across connections.
 
         Args:
@@ -459,8 +459,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns just the stream's state dictionary (e.g., {"cursor": "2024-01-01"}),
         not the full connection state envelope.
 
-        This is compatible with ``stream``-type state and stream-level entries
-        within a ``global``-type state. It is not compatible with ``legacy`` state.
+        This is compatible with `stream`-type state and stream-level entries
+        within a `global`-type state. It is not compatible with `legacy` state.
         To get or set the entire connection-level state artifact, use
         `dump_raw_state` and `import_raw_state` instead.
 
@@ -504,8 +504,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         then sends the full updated state back to the API. If the stream does not
         exist in the current state, it is appended.
 
-        This is compatible with ``stream``-type state and stream-level entries
-        within a ``global``-type state. It is not compatible with ``legacy`` state.
+        This is compatible with `stream`-type state and stream-level entries
+        within a `global`-type state. It is not compatible with `legacy` state.
         To get or set the entire connection-level state artifact, use
         `dump_raw_state` and `import_raw_state` instead.
 
@@ -609,11 +609,11 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns the raw catalog dict as returned by the API, including stream
         schemas, sync modes, cursor fields, and primary keys.
 
-        The returned dict can be passed to ``import_raw_catalog()`` on this or
+        The returned dict can be passed to `import_raw_catalog()` on this or
         another connection to restore or clone the catalog configuration.
 
         Returns:
-            Dictionary containing the configured catalog, or ``None`` if not found.
+            Dictionary containing the configured catalog, or `None` if not found.
         """
         connection_response = api_util.get_connection_catalog(
             connection_id=self.connection_id,
@@ -633,8 +633,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Accepts a configured catalog dict and replaces the connection's entire
         catalog with it. All other connection settings remain unchanged.
 
-        The catalog shape should match the output of ``dump_raw_catalog()``:
-        ``{"streams": [{"stream": {...}, "config": {...}}, ...]}``.
+        The catalog shape should match the output of `dump_raw_catalog()`:
+        `{"streams": [{"stream": {...}, "config": {...}}, ...]}`.
 
         Args:
             catalog: The configured catalog dict to set.
