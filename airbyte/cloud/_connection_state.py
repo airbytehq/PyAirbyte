@@ -112,12 +112,14 @@ def _match_stream(
     stream_name: str,
     stream_namespace: str | None = None,
 ) -> bool:
-    """Check if a StreamState matches the given name and optional namespace."""
+    """Check if a StreamState matches the given name and namespace.
+
+    Namespace matching treats None and "" as equivalent (both mean "no namespace").
+    There is no wildcard behavior: the caller must match the actual namespace.
+    """
     if stream.stream_descriptor.name != stream_name:
         return False
-    if stream_namespace is not None:
-        return stream.stream_descriptor.namespace == stream_namespace
-    return True
+    return (stream.stream_descriptor.namespace or None) == (stream_namespace or None)
 
 
 def _get_stream_list(

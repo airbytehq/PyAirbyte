@@ -20,8 +20,10 @@ from airbyte.cloud._connection_state import (
     [
         pytest.param("users", None, "users", None, True, id="name_match_no_namespace"),
         pytest.param(
-            "users", None, "users", "public", True, id="name_match_any_namespace"
+            "users", None, "users", "public", False, id="no_wildcard_namespace"
         ),
+        pytest.param("users", "", "users", None, True, id="empty_str_matches_none"),
+        pytest.param("users", None, "users", "", True, id="none_matches_empty_str"),
         pytest.param(
             "users", "public", "users", "public", True, id="name_and_namespace_match"
         ),
