@@ -426,22 +426,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
 
         This is the counterpart to `dump_raw_state()` for backup/restore workflows.
-        The `connectionId` in the blob is always overridden with this connection's ID,
-        making state blobs portable across connections.
+        The ``connectionId`` in the blob is always overridden with this connection's
+        ID, making state blobs portable across connections.
 
         Args:
             connection_state: The full connection state to import. Must include:
                 - stateType: "global", "stream", or "legacy"
                 - One of: state (legacy), streamState (stream), globalState (global)
-                - connectionId is optional and will be overridden.
 
         Returns:
             The updated connection state as a dictionary.
         """
-        state_to_send = {**connection_state, "connectionId": self.connection_id}
-        return api_util.create_or_update_connection_state(
+        return api_util.replace_connection_state(
             connection_id=self.connection_id,
-            connection_state=state_to_send,
+            connection_state=connection_state,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,

@@ -2092,7 +2092,7 @@ def get_connection_state(
     )
 
 
-def create_or_update_connection_state(
+def replace_connection_state(
     connection_id: str,
     connection_state: dict[str, Any],
     *,
@@ -2101,7 +2101,7 @@ def create_or_update_connection_state(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> dict[str, Any]:
-    """Create or update the state for a connection.
+    """Replace the state for a connection.
 
     Uses the Config API endpoint: POST /v1/state/create_or_update_safe
 
@@ -2114,16 +2114,18 @@ def create_or_update_connection_state(
     stream change into the full state object, and then send the complete state back.
     See ``CloudConnection.set_stream_state()`` for this fetch-modify-push pattern.
 
+    The provided ``connection_id`` is injected into both the outer request
+    wrapper and the inner ``connection_state`` payload to ensure consistency.
+
     Args:
-        connection_id: The connection ID to update state for
+        connection_id: The connection ID to update state for.
         connection_state: The full ConnectionState object to set. Must include:
             - stateType: "global", "stream", or "legacy"
-            - connectionId: Must match the connection_id parameter
             - One of: state (legacy), streamState (stream), globalState (global)
             All streams must be included; any stream omitted will have its state dropped.
-        api_root: The API root URL
-        client_id: OAuth client ID
-        client_secret: OAuth client secret
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
         bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
@@ -2133,7 +2135,10 @@ def create_or_update_connection_state(
         path="/state/create_or_update_safe",
         json={
             "connectionId": connection_id,
-            "connectionState": connection_state,
+            "connectionState": {
+                **connection_state,
+                "connectionId": connection_id,
+            },
         },
         api_root=api_root,
         client_id=client_id,
