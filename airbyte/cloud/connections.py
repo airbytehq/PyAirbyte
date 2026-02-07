@@ -436,7 +436,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             The updated connection state as a dictionary.
         """
-        return api_util.create_or_update_connection_state_safe(
+        return api_util.create_or_update_connection_state(
             connection_id=self.connection_id,
             connection_state=connection_state,
             api_root=self.workspace.api_root,

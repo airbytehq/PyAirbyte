@@ -2092,7 +2092,7 @@ def get_connection_state(
     )
 
 
-def create_or_update_connection_state_safe(
+def create_or_update_connection_state(
     connection_id: str,
     connection_state: dict[str, Any],
     *,
@@ -2101,12 +2101,12 @@ def create_or_update_connection_state_safe(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> dict[str, Any]:
-    """Create or update the state for a connection (safe variant).
+    """Create or update the state for a connection.
 
     Uses the Config API endpoint: POST /v1/state/create_or_update_safe
 
-    This safe variant returns HTTP 423 if a sync is currently running,
-    preventing state corruption from concurrent modifications.
+    Returns HTTP 423 if a sync is currently running, preventing state
+    corruption from concurrent modifications.
 
     Important: This endpoint replaces the ENTIRE connection state. It does not
     perform per-stream deduplication or merging on the backend. Callers that need
