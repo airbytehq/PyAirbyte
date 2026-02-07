@@ -491,6 +491,11 @@ class AirbyteConnectionSyncError(AirbyteConnectionError):
 
 
 @dataclass
+class AirbyteConnectionSyncActiveError(AirbyteConnectionError):
+    """State update rejected because a sync is currently running (HTTP 423)."""
+
+
+@dataclass
 class AirbyteWorkspaceMismatchError(AirbyteError):
     """Resource does not belong to the expected workspace.
 

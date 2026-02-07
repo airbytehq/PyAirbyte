@@ -24,6 +24,7 @@ from airbyte_api.errors import SDKError
 
 from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT, CLOUD_CONFIG_API_ROOT_ENV_VAR
 from airbyte.exceptions import (
+    AirbyteConnectionSyncActiveError,
     AirbyteConnectionSyncError,
     AirbyteError,
     AirbyteMissingResourceError,
@@ -2131,20 +2132,29 @@ def replace_connection_state(
     Returns:
         Dictionary containing the updated ConnectionState object.
     """
-    return _make_config_api_request(
-        path="/state/create_or_update_safe",
-        json={
-            "connectionId": connection_id,
-            "connectionState": {
-                **connection_state,
+    try:
+        return _make_config_api_request(
+            path="/state/create_or_update_safe",
+            json={
                 "connectionId": connection_id,
+                "connectionState": {
+                    **connection_state,
+                    "connectionId": connection_id,
+                },
             },
-        },
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
+            api_root=api_root,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+    except AirbyteError as ex:
+        if ex.context and ex.context.get("status_code") == HTTPStatus.LOCKED:
+            raise AirbyteConnectionSyncActiveError(
+                message="Cannot update connection state while a sync is running.",
+                connection_id=connection_id,
+                guidance="Wait for the current sync to complete before updating state.",
+            ) from ex
+        raise
 
 
 def get_connection_catalog(
