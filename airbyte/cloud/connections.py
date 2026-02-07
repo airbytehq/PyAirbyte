@@ -458,7 +458,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             stream_name: The name of the stream to get state for.
-            stream_namespace: Optional stream namespace to narrow the filter.
+            stream_namespace: The source-side stream namespace. This refers to the
+                namespace from the source (e.g., database schema), not any destination
+                namespace override set in connection advanced settings.
 
         Returns:
             The stream's state blob as a dictionary, or None if the stream is not found.
@@ -500,7 +502,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Args:
             stream_name: The name of the stream to update state for.
             stream_state: The state blob for this stream (e.g., {"cursor": "2024-01-01"}).
-            stream_namespace: Optional stream namespace to identify the stream.
+            stream_namespace: The source-side stream namespace. This refers to the
+                namespace from the source (e.g., database schema), not any destination
+                namespace override set in connection advanced settings.
 
         Raises:
             PyAirbyteInputError: If the connection state type is not supported for
