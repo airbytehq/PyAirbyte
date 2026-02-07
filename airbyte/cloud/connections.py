@@ -618,7 +618,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
         """Replace the configured catalog for this connection.
 
-        > \u26a0\ufe0f **WARNING:** Modifying the catalog directly is not recommended and
+        > ⚠️ **WARNING:** Modifying the catalog directly is not recommended and
         > could result in broken connections, and/or incorrect sync behavior.
 
         Accepts a raw catalog dict (the ``syncCatalog`` object) and replaces
