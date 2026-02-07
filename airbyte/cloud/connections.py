@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import logging
-import warnings
 from typing import TYPE_CHECKING, Any
+
+from typing_extensions import deprecated
 
 from airbyte._util import api_util
 from airbyte.cloud._connection_state import (
@@ -377,14 +378,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     # Artifacts
 
+    @deprecated("Use 'dump_raw_state()' instead.")
     def get_state_artifacts(self) -> list[dict[str, Any]] | None:
         """Deprecated. Use `dump_raw_state()` instead."""
-        warnings.warn(
-            "The 'get_state_artifacts' method is deprecated and will be removed"
-            " in a future version. Use 'dump_raw_state()' instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         state_response = api_util.get_connection_state(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
