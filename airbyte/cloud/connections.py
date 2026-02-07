@@ -568,6 +568,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         self.import_raw_state(full_state)
 
+    @deprecated("Use 'dump_raw_catalog()' instead.")
     def get_catalog_artifact(self) -> dict[str, Any] | None:
         """Get the configured catalog for this connection.
 
@@ -579,6 +580,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             Dictionary containing the configured catalog, or `None` if not found.
         """
+        return self.dump_raw_catalog()
+
+    def dump_raw_catalog(self) -> dict[str, Any] | None:
+        """Dump the full configured catalog (syncCatalog) for this connection.
+
+        Returns the raw catalog dict as returned by the API, including stream
+        schemas, sync modes, cursor fields, and primary keys.
+
+        The returned dict can be passed to ``import_raw_catalog()`` on this or
+        another connection to restore or clone the catalog configuration.
+
+        Returns:
+            Dictionary containing the configured catalog, or ``None`` if not found.
+        """
         connection_response = api_util.get_connection_catalog(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -587,6 +602,28 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
         return connection_response.get("syncCatalog")
+
+    def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
+        """Replace the configured catalog for this connection.
+
+        Accepts a raw catalog dict (the ``syncCatalog`` object) and replaces
+        the connection's entire catalog with it. All other connection settings
+        remain unchanged.
+
+        The catalog shape should match the output of ``dump_raw_catalog()``:
+        ``{"streams": [{"stream": {...}, "config": {...}}, ...]}``.
+
+        Args:
+            catalog: The full AirbyteCatalog dict to set.
+        """
+        api_util.replace_connection_catalog(
+            connection_id=self.connection_id,
+            sync_catalog=catalog,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
 
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.

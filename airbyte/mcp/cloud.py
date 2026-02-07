@@ -2565,7 +2565,7 @@ def get_connection_artifact(
         return result
 
     # artifact_type == "catalog"
-    result = connection.get_catalog_artifact()
+    result = connection.dump_raw_catalog()
     if result is None:
         return {"ERROR": "No catalog found for this connection"}
     return result

@@ -2192,6 +2192,47 @@ def get_connection_catalog(
     )
 
 
+def replace_connection_catalog(
+    connection_id: str,
+    sync_catalog: dict[str, Any],
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Replace the configured catalog for a connection.
+
+    Uses the Config API endpoint: POST /v1/web_backend/connections/update
+
+    This is a patch-style update that replaces the connection's entire syncCatalog
+    with the provided catalog. All other connection settings remain unchanged.
+
+    Args:
+        connection_id: The connection ID to update catalog for.
+        sync_catalog: The full AirbyteCatalog object (``{"streams": [...]}``) to set.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        Dictionary containing the updated WebBackendConnectionRead response.
+    """
+    return _make_config_api_request(
+        path="/web_backend/connections/update",
+        json={
+            "connectionId": connection_id,
+            "syncCatalog": sync_catalog,
+            "skipReset": False,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def get_organization_info(
     organization_id: str,
     *,
