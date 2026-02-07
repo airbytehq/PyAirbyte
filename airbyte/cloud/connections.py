@@ -418,6 +418,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     ) -> dict[str, Any]:
         """Import (restore) the full raw state for this connection.
 
+        > \u26a0\ufe0f **WARNING:** Modifying the state directly is not recommended and
+        > could result in broken connections, and/or incorrect sync behavior.
+
         Replaces the entire connection state with the provided state blob.
         Uses the safe variant that prevents updates while a sync is running (HTTP 423).
 
@@ -541,28 +544,37 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             "streamState": stream_state,
         }
 
+        raw_streams: list[dict[str, Any]]
+        if current.state_type == "stream":
+            raw_streams = state_data.get("streamState", [])
+        elif current.state_type == "global":
+            raw_streams = state_data.get("globalState", {}).get("streamStates", [])
+        else:
+            raw_streams = []
+
         streams = _get_stream_list(current)
         found = False
         updated_streams_raw: list[dict[str, Any]] = []
-        for s in streams:
-            if _match_stream(s, stream_name, stream_namespace):
+        for raw_s, parsed_s in zip(raw_streams, streams, strict=False):
+            if _match_stream(parsed_s, stream_name, stream_namespace):
                 updated_streams_raw.append(new_stream_entry)
                 found = True
             else:
-                updated_streams_raw.append(s.model_dump(by_alias=True))
+                updated_streams_raw.append(raw_s)
 
         if not found:
             updated_streams_raw.append(new_stream_entry)
 
         full_state: dict[str, Any] = {
-            "stateType": current.state_type,
+            **state_data,
         }
 
         if current.state_type == "stream":
             full_state["streamState"] = updated_streams_raw
-        elif current.state_type == "global" and current.global_state:
+        elif current.state_type == "global":
+            original_global = state_data.get("globalState", {})
             full_state["globalState"] = {
-                "sharedState": current.global_state.shared_state,
+                **original_global,
                 "streamStates": updated_streams_raw,
             }
 
@@ -605,6 +617,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
     def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
         """Replace the configured catalog for this connection.
+
+        > \u26a0\ufe0f **WARNING:** Modifying the catalog directly is not recommended and
+        > could result in broken connections, and/or incorrect sync behavior.
 
         Accepts a raw catalog dict (the ``syncCatalog`` object) and replaces
         the connection's entire catalog with it. All other connection settings
