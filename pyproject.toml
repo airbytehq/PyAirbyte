@@ -80,6 +80,8 @@ dev = [
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
 airbyte-mcp = "airbyte.mcp.server:main"
+destination-pyairbyte = "airbyte.cli.universal_connector.run:run"
+source-pyairbyte = "airbyte.cli.universal_connector.run_source:run"
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
