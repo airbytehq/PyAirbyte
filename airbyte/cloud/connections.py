@@ -418,7 +418,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     ) -> dict[str, Any]:
         """Import (restore) the full raw state for this connection.
 
-        > \u26a0\ufe0f **WARNING:** Modifying the state directly is not recommended and
+        > ⚠️ **WARNING:** Modifying the state directly is not recommended and
         > could result in broken connections, and/or incorrect sync behavior.
 
         Replaces the entire connection state with the provided state blob.
