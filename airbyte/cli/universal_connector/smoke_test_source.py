@@ -139,22 +139,22 @@ class SourceSmokeTest(Source):
                         ),
                         "default": 1000,
                     },
-                    "include_default_scenarios": {
+                    "all_fast_streams": {
                         "type": "boolean",
-                        "title": "Include Default Scenarios",
+                        "title": "All Fast Streams",
                         "description": (
-                            "Include the default (non-high-volume) " "predefined scenarios."
+                            "Include all fast (non-high-volume) " "predefined streams."
                         ),
                         "default": True,
                     },
-                    "include_high_volume_scenarios": {
+                    "all_slow_streams": {
                         "type": "boolean",
-                        "title": "Include High Volume Scenarios",
+                        "title": "All Slow Streams",
                         "description": (
-                            "Include high-volume scenarios such as "
-                            "large_batch_stream. These are excluded "
-                            "by default to avoid incurring the cost "
-                            "of large record sets."
+                            "Include all slow (high-volume) streams "
+                            "such as large_batch_stream. These are "
+                            "excluded by default to avoid incurring "
+                            "the cost of large record sets."
                         ),
                         "default": False,
                     },
@@ -181,16 +181,16 @@ class SourceSmokeTest(Source):
         """Combine predefined and custom scenarios.
 
         Selection logic:
-        1. Boolean flags control groups: ``include_default_scenarios``
+        1. Boolean flags control groups: ``all_fast_streams``
            (default true) enables non-high-volume scenarios,
-           ``include_high_volume_scenarios`` (default false) enables
+           ``all_slow_streams`` (default false) enables
            high-volume scenarios.
         2. ``scenario_filter`` names are unioned with the boolean sets.
         3. Custom scenarios are always included.
         4. The final list is deduplicated by name.
         """
-        include_default = config.get("include_default_scenarios", True)
-        include_high_volume = config.get("include_high_volume_scenarios", False)
+        include_default = config.get("all_fast_streams", True)
+        include_high_volume = config.get("all_slow_streams", False)
         scenario_filter: list[str] = config.get("scenario_filter", [])
         explicit_names: set[str] = set(scenario_filter)
 
