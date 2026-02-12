@@ -12,7 +12,6 @@ injected dynamically via the ``custom_scenarios`` config field.
 from __future__ import annotations
 
 import logging
-import math
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -30,457 +29,18 @@ from airbyte_cdk.models import (
 )
 from airbyte_cdk.sources.source import Source
 
+from airbyte.cli.universal_connector._source_smoke_test_scenarios import (
+    _DEFAULT_LARGE_BATCH_COUNT,
+    PREDEFINED_SCENARIOS,
+    get_scenario_records,
+)
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
 
 logger = logging.getLogger("airbyte")
-
-_DEFAULT_LARGE_BATCH_COUNT = 1000
-
-PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
-    {
-        "name": "basic_types",
-        "description": "Covers fundamental column types: string, integer, number, boolean.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"},
-                "amount": {"type": "number"},
-                "is_active": {"type": "boolean"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {"id": 1, "name": "Alice", "amount": 100.50, "is_active": True},
-            {"id": 2, "name": "Bob", "amount": 0.0, "is_active": False},
-            {"id": 3, "name": "", "amount": -99.99, "is_active": True},
-        ],
-    },
-    {
-        "name": "timestamp_types",
-        "description": "Covers date and timestamp formats including ISO 8601 variations.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "created_date": {"type": "string", "format": "date"},
-                "updated_at": {"type": "string", "format": "date-time"},
-                "epoch_seconds": {"type": "integer"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {
-                "id": 1,
-                "created_date": "2024-01-15",
-                "updated_at": "2024-01-15T10:30:00Z",
-                "epoch_seconds": 1705312200,
-            },
-            {
-                "id": 2,
-                "created_date": "1970-01-01",
-                "updated_at": "1970-01-01T00:00:00+00:00",
-                "epoch_seconds": 0,
-            },
-            {
-                "id": 3,
-                "created_date": "2099-12-31",
-                "updated_at": "2099-12-31T23:59:59.999999Z",
-                "epoch_seconds": 4102444799,
-            },
-        ],
-    },
-    {
-        "name": "large_decimals_and_numbers",
-        "description": (
-            "Tests handling of very large numbers, " "high precision decimals, and boundary values."
-        ),
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "big_integer": {"type": "integer"},
-                "precise_decimal": {"type": "number"},
-                "small_decimal": {"type": "number"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {
-                "id": 1,
-                "big_integer": 9999999999999999,
-                "precise_decimal": math.pi,
-                "small_decimal": 0.000001,
-            },
-            {
-                "id": 2,
-                "big_integer": -9999999999999999,
-                "precise_decimal": -0.1,
-                "small_decimal": 1e-10,
-            },
-            {
-                "id": 3,
-                "big_integer": 0,
-                "precise_decimal": 99999999.99999999,
-                "small_decimal": 0.0,
-            },
-        ],
-    },
-    {
-        "name": "nested_json_objects",
-        "description": "Tests nested object and array handling in destination columns.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "metadata": {
-                    "type": "object",
-                    "properties": {
-                        "source": {"type": "string"},
-                        "tags": {"type": "array", "items": {"type": "string"}},
-                    },
-                },
-                "nested_deep": {
-                    "type": "object",
-                    "properties": {
-                        "level1": {
-                            "type": "object",
-                            "properties": {
-                                "level2": {
-                                    "type": "object",
-                                    "properties": {
-                                        "value": {"type": "string"},
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-                "items_array": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "sku": {"type": "string"},
-                            "qty": {"type": "integer"},
-                        },
-                    },
-                },
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {
-                "id": 1,
-                "metadata": {"source": "api", "tags": ["a", "b", "c"]},
-                "nested_deep": {"level1": {"level2": {"value": "deep"}}},
-                "items_array": [{"sku": "ABC", "qty": 10}],
-            },
-            {
-                "id": 2,
-                "metadata": {"source": "manual", "tags": []},
-                "nested_deep": {"level1": {"level2": {"value": ""}}},
-                "items_array": [],
-            },
-        ],
-    },
-    {
-        "name": "null_handling",
-        "description": "Tests null values across all column types and patterns.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "nullable_string": {"type": ["null", "string"]},
-                "nullable_integer": {"type": ["null", "integer"]},
-                "nullable_number": {"type": ["null", "number"]},
-                "nullable_boolean": {"type": ["null", "boolean"]},
-                "nullable_object": {
-                    "type": ["null", "object"],
-                    "properties": {"key": {"type": "string"}},
-                },
-                "always_null": {"type": ["null", "string"]},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {
-                "id": 1,
-                "nullable_string": "present",
-                "nullable_integer": 42,
-                "nullable_number": math.pi,
-                "nullable_boolean": True,
-                "nullable_object": {"key": "val"},
-                "always_null": None,
-            },
-            {
-                "id": 2,
-                "nullable_string": None,
-                "nullable_integer": None,
-                "nullable_number": None,
-                "nullable_boolean": None,
-                "nullable_object": None,
-                "always_null": None,
-            },
-            {
-                "id": 3,
-                "nullable_string": "",
-                "nullable_integer": 0,
-                "nullable_number": 0.0,
-                "nullable_boolean": False,
-                "nullable_object": {},
-                "always_null": None,
-            },
-        ],
-    },
-    {
-        "name": "column_naming_edge_cases",
-        "description": "Tests special characters, casing, and reserved words in column names.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "CamelCaseColumn": {"type": "string"},
-                "ALLCAPS": {"type": "string"},
-                "snake_case_column": {"type": "string"},
-                "column-with-dashes": {"type": "string"},
-                "column.with.dots": {"type": "string"},
-                "column with spaces": {"type": "string"},
-                "select": {"type": "string"},
-                "from": {"type": "string"},
-                "order": {"type": "string"},
-                "group": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {
-                "id": 1,
-                "CamelCaseColumn": "camel",
-                "ALLCAPS": "caps",
-                "snake_case_column": "snake",
-                "column-with-dashes": "dashes",
-                "column.with.dots": "dots",
-                "column with spaces": "spaces",
-                "select": "reserved_select",
-                "from": "reserved_from",
-                "order": "reserved_order",
-                "group": "reserved_group",
-            },
-        ],
-    },
-    {
-        "name": "table_naming_edge_cases",
-        "description": "Stream with special characters in the name to test table naming.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "value": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {"id": 1, "value": "table_name_test"},
-        ],
-    },
-    {
-        "name": "CamelCaseStreamName",
-        "description": "Stream with CamelCase name to test case handling.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "value": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {"id": 1, "value": "camel_case_stream_test"},
-        ],
-    },
-    {
-        "name": "wide_table_50_columns",
-        "description": "Tests a wide table with 50 columns.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                **{f"col_{i:03d}": {"type": "string"} for i in range(1, 50)},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {"id": 1, **{f"col_{i:03d}": f"val_{i}" for i in range(1, 50)}},
-            {"id": 2, **{f"col_{i:03d}": None for i in range(1, 50)}},
-        ],
-    },
-    {
-        "name": "empty_stream",
-        "description": "A stream that emits zero records, testing empty dataset handling.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "value": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [],
-    },
-    {
-        "name": "single_record_stream",
-        "description": "A stream with exactly one record.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "value": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {"id": 1, "value": "only_record"},
-        ],
-    },
-    {
-        "name": "large_batch_stream",
-        "description": (
-            "A stream that generates a configurable " "number of records for batch testing."
-        ),
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "name": {"type": "string"},
-                "value": {"type": "number"},
-                "category": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "record_count": 1000,
-        "record_generator": "large_batch",
-    },
-    {
-        "name": "unicode_and_special_strings",
-        "description": (
-            "Tests unicode characters, emoji, escape " "sequences, and special string values."
-        ),
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "unicode_text": {"type": "string"},
-                "special_chars": {"type": "string"},
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {"id": 1, "unicode_text": "Hello World", "special_chars": "line1\nline2\ttab"},
-            {
-                "id": 2,
-                "unicode_text": "Caf\u00e9 na\u00efve r\u00e9sum\u00e9",
-                "special_chars": 'quote"inside',
-            },
-            {"id": 3, "unicode_text": "\u4f60\u597d\u4e16\u754c", "special_chars": "back\\slash"},
-            {"id": 4, "unicode_text": "\u0410\u0411\u0412\u0413", "special_chars": ""},
-        ],
-    },
-    {
-        "name": "schema_with_no_primary_key",
-        "description": "A stream without a primary key, testing append-only behavior.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "event_id": {"type": "string"},
-                "event_type": {"type": "string"},
-                "payload": {"type": "string"},
-            },
-        },
-        "primary_key": None,
-        "records": [
-            {"event_id": "evt_001", "event_type": "click", "payload": "{}"},
-            {"event_id": "evt_001", "event_type": "click", "payload": "{}"},
-            {"event_id": "evt_002", "event_type": "view", "payload": '{"page": "home"}'},
-        ],
-    },
-    {
-        "name": "long_column_names",
-        "description": "Tests handling of very long column names that may exceed database limits.",
-        "json_schema": {
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "type": "object",
-            "properties": {
-                "id": {"type": "integer"},
-                "a_very_long_column_name_that_exceeds"
-                "_typical_database_limits_and_should_be"
-                "_truncated_or_handled_gracefully_by"
-                "_the_destination": {
-                    "type": "string",
-                },
-                "another_extremely_verbose_column_name"
-                "_designed_to_test_the_absolute_maximum"
-                "_length_that_any_reasonable_database"
-                "_would_support": {
-                    "type": "string",
-                },
-            },
-        },
-        "primary_key": [["id"]],
-        "records": [
-            {
-                "id": 1,
-                "a_very_long_column_name_that_exceeds"
-                "_typical_database_limits_and_should_be"
-                "_truncated_or_handled_gracefully_by"
-                "_the_destination": "long_col_1",
-                "another_extremely_verbose_column_name"
-                "_designed_to_test_the_absolute_maximum"
-                "_length_that_any_reasonable_database"
-                "_would_support": "long_col_2",
-            },
-        ],
-    },
-]
-
-
-def _generate_large_batch_records(scenario: dict[str, Any]) -> list[dict[str, Any]]:
-    """Generate records for the large_batch_stream scenario."""
-    count = scenario.get("record_count", _DEFAULT_LARGE_BATCH_COUNT)
-    categories = ["cat_a", "cat_b", "cat_c", "cat_d", "cat_e"]
-    return [
-        {
-            "id": i,
-            "name": f"record_{i:06d}",
-            "value": float(i) * 1.1,
-            "category": categories[i % len(categories)],
-        }
-        for i in range(1, count + 1)
-    ]
-
-
-def _get_scenario_records(scenario: dict[str, Any]) -> list[dict[str, Any]]:
-    """Get records for a scenario, using generator if specified."""
-    if scenario.get("record_generator") == "large_batch":
-        return _generate_large_batch_records(scenario)
-    return scenario.get("records", [])
 
 
 def _build_streams_from_scenarios(
@@ -507,7 +67,10 @@ class SourceSmokeTest(Source):
     of additional scenarios via the ``custom_scenarios`` config field.
     """
 
-    def spec(self, logger: logging.Logger) -> ConnectorSpecification:  # noqa: ARG002
+    def spec(
+        self,
+        logger: logging.Logger,  # noqa: ARG002
+    ) -> ConnectorSpecification:
         """Return the connector specification."""
         return ConnectorSpecification(
             documentationUrl="https://docs.airbyte.com/integrations/sources/smoke-test",
@@ -521,34 +84,41 @@ class SourceSmokeTest(Source):
                         "type": "array",
                         "title": "Custom Test Scenarios",
                         "description": (
-                            "Additional test scenarios to inject at runtime. "
-                            "Each scenario defines a stream name, JSON schema, and records."
+                            "Additional test scenarios to inject "
+                            "at runtime. Each scenario defines a "
+                            "stream name, JSON schema, and records."
                         ),
                         "items": {
                             "type": "object",
-                            "required": ["name", "json_schema", "records"],
+                            "required": [
+                                "name",
+                                "json_schema",
+                                "records",
+                            ],
                             "properties": {
                                 "name": {
                                     "type": "string",
-                                    "description": "Stream name for this scenario.",
+                                    "description": ("Stream name for " "this scenario."),
                                 },
                                 "description": {
                                     "type": "string",
-                                    "description": "Human-readable description of this scenario.",
+                                    "description": (
+                                        "Human-readable description " "of this scenario."
+                                    ),
                                 },
                                 "json_schema": {
                                     "type": "object",
-                                    "description": "JSON schema for the stream.",
+                                    "description": ("JSON schema for the stream."),
                                 },
                                 "records": {
                                     "type": "array",
-                                    "description": "Records to emit for this stream.",
+                                    "description": ("Records to emit " "for this stream."),
                                     "items": {"type": "object"},
                                 },
                                 "primary_key": {
                                     "type": ["array", "null"],
                                     "description": (
-                                        "Primary key definition " "(list of key paths) or null."
+                                        "Primary key definition " "(list of key paths) " "or null."
                                     ),
                                     "items": {
                                         "type": "array",
@@ -563,7 +133,8 @@ class SourceSmokeTest(Source):
                         "type": "integer",
                         "title": "Large Batch Record Count",
                         "description": (
-                            "Number of records to generate for the large_batch_stream scenario. "
+                            "Number of records to generate for "
+                            "the large_batch_stream scenario. "
                             "Set to 0 to skip this stream."
                         ),
                         "default": 1000,
@@ -572,8 +143,9 @@ class SourceSmokeTest(Source):
                         "type": "array",
                         "title": "Scenario Filter",
                         "description": (
-                            "If provided, only emit these scenario names. "
-                            "Empty or absent means emit all scenarios."
+                            "If provided, only emit these scenario "
+                            "names. Empty or absent means emit "
+                            "all scenarios."
                         ),
                         "items": {"type": "string"},
                         "default": [],
@@ -582,11 +154,17 @@ class SourceSmokeTest(Source):
             },
         )
 
-    def _get_all_scenarios(self, config: Mapping[str, Any]) -> list[dict[str, Any]]:
-        """Combine predefined and custom scenarios, applying config overrides."""
+    def _get_all_scenarios(
+        self,
+        config: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Combine predefined and custom scenarios."""
         scenarios: list[dict[str, Any]] = []
 
-        large_batch_count = config.get("large_batch_record_count", _DEFAULT_LARGE_BATCH_COUNT)
+        large_batch_count = config.get(
+            "large_batch_record_count",
+            _DEFAULT_LARGE_BATCH_COUNT,
+        )
 
         for scenario in PREDEFINED_SCENARIOS:
             s = dict(scenario)
@@ -602,7 +180,10 @@ class SourceSmokeTest(Source):
             scenarios.extend(
                 {
                     "name": cs["name"],
-                    "description": cs.get("description", "Custom injected scenario"),
+                    "description": cs.get(
+                        "description",
+                        "Custom injected scenario",
+                    ),
                     "json_schema": cs["json_schema"],
                     "primary_key": cs.get("primary_key"),
                     "records": cs.get("records", []),
@@ -626,7 +207,7 @@ class SourceSmokeTest(Source):
         if not scenarios:
             return AirbyteConnectionStatus(
                 status=Status.FAILED,
-                message="No scenarios available. Check scenario_filter config.",
+                message=("No scenarios available. " "Check scenario_filter config."),
             )
 
         custom = config.get("custom_scenarios", [])
@@ -634,15 +215,17 @@ class SourceSmokeTest(Source):
             if not scenario.get("name"):
                 return AirbyteConnectionStatus(
                     status=Status.FAILED,
-                    message=f"Custom scenario at index {i} is missing 'name'.",
+                    message=("Custom scenario at index " f"{i} is missing 'name'."),
                 )
             if not scenario.get("json_schema"):
                 return AirbyteConnectionStatus(
                     status=Status.FAILED,
-                    message=f"Custom scenario '{scenario['name']}' is missing 'json_schema'.",
+                    message=(
+                        f"Custom scenario " f"'{scenario['name']}' " f"is missing 'json_schema'."
+                    ),
                 )
 
-        logger.info(f"Smoke test source check passed with {len(scenarios)} scenarios.")
+        logger.info("Smoke test source check passed " f"with {len(scenarios)} scenarios.")
         return AirbyteConnectionStatus(status=Status.SUCCEEDED)
 
     def discover(
@@ -650,7 +233,7 @@ class SourceSmokeTest(Source):
         logger: logging.Logger,
         config: Mapping[str, Any],
     ) -> AirbyteCatalog:
-        """Return the catalog with all available test scenario streams."""
+        """Return the catalog with all test scenario streams."""
         scenarios = self._get_all_scenarios(config)
         streams = _build_streams_from_scenarios(scenarios)
         logger.info(f"Discovered {len(streams)} smoke test streams.")
@@ -672,11 +255,11 @@ class SourceSmokeTest(Source):
         for stream_name in selected_streams:
             scenario = scenario_map.get(stream_name)
             if not scenario:
-                logger.warning(f"Stream '{stream_name}' not found in scenarios, skipping.")
+                logger.warning(f"Stream '{stream_name}' not found " f"in scenarios, skipping.")
                 continue
 
-            records = _get_scenario_records(scenario)
-            logger.info(f"Emitting {len(records)} records for stream '{stream_name}'.")
+            records = get_scenario_records(scenario)
+            logger.info(f"Emitting {len(records)} records " f"for stream '{stream_name}'.")
 
             for record in records:
                 yield AirbyteMessage(
