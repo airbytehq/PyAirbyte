@@ -13,6 +13,10 @@ from typing import Any
 
 _DEFAULT_LARGE_BATCH_COUNT = 1000
 
+HIGH_VOLUME_SCENARIO_NAMES: set[str] = {
+    "large_batch_stream",
+}
+
 PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "basic_types",
@@ -355,6 +359,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
         "primary_key": [["id"]],
         "record_count": _DEFAULT_LARGE_BATCH_COUNT,
         "record_generator": "large_batch",
+        "high_volume": True,
     },
     {
         "name": "unicode_and_special_strings",

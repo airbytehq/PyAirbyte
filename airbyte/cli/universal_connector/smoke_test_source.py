@@ -139,13 +139,33 @@ class SourceSmokeTest(Source):
                         ),
                         "default": 1000,
                     },
+                    "include_default_scenarios": {
+                        "type": "boolean",
+                        "title": "Include Default Scenarios",
+                        "description": (
+                            "Include the default (non-high-volume) " "predefined scenarios."
+                        ),
+                        "default": True,
+                    },
+                    "include_high_volume_scenarios": {
+                        "type": "boolean",
+                        "title": "Include High Volume Scenarios",
+                        "description": (
+                            "Include high-volume scenarios such as "
+                            "large_batch_stream. These are excluded "
+                            "by default to avoid incurring the cost "
+                            "of large record sets."
+                        ),
+                        "default": False,
+                    },
                     "scenario_filter": {
                         "type": "array",
                         "title": "Scenario Filter",
                         "description": (
-                            "If provided, only emit these scenario "
-                            "names. Empty or absent means emit "
-                            "all scenarios."
+                            "Specific scenario names to include. "
+                            "These are unioned with the boolean-driven "
+                            "sets (deduped). If omitted or empty, "
+                            "only the boolean flags control selection."
                         ),
                         "items": {"type": "string"},
                         "default": [],
@@ -158,42 +178,66 @@ class SourceSmokeTest(Source):
         self,
         config: Mapping[str, Any],
     ) -> list[dict[str, Any]]:
-        """Combine predefined and custom scenarios."""
-        scenarios: list[dict[str, Any]] = []
+        """Combine predefined and custom scenarios.
+
+        Selection logic:
+        1. Boolean flags control groups: ``include_default_scenarios``
+           (default true) enables non-high-volume scenarios,
+           ``include_high_volume_scenarios`` (default false) enables
+           high-volume scenarios.
+        2. ``scenario_filter`` names are unioned with the boolean sets.
+        3. Custom scenarios are always included.
+        4. The final list is deduplicated by name.
+        """
+        include_default = config.get("include_default_scenarios", True)
+        include_high_volume = config.get("include_high_volume_scenarios", False)
+        scenario_filter: list[str] = config.get("scenario_filter", [])
+        explicit_names: set[str] = set(scenario_filter)
 
         large_batch_count = config.get(
             "large_batch_record_count",
             _DEFAULT_LARGE_BATCH_COUNT,
         )
 
+        scenarios: list[dict[str, Any]] = []
+        seen_names: set[str] = set()
+
         for scenario in PREDEFINED_SCENARIOS:
+            name = scenario["name"]
+            is_high_volume = scenario.get("high_volume", False)
+
+            included_by_flag = (include_high_volume and is_high_volume) or (
+                include_default and not is_high_volume
+            )
+            if not included_by_flag and name not in explicit_names:
+                continue
+
             s = dict(scenario)
-            if (
-                s["name"] == "large_batch_stream"
-                and large_batch_count != _DEFAULT_LARGE_BATCH_COUNT
-            ):
+            if name == "large_batch_stream" and large_batch_count != _DEFAULT_LARGE_BATCH_COUNT:
                 s["record_count"] = large_batch_count
-            scenarios.append(s)
+
+            if name not in seen_names:
+                scenarios.append(s)
+                seen_names.add(name)
 
         custom = config.get("custom_scenarios", [])
         if custom:
-            scenarios.extend(
-                {
-                    "name": cs["name"],
-                    "description": cs.get(
-                        "description",
-                        "Custom injected scenario",
-                    ),
-                    "json_schema": cs["json_schema"],
-                    "primary_key": cs.get("primary_key"),
-                    "records": cs.get("records", []),
-                }
-                for cs in custom
-            )
-
-        scenario_filter = config.get("scenario_filter", [])
-        if scenario_filter:
-            scenarios = [s for s in scenarios if s["name"] in scenario_filter]
+            for cs in custom:
+                name = cs["name"]
+                if name not in seen_names:
+                    scenarios.append(
+                        {
+                            "name": name,
+                            "description": cs.get(
+                                "description",
+                                "Custom injected scenario",
+                            ),
+                            "json_schema": cs["json_schema"],
+                            "primary_key": cs.get("primary_key"),
+                            "records": cs.get("records", []),
+                        }
+                    )
+                    seen_names.add(name)
 
         return scenarios
 
