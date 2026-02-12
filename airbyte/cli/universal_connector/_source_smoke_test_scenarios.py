@@ -296,7 +296,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "id": {"type": "integer"},
-                **{f"col_{i:03d}": {"type": "string"} for i in range(1, 50)},
+                **{f"col_{i:03d}": {"type": ["null", "string"]} for i in range(1, 50)},
             },
         },
         "primary_key": [["id"]],

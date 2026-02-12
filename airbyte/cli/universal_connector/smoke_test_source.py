@@ -223,7 +223,9 @@ class SourceSmokeTest(Source):
         custom = config.get("custom_scenarios", [])
         if custom:
             for cs in custom:
-                name = cs["name"]
+                name = cs.get("name", "")
+                if not name or not cs.get("json_schema"):
+                    continue
                 if name not in seen_names:
                     scenarios.append(
                         {
@@ -247,13 +249,6 @@ class SourceSmokeTest(Source):
         config: Mapping[str, Any],
     ) -> AirbyteConnectionStatus:
         """Validate the configuration."""
-        scenarios = self._get_all_scenarios(config)
-        if not scenarios:
-            return AirbyteConnectionStatus(
-                status=Status.FAILED,
-                message=("No scenarios available. " "Check scenario_filter config."),
-            )
-
         custom = config.get("custom_scenarios", [])
         for i, scenario in enumerate(custom):
             if not scenario.get("name"):
@@ -268,6 +263,13 @@ class SourceSmokeTest(Source):
                         f"Custom scenario " f"'{scenario['name']}' " f"is missing 'json_schema'."
                     ),
                 )
+
+        scenarios = self._get_all_scenarios(config)
+        if not scenarios:
+            return AirbyteConnectionStatus(
+                status=Status.FAILED,
+                message=("No scenarios available. " "Check scenario_filter config."),
+            )
 
         logger.info("Smoke test source check passed " f"with {len(scenarios)} scenarios.")
         return AirbyteConnectionStatus(status=Status.SUCCEEDED)
