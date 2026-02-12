@@ -11,8 +11,8 @@ injected dynamically via the ``custom_scenarios`` config field.
 
 from __future__ import annotations
 
-import json
 import logging
+import math
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("airbyte")
 
+_DEFAULT_LARGE_BATCH_COUNT = 1000
 
 PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
@@ -96,7 +97,9 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "large_decimals_and_numbers",
-        "description": "Tests handling of very large numbers, high precision decimals, and boundary values.",
+        "description": (
+            "Tests handling of very large numbers, " "high precision decimals, and boundary values."
+        ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -112,7 +115,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
             {
                 "id": 1,
                 "big_integer": 9999999999999999,
-                "precise_decimal": 3.141592653589793,
+                "precise_decimal": math.pi,
                 "small_decimal": 0.000001,
             },
             {
@@ -213,7 +216,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
                 "id": 1,
                 "nullable_string": "present",
                 "nullable_integer": 42,
-                "nullable_number": 3.14,
+                "nullable_number": math.pi,
                 "nullable_boolean": True,
                 "nullable_object": {"key": "val"},
                 "always_null": None,
@@ -314,7 +317,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
             "properties": {
-                **{"id": {"type": "integer"}},
+                "id": {"type": "integer"},
                 **{f"col_{i:03d}": {"type": "string"} for i in range(1, 50)},
             },
         },
@@ -356,7 +359,9 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "large_batch_stream",
-        "description": "A stream that generates a configurable number of records for batch testing.",
+        "description": (
+            "A stream that generates a configurable " "number of records for batch testing."
+        ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -373,7 +378,9 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "unicode_and_special_strings",
-        "description": "Tests unicode characters, emoji, escape sequences, and special string values.",
+        "description": (
+            "Tests unicode characters, emoji, escape " "sequences, and special string values."
+        ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -386,7 +393,11 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
         "primary_key": [["id"]],
         "records": [
             {"id": 1, "unicode_text": "Hello World", "special_chars": "line1\nline2\ttab"},
-            {"id": 2, "unicode_text": "Caf\u00e9 na\u00efve r\u00e9sum\u00e9", "special_chars": 'quote"inside'},
+            {
+                "id": 2,
+                "unicode_text": "Caf\u00e9 na\u00efve r\u00e9sum\u00e9",
+                "special_chars": 'quote"inside',
+            },
             {"id": 3, "unicode_text": "\u4f60\u597d\u4e16\u754c", "special_chars": "back\\slash"},
             {"id": 4, "unicode_text": "\u0410\u0411\u0412\u0413", "special_chars": ""},
         ],
@@ -418,10 +429,16 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "id": {"type": "integer"},
-                "a_very_long_column_name_that_exceeds_typical_database_limits_and_should_be_truncated_or_handled_gracefully_by_the_destination": {
+                "a_very_long_column_name_that_exceeds"
+                "_typical_database_limits_and_should_be"
+                "_truncated_or_handled_gracefully_by"
+                "_the_destination": {
                     "type": "string",
                 },
-                "another_extremely_verbose_column_name_designed_to_test_the_absolute_maximum_length_that_any_reasonable_database_would_support": {
+                "another_extremely_verbose_column_name"
+                "_designed_to_test_the_absolute_maximum"
+                "_length_that_any_reasonable_database"
+                "_would_support": {
                     "type": "string",
                 },
             },
@@ -430,8 +447,14 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
         "records": [
             {
                 "id": 1,
-                "a_very_long_column_name_that_exceeds_typical_database_limits_and_should_be_truncated_or_handled_gracefully_by_the_destination": "long_col_1",
-                "another_extremely_verbose_column_name_designed_to_test_the_absolute_maximum_length_that_any_reasonable_database_would_support": "long_col_2",
+                "a_very_long_column_name_that_exceeds"
+                "_typical_database_limits_and_should_be"
+                "_truncated_or_handled_gracefully_by"
+                "_the_destination": "long_col_1",
+                "another_extremely_verbose_column_name"
+                "_designed_to_test_the_absolute_maximum"
+                "_length_that_any_reasonable_database"
+                "_would_support": "long_col_2",
             },
         ],
     },
@@ -440,7 +463,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
 
 def _generate_large_batch_records(scenario: dict[str, Any]) -> list[dict[str, Any]]:
     """Generate records for the large_batch_stream scenario."""
-    count = scenario.get("record_count", 1000)
+    count = scenario.get("record_count", _DEFAULT_LARGE_BATCH_COUNT)
     categories = ["cat_a", "cat_b", "cat_c", "cat_d", "cat_e"]
     return [
         {
@@ -464,18 +487,16 @@ def _build_streams_from_scenarios(
     scenarios: list[dict[str, Any]],
 ) -> list[AirbyteStream]:
     """Build AirbyteStream objects from scenario definitions."""
-    streams: list[AirbyteStream] = []
-    for scenario in scenarios:
-        streams.append(
-            AirbyteStream(
-                name=scenario["name"],
-                json_schema=scenario["json_schema"],
-                supported_sync_modes=[SyncMode.full_refresh],
-                source_defined_cursor=False,
-                source_defined_primary_key=scenario.get("primary_key"),
-            )
+    return [
+        AirbyteStream(
+            name=scenario["name"],
+            json_schema=scenario["json_schema"],
+            supported_sync_modes=[SyncMode.full_refresh],
+            source_defined_cursor=False,
+            source_defined_primary_key=scenario.get("primary_key"),
         )
-    return streams
+        for scenario in scenarios
+    ]
 
 
 class SourceSmokeTest(Source):
@@ -526,7 +547,9 @@ class SourceSmokeTest(Source):
                                 },
                                 "primary_key": {
                                     "type": ["array", "null"],
-                                    "description": "Primary key definition (list of key paths) or null.",
+                                    "description": (
+                                        "Primary key definition " "(list of key paths) or null."
+                                    ),
                                     "items": {
                                         "type": "array",
                                         "items": {"type": "string"},
@@ -563,24 +586,29 @@ class SourceSmokeTest(Source):
         """Combine predefined and custom scenarios, applying config overrides."""
         scenarios: list[dict[str, Any]] = []
 
-        large_batch_count = config.get("large_batch_record_count", 1000)
+        large_batch_count = config.get("large_batch_record_count", _DEFAULT_LARGE_BATCH_COUNT)
 
         for scenario in PREDEFINED_SCENARIOS:
             s = dict(scenario)
-            if s["name"] == "large_batch_stream" and large_batch_count != 1000:
+            if (
+                s["name"] == "large_batch_stream"
+                and large_batch_count != _DEFAULT_LARGE_BATCH_COUNT
+            ):
                 s["record_count"] = large_batch_count
             scenarios.append(s)
 
         custom = config.get("custom_scenarios", [])
         if custom:
-            for custom_scenario in custom:
-                scenarios.append({
-                    "name": custom_scenario["name"],
-                    "description": custom_scenario.get("description", "Custom injected scenario"),
-                    "json_schema": custom_scenario["json_schema"],
-                    "primary_key": custom_scenario.get("primary_key"),
-                    "records": custom_scenario.get("records", []),
-                })
+            scenarios.extend(
+                {
+                    "name": cs["name"],
+                    "description": cs.get("description", "Custom injected scenario"),
+                    "json_schema": cs["json_schema"],
+                    "primary_key": cs.get("primary_key"),
+                    "records": cs.get("records", []),
+                }
+                for cs in custom
+            )
 
         scenario_filter = config.get("scenario_filter", [])
         if scenario_filter:
