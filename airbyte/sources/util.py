@@ -128,6 +128,7 @@ def get_source(  # noqa: PLR0913 # Too many arguments
         install_if_missing=install_if_missing,
         install_root=install_root,
         no_executor=no_executor,
+        config=config,
     )
 
     return Source(

@@ -5,7 +5,7 @@ import hashlib
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import requests
 import yaml
@@ -169,6 +169,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     install_root: Path | None = None,
     use_python: bool | Path | str | None = None,
     no_executor: bool = False,
+    config: dict[str, Any] | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
@@ -334,6 +335,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             return DeclarativeExecutor(
                 name=name,
                 manifest=source_manifest,
+                config=config,
                 components_py=components_py_path,
             )
 
@@ -349,6 +351,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
             return DeclarativeExecutor(
                 name=name,
                 manifest=manifest_dict,
+                config=config,
                 components_py=components_py,
                 components_py_checksum=components_py_checksum,
             )
