@@ -92,7 +92,7 @@ jobs:
         wait-timeout-seconds: 1800
     - name: Verify dispatched workflow succeeded
       run: |
-        CONCLUSION=$(gh run view ${{ steps.dispatch.outputs.runId }} --repo airbytehq/PyAirbyte --json conclusion -q .conclusion)
+        CONCLUSION=$(gh run view ${{ steps.dispatch.outputs.runId }} --repo ${{ github.repository }} --json conclusion -q .conclusion)
         echo "Dispatched workflow conclusion: $CONCLUSION"
         if [ "$CONCLUSION" != "success" ]; then
           echo "::error::Dispatched workflow concluded with: $CONCLUSION"
