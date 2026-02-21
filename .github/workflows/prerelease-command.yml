@@ -90,6 +90,16 @@ jobs:
         inputs: '{"git_ref": "refs/pull/${{ github.event.inputs.pr }}/head", "version_override": "${{ needs.resolve-pr.outputs.prerelease-version }}", "publish": "true"}'
         wait-for-completion: true
         wait-timeout-seconds: 1800
+    - name: Verify dispatched workflow succeeded
+      run: |
+        CONCLUSION=$(gh run view ${{ steps.dispatch.outputs.runId }} --repo airbytehq/PyAirbyte --json conclusion -q .conclusion)
+        echo "Dispatched workflow conclusion: $CONCLUSION"
+        if [ "$CONCLUSION" != "success" ]; then
+          echo "::error::Dispatched workflow concluded with: $CONCLUSION"
+          exit 1
+        fi
+      env:
+        GH_TOKEN: ${{ steps.get-app-token.outputs.token }}
     outputs:
       workflow-url: ${{ steps.dispatch.outputs.runUrlHtml }}
 
