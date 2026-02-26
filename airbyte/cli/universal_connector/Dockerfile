@@ -7,5 +7,5 @@ COPY airbyte ./airbyte
 
 RUN pip install --no-cache-dir .
 
-ENV AIRBYTE_ENTRYPOINT="destination-pyairbyte"
-ENTRYPOINT ["destination-pyairbyte"]
+ENV AIRBYTE_ENTRYPOINT="destination-smoke-test"
+ENTRYPOINT ["destination-smoke-test"]
