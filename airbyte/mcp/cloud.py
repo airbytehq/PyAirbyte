@@ -4,6 +4,7 @@
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
+from airbyte_api.models import JobTypeEnum
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -737,6 +738,17 @@ def list_cloud_sync_jobs(
             default=None,
         ),
     ],
+    job_type: Annotated[
+        JobTypeEnum | None,
+        Field(
+            description=(
+                "Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'. "
+                "If not specified, defaults to sync and reset jobs only (API default). "
+                "Use 'refresh' to find refresh jobs or 'clear' to find clear jobs."
+            ),
+            default=None,
+        ),
+    ],
 ) -> SyncJobListResult:
     """List sync jobs for a connection with pagination support.
 
@@ -767,6 +779,7 @@ def list_cloud_sync_jobs(
         limit=effective_limit,
         offset=jobs_offset,
         from_tail=from_tail,
+        job_type=job_type,
     )
 
     jobs = [
@@ -2533,12 +2546,12 @@ def get_connection_artifact(
             default=None,
         ),
     ],
-) -> dict[str, Any] | list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Get a connection artifact (state or catalog) from Airbyte Cloud.
 
     Retrieves the specified artifact for a connection:
-    - 'state': Returns the persisted state for incremental syncs as a list of
-      stream state objects, or {"ERROR": "..."} if no state is set.
+    - 'state': Returns the full raw connection state including stateType and all
+      state data, or {"ERROR": "..."} if no state is set.
     - 'catalog': Returns the configured catalog (syncCatalog) as a dict,
       or {"ERROR": "..."} if not found.
     """
@@ -2546,13 +2559,13 @@ def get_connection_artifact(
     connection = workspace.get_connection(connection_id=connection_id)
 
     if artifact_type == "state":
-        result = connection.get_state_artifacts()
-        if result is None:
+        result = connection.dump_raw_state()
+        if result.get("stateType") == "not_set":
             return {"ERROR": "No state is set for this connection (stateType: not_set)"}
         return result
 
     # artifact_type == "catalog"
-    result = connection.get_catalog_artifact()
+    result = connection.dump_raw_catalog()
     if result is None:
         return {"ERROR": "No catalog found for this connection"}
     return result
