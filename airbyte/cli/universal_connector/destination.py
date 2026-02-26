@@ -182,6 +182,7 @@ class DestinationPyAirbyteUniversal(Destination):
         config: Mapping[str, Any],
     ) -> AirbyteConnectionStatus:
         """Test the connection to the destination."""
+        cache = None
         try:
             cache = self._get_cache(config)
             engine = cache.get_sql_engine()
@@ -192,6 +193,9 @@ class DestinationPyAirbyteUniversal(Destination):
             return AirbyteConnectionStatus(
                 status=Status.FAILED, message=f"Connection failed: {e!r}"
             )
+        finally:
+            if cache is not None:
+                cache.close()
 
     def write(
         self,
@@ -205,85 +209,92 @@ class DestinationPyAirbyteUniversal(Destination):
         and flushing on state messages to ensure fault tolerance.
         """
         cache = self._get_cache(config)
-        streams = {s.stream.name for s in configured_catalog.streams}
-        schema_name = cache.schema_name
+        try:
+            streams = {s.stream.name for s in configured_catalog.streams}
+            schema_name = cache.schema_name
 
-        logger.info(f"Starting write to PyAirbyte Universal with {len(streams)} streams")
+            logger.info(f"Starting write to PyAirbyte Universal with {len(streams)} streams")
 
-        # Get SQL engine and ensure schema exists
-        engine = cache.get_sql_engine()
-        with engine.connect() as conn:
-            conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
-            conn.commit()  # pyrefly: ignore[missing-attribute]
-
-        # Create tables for each stream
-        for configured_stream in configured_catalog.streams:
-            name = configured_stream.stream.name
-            table_name = f"_airbyte_raw_{name}"
-
+            # Get SQL engine and ensure schema exists
+            engine = cache.get_sql_engine()
             with engine.connect() as conn:
-                if configured_stream.destination_sync_mode == DestinationSyncMode.overwrite:
-                    logger.info(f"Dropping table for overwrite: {table_name}")
-                    conn.execute(text(f"DROP TABLE IF EXISTS {schema_name}.{table_name}"))
-                    conn.commit()  # pyrefly: ignore[missing-attribute]
-
-                # Create the raw table if needed
-                create_sql = f"""
-                CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
-                    _airbyte_ab_id VARCHAR(36) PRIMARY KEY,
-                    _airbyte_emitted_at TIMESTAMP,
-                    _airbyte_data JSON
-                )
-                """
-                conn.execute(text(create_sql))
+                conn.execute(text(f"CREATE SCHEMA IF NOT EXISTS {schema_name}"))
                 conn.commit()  # pyrefly: ignore[missing-attribute]
 
-        # Buffer for records
-        buffer: dict[str, dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
+            # Create tables for each stream
+            for configured_stream in configured_catalog.streams:
+                name = configured_stream.stream.name
+                table_name = f"_airbyte_raw_{name}"
 
-        for message in input_messages:
-            if message.type == Type.STATE:
-                # Flush the buffer before yielding state
-                for stream_name in list(buffer.keys()):
-                    self._flush_buffer(
-                        engine=engine,
-                        buffer=buffer,
-                        schema_name=schema_name,
-                        stream_name=stream_name,
+                with engine.connect() as conn:
+                    if configured_stream.destination_sync_mode == DestinationSyncMode.overwrite:
+                        logger.info(f"Dropping table for overwrite: {table_name}")
+                        conn.execute(text(f"DROP TABLE IF EXISTS {schema_name}.{table_name}"))
+                        conn.commit()  # pyrefly: ignore[missing-attribute]
+
+                    # Create the raw table if needed
+                    create_sql = f"""
+                    CREATE TABLE IF NOT EXISTS {schema_name}.{table_name} (
+                        _airbyte_ab_id VARCHAR(36) PRIMARY KEY,
+                        _airbyte_emitted_at TIMESTAMP,
+                        _airbyte_data JSON
                     )
-                buffer = defaultdict(lambda: defaultdict(list))
-                yield message
+                    """
+                    conn.execute(text(create_sql))
+                    conn.commit()  # pyrefly: ignore[missing-attribute]
 
-            elif message.type == Type.RECORD:
-                record = message.record
-                if record is None:
-                    continue
-                stream_name = record.stream
-                if stream_name not in streams:
-                    logger.debug(f"Stream {stream_name} not in configured streams, skipping")
-                    continue
+            # Buffer for records
+            buffer: dict[str, dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
 
-                # Add to buffer
-                buffer[stream_name]["_airbyte_ab_id"].append(str(uuid.uuid4()))
-                buffer[stream_name]["_airbyte_emitted_at"].append(
-                    datetime.datetime.now(datetime.timezone.utc).isoformat()
+            for message in input_messages:
+                if message.type == Type.STATE:
+                    # Flush the buffer before yielding state
+                    for stream_name in list(buffer.keys()):
+                        self._flush_buffer(
+                            engine=engine,
+                            buffer=buffer,
+                            schema_name=schema_name,
+                            stream_name=stream_name,
+                        )
+                    buffer = defaultdict(lambda: defaultdict(list))
+                    yield message
+
+                elif message.type == Type.RECORD:
+                    record = message.record
+                    if record is None:
+                        continue
+                    stream_name = record.stream
+                    if stream_name not in streams:
+                        logger.debug(f"Stream {stream_name} not in configured streams, skipping")
+                        continue
+
+                    # Add to buffer
+                    buffer[stream_name]["_airbyte_ab_id"].append(str(uuid.uuid4()))
+                    # Use the record's original emitted_at timestamp if available,
+                    # otherwise fall back to current time
+                    emitted_at = (
+                        datetime.datetime.fromtimestamp(
+                            record.emitted_at / 1000, tz=datetime.timezone.utc
+                        )
+                        if record.emitted_at is not None
+                        else datetime.datetime.now(datetime.timezone.utc)
+                    )
+                    buffer[stream_name]["_airbyte_emitted_at"].append(emitted_at.isoformat())
+                    buffer[stream_name]["_airbyte_data"].append(json.dumps(record.data))
+
+                else:
+                    logger.debug(f"Message type {message.type} not handled, skipping")
+
+            # Flush any remaining records
+            for stream_name in list(buffer.keys()):
+                self._flush_buffer(
+                    engine=engine,
+                    buffer=buffer,
+                    schema_name=schema_name,
+                    stream_name=stream_name,
                 )
-                buffer[stream_name]["_airbyte_data"].append(json.dumps(record.data))
-
-            else:
-                logger.debug(f"Message type {message.type} not handled, skipping")
-
-        # Flush any remaining records
-        for stream_name in list(buffer.keys()):
-            self._flush_buffer(
-                engine=engine,
-                buffer=buffer,
-                schema_name=schema_name,
-                stream_name=stream_name,
-            )
-
-        # Close the cache
-        cache.close()
+        finally:
+            cache.close()
 
     def _flush_buffer(
         self,
