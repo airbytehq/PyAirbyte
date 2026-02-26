@@ -7,6 +7,10 @@ schema variations, and batch size variations.
 
 Predefined scenarios are always available. Additional scenarios can be
 injected dynamically via the ``custom_scenarios`` config field.
+
+.. warning::
+    This module is experimental and subject to change without notice.
+    The APIs and behavior may be modified or removed in future versions.
 """
 
 from __future__ import annotations
