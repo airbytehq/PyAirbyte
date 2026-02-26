@@ -270,9 +270,16 @@ class DestinationPyAirbyteUniversal(Destination):
 
                     # Add to buffer
                     buffer[stream_name]["_airbyte_ab_id"].append(str(uuid.uuid4()))
-                    buffer[stream_name]["_airbyte_emitted_at"].append(
-                        datetime.datetime.now(datetime.timezone.utc).isoformat()
+                    # Use the record's original emitted_at timestamp if available,
+                    # otherwise fall back to current time
+                    emitted_at = (
+                        datetime.datetime.fromtimestamp(
+                            record.emitted_at / 1000, tz=datetime.timezone.utc
+                        )
+                        if record.emitted_at is not None
+                        else datetime.datetime.now(datetime.timezone.utc)
                     )
+                    buffer[stream_name]["_airbyte_emitted_at"].append(emitted_at.isoformat())
                     buffer[stream_name]["_airbyte_data"].append(json.dumps(record.data))
 
                 else:
