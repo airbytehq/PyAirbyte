@@ -192,4 +192,5 @@ class SourcePyAirbyteUniversal(Source):
                         namespace=message.record.namespace,
                     ),
                 )
-            # TODO(https://github.com/airbytehq/PyAirbyte/issues/987): Add STATE message handling for incremental sync support.
+            # TODO: Add STATE message handling for incremental sync support.
+            # https://github.com/airbytehq/PyAirbyte/issues/987
