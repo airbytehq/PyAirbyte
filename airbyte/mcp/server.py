@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 
+from fastmcp import FastMCP
 from fastmcp_extensions import mcp_server
 
 from airbyte._util.meta import set_mcp_mode
@@ -92,6 +94,47 @@ register_cloud_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_prompts(app)
+
+
+def _mount_kapa_proxy(app: FastMCP) -> None:
+    """Mount the Kapa knowledge MCP proxy if credentials are configured.
+
+    When KAPA_API_KEY is set, this creates a proxy to Kapa's hosted MCP server
+    and mounts it into the main server, giving agents inline access to Airbyte
+    documentation search alongside native PyAirbyte tools.
+
+    If KAPA_API_KEY is not set, this is a no-op.
+    """
+    kapa_api_key = os.environ.get("KAPA_API_KEY")
+    if not kapa_api_key:
+        print(
+            "Kapa knowledge proxy not mounted (KAPA_API_KEY not set).",
+            file=sys.stderr,
+        )
+        return
+
+    kapa_url = os.environ.get("KAPA_MCP_SERVER_URL", "https://airbyte.mcp.kapa.ai")
+    kapa_proxy = FastMCP.as_proxy(
+        {
+            "mcpServers": {
+                "kapa": {
+                    "url": kapa_url,
+                    "transport": "http",
+                    "headers": {
+                        "Authorization": f"Bearer {kapa_api_key}",
+                    },
+                }
+            }
+        }
+    )
+    app.mount(kapa_proxy, prefix="kapa")
+    print(
+        f"Kapa knowledge proxy mounted from {kapa_url}.",
+        file=sys.stderr,
+    )
+
+
+_mount_kapa_proxy(app)
 
 
 def main() -> None:
