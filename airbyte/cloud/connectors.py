@@ -489,6 +489,95 @@ class CustomCloudSourceDefinition:
 
         return f"{self.workspace.workspace_url}/connector-builder/edit/{project_id}"
 
+    def get_builder_project_data(self) -> dict[str, Any]:
+        """Fetch the full connector builder project data, including draft manifest if present.
+
+        This calls the `/v1/connector_builder_projects/get` endpoint which returns
+        the project metadata and draft manifest (if one exists).
+
+        Returns:
+            A dictionary containing the builder project details. Key fields include:
+            - builderProject: The project metadata (name, hasDraft,
+              activeDeclarativeManifestVersion, etc.)
+            - declarativeManifest: The draft manifest data (if hasDraft is True),
+              which contains a 'manifest' field with the actual YAML manifest dict.
+
+        Raises:
+            NotImplementedError: If this is not a YAML custom source definition.
+            PyAirbyteInputError: If the connector builder project ID cannot be found.
+        """
+        if self.definition_type != "yaml":
+            raise NotImplementedError(
+                "Builder project data is only available for YAML custom source definitions. "
+                "Docker custom sources are not yet supported."
+            )
+
+        builder_project_id = self.connector_builder_project_id
+        if not builder_project_id:
+            raise exc.PyAirbyteInputError(
+                message="Could not find connector builder project ID for this definition.",
+                context={
+                    "definition_id": self.definition_id,
+                    "workspace_id": self.workspace.workspace_id,
+                },
+            )
+
+        return api_util.get_connector_builder_project(
+            workspace_id=self.workspace.workspace_id,
+            builder_project_id=builder_project_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+
+    @property
+    def has_draft(self) -> bool | None:
+        """Check whether this definition has an unpublished draft in Connector Builder.
+
+        Returns:
+            True if a draft exists, False if no draft exists,
+            or None if this is not a YAML connector or the project ID is unavailable.
+        """
+        if self.definition_type != "yaml":
+            return None
+
+        if not self.connector_builder_project_id:
+            return None
+
+        project_data = self.get_builder_project_data()
+        builder_project = project_data.get("builderProject", {})
+        return builder_project.get("hasDraft", False)
+
+    @property
+    def draft_manifest(self) -> dict[str, Any] | None:
+        """Get the draft (unpublished) manifest from the Connector Builder, if one exists.
+
+        This reads the working draft that has been saved in the Connector Builder UI
+        but not yet published. Returns None if no draft exists or if this is not a
+        YAML connector.
+
+        Returns:
+            The draft manifest as a dictionary, or None if no draft exists.
+        """
+        if self.definition_type != "yaml":
+            return None
+
+        if not self.connector_builder_project_id:
+            return None
+
+        project_data = self.get_builder_project_data()
+        builder_project = project_data.get("builderProject", {})
+        if not builder_project.get("hasDraft", False):
+            return None
+
+        declarative_manifest = project_data.get("declarativeManifest", {})
+        manifest = declarative_manifest.get("manifest")
+        if isinstance(manifest, dict):
+            return manifest
+
+        return None
+
     @property
     def definition_url(self) -> str:
         """Get the web URL of the custom source definition.

@@ -1858,6 +1858,47 @@ def get_connector_builder_project_for_definition_id(
     return json_result.get("builderProjectId")
 
 
+def get_connector_builder_project(
+    *,
+    workspace_id: str,
+    builder_project_id: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get a connector builder project, including the draft manifest if one exists.
+
+    Uses the Config API endpoint:
+    /v1/connector_builder_projects/get
+
+    Args:
+        workspace_id: The workspace ID
+        builder_project_id: The connector builder project ID
+        api_root: The API root URL
+        client_id: OAuth client ID
+        client_secret: OAuth client secret
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        A dictionary containing the builder project details. Key fields include:
+        - builderProject: The project metadata (name, hasDraft, etc.)
+        - declarativeManifest: The draft manifest data (if hasDraft is True),
+          which contains a 'manifest' field with the actual YAML manifest dict.
+    """
+    return _make_config_api_request(
+        path="/connector_builder_projects/get",
+        json={
+            "workspaceId": workspace_id,
+            "builderProjectId": builder_project_id,
+        },
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def update_connector_builder_project_testing_values(
     *,
     workspace_id: str,
