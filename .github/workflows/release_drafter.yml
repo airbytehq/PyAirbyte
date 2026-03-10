@@ -79,5 +79,6 @@ jobs:
                 - 'test'
                 - 'perf'
                 - 'docs'
+                - 'prompts'
               collapse-after: 3
               display-order: 999
