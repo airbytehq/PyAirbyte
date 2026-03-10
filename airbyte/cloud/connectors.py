@@ -372,6 +372,7 @@ class CustomCloudSourceDefinition:
         self.definition_type: Literal["yaml", "docker"] = definition_type
         self._definition_info: api_models.DeclarativeSourceDefinitionResponse | None = None
         self._connector_builder_project_id: str | None = None
+        self._builder_project_data: dict[str, Any] | None = None
 
     def _fetch_definition_info(
         self,
@@ -489,11 +490,19 @@ class CustomCloudSourceDefinition:
 
         return f"{self.workspace.workspace_url}/connector-builder/edit/{project_id}"
 
-    def get_builder_project_data(self) -> dict[str, Any]:
+    def get_builder_project_data(
+        self,
+        *,
+        use_cache: bool = True,
+    ) -> dict[str, Any]:
         """Fetch the full connector builder project data, including draft manifest if present.
 
         This calls the `/v1/connector_builder_projects/get` endpoint which returns
         the project metadata and draft manifest (if one exists).
+
+        Args:
+            use_cache: If True, return cached data from a previous call if available.
+                Set to False to force a fresh API request. Defaults to True.
 
         Returns:
             A dictionary containing the builder project details. Key fields include:
@@ -512,6 +521,9 @@ class CustomCloudSourceDefinition:
                 "Docker custom sources are not yet supported."
             )
 
+        if use_cache and self._builder_project_data is not None:
+            return self._builder_project_data
+
         builder_project_id = self.connector_builder_project_id
         if not builder_project_id:
             raise exc.PyAirbyteInputError(
@@ -522,7 +534,7 @@ class CustomCloudSourceDefinition:
                 },
             )
 
-        return api_util.get_connector_builder_project(
+        self._builder_project_data = api_util.get_connector_builder_project(
             workspace_id=self.workspace.workspace_id,
             builder_project_id=builder_project_id,
             api_root=self.workspace.api_root,
@@ -530,6 +542,7 @@ class CustomCloudSourceDefinition:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
+        return self._builder_project_data
 
     @property
     def has_draft(self) -> bool | None:
