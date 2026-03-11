@@ -500,7 +500,7 @@ class CustomCloudSourceDefinition:
     ) -> dict[str, Any]:
         """Fetch the full connector builder project data, including draft manifest if present.
 
-        This calls the `/v1/connector_builder_projects/get` endpoint which returns
+        This calls the `/v1/connector_builder_projects/get_with_manifest` endpoint which returns
         the project metadata and draft manifest (if one exists).
 
         Args:
