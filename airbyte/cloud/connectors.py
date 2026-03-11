@@ -372,6 +372,7 @@ class CustomCloudSourceDefinition:
         self.definition_type: Literal["yaml", "docker"] = definition_type
         self._definition_info: api_models.DeclarativeSourceDefinitionResponse | None = None
         self._connector_builder_project_id: str | None = None
+        self._builder_project_workspace_id: str | None = None
         self._builder_project_data: dict[str, Any] | None = None
 
     def _fetch_definition_info(
@@ -465,16 +466,18 @@ class CustomCloudSourceDefinition:
         if self._connector_builder_project_id is not None:
             return self._connector_builder_project_id
 
-        self._connector_builder_project_id = (
-            api_util.get_connector_builder_project_for_definition_id(
-                workspace_id=self.workspace.workspace_id,
-                definition_id=self.definition_id,
-                api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
-                bearer_token=self.workspace.bearer_token,
-            )
+        result = api_util.get_connector_builder_project_for_definition_id(
+            workspace_id=self.workspace.workspace_id,
+            definition_id=self.definition_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
         )
+        self._connector_builder_project_id = result.get("builderProjectId")
+        # The builder project may live in a different workspace than the caller's.
+        # We must use the project's owning workspace ID when fetching its data.
+        self._builder_project_workspace_id = result.get("workspaceId")
 
         return self._connector_builder_project_id
 
@@ -535,7 +538,7 @@ class CustomCloudSourceDefinition:
             )
 
         self._builder_project_data = api_util.get_connector_builder_project(
-            workspace_id=self.workspace.workspace_id,
+            workspace_id=self._builder_project_workspace_id or self.workspace.workspace_id,
             builder_project_id=builder_project_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,

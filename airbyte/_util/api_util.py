@@ -1825,8 +1825,8 @@ def get_connector_builder_project_for_definition_id(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-) -> str | None:
-    """Get the connector builder project ID for a declarative source definition.
+) -> dict[str, Any]:
+    """Get the connector builder project info for a declarative source definition.
 
     Uses the Config API endpoint:
     /v1/connector_builder_projects/get_for_definition_id
@@ -1842,9 +1842,10 @@ def get_connector_builder_project_for_definition_id(
         bearer_token: Bearer token for authentication (alternative to client credentials).
 
     Returns:
-        The builder project ID if found, None otherwise (can be null in API response)
+        A dict containing 'builderProjectId' and 'workspaceId' (the workspace that
+        owns the builder project, which may differ from the caller's workspace).
     """
-    json_result = _make_config_api_request(
+    return _make_config_api_request(
         path="/connector_builder_projects/get_for_definition_id",
         json={
             "actorDefinitionId": definition_id,
@@ -1855,7 +1856,6 @@ def get_connector_builder_project_for_definition_id(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    return json_result.get("builderProjectId")
 
 
 def get_connector_builder_project(
