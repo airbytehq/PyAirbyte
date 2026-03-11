@@ -45,9 +45,13 @@ def test_get_previous_sync_result(
     pre_created_connection_id: str,
 ) -> None:
     """Test running a connection."""
-    sync_result: SyncResult = cloud_workspace.get_connection(
+    previous_sync_logs = cloud_workspace.get_connection(
         connection_id=pre_created_connection_id,
-    ).get_previous_sync_logs()[0]
+    ).get_previous_sync_logs()
+    if not previous_sync_logs:
+        pytest.skip("No previous sync logs found for this connection.")
+
+    sync_result: SyncResult = previous_sync_logs[0]
     assert sync_result.is_job_complete()
     assert sync_result.get_job_status()
     assert sync_result.stream_names

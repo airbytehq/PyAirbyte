@@ -1721,11 +1721,23 @@ def get_custom_source_definition(
             default=None,
         ),
     ],
+    include_draft: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether to include the Connector Builder draft manifest in the response. "
+                "If True and a draft exists, the response will include 'has_draft' and "
+                "'draft_manifest' fields. Defaults to False."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> dict[str, Any]:
     """Get a custom YAML source definition from Airbyte Cloud, including its manifest.
 
-    Returns the full definition details including the manifest YAML content,
-    which can be used to inspect or store the connector configuration locally.
+    Returns the full definition details including the published manifest YAML content.
+    Optionally includes the Connector Builder draft manifest (unpublished changes)
+    when include_draft=True.
 
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
@@ -1736,13 +1748,65 @@ def get_custom_source_definition(
         definition_type="yaml",
     )
 
-    return {
+    result: dict[str, Any] = {
         "definition_id": definition.definition_id,
         "name": definition.name,
         "version": definition.version,
         "connector_builder_project_id": definition.connector_builder_project_id,
         "connector_builder_project_url": definition.connector_builder_project_url,
         "manifest": definition.manifest,
+    }
+
+    if include_draft:
+        result["has_draft"] = definition.has_draft
+        result["draft_manifest"] = definition.draft_manifest
+
+    return result
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+)
+def get_connector_builder_draft_manifest(
+    ctx: Context,
+    definition_id: Annotated[
+        str,
+        Field(description="The ID of the custom source definition to retrieve the draft for."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> dict[str, Any]:
+    """Get the Connector Builder draft manifest for a custom source definition.
+
+    Returns the working draft manifest that has been saved in the Connector Builder UI
+    but not yet published. This is useful for inspecting what a user is currently working
+    on before they publish their changes.
+
+    If no draft exists, 'has_draft' will be False and 'draft_manifest' will be None.
+    The published manifest is always included for comparison.
+    """
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    definition = workspace.get_custom_source_definition(
+        definition_id=definition_id,
+        definition_type="yaml",
+    )
+
+    return {
+        "definition_id": definition.definition_id,
+        "name": definition.name,
+        "connector_builder_project_id": definition.connector_builder_project_id,
+        "connector_builder_project_url": definition.connector_builder_project_url,
+        "has_draft": definition.has_draft,
+        "draft_manifest": definition.draft_manifest,
+        "published_manifest": definition.manifest,
     }
 
 
@@ -2571,14 +2635,54 @@ def get_connection_artifact(
     return result
 
 
+def _add_defaults_for_exclude_args(
+    exclude_args: list[str],
+) -> None:
+    """Patch registered tool functions to add Python-level defaults for excluded args.
+
+    FastMCP requires that excluded args have Python-level default values, but MCP tool
+    functions should only use Field(default=...) in their Annotated type hints (not
+    Python-level `= None`). This function bridges the gap by dynamically adding Python
+    defaults to the function signatures at registration time, so the source code stays
+    clean while satisfying FastMCP's requirement.
+
+    Args:
+        exclude_args: List of argument names that will be excluded from the tool schema.
+    """
+    import inspect  # noqa: PLC0415  # Local import for optional patching logic
+
+    from fastmcp_extensions.decorators import (  # noqa: PLC0415
+        _REGISTERED_TOOLS,  # noqa: PLC2701
+    )
+
+    for func, _annotations in _REGISTERED_TOOLS:
+        sig = inspect.signature(func)
+        needs_patch = any(
+            arg_name in sig.parameters
+            and sig.parameters[arg_name].default is inspect.Parameter.empty
+            for arg_name in exclude_args
+        )
+        if needs_patch:
+            new_params = [
+                p.replace(default=None)
+                if name in exclude_args and p.default is inspect.Parameter.empty
+                else p
+                for name, p in sig.parameters.items()
+            ]
+            func.__signature__ = sig.replace(parameters=new_params)  # type: ignore[attr-defined]
+
+
 def register_cloud_tools(app: FastMCP) -> None:
     """Register cloud tools with the FastMCP app.
 
     Args:
         app: FastMCP application instance
     """
+    exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None
+    if exclude_args:
+        _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(
         app,
         mcp_module=__name__,
-        exclude_args=["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None,
+        exclude_args=exclude_args,
     )
