@@ -372,6 +372,7 @@ class CustomCloudSourceDefinition:
         self.definition_type: Literal["yaml", "docker"] = definition_type
         self._definition_info: api_models.DeclarativeSourceDefinitionResponse | None = None
         self._connector_builder_project_id: str | None = None
+        self._connector_builder_project_id_fetched: bool = False
         self._builder_project_workspace_id: str | None = None
         self._builder_project_data: dict[str, Any] | None = None
 
@@ -463,7 +464,7 @@ class CustomCloudSourceDefinition:
         if self.definition_type != "yaml":
             return None
 
-        if self._connector_builder_project_id is not None:
+        if self._connector_builder_project_id_fetched:
             return self._connector_builder_project_id
 
         result = api_util.get_connector_builder_project_for_definition_id(
@@ -475,6 +476,7 @@ class CustomCloudSourceDefinition:
             bearer_token=self.workspace.bearer_token,
         )
         self._connector_builder_project_id = result.get("builderProjectId")
+        self._connector_builder_project_id_fetched = True
         # The builder project may live in a different workspace than the caller's.
         # We must use the project's owning workspace ID when fetching its data.
         self._builder_project_workspace_id = result.get("workspaceId")
