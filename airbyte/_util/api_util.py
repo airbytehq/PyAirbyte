@@ -1870,7 +1870,9 @@ def get_connector_builder_project(
     """Get a connector builder project, including the draft manifest if one exists.
 
     Uses the Config API endpoint:
-    /v1/connector_builder_projects/get
+    /v1/connector_builder_projects/get_with_manifest
+
+    See: https://github.com/airbytehq/airbyte-platform-internal/blob/master/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1253
 
     Args:
         workspace_id: The workspace ID
@@ -1887,7 +1889,7 @@ def get_connector_builder_project(
           which contains a 'manifest' field with the actual YAML manifest dict.
     """
     return _make_config_api_request(
-        path="/connector_builder_projects/get",
+        path="/connector_builder_projects/get_with_manifest",
         json={
             "workspaceId": workspace_id,
             "builderProjectId": builder_project_id,

@@ -291,7 +291,7 @@ def deploy_source_to_cloud(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     config: Annotated[
         dict | str | None,
         Field(
@@ -361,7 +361,7 @@ def deploy_destination_to_cloud(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     config: Annotated[
         dict | str | None,
         Field(
@@ -445,7 +445,7 @@ def create_connection_on_cloud(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     table_prefix: Annotated[
         str | None,
         Field(
@@ -490,7 +490,7 @@ def run_cloud_sync(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     wait: Annotated[
         bool,
         Field(
@@ -540,7 +540,7 @@ def check_airbyte_cloud_workspace(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> CloudWorkspaceResult:
     """Check if we have a valid Airbyte Cloud connection and return workspace info.
 
@@ -592,7 +592,7 @@ def deploy_noop_destination_to_cloud(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     unique: bool = True,
 ) -> str:
     """Deploy the No-op destination to Airbyte Cloud for testing purposes."""
@@ -639,7 +639,7 @@ def get_cloud_sync_status(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     include_attempts: Annotated[
         bool,
         Field(
@@ -704,7 +704,7 @@ def list_cloud_sync_jobs(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     max_jobs: Annotated[
         int,
         Field(
@@ -817,7 +817,7 @@ def list_deployed_cloud_source_connectors(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     name_contains: Annotated[
         str | None,
         Field(
@@ -872,7 +872,7 @@ def list_deployed_cloud_destination_connectors(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     name_contains: Annotated[
         str | None,
         Field(
@@ -931,7 +931,7 @@ def describe_cloud_source(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> CloudSourceDetails:
     """Get detailed information about a specific deployed source connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -967,7 +967,7 @@ def describe_cloud_destination(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> CloudDestinationDetails:
     """Get detailed information about a specific deployed destination connector."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -1003,7 +1003,7 @@ def describe_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> CloudConnectionDetails:
     """Get detailed information about a specific deployed connection."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -1051,7 +1051,7 @@ def get_cloud_sync_logs(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     max_lines: Annotated[
         int,
         Field(
@@ -1185,7 +1185,7 @@ def list_deployed_cloud_connections(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     name_contains: Annotated[
         str | None,
         Field(
@@ -1575,7 +1575,7 @@ def publish_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     manifest_yaml: Annotated[
         str | Path | None,
         Field(
@@ -1679,7 +1679,7 @@ def list_custom_source_definitions(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> list[dict[str, Any]]:
     """List custom YAML source definitions in the Airbyte Cloud workspace.
 
@@ -1720,7 +1720,7 @@ def get_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     include_draft: Annotated[
         bool,
         Field(
@@ -1782,7 +1782,7 @@ def get_connector_builder_draft_manifest(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> dict[str, Any]:
     """Get the Connector Builder draft manifest for a custom source definition.
 
@@ -1837,7 +1837,7 @@ def update_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
     pre_validate: Annotated[
         bool,
         Field(
@@ -1953,7 +1953,7 @@ def permanently_delete_custom_source_definition(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Permanently delete a custom YAML source definition from Airbyte Cloud.
 
@@ -2209,7 +2209,7 @@ def rename_cloud_source(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Rename a deployed source connector on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -2249,7 +2249,7 @@ def update_cloud_source_config(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Update a deployed source connector's configuration on Airbyte Cloud.
 
@@ -2291,7 +2291,7 @@ def rename_cloud_destination(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Rename a deployed destination connector on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -2334,7 +2334,7 @@ def update_cloud_destination_config(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Update a deployed destination connector's configuration on Airbyte Cloud.
 
@@ -2378,7 +2378,7 @@ def rename_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Rename a connection on Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -2412,7 +2412,7 @@ def set_cloud_connection_table_prefix(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Set the table prefix for a connection on Airbyte Cloud.
 
@@ -2456,7 +2456,7 @@ def set_cloud_connection_selected_streams(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Set the selected streams for a connection on Airbyte Cloud.
 
@@ -2531,7 +2531,7 @@ def update_cloud_connection(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> str:
     """Update a connection's settings on Airbyte Cloud.
 
@@ -2609,7 +2609,7 @@ def get_connection_artifact(
             description=WORKSPACE_ID_TIP_TEXT,
             default=None,
         ),
-    ] = None,
+    ],
 ) -> dict[str, Any]:
     """Get a connection artifact (state or catalog) from Airbyte Cloud.
 
@@ -2635,14 +2635,54 @@ def get_connection_artifact(
     return result
 
 
+def _add_defaults_for_exclude_args(
+    exclude_args: list[str],
+) -> None:
+    """Patch registered tool functions to add Python-level defaults for excluded args.
+
+    FastMCP requires that excluded args have Python-level default values, but MCP tool
+    functions should only use Field(default=...) in their Annotated type hints (not
+    Python-level `= None`). This function bridges the gap by dynamically adding Python
+    defaults to the function signatures at registration time, so the source code stays
+    clean while satisfying FastMCP's requirement.
+
+    Args:
+        exclude_args: List of argument names that will be excluded from the tool schema.
+    """
+    import inspect  # noqa: PLC0415  # Local import for optional patching logic
+
+    from fastmcp_extensions.decorators import (  # noqa: PLC0415
+        _REGISTERED_TOOLS,  # noqa: PLC2701
+    )
+
+    for func, _annotations in _REGISTERED_TOOLS:
+        sig = inspect.signature(func)
+        needs_patch = any(
+            arg_name in sig.parameters
+            and sig.parameters[arg_name].default is inspect.Parameter.empty
+            for arg_name in exclude_args
+        )
+        if needs_patch:
+            new_params = [
+                p.replace(default=None)
+                if name in exclude_args and p.default is inspect.Parameter.empty
+                else p
+                for name, p in sig.parameters.items()
+            ]
+            func.__signature__ = sig.replace(parameters=new_params)  # type: ignore[attr-defined]
+
+
 def register_cloud_tools(app: FastMCP) -> None:
     """Register cloud tools with the FastMCP app.
 
     Args:
         app: FastMCP application instance
     """
+    exclude_args = ["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None
+    if exclude_args:
+        _add_defaults_for_exclude_args(exclude_args)
     register_mcp_tools(
         app,
         mcp_module=__name__,
-        exclude_args=["workspace_id"] if AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET else None,
+        exclude_args=exclude_args,
     )
