@@ -693,6 +693,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         stream_name: str,
         *,
         sync_mode: str,
+        stream_namespace: str | None = None,
         destination_sync_mode: str | None = None,
         cursor_field: str | None = None,
     ) -> None:
@@ -705,6 +706,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Args:
             stream_name: The name of the stream to modify.
             sync_mode: The source sync mode to set (``"incremental"`` or ``"full_refresh"``).
+            stream_namespace: The namespace of the stream to modify. If not provided and
+                multiple streams share the same name, a ``PyAirbyteInputError`` is raised.
             destination_sync_mode: The destination sync mode to set
                 (``"append"``, ``"overwrite"``, or ``"append_dedup"``). If not provided,
                 the existing destination sync mode is preserved.
@@ -713,8 +716,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 cursor. If not provided, the existing cursor field is preserved.
 
         Raises:
-            PyAirbyteInputError: If the stream is not found in the catalog, or if the
-                requested sync mode is not in the stream's ``supportedSyncModes``.
+            PyAirbyteInputError: If the stream is not found in the catalog, the requested
+                sync mode is not in the stream's ``supportedSyncModes``, the stream name
+                is ambiguous (multiple matches without a namespace), or incremental mode
+                is requested without a usable cursor field.
         """
         catalog = self.dump_raw_catalog()
         if not catalog or "streams" not in catalog:
@@ -723,16 +728,21 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 context={"connection_id": self.connection_id},
             )
 
-        # Find the target stream
-        target_entry: dict[str, Any] | None = None
+        # Find all matching streams by name (and optionally namespace)
+        matching_entries: list[dict[str, Any]] = []
         for entry in catalog["streams"]:
             stream_def = entry.get("stream", {})
-            if stream_def.get("name") == stream_name:
-                target_entry = entry
-                break
+            if stream_def.get("name") != stream_name:
+                continue
+            if stream_namespace is not None and stream_def.get("namespace") != stream_namespace:
+                continue
+            matching_entries.append(entry)
 
-        if target_entry is None:
-            available_streams = [e.get("stream", {}).get("name") for e in catalog["streams"]]
+        if not matching_entries:
+            available_streams = [
+                f"{e.get('stream', {}).get('namespace', '')}.{e.get('stream', {}).get('name', '')}"
+                for e in catalog["streams"]
+            ]
             raise PyAirbyteInputError(
                 message=f"Stream '{stream_name}' not found in connection catalog.",
                 context={
@@ -740,6 +750,22 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     "available_streams": available_streams,
                 },
             )
+
+        if len(matching_entries) > 1:
+            matching_namespaces = [e.get("stream", {}).get("namespace") for e in matching_entries]
+            raise PyAirbyteInputError(
+                message=(
+                    f"Stream name '{stream_name}' is ambiguous "
+                    f"({len(matching_entries)} matches found)."
+                ),
+                context={
+                    "connection_id": self.connection_id,
+                    "stream_name": stream_name,
+                    "matching_namespaces": matching_namespaces,
+                },
+            )
+
+        target_entry = matching_entries[0]
 
         # Validate the sync mode is supported
         stream_def = target_entry.get("stream", {})
@@ -755,7 +781,24 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
 
         # Update the stream config
-        config = target_entry.get("config", {})
+        config = target_entry.get("config") or {}
+
+        # Guard: fail fast if switching to incremental without a usable cursor
+        if sync_mode == "incremental":
+            existing_cursor = config.get("cursorField") or stream_def.get("defaultCursorField")
+            source_defined_cursor = bool(stream_def.get("sourceDefinedCursor"))
+            if cursor_field is None and not existing_cursor and not source_defined_cursor:
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Stream '{stream_name}' needs a cursor field before switching "
+                        "to incremental sync mode."
+                    ),
+                    context={
+                        "connection_id": self.connection_id,
+                        "stream_name": stream_name,
+                    },
+                )
+
         config["syncMode"] = sync_mode
 
         if destination_sync_mode is not None:

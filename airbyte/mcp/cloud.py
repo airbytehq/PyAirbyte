@@ -2649,6 +2649,16 @@ def set_stream_sync_mode(
         Field(description="The source sync mode to set: 'incremental' or 'full_refresh'."),
     ],
     *,
+    stream_namespace: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The namespace of the stream to modify. Required when multiple streams "
+                "share the same name but differ by namespace."
+            ),
+            default=None,
+        ),
+    ],
     destination_sync_mode: Annotated[
         Literal["append", "overwrite", "append_dedup"] | None,
         Field(
@@ -2694,6 +2704,7 @@ def set_stream_sync_mode(
     connection.set_stream_sync_mode(
         stream_name=stream_name,
         sync_mode=sync_mode,
+        stream_namespace=stream_namespace,
         destination_sync_mode=destination_sync_mode,
         cursor_field=cursor_field,
     )
