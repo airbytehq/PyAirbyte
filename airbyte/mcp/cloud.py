@@ -2587,6 +2587,131 @@ def update_cloud_connection(
 
 
 @mcp_tool(
+    destructive=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def refresh_connection_catalog(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to refresh the catalog for."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> str:
+    """Refresh the catalog for a connection by re-discovering the source schema.
+
+    Triggers a discover operation on the connection's source connector and updates
+    the connection's catalog with the latest stream definitions and supported sync
+    modes. This is equivalent to clicking "Refresh source schema" in the Airbyte UI.
+
+    This is useful after pinning a new connector version that advertises new streams
+    or updated sync mode support.
+    """
+    check_guid_created_in_session(connection_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    refreshed_catalog = connection.refresh_catalog()
+    stream_count = len(refreshed_catalog.get("streams", []))
+
+    return (
+        f"Successfully refreshed catalog for connection '{connection_id}'. "
+        f"Catalog now contains {stream_count} stream(s). "
+        f"URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
+    destructive=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def set_stream_sync_mode(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the connection to modify."),
+    ],
+    stream_name: Annotated[
+        str,
+        Field(description="The name of the stream to change the sync mode for."),
+    ],
+    sync_mode: Annotated[
+        Literal["incremental", "full_refresh"],
+        Field(description="The source sync mode to set: 'incremental' or 'full_refresh'."),
+    ],
+    *,
+    destination_sync_mode: Annotated[
+        Literal["append", "overwrite", "append_dedup"] | None,
+        Field(
+            description=(
+                "The destination sync mode to set: 'append', 'overwrite', or 'append_dedup'. "
+                "If not provided, the existing destination sync mode is preserved."
+            ),
+            default=None,
+        ),
+    ],
+    cursor_field: Annotated[
+        str | None,
+        Field(
+            description=(
+                "The cursor field to use for incremental syncs. "
+                "Required when switching to incremental mode if the stream does not have "
+                "a default cursor. If not provided, the existing cursor field is preserved."
+            ),
+            default=None,
+        ),
+    ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> str:
+    """Set the sync mode for a specific stream on a connection.
+
+    Safely modifies only the specified stream in the connection's syncCatalog.
+    Validates that the requested sync mode is supported by the stream before
+    applying the change.
+
+    This is useful when switching a stream from full_refresh to incremental
+    (or vice versa) after a connector version upgrade that adds incremental support.
+    """
+    check_guid_created_in_session(connection_id)
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+
+    connection.set_stream_sync_mode(
+        stream_name=stream_name,
+        sync_mode=sync_mode,
+        destination_sync_mode=destination_sync_mode,
+        cursor_field=cursor_field,
+    )
+
+    return (
+        f"Successfully set sync mode for stream '{stream_name}' "
+        f"on connection '{connection_id}' to '{sync_mode}'"
+        + (
+            f" with destination sync mode '{destination_sync_mode}'"
+            if destination_sync_mode
+            else ""
+        )
+        + (f" and cursor field '{cursor_field}'" if cursor_field else "")
+        + f". URL: {connection.connection_url}"
+    )
+
+
+@mcp_tool(
     read_only=True,
     idempotent=True,
     open_world=True,

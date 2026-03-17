@@ -2235,6 +2235,42 @@ def get_connection_catalog(
     )
 
 
+def get_refreshed_connection_catalog(
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get the configured catalog for a connection with a refreshed schema from the source.
+
+    Uses the Config API endpoint: POST /v1/web_backend/connections/get
+    with ``withRefreshedCatalog: true``, which triggers a discover operation
+    on the connection's source and returns the updated catalog.
+
+    This is equivalent to clicking "Refresh source schema" in the Airbyte UI.
+
+    Args:
+        connection_id: The connection ID to get catalog for.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication (alternative to client credentials).
+
+    Returns:
+        Dictionary containing the connection info with refreshed syncCatalog.
+    """
+    return _make_config_api_request(
+        path="/web_backend/connections/get",
+        json={"connectionId": connection_id, "withRefreshedCatalog": True},
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def replace_connection_catalog(
     connection_id: str,
     configured_catalog_dict: dict[str, Any],
