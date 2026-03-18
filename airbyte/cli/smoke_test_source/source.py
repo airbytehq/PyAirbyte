@@ -97,7 +97,6 @@ class SourceSmokeTest(Source):
                             "required": [
                                 "name",
                                 "json_schema",
-                                "records",
                             ],
                             "properties": {
                                 "name": {
