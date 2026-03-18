@@ -63,13 +63,13 @@ from __future__ import annotations
 import json
 import re
 import sys
-import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
 import yaml
 
+from airbyte._util.destination_smoke_tests import run_destination_smoke_test
 from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.util import get_secret
@@ -633,59 +633,6 @@ def sync(
     )
 
 
-def _get_smoke_test_source(
-    *,
-    scenarios: str = "all",
-    custom_scenarios: str | None = None,
-) -> Source:
-    """Create a smoke test source with the given configuration.
-
-    The smoke test source generates synthetic data across predefined scenarios
-    that cover common destination failure patterns.
-
-    `scenarios` controls which scenarios to run: `'all'` runs all scenarios
-    (including large batch), or provide a comma-separated list of scenario names.
-
-    `custom_scenarios` is an optional path to a JSON or YAML file containing additional
-    scenario definitions. Each scenario should have `name`, `json_schema`,
-    and optionally `records` and `primary_key`.
-    """
-    is_all = scenarios.strip().lower() == "all"
-    source_config: dict[str, Any] = {
-        "all_fast_streams": is_all,
-        "all_slow_streams": is_all,
-    }
-    if not is_all:
-        source_config["scenario_filter"] = [s.strip() for s in scenarios.split(",") if s.strip()]
-    if custom_scenarios:
-        custom_path = Path(custom_scenarios)
-        if not custom_path.exists():
-            raise PyAirbyteInputError(
-                message="Custom scenarios file not found.",
-                input_value=str(custom_path),
-            )
-        loaded = yaml.safe_load(custom_path.read_text(encoding="utf-8"))
-        if isinstance(loaded, list):
-            source_config["custom_scenarios"] = loaded
-        elif isinstance(loaded, dict) and "custom_scenarios" in loaded:
-            source_config["custom_scenarios"] = loaded["custom_scenarios"]
-        else:
-            raise PyAirbyteInputError(
-                message=(
-                    "Custom scenarios file must contain a list of scenarios "
-                    "or a dict with a 'custom_scenarios' key."
-                ),
-                input_value=str(custom_path),
-            )
-
-    return get_source(
-        name="source-smoke-test",
-        config=source_config,
-        streams="*",
-        local_executable="source-smoke-test",
-    )
-
-
 @click.command(name="destination-smoke-test")
 @click.option(
     "--destination",
@@ -724,11 +671,12 @@ def _get_smoke_test_source(
         "Which smoke test scenarios to run. Use 'all' (default) to run every "
         "predefined scenario including large batch, or provide a comma-separated "
         "list of scenario names. "
-        "Available scenarios: basic_types_stream, timestamp_stream, "
-        "large_decimal_stream, nested_json_stream, null_values_stream, "
-        "column_name_edge_cases, table_name_with_dots, table_name_with_spaces, "
-        "CamelCaseStream, wide_table_50_cols, empty_stream, single_record_stream, "
-        "unicode_special_strings, no_pk_stream, long_column_names, large_batch_stream."
+        "Available scenarios: basic_types, timestamp_types, "
+        "large_decimals_and_numbers, nested_json_objects, null_handling, "
+        "column_naming_edge_cases, table_naming_edge_cases, "
+        "CamelCaseStreamName, wide_table_50_columns, empty_stream, "
+        "single_record_stream, unicode_and_special_strings, "
+        "schema_with_no_primary_key, long_column_names, large_batch_stream."
     ),
 )
 @click.option(
@@ -770,7 +718,7 @@ def destination_smoke_test(
     --config=./secrets/snowflake.json`
 
     `pyab destination-smoke-test --destination=destination-motherduck
-    --scenarios=basic_types_stream,null_values_stream`
+    --scenarios=basic_types,null_handling`
     """
     click.echo("Resolving destination...", file=sys.stderr)
     destination_obj = _resolve_destination_job(
@@ -780,46 +728,18 @@ def destination_smoke_test(
         use_python=use_python,
     )
 
-    click.echo("Creating smoke test source...", file=sys.stderr)
-    source_obj = _get_smoke_test_source(
+    click.echo("Running destination smoke test...", file=sys.stderr)
+    result = run_destination_smoke_test(
+        destination=destination_obj,
         scenarios=scenarios,
-        custom_scenarios=custom_scenarios,
+        custom_scenarios_file=custom_scenarios,
     )
 
-    click.echo("Running destination smoke test...", file=sys.stderr)
-    start_time = time.monotonic()
-    success = False
-    error_message: str | None = None
-    records_delivered = 0
-    try:
-        write_result = destination_obj.write(
-            source_data=source_obj,
-            cache=False,
-            state_cache=False,
-        )
-        records_delivered = write_result.processed_records
-        success = True
-    except Exception as ex:
-        error_message = (
-            f"{type(ex).__name__}: {ex.get_message() if hasattr(ex, 'get_message') else ex}"
-        )
-        click.echo(f"Smoke test FAILED: {error_message}", file=sys.stderr)
+    click.echo(json.dumps(result.model_dump(), indent=2))
 
-    elapsed = time.monotonic() - start_time
-
-    result = {
-        "success": success,
-        "destination": destination_obj.name,
-        "records_delivered": records_delivered,
-        "scenarios_requested": scenarios,
-        "elapsed_seconds": round(elapsed, 2),
-    }
-    if error_message:
-        result["error"] = error_message
-
-    click.echo(json.dumps(result, indent=2))
-
-    if not success:
+    if not result.success:
+        if result.error:
+            click.echo(f"Smoke test FAILED: {result.error}", file=sys.stderr)
         sys.exit(1)
 
 

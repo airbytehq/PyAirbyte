@@ -2,7 +2,6 @@
 """Local MCP operations."""
 
 import sys
-import time
 import traceback
 from itertools import islice
 from pathlib import Path
@@ -13,6 +12,10 @@ from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
+from airbyte._util.destination_smoke_tests import (
+    DestinationSmokeTestResult,
+    run_destination_smoke_test,
+)
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.destinations.util import get_destination
@@ -806,23 +809,6 @@ def run_sql_query(
         del cache  # Ensure the cache is closed properly
 
 
-class DestinationSmokeTestResult(BaseModel):
-    """Result of a destination smoke test run."""
-
-    success: bool
-    """Whether the smoke test passed (destination accepted all data without errors)."""
-    destination: str
-    """The destination connector name."""
-    records_delivered: int
-    """Total number of records delivered to the destination."""
-    scenarios_requested: str
-    """Which scenarios were requested ('all' or a comma-separated list)."""
-    elapsed_seconds: float
-    """Time taken for the smoke test in seconds."""
-    error: str | None = None
-    """Error message if the smoke test failed."""
-
-
 @mcp_tool(
     destructive=True,
 )
@@ -923,62 +909,17 @@ def destination_smoke_test(
 
     destination_obj = get_destination(**destination_kwargs)
 
-    # Set up smoke test source config
-    is_all = isinstance(scenarios, str) and scenarios.strip().lower() == "all"
-    source_config: dict[str, Any] = {
-        "all_fast_streams": is_all,
-        "all_slow_streams": is_all,
-    }
-    if not is_all:
-        resolved_filter = resolve_list_of_strings(scenarios)
-        if resolved_filter:
-            source_config["scenario_filter"] = resolved_filter
-    if custom_scenarios:
-        source_config["custom_scenarios"] = custom_scenarios
-
-    source_obj = get_source(
-        name="source-smoke-test",
-        config=source_config,
-        streams="*",
-        local_executable="source-smoke-test",
-    )
-
-    # Run the smoke test
-    start_time = time.monotonic()
-    success = False
-    error_message: str | None = None
-    records_delivered = 0
-    try:
-        write_result = destination_obj.write(
-            source_data=source_obj,
-            cache=False,
-            state_cache=False,
-        )
-        records_delivered = write_result.processed_records
-        success = True
-    except Exception as ex:
-        error_message = (
-            f"{type(ex).__name__}: {ex.get_message()}"
-            if hasattr(ex, "get_message")
-            else f"{type(ex).__name__}: {ex}"
-        )
-
-    elapsed = time.monotonic() - start_time
-
-    scenarios_str: str
-    if is_all:
-        scenarios_str = "all"
+    # Resolve scenarios for the shared helper
+    resolved_scenarios: str | list[str]
+    if isinstance(scenarios, str):
+        resolved_scenarios = scenarios
     else:
-        resolved = resolve_list_of_strings(scenarios)
-        scenarios_str = ",".join(resolved) if resolved else "all"
+        resolved_scenarios = resolve_list_of_strings(scenarios) or "all"
 
-    return DestinationSmokeTestResult(
-        success=success,
-        destination=destination_connector_name,
-        records_delivered=records_delivered,
-        scenarios_requested=scenarios_str,
-        elapsed_seconds=round(elapsed, 2),
-        error=error_message,
+    return run_destination_smoke_test(
+        destination=destination_obj,
+        scenarios=resolved_scenarios,
+        custom_scenarios=custom_scenarios,
     )
 
 
