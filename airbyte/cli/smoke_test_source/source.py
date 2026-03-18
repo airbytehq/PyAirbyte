@@ -136,7 +136,7 @@ class SourceSmokeTest(Source):
                         "description": (
                             "Number of records to generate for "
                             "the large_batch_stream scenario. "
-                            "Set to 0 to skip this stream."
+                            "Set to 0 to emit no records for this stream."
                         ),
                         "default": 1000,
                     },
