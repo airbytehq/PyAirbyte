@@ -250,6 +250,35 @@ class SourceSmokeTest(Source):
 
         return scenarios
 
+    @staticmethod
+    def _validate_custom_scenarios(
+        scenarios: list[Any],
+    ) -> str | None:
+        """Validate custom scenario entries, returning an error message or None."""
+        for i, scenario in enumerate(scenarios):
+            if not isinstance(scenario, dict):
+                return f"Custom scenario at index {i} must be an object."
+            if not scenario.get("name"):
+                return f"Custom scenario at index {i} is missing 'name'."
+            if not isinstance(scenario.get("json_schema"), dict):
+                return (
+                    f"Custom scenario '{scenario['name']}' must provide "
+                    "'json_schema' as an object."
+                )
+            if "records" in scenario:
+                if not isinstance(scenario["records"], list):
+                    return (
+                        f"Custom scenario '{scenario['name']}' has invalid 'records': "
+                        "expected an array of objects."
+                    )
+                for j, record in enumerate(scenario["records"]):
+                    if not isinstance(record, dict):
+                        return (
+                            f"Custom scenario '{scenario['name']}' record at index {j} "
+                            "must be an object."
+                        )
+        return None
+
     def check(
         self,
         logger: logging.Logger,
@@ -262,44 +291,13 @@ class SourceSmokeTest(Source):
                 status=Status.FAILED,
                 message="'custom_scenarios' must be an array of objects.",
             )
-        custom = raw_custom
-        for i, scenario in enumerate(custom):
-            if not isinstance(scenario, dict):
-                return AirbyteConnectionStatus(
-                    status=Status.FAILED,
-                    message=f"Custom scenario at index {i} must be an object.",
-                )
-            if not scenario.get("name"):
-                return AirbyteConnectionStatus(
-                    status=Status.FAILED,
-                    message=f"Custom scenario at index {i} is missing 'name'.",
-                )
-            if not isinstance(scenario.get("json_schema"), dict):
-                return AirbyteConnectionStatus(
-                    status=Status.FAILED,
-                    message=(
-                        f"Custom scenario '{scenario['name']}' must provide "
-                        "'json_schema' as an object."
-                    ),
-                )
-            if "records" in scenario:
-                if not isinstance(scenario["records"], list):
-                    return AirbyteConnectionStatus(
-                        status=Status.FAILED,
-                        message=(
-                            f"Custom scenario '{scenario['name']}' has invalid 'records': "
-                            "expected an array of objects."
-                        ),
-                    )
-                for j, record in enumerate(scenario["records"]):
-                    if not isinstance(record, dict):
-                        return AirbyteConnectionStatus(
-                            status=Status.FAILED,
-                            message=(
-                                f"Custom scenario '{scenario['name']}' record at index {j} "
-                                "must be an object."
-                            ),
-                        )
+
+        error = self._validate_custom_scenarios(raw_custom)
+        if error:
+            return AirbyteConnectionStatus(
+                status=Status.FAILED,
+                message=error,
+            )
 
         scenarios = self._get_all_scenarios(config)
         if not scenarios:
