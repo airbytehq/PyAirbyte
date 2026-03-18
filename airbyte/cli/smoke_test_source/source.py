@@ -341,6 +341,7 @@ class SourceSmokeTest(Source):
         self,
         stream_name: str,
         status: AirbyteStreamStatus,
+        namespace: str | None = None,
     ) -> AirbyteMessage:
         """Build an AirbyteMessage containing a stream status trace."""
         return AirbyteMessage(
@@ -349,7 +350,10 @@ class SourceSmokeTest(Source):
                 type=TraceType.STREAM_STATUS,
                 emitted_at=time.time() * 1000,
                 stream_status=AirbyteStreamStatusTraceMessage(
-                    stream_descriptor=StreamDescriptor(name=stream_name),
+                    stream_descriptor=StreamDescriptor(
+                        name=stream_name,
+                        namespace=namespace,
+                    ),
                     status=status,
                 ),
             ),
@@ -368,6 +372,8 @@ class SourceSmokeTest(Source):
         scenario_map = {s["name"]: s for s in scenarios}
         now_ms = int(time.time() * 1000)
 
+        namespace = config.get("namespace")
+
         for stream_name in selected_streams:
             scenario = scenario_map.get(stream_name)
             if not scenario:
@@ -375,13 +381,20 @@ class SourceSmokeTest(Source):
                 continue
 
             # Emit STARTED status
-            yield self._stream_status_message(stream_name, AirbyteStreamStatus.STARTED)
-            yield self._stream_status_message(stream_name, AirbyteStreamStatus.RUNNING)
+            yield self._stream_status_message(
+                stream_name,
+                AirbyteStreamStatus.STARTED,
+                namespace=namespace,
+            )
+            yield self._stream_status_message(
+                stream_name,
+                AirbyteStreamStatus.RUNNING,
+                namespace=namespace,
+            )
 
             records = get_scenario_records(scenario)
             logger.info(f"Emitting {len(records)} records for stream '{stream_name}'.")
 
-            namespace = config.get("namespace")
             for record in records:
                 yield AirbyteMessage(
                     type=Type.RECORD,
@@ -394,4 +407,8 @@ class SourceSmokeTest(Source):
                 )
 
             # Emit COMPLETE status
-            yield self._stream_status_message(stream_name, AirbyteStreamStatus.COMPLETE)
+            yield self._stream_status_message(
+                stream_name,
+                AirbyteStreamStatus.COMPLETE,
+                namespace=namespace,
+            )
