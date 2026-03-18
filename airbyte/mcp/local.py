@@ -2,6 +2,7 @@
 """Local MCP operations."""
 
 import sys
+import time
 import traceback
 from itertools import islice
 from pathlib import Path
@@ -14,6 +15,7 @@ from pydantic import BaseModel, Field
 from airbyte import get_source
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
+from airbyte.destinations.util import get_destination
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
@@ -802,6 +804,186 @@ def run_sql_query(
         ]
     finally:
         del cache  # Ensure the cache is closed properly
+
+
+class DestinationSmokeTestResult(BaseModel):
+    """Result of a destination smoke test run."""
+
+    success: bool
+    """Whether the smoke test passed (destination accepted all data without errors)."""
+    destination: str
+    """The destination connector name."""
+    records_delivered: int
+    """Total number of records delivered to the destination."""
+    scenarios_requested: str
+    """Which scenarios were requested ('all_fast' or a comma-separated filter)."""
+    include_large_batch: bool
+    """Whether the large_batch_stream scenario was included."""
+    elapsed_seconds: float
+    """Time taken for the smoke test in seconds."""
+    error: str | None = None
+    """Error message if the smoke test failed."""
+
+
+@mcp_tool(
+    destructive=False,
+)
+def destination_smoke_test(
+    destination_connector_name: Annotated[
+        str,
+        Field(
+            description=(
+                "The name of the destination connector to test "
+                "(e.g. 'destination-snowflake', 'destination-motherduck')."
+            ),
+        ),
+    ],
+    config: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "The destination configuration as a dict object or JSON string. "
+                "Must not contain hardcoded secrets; use secret_reference::ENV_VAR_NAME instead."
+            ),
+            default=None,
+        ),
+    ],
+    config_file: Annotated[
+        str | Path | None,
+        Field(
+            description="Path to a YAML or JSON file containing the destination configuration.",
+            default=None,
+        ),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(
+            description="The name of the secret containing the destination configuration.",
+            default=None,
+        ),
+    ],
+    scenario_filter: Annotated[
+        list[str] | str | None,
+        Field(
+            description=(
+                "Specific scenario names to run. If not provided, all fast (non-high-volume) "
+                "scenarios are included. Can be a list of names or a comma-separated string."
+            ),
+            default=None,
+        ),
+    ],
+    include_large_batch: Annotated[
+        bool,
+        Field(
+            description="Whether to include the large_batch_stream scenario (1000 records).",
+            default=False,
+        ),
+    ],
+    custom_scenarios: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Additional custom test scenarios to inject. Each scenario should define "
+                "'name', 'json_schema', and optionally 'records' and 'primary_key'. "
+                "These are unioned with the predefined scenarios."
+            ),
+            default=None,
+        ),
+    ],
+    docker_image: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional Docker image override for the destination connector "
+                "(e.g. 'airbyte/destination-snowflake:3.14.0')."
+            ),
+            default=None,
+        ),
+    ],
+) -> DestinationSmokeTestResult:
+    """Run smoke tests against a destination connector.
+
+    Sends synthetic test data from the smoke test source to the specified
+    destination and reports success or failure. The smoke test source generates
+    data across predefined scenarios covering common destination failure patterns:
+    type variations, null handling, naming edge cases, schema variations, and
+    batch sizes.
+
+    This tool does NOT read back data from the destination or compare results.
+    It only verifies that the destination accepts the data without errors.
+    """
+    # Resolve destination config
+    config_dict = resolve_connector_config(
+        config=config,
+        config_file=config_file,
+        config_secret_name=config_secret_name,
+    )
+
+    # Set up destination
+    destination_kwargs: dict[str, Any] = {
+        "name": destination_connector_name,
+        "config": config_dict,
+    }
+    if docker_image:
+        destination_kwargs["docker_image"] = docker_image
+    elif is_docker_installed():
+        destination_kwargs["docker_image"] = True
+
+    destination_obj = get_destination(**destination_kwargs)
+
+    # Set up smoke test source config
+    source_config: dict[str, Any] = {
+        "all_fast_streams": True,
+        "all_slow_streams": include_large_batch,
+    }
+    if scenario_filter:
+        resolved_filter = resolve_list_of_strings(scenario_filter)
+        if resolved_filter:
+            source_config["scenario_filter"] = resolved_filter
+    if custom_scenarios:
+        source_config["custom_scenarios"] = custom_scenarios
+
+    source_obj = get_source(
+        name="source-smoke-test",
+        config=source_config,
+        streams="*",
+        local_executable="source-smoke-test",
+    )
+
+    # Run the smoke test
+    start_time = time.monotonic()
+    success = False
+    error_message: str | None = None
+    records_delivered = 0
+    try:
+        write_result = destination_obj.write(
+            source_data=source_obj,
+            cache=False,
+            state_cache=False,
+        )
+        records_delivered = write_result.processed_records
+        success = True
+    except Exception as ex:
+        error_message = str(ex)
+
+    elapsed = time.monotonic() - start_time
+
+    scenarios_str: str
+    if scenario_filter:
+        resolved = resolve_list_of_strings(scenario_filter)
+        scenarios_str = ",".join(resolved) if resolved else "all_fast"
+    else:
+        scenarios_str = "all_fast"
+
+    return DestinationSmokeTestResult(
+        success=success,
+        destination=destination_connector_name,
+        records_delivered=records_delivered,
+        scenarios_requested=scenarios_str,
+        include_large_batch=include_large_batch,
+        elapsed_seconds=round(elapsed, 2),
+        error=error_message,
+    )
 
 
 def register_local_tools(app: FastMCP) -> None:
