@@ -25,10 +25,15 @@ from airbyte_cdk.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
     AirbyteStream,
+    AirbyteStreamStatus,
+    AirbyteStreamStatusTraceMessage,
+    AirbyteTraceMessage,
     ConfiguredAirbyteCatalog,
     ConnectorSpecification,
     Status,
+    StreamDescriptor,
     SyncMode,
+    TraceType,
     Type,
 )
 from airbyte_cdk.sources.source import Source
@@ -262,8 +267,7 @@ class SourceSmokeTest(Source):
                 return f"Custom scenario at index {i} is missing 'name'."
             if not isinstance(scenario.get("json_schema"), dict):
                 return (
-                    f"Custom scenario '{scenario['name']}' must provide "
-                    "'json_schema' as an object."
+                    f"Custom scenario '{scenario['name']}' must provide 'json_schema' as an object."
                 )
             if "records" in scenario:
                 if not isinstance(scenario["records"], list):
@@ -320,6 +324,24 @@ class SourceSmokeTest(Source):
         logger.info(f"Discovered {len(streams)} smoke test streams.")
         return AirbyteCatalog(streams=streams)
 
+    def _stream_status_message(
+        self,
+        stream_name: str,
+        status: AirbyteStreamStatus,
+    ) -> AirbyteMessage:
+        """Build an AirbyteMessage containing a stream status trace."""
+        return AirbyteMessage(
+            type=Type.TRACE,
+            trace=AirbyteTraceMessage(
+                type=TraceType.STREAM_STATUS,
+                emitted_at=time.time() * 1000,
+                stream_status=AirbyteStreamStatusTraceMessage(
+                    stream_descriptor=StreamDescriptor(name=stream_name),
+                    status=status,
+                ),
+            ),
+        )
+
     def read(
         self,
         logger: logging.Logger,
@@ -339,6 +361,10 @@ class SourceSmokeTest(Source):
                 logger.warning(f"Stream '{stream_name}' not found in scenarios, skipping.")
                 continue
 
+            # Emit STARTED status
+            yield self._stream_status_message(stream_name, AirbyteStreamStatus.STARTED)
+            yield self._stream_status_message(stream_name, AirbyteStreamStatus.RUNNING)
+
             records = get_scenario_records(scenario)
             logger.info(f"Emitting {len(records)} records for stream '{stream_name}'.")
 
@@ -351,3 +377,6 @@ class SourceSmokeTest(Source):
                         emitted_at=now_ms,
                     ),
                 )
+
+            # Emit COMPLETE status
+            yield self._stream_status_message(stream_name, AirbyteStreamStatus.COMPLETE)
