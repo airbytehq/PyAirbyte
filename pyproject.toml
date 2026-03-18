@@ -80,6 +80,7 @@ dev = [
 pyairbyte = "airbyte.cli:cli"
 pyab = "airbyte.cli:cli"
 airbyte-mcp = "airbyte.mcp.server:main"
+source-smoke-test = "airbyte.cli.smoke_test_source.run:run"
 
 [build-system]
 requires = ["hatchling", "uv-dynamic-versioning"]
