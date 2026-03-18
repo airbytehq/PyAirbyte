@@ -895,7 +895,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
         Field(
             description=(
                 "Exact namespace to reuse from a previous run. "
-                "When set, no new namespace is generated and cleanup is skipped. "
+                "When set, no new namespace is generated. "
                 "Useful for running a second test against an already-populated namespace."
             ),
             default=None,

@@ -225,7 +225,7 @@ def run_destination_smoke_test(
     (e.g. ``zz_deleteme_20260318_2256_smoke_test``).
 
     `reuse_namespace` is an exact namespace string to reuse from a previous
-    run. When set, no new namespace is generated and cleanup is skipped.
+    run. When set, no new namespace is generated.
 
     `custom_scenarios` is an optional list of scenario dicts to inject.
 
