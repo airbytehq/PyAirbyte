@@ -31,6 +31,9 @@ The ``zz_`` prefix sorts last alphabetically; ``deleteme`` signals the
 namespace is safe for automated cleanup.
 """
 
+DEFAULT_NAMESPACE_SUFFIX = "smoke_test"
+"""Default suffix appended when no explicit suffix is provided."""
+
 
 if TYPE_CHECKING:
     from airbyte.destinations.base import Destination
@@ -43,16 +46,17 @@ def generate_namespace(
 ) -> str:
     """Generate a smoke-test namespace.
 
-    Format: ``zz_deleteme_yyyymmdd_hhmm`` with an optional ``_<suffix>``.
+    Format: ``zz_deleteme_yyyymmdd_hhmm_<suffix>``.
     The ``zz_`` prefix sorts last alphabetically and the ``deleteme``
     token acts as a guard for automated cleanup scripts.
+
+    If *namespace_suffix* is not provided, ``smoke_test`` is used as the
+    default suffix.
     """
+    suffix = namespace_suffix or DEFAULT_NAMESPACE_SUFFIX
     now = datetime.now(tz=timezone.utc)
     ts = now.strftime("%Y%m%d_%H%M")
-    ns = f"{NAMESPACE_PREFIX}_{ts}"
-    if namespace_suffix:
-        ns = f"{ns}_{namespace_suffix}"
-    return ns
+    return f"{NAMESPACE_PREFIX}_{ts}_{suffix}"
 
 
 class DestinationSmokeTestResult(BaseModel):
@@ -217,7 +221,8 @@ def run_destination_smoke_test(
     - A comma-separated string or list of specific scenario names.
 
     `namespace_suffix` is an optional suffix appended to the auto-generated
-    namespace (e.g. ``zz_deleteme_20260318_2256_mysuffix``).
+    namespace. Defaults to ``smoke_test`` when not provided
+    (e.g. ``zz_deleteme_20260318_2256_smoke_test``).
 
     `reuse_namespace` is an exact namespace string to reuse from a previous
     run. When set, no new namespace is generated and cleanup is skipped.

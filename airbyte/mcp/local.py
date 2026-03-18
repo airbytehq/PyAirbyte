@@ -884,7 +884,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
         Field(
             description=(
                 "Optional suffix appended to the auto-generated namespace. "
-                "The namespace format is 'zz_deleteme_yyyymmdd_hhmm_{suffix}'. "
+                "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
                 "Use this to distinguish concurrent runs."
             ),
             default=None,

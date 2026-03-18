@@ -696,7 +696,7 @@ def sync(
     default=None,
     help=(
         "Optional suffix appended to the auto-generated namespace. "
-        "The namespace format is 'zz_deleteme_yyyymmdd_hhmm_{suffix}'. "
+        "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
         "Use this to distinguish concurrent runs."
     ),
 )
