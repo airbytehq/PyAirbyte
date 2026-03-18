@@ -9,7 +9,6 @@ shorter `pyab` alias.
 These are equivalent:
 
 ```bash
-python -m airbyte.cli --help
 pyairbyte --help
 pyab --help
 ```
