@@ -635,8 +635,7 @@ def sync(
 
 def _get_smoke_test_source(
     *,
-    scenario_filter: str | None = None,
-    include_large_batch: bool = False,
+    scenarios: str = "all",
     custom_scenarios: str | None = None,
 ) -> Source:
     """Create a smoke test source with the given configuration.
@@ -644,20 +643,20 @@ def _get_smoke_test_source(
     The smoke test source generates synthetic data across predefined scenarios
     that cover common destination failure patterns.
 
-    Args:
-        scenario_filter: Optional comma-separated list of scenario names to include.
-            If not provided, all fast (non-high-volume) scenarios are included.
-        include_large_batch: Whether to include the large_batch_stream scenario.
-        custom_scenarios: Optional path to a JSON or YAML file containing additional
-            scenario definitions. Each scenario should have 'name', 'json_schema',
-            and optionally 'records' and 'primary_key'.
+    `scenarios` controls which scenarios to run: `'all'` runs all scenarios
+    (including large batch), or provide a comma-separated list of scenario names.
+
+    `custom_scenarios` is an optional path to a JSON or YAML file containing additional
+    scenario definitions. Each scenario should have `name`, `json_schema`,
+    and optionally `records` and `primary_key`.
     """
+    is_all = scenarios.strip().lower() == "all"
     source_config: dict[str, Any] = {
-        "all_fast_streams": True,
-        "all_slow_streams": include_large_batch,
+        "all_fast_streams": is_all,
+        "all_slow_streams": is_all,
     }
-    if scenario_filter:
-        source_config["scenario_filter"] = [s.strip() for s in scenario_filter.split(",")]
+    if not is_all:
+        source_config["scenario_filter"] = [s.strip() for s in scenarios.split(",") if s.strip()]
     if custom_scenarios:
         custom_path = Path(custom_scenarios)
         if not custom_path.exists():
@@ -718,24 +717,19 @@ def _get_smoke_test_source(
     ),
 )
 @click.option(
-    "--scenario-filter",
+    "--scenarios",
     type=str,
-    default=None,
+    default="all",
     help=(
-        "Comma-separated list of smoke test scenario names to run. "
-        "If not provided, all fast (non-high-volume) scenarios are included. "
-        "Available scenarios include: basic_types_stream, timestamp_stream, "
+        "Which smoke test scenarios to run. Use 'all' (default) to run every "
+        "predefined scenario including large batch, or provide a comma-separated "
+        "list of scenario names. "
+        "Available scenarios: basic_types_stream, timestamp_stream, "
         "large_decimal_stream, nested_json_stream, null_values_stream, "
         "column_name_edge_cases, table_name_with_dots, table_name_with_spaces, "
         "CamelCaseStream, wide_table_50_cols, empty_stream, single_record_stream, "
-        "unicode_special_strings, no_pk_stream, long_column_names."
+        "unicode_special_strings, no_pk_stream, long_column_names, large_batch_stream."
     ),
-)
-@click.option(
-    "--include-large-batch",
-    is_flag=True,
-    default=False,
-    help="Include the large_batch_stream scenario (1000 records by default).",
 )
 @click.option(
     "--custom-scenarios",
@@ -753,11 +747,10 @@ def destination_smoke_test(
     config: str | None = None,
     pip_url: str | None = None,
     use_python: str | None = None,
-    scenario_filter: str | None = None,
-    include_large_batch: bool = False,
+    scenarios: str = "all",
     custom_scenarios: str | None = None,
 ) -> None:
-    r"""Run smoke tests against a destination connector.
+    """Run smoke tests against a destination connector.
 
     Sends synthetic test data from the smoke test source to the specified
     destination and reports success or failure. The smoke test source
@@ -769,24 +762,15 @@ def destination_smoke_test(
     results. It only verifies that the destination accepts the data without
     errors.
 
-    Examples:
-    \b
-        # Test with a Docker destination:
-        pyab destination-smoke-test \\
-            --destination=airbyte/destination-dev-null:latest
+    Usage examples:
 
-    \b
-        # Test with config file:
-        pyab destination-smoke-test \\
-            --destination=destination-snowflake \\
-            --config=./secrets/snowflake.json
+    `pyab destination-smoke-test --destination=destination-dev-null`
 
-    \b
-        # Run only specific scenarios:
-        pyab destination-smoke-test \\
-            --destination=destination-motherduck \\
-            --config='{motherduck_api_key: "SECRET:MOTHERDUCK_API_KEY"}' \\
-            --scenario-filter=basic_types_stream,null_values_stream
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json`
+
+    `pyab destination-smoke-test --destination=destination-motherduck
+    --scenarios=basic_types_stream,null_values_stream`
     """
     click.echo("Resolving destination...", file=sys.stderr)
     destination_obj = _resolve_destination_job(
@@ -798,8 +782,7 @@ def destination_smoke_test(
 
     click.echo("Creating smoke test source...", file=sys.stderr)
     source_obj = _get_smoke_test_source(
-        scenario_filter=scenario_filter,
-        include_large_batch=include_large_batch,
+        scenarios=scenarios,
         custom_scenarios=custom_scenarios,
     )
 
@@ -817,17 +800,18 @@ def destination_smoke_test(
         records_delivered = write_result.processed_records
         success = True
     except Exception as ex:
-        error_message = str(ex)
-        click.echo(f"Smoke test FAILED: {ex}", file=sys.stderr)
+        error_message = (
+            f"{type(ex).__name__}: {ex.get_message() if hasattr(ex, 'get_message') else ex}"
+        )
+        click.echo(f"Smoke test FAILED: {error_message}", file=sys.stderr)
 
     elapsed = time.monotonic() - start_time
 
     result = {
         "success": success,
-        "destination": _get_connector_name(destination),
+        "destination": destination_obj.name,
         "records_delivered": records_delivered,
-        "scenarios_requested": scenario_filter or "all_fast",
-        "include_large_batch": include_large_batch,
+        "scenarios_requested": scenarios,
         "elapsed_seconds": round(elapsed, 2),
     }
     if error_message:

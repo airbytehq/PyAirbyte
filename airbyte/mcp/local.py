@@ -816,9 +816,7 @@ class DestinationSmokeTestResult(BaseModel):
     records_delivered: int
     """Total number of records delivered to the destination."""
     scenarios_requested: str
-    """Which scenarios were requested ('all_fast' or a comma-separated filter)."""
-    include_large_batch: bool
-    """Whether the large_batch_stream scenario was included."""
+    """Which scenarios were requested ('all' or a comma-separated list)."""
     elapsed_seconds: float
     """Time taken for the smoke test in seconds."""
     error: str | None = None
@@ -826,7 +824,7 @@ class DestinationSmokeTestResult(BaseModel):
 
 
 @mcp_tool(
-    destructive=False,
+    destructive=True,
 )
 def destination_smoke_test(
     destination_connector_name: Annotated[
@@ -862,21 +860,15 @@ def destination_smoke_test(
             default=None,
         ),
     ],
-    scenario_filter: Annotated[
-        list[str] | str | None,
+    scenarios: Annotated[
+        list[str] | str,
         Field(
             description=(
-                "Specific scenario names to run. If not provided, all fast (non-high-volume) "
-                "scenarios are included. Can be a list of names or a comma-separated string."
+                "Which scenarios to run. Use 'all' (default) to run every predefined "
+                "scenario including large batch, or provide a list of scenario names "
+                "or a comma-separated string."
             ),
-            default=None,
-        ),
-    ],
-    include_large_batch: Annotated[
-        bool,
-        Field(
-            description="Whether to include the large_batch_stream scenario (1000 records).",
-            default=False,
+            default="all",
         ),
     ],
     custom_scenarios: Annotated[
@@ -932,12 +924,13 @@ def destination_smoke_test(
     destination_obj = get_destination(**destination_kwargs)
 
     # Set up smoke test source config
+    is_all = isinstance(scenarios, str) and scenarios.strip().lower() == "all"
     source_config: dict[str, Any] = {
-        "all_fast_streams": True,
-        "all_slow_streams": include_large_batch,
+        "all_fast_streams": is_all,
+        "all_slow_streams": is_all,
     }
-    if scenario_filter:
-        resolved_filter = resolve_list_of_strings(scenario_filter)
+    if not is_all:
+        resolved_filter = resolve_list_of_strings(scenarios)
         if resolved_filter:
             source_config["scenario_filter"] = resolved_filter
     if custom_scenarios:
@@ -964,23 +957,26 @@ def destination_smoke_test(
         records_delivered = write_result.processed_records
         success = True
     except Exception as ex:
-        error_message = str(ex)
+        error_message = (
+            f"{type(ex).__name__}: {ex.get_message()}"
+            if hasattr(ex, "get_message")
+            else f"{type(ex).__name__}: {ex}"
+        )
 
     elapsed = time.monotonic() - start_time
 
     scenarios_str: str
-    if scenario_filter:
-        resolved = resolve_list_of_strings(scenario_filter)
-        scenarios_str = ",".join(resolved) if resolved else "all_fast"
+    if is_all:
+        scenarios_str = "all"
     else:
-        scenarios_str = "all_fast"
+        resolved = resolve_list_of_strings(scenarios)
+        scenarios_str = ",".join(resolved) if resolved else "all"
 
     return DestinationSmokeTestResult(
         success=success,
         destination=destination_connector_name,
         records_delivered=records_delivered,
         scenarios_requested=scenarios_str,
-        include_large_batch=include_large_batch,
         elapsed_seconds=round(elapsed, 2),
         error=error_message,
     )
