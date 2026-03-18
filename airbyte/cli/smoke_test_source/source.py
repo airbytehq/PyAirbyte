@@ -190,7 +190,12 @@ class SourceSmokeTest(Source):
         """
         include_default = config.get("all_fast_streams", True)
         include_high_volume = config.get("all_slow_streams", False)
-        scenario_filter: list[str] = config.get("scenario_filter", [])
+        raw_scenario_filter = config.get("scenario_filter", [])
+        scenario_filter: list[str] = (
+            [name for name in raw_scenario_filter if isinstance(name, str)]
+            if isinstance(raw_scenario_filter, list)
+            else []
+        )
         explicit_names: set[str] = set(scenario_filter)
 
         large_batch_count = config.get(
@@ -219,9 +224,12 @@ class SourceSmokeTest(Source):
                 scenarios.append(s)
                 seen_names.add(name)
 
-        custom = config.get("custom_scenarios", [])
+        raw_custom = config.get("custom_scenarios", [])
+        custom = raw_custom if isinstance(raw_custom, list) else []
         if custom:
             for cs in custom:
+                if not isinstance(cs, dict):
+                    continue
                 name = cs.get("name", "")
                 if not name or not cs.get("json_schema"):
                     continue
@@ -248,8 +256,19 @@ class SourceSmokeTest(Source):
         config: Mapping[str, Any],
     ) -> AirbyteConnectionStatus:
         """Validate the configuration."""
-        custom = config.get("custom_scenarios", [])
+        raw_custom = config.get("custom_scenarios", [])
+        if not isinstance(raw_custom, list):
+            return AirbyteConnectionStatus(
+                status=Status.FAILED,
+                message="'custom_scenarios' must be an array of objects.",
+            )
+        custom = raw_custom
         for i, scenario in enumerate(custom):
+            if not isinstance(scenario, dict):
+                return AirbyteConnectionStatus(
+                    status=Status.FAILED,
+                    message=f"Custom scenario at index {i} must be an object.",
+                )
             if not scenario.get("name"):
                 return AirbyteConnectionStatus(
                     status=Status.FAILED,

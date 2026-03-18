@@ -77,8 +77,8 @@ dev = [
 ]
 
 [project.scripts]
-pyairbyte = "airbyte.cli:cli"
-pyab = "airbyte.cli:cli"
+pyairbyte = "airbyte.cli.pyab:cli"
+pyab = "airbyte.cli.pyab:cli"
 airbyte-mcp = "airbyte.mcp.server:main"
 source-smoke-test = "airbyte.cli.smoke_test_source.run:run"
 
