@@ -9,7 +9,6 @@ shorter `pyab` alias.
 These are equivalent:
 
 ```bash
-python -m airbyte.cli --help
 pyairbyte --help
 pyab --help
 ```
@@ -170,7 +169,7 @@ def _is_executable_path(connector_str: str) -> bool:
 
 def _get_connector_name(connector: str) -> str:
     if _is_docker_image(connector):
-        return connector.split(":")[0].split("/")[-1]
+        return connector.split(":", maxsplit=1)[0].rsplit("/", maxsplit=1)[-1]
 
     return connector
 
