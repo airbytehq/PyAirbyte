@@ -18,7 +18,7 @@ import pdoc
 
 def run() -> None:
     """Generate docs for all public modules in PyAirbyte and save them to docs/generated."""
-    public_modules = ["airbyte", "airbyte/cli.py"]
+    public_modules = ["airbyte", "airbyte/cli/pyab.py"]
 
     # recursively delete the docs/generated folder if it exists
     if pathlib.Path("docs/generated").exists():
