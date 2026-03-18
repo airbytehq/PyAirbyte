@@ -274,11 +274,32 @@ class SourceSmokeTest(Source):
                     status=Status.FAILED,
                     message=f"Custom scenario at index {i} is missing 'name'.",
                 )
-            if not scenario.get("json_schema"):
+            if not isinstance(scenario.get("json_schema"), dict):
                 return AirbyteConnectionStatus(
                     status=Status.FAILED,
-                    message=(f"Custom scenario '{scenario['name']}' is missing 'json_schema'."),
+                    message=(
+                        f"Custom scenario '{scenario['name']}' must provide "
+                        "'json_schema' as an object."
+                    ),
                 )
+            if "records" in scenario:
+                if not isinstance(scenario["records"], list):
+                    return AirbyteConnectionStatus(
+                        status=Status.FAILED,
+                        message=(
+                            f"Custom scenario '{scenario['name']}' has invalid 'records': "
+                            "expected an array of objects."
+                        ),
+                    )
+                for j, record in enumerate(scenario["records"]):
+                    if not isinstance(record, dict):
+                        return AirbyteConnectionStatus(
+                            status=Status.FAILED,
+                            message=(
+                                f"Custom scenario '{scenario['name']}' record at index {j} "
+                                "must be an object."
+                            ),
+                        )
 
         scenarios = self._get_all_scenarios(config)
         if not scenarios:
