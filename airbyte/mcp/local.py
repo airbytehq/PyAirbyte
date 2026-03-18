@@ -850,11 +850,12 @@ def destination_smoke_test(
         list[str] | str,
         Field(
             description=(
-                "Which scenarios to run. Use 'all' (default) to run every predefined "
+                "Which scenarios to run. Use 'fast' (default) for all fast predefined "
+                "scenarios (excludes large_batch_stream), 'all' for every predefined "
                 "scenario including large batch, or provide a list of scenario names "
                 "or a comma-separated string."
             ),
-            default="all",
+            default="fast",
         ),
     ],
     custom_scenarios: Annotated[
@@ -914,7 +915,7 @@ def destination_smoke_test(
     if isinstance(scenarios, str):
         resolved_scenarios = scenarios
     else:
-        resolved_scenarios = resolve_list_of_strings(scenarios) or "all"
+        resolved_scenarios = resolve_list_of_strings(scenarios) or "fast"
 
     return run_destination_smoke_test(
         destination=destination_obj,

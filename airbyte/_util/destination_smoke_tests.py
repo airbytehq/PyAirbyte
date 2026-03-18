@@ -52,7 +52,7 @@ class DestinationSmokeTestResult(BaseModel):
 
 def get_smoke_test_source(
     *,
-    scenarios: str | list[str] = "all",
+    scenarios: str | list[str] = "fast",
     custom_scenarios: list[dict[str, Any]] | None = None,
     custom_scenarios_file: str | None = None,
 ) -> Source:
@@ -61,9 +61,12 @@ def get_smoke_test_source(
     The smoke test source generates synthetic data across predefined scenarios
     that cover common destination failure patterns.
 
-    `scenarios` controls which scenarios to run: `'all'` runs all scenarios
-    (including large batch), or provide a comma-separated string or list of
-    scenario names.
+    `scenarios` controls which scenarios to run:
+
+    - `'fast'` (default): runs all fast (non-high-volume) predefined scenarios,
+      excluding `large_batch_stream`.
+    - `'all'`: runs every predefined scenario including `large_batch_stream`.
+    - A comma-separated string or list of specific scenario names.
 
     `custom_scenarios` is an optional list of scenario dicts to inject directly.
 
@@ -71,13 +74,30 @@ def get_smoke_test_source(
     additional scenario definitions. Each scenario should have `name`, `json_schema`,
     and optionally `records` and `primary_key`.
     """
+    # Normalize empty list to "fast" (default)
+    if isinstance(scenarios, list) and not scenarios:
+        scenarios = "fast"
+
     scenarios_str = ",".join(scenarios) if isinstance(scenarios, list) else scenarios
-    is_all = scenarios_str.strip().lower() == "all"
-    source_config: dict[str, Any] = {
-        "all_fast_streams": is_all,
-        "all_slow_streams": is_all,
-    }
-    if not is_all:
+    keyword = scenarios_str.strip().lower()
+    is_all = keyword == "all"
+    is_fast = keyword == "fast"
+
+    if is_all:
+        source_config: dict[str, Any] = {
+            "all_fast_streams": True,
+            "all_slow_streams": True,
+        }
+    elif is_fast:
+        source_config: dict[str, Any] = {
+            "all_fast_streams": True,
+            "all_slow_streams": False,
+        }
+    else:
+        source_config: dict[str, Any] = {
+            "all_fast_streams": False,
+            "all_slow_streams": False,
+        }
         if isinstance(scenarios, list):
             source_config["scenario_filter"] = [s.strip() for s in scenarios if s.strip()]
         else:
@@ -136,7 +156,7 @@ def _sanitize_error(ex: Exception) -> str:
 def run_destination_smoke_test(
     *,
     destination: Destination,
-    scenarios: str | list[str] = "all",
+    scenarios: str | list[str] = "fast",
     custom_scenarios: list[dict[str, Any]] | None = None,
     custom_scenarios_file: str | None = None,
 ) -> DestinationSmokeTestResult:
@@ -151,9 +171,11 @@ def run_destination_smoke_test(
 
     `destination` is a resolved `Destination` object ready for writing.
 
-    `scenarios` controls which predefined scenarios to run: `'all'` runs
-    every scenario (including large batch), or provide a comma-separated
-    string or list of specific scenario names.
+    `scenarios` controls which predefined scenarios to run:
+
+    - `'fast'` (default): runs all fast (non-high-volume) predefined scenarios.
+    - `'all'`: runs every scenario including `large_batch_stream`.
+    - A comma-separated string or list of specific scenario names.
 
     `custom_scenarios` is an optional list of scenario dicts to inject.
 
@@ -168,7 +190,7 @@ def run_destination_smoke_test(
 
     # Normalize scenarios to a display string
     if isinstance(scenarios, list):
-        scenarios_str = ",".join(scenarios) if scenarios else "all"
+        scenarios_str = ",".join(scenarios) if scenarios else "fast"
     else:
         scenarios_str = scenarios
 

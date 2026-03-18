@@ -666,11 +666,12 @@ def sync(
 @click.option(
     "--scenarios",
     type=str,
-    default="all",
+    default="fast",
     help=(
-        "Which smoke test scenarios to run. Use 'all' (default) to run every "
-        "predefined scenario including large batch, or provide a comma-separated "
-        "list of scenario names. "
+        "Which smoke test scenarios to run. "
+        "Use 'fast' (default) for all fast predefined scenarios "
+        "(excludes large_batch_stream), 'all' for every predefined scenario "
+        "including large batch, or provide a comma-separated list of scenario names. "
         "Available scenarios: basic_types, timestamp_types, "
         "large_decimals_and_numbers, nested_json_objects, null_handling, "
         "column_naming_edge_cases, table_naming_edge_cases, "
@@ -695,7 +696,7 @@ def destination_smoke_test(
     config: str | None = None,
     pip_url: str | None = None,
     use_python: str | None = None,
-    scenarios: str = "all",
+    scenarios: str = "fast",
     custom_scenarios: str | None = None,
 ) -> None:
     """Run smoke tests against a destination connector.
@@ -719,6 +720,9 @@ def destination_smoke_test(
 
     `pyab destination-smoke-test --destination=destination-motherduck
     --scenarios=basic_types,null_handling`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json --scenarios=all`
     """
     click.echo("Resolving destination...", file=sys.stderr)
     destination_obj = _resolve_destination_job(
