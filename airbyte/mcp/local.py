@@ -812,7 +812,7 @@ def run_sql_query(
 @mcp_tool(
     destructive=True,
 )
-def destination_smoke_test(
+def destination_smoke_test(  # noqa: PLR0913, PLR0917
     destination_connector_name: Annotated[
         str,
         Field(
@@ -879,6 +879,28 @@ def destination_smoke_test(
             default=None,
         ),
     ],
+    namespace_suffix: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional suffix appended to the auto-generated namespace. "
+                "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
+                "Use this to distinguish concurrent runs."
+            ),
+            default=None,
+        ),
+    ],
+    reuse_namespace: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Exact namespace to reuse from a previous run. "
+                "When set, no new namespace is generated. "
+                "Useful for running a second test against an already-populated namespace."
+            ),
+            default=None,
+        ),
+    ],
 ) -> DestinationSmokeTestResult:
     """Run smoke tests against a destination connector.
 
@@ -920,6 +942,8 @@ def destination_smoke_test(
     return run_destination_smoke_test(
         destination=destination_obj,
         scenarios=resolved_scenarios,
+        namespace_suffix=namespace_suffix,
+        reuse_namespace=reuse_namespace,
         custom_scenarios=custom_scenarios,
     )
 

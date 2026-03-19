@@ -13,6 +13,7 @@ without errors. No readback or comparison is performed.
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,9 +24,39 @@ from airbyte import get_source
 from airbyte.exceptions import PyAirbyteInputError
 
 
+NAMESPACE_PREFIX = "zz_deleteme"
+"""Prefix for auto-generated smoke test namespaces.
+
+The ``zz_`` prefix sorts last alphabetically; ``deleteme`` signals the
+namespace is safe for automated cleanup.
+"""
+
+DEFAULT_NAMESPACE_SUFFIX = "smoke_test"
+"""Default suffix appended when no explicit suffix is provided."""
+
+
 if TYPE_CHECKING:
     from airbyte.destinations.base import Destination
     from airbyte.sources.base import Source
+
+
+def generate_namespace(
+    *,
+    namespace_suffix: str | None = None,
+) -> str:
+    """Generate a smoke-test namespace.
+
+    Format: ``zz_deleteme_yyyymmdd_hhmm_<suffix>``.
+    The ``zz_`` prefix sorts last alphabetically and the ``deleteme``
+    token acts as a guard for automated cleanup scripts.
+
+    If *namespace_suffix* is not provided, ``smoke_test`` is used as the
+    default suffix.
+    """
+    suffix = namespace_suffix or DEFAULT_NAMESPACE_SUFFIX
+    now = datetime.now(tz=timezone.utc)
+    ts = now.strftime("%Y%m%d_%H%M")
+    return f"{NAMESPACE_PREFIX}_{ts}_{suffix}"
 
 
 class DestinationSmokeTestResult(BaseModel):
@@ -36,6 +67,9 @@ class DestinationSmokeTestResult(BaseModel):
 
     destination: str
     """The destination connector name."""
+
+    namespace: str
+    """The namespace used for this smoke test run."""
 
     records_delivered: int
     """Total number of records delivered to the destination."""
@@ -53,6 +87,7 @@ class DestinationSmokeTestResult(BaseModel):
 def get_smoke_test_source(
     *,
     scenarios: str | list[str] = "fast",
+    namespace: str | None = None,
     custom_scenarios: list[dict[str, Any]] | None = None,
     custom_scenarios_file: str | None = None,
 ) -> Source:
@@ -69,6 +104,9 @@ def get_smoke_test_source(
     - A comma-separated string or list of specific scenario names.
 
     `custom_scenarios` is an optional list of scenario dicts to inject directly.
+
+    `namespace` is an optional namespace to set on all streams. When provided,
+    the destination will write data into this namespace (schema, database, etc.).
 
     `custom_scenarios_file` is an optional path to a JSON or YAML file containing
     additional scenario definitions. Each scenario should have `name`, `json_schema`,
@@ -134,6 +172,9 @@ def get_smoke_test_source(
         existing = source_config.get("custom_scenarios", [])
         source_config["custom_scenarios"] = existing + file_scenarios
 
+    if namespace:
+        source_config["namespace"] = namespace
+
     return get_source(
         name="source-smoke-test",
         config=source_config,
@@ -157,6 +198,8 @@ def run_destination_smoke_test(
     *,
     destination: Destination,
     scenarios: str | list[str] = "fast",
+    namespace_suffix: str | None = None,
+    reuse_namespace: str | None = None,
     custom_scenarios: list[dict[str, Any]] | None = None,
     custom_scenarios_file: str | None = None,
 ) -> DestinationSmokeTestResult:
@@ -177,13 +220,26 @@ def run_destination_smoke_test(
     - `'all'`: runs every scenario including `large_batch_stream`.
     - A comma-separated string or list of specific scenario names.
 
+    `namespace_suffix` is an optional suffix appended to the auto-generated
+    namespace. Defaults to ``smoke_test`` when not provided
+    (e.g. ``zz_deleteme_20260318_2256_smoke_test``).
+
+    `reuse_namespace` is an exact namespace string to reuse from a previous
+    run. When set, no new namespace is generated.
+
     `custom_scenarios` is an optional list of scenario dicts to inject.
 
     `custom_scenarios_file` is an optional path to a JSON/YAML file with
     additional scenario definitions.
     """
+    # Determine namespace
+    namespace = reuse_namespace or generate_namespace(
+        namespace_suffix=namespace_suffix,
+    )
+
     source_obj = get_smoke_test_source(
         scenarios=scenarios,
+        namespace=namespace,
         custom_scenarios=custom_scenarios,
         custom_scenarios_file=custom_scenarios_file,
     )
@@ -214,6 +270,7 @@ def run_destination_smoke_test(
     return DestinationSmokeTestResult(
         success=success,
         destination=destination.name,
+        namespace=namespace,
         records_delivered=records_delivered,
         scenarios_requested=scenarios_str,
         elapsed_seconds=round(elapsed, 2),

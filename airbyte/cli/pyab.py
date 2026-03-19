@@ -690,6 +690,26 @@ def sync(
         "and 'primary_key'. These are unioned with the predefined scenarios."
     ),
 )
+@click.option(
+    "--namespace-suffix",
+    type=str,
+    default=None,
+    help=(
+        "Optional suffix appended to the auto-generated namespace. "
+        "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
+        "Use this to distinguish concurrent runs."
+    ),
+)
+@click.option(
+    "--reuse-namespace",
+    type=str,
+    default=None,
+    help=(
+        "Exact namespace to reuse from a previous run. "
+        "When set, no new namespace is generated. "
+        "Useful for running a second test against an already-populated namespace."
+    ),
+)
 def destination_smoke_test(
     *,
     destination: str,
@@ -698,6 +718,8 @@ def destination_smoke_test(
     use_python: str | None = None,
     scenarios: str = "fast",
     custom_scenarios: str | None = None,
+    namespace_suffix: str | None = None,
+    reuse_namespace: str | None = None,
 ) -> None:
     """Run smoke tests against a destination connector.
 
@@ -723,6 +745,13 @@ def destination_smoke_test(
 
     `pyab destination-smoke-test --destination=destination-snowflake
     --config=./secrets/snowflake.json --scenarios=all`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json --namespace-suffix=run2`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json
+    --reuse-namespace=zz_deleteme_20260318_2256`
     """
     click.echo("Resolving destination...", file=sys.stderr)
     destination_obj = _resolve_destination_job(
@@ -736,6 +765,8 @@ def destination_smoke_test(
     result = run_destination_smoke_test(
         destination=destination_obj,
         scenarios=scenarios,
+        namespace_suffix=namespace_suffix,
+        reuse_namespace=reuse_namespace,
         custom_scenarios_file=custom_scenarios,
     )
 
