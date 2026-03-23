@@ -452,7 +452,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
 
         try:
             result = self.run_sql_query(
-                f"SELECT COUNT(*) AS row_count FROM {self.schema_name}.{table_name}",
+                f'SELECT COUNT(*) AS row_count FROM {self.schema_name}."{table_name}"',
             )
             if result:
                 return int(result[0]["row_count"])
@@ -528,7 +528,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         count_exprs_str = ", ".join(count_exprs)
         sql = (
             f"SELECT COUNT(*) AS total_rows, {count_exprs_str} "
-            f"FROM {self.schema_name}.{table_name}"
+            f'FROM {self.schema_name}."{table_name}"'
         )
 
         try:
