@@ -455,7 +455,8 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
                 f'SELECT COUNT(*) AS row_count FROM {self.schema_name}."{table_name}"',
             )
             if result:
-                return int(result[0]["row_count"])
+                row_ci = {k.lower(): v for k, v in result[0].items()}
+                return int(row_ci.get("row_count", 0))
             return 0  # noqa: TRY300
         except Exception:
             logging.getLogger(__name__).debug(
@@ -615,6 +616,13 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         for stream_name in stream_names:
             expected_table = self.processor.get_sql_table_name(stream_name)
             report = self._readback_get_table_report(expected_table, stream_name)
+
+            # Fallback: if the normalized name isn't found, try the
+            # original stream name.  Some destinations preserve the
+            # original casing (e.g. "CamelCaseStreamName") while the
+            # cache normalizer lowercases it.
+            if report is None and expected_table != stream_name:
+                report = self._readback_get_table_report(stream_name, stream_name)
 
             if report is None:
                 tables_missing.append(stream_name)
