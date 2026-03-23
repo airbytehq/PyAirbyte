@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
@@ -11,6 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 from pydantic import Field, PrivateAttr
+import sqlalchemy as sa
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
 from typing_extensions import Self
@@ -448,8 +450,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         table_name: str,
     ) -> int | None:
         """Query the row count for a table. Returns None if the table doesn't exist."""
-        import logging  # noqa: PLC0415
-
         try:
             result = self.run_sql_query(
                 f'SELECT COUNT(*) AS row_count FROM {self.schema_name}."{table_name}"',
@@ -474,10 +474,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
 
         Returns a list of dicts with 'column_name' and 'column_type' keys.
         """
-        import logging  # noqa: PLC0415
-
-        import sqlalchemy as sa  # noqa: PLC0415
-
         try:
             engine = self.get_sql_engine()
             inspector = sa.inspect(engine)
@@ -511,8 +507,6 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         Returns a list of dicts with column_name, null_count, non_null_count,
         total_count keys.
         """
-        import logging  # noqa: PLC0415
-
         if not columns:
             return []
 
