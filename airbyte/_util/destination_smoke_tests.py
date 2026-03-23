@@ -309,8 +309,20 @@ def run_destination_smoke_test(
     tables_not_found: dict[str, str] | None = None
     if destination.is_cache_supported:
         try:
+            # Try the smoke-test namespace first; if no tables are found,
+            # fall back to the destination's default schema (some destinations
+            # ignore the source namespace and always write to their configured
+            # schema, e.g. Snowflake writes to its config `schema` field).
             cache = destination.get_sql_cache(schema_name=namespace)
             table_statistics = cache.fetch_table_statistics(stream_names)
+            if not table_statistics:
+                logger.info(
+                    "No tables found in namespace '%s'; retrying with "
+                    "destination default schema.",
+                    namespace,
+                )
+                cache = destination.get_sql_cache()
+                table_statistics = cache.fetch_table_statistics(stream_names)
             tables_not_found = {
                 name: cache.processor.get_sql_table_name(name)
                 for name in stream_names
