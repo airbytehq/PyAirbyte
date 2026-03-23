@@ -44,6 +44,16 @@ namespace is safe for automated cleanup.
 DEFAULT_NAMESPACE_SUFFIX = "smoke_test"
 """Default suffix appended when no explicit suffix is provided."""
 
+# Map destination types to their schema/dataset config key.
+# Used to override the destination config so it writes to the test namespace.
+_DESTINATION_SCHEMA_CONFIG_KEYS: dict[str, str] = {
+    "bigquery": "dataset_id",
+    "duckdb": "schema",
+    "motherduck": "schema",
+    "postgres": "schema",
+    "snowflake": "schema",
+}
+
 
 if TYPE_CHECKING:
     from airbyte.destinations.base import Destination
@@ -214,6 +224,42 @@ def get_smoke_test_source(
     )
 
 
+def _apply_namespace_to_destination_config(
+    destination: Destination,
+    namespace: str,
+) -> None:
+    """Override the schema/dataset in the destination config for namespace isolation.
+
+    Some destinations use their config schema key (e.g. `schema` for Snowflake)
+    rather than the catalog namespace when deciding where to write data.
+    This ensures the destination writes to the smoke-test namespace by
+    overriding the config key directly.
+
+    The catalog namespace is already set on each stream by the source, but
+    this "belt and suspenders" approach guarantees correct schema targeting
+    regardless of how a given destination resolves its output schema.
+
+    Note: This mutates the destination's config in place.
+    """
+    dest_name = destination.name
+    if not dest_name.startswith("destination-"):
+        dest_name = f"destination-{dest_name}"
+    dest_type = dest_name.removeprefix("destination-")
+
+    schema_key = _DESTINATION_SCHEMA_CONFIG_KEYS.get(dest_type)
+    if schema_key:
+        config = dict(destination.get_config())
+        logger.info(
+            "Overriding destination config '%s' from '%s' to '%s' "
+            "for namespace isolation.",
+            schema_key,
+            config.get(schema_key, "<not set>"),
+            namespace,
+        )
+        config[schema_key] = namespace
+        destination.set_config(config)
+
+
 def _sanitize_error(ex: Exception) -> str:
     """Extract an error message from an exception without leaking secrets.
 
@@ -287,6 +333,12 @@ def run_destination_smoke_test(
     else:
         scenarios_str = scenarios
 
+    # Override the destination config schema to write to the test namespace.
+    # The catalog namespace is already set on each stream by the source,
+    # but some destinations (e.g. Snowflake) prioritize their config schema
+    # over the catalog namespace.
+    _apply_namespace_to_destination_config(destination, namespace)
+
     start_time = time.monotonic()
     success = False
     error_message: str | None = None
@@ -309,20 +361,8 @@ def run_destination_smoke_test(
     tables_not_found: dict[str, str] | None = None
     if destination.is_cache_supported:
         try:
-            # Try the smoke-test namespace first; if no tables are found,
-            # fall back to the destination's default schema (some destinations
-            # ignore the source namespace and always write to their configured
-            # schema, e.g. Snowflake writes to its config `schema` field).
             cache = destination.get_sql_cache(schema_name=namespace)
             table_statistics = cache.fetch_table_statistics(stream_names)
-            if not table_statistics:
-                logger.info(
-                    "No tables found in namespace '%s'; retrying with "
-                    "destination default schema.",
-                    namespace,
-                )
-                cache = destination.get_sql_cache()
-                table_statistics = cache.fetch_table_statistics(stream_names)
             tables_not_found = {
                 name: cache.processor.get_sql_table_name(name)
                 for name in stream_names
