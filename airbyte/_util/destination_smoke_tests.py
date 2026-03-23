@@ -105,11 +105,12 @@ class DestinationSmokeTestResult(BaseModel):
     failed or the destination does not have a compatible cache.
     """
 
-    tables_not_found: list[str] | None = None
-    """Stream names for which the expected table was not found.
+    tables_not_found: dict[str, str] | None = None
+    """Stream names whose expected tables were not found in the destination.
 
-    Populated alongside `table_statistics`. `None` when readback was
-    not performed.
+    Maps stream name to the expected (normalized) table name that was
+    looked up but not found. Populated alongside `table_statistics`.
+    `None` when readback was not performed.
     """
 
 
@@ -303,12 +304,16 @@ def run_destination_smoke_test(
 
     # Perform readback introspection if the write succeeded
     table_statistics: dict[str, TableStatistics] | None = None
-    tables_not_found: list[str] | None = None
+    tables_not_found: dict[str, str] | None = None
     if success:
         try:
             cache = destination.get_sql_cache(schema_name=namespace)
             table_statistics = cache.fetch_table_statistics(stream_names)
-            tables_not_found = [name for name in stream_names if name not in table_statistics]
+            tables_not_found = {
+                name: cache.processor.get_sql_table_name(name)
+                for name in stream_names
+                if name not in table_statistics
+            }
         except ValueError:
             # destination_to_cache raises ValueError for unsupported types
             logger.info(
