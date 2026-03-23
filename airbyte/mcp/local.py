@@ -543,7 +543,9 @@ def get_stream_previews(
     )
     source.set_config(config_dict)
 
-    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(streams)  # pyrefly: ignore[no-matching-overload]
+    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(
+        streams
+    )  # pyrefly: ignore[no-matching-overload]
     if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
         streams_param = "*"
 
