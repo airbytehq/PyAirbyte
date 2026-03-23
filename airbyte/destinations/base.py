@@ -14,6 +14,10 @@ from airbyte._connector_base import ConnectorBase
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte._writers.base import AirbyteWriterInterface
+from airbyte.caches._utils._dest_to_cache import (
+    destination_to_cache,
+    get_supported_destination_types,
+)
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
@@ -82,10 +86,6 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         Returns `True` when `get_sql_cache()` is expected to succeed for
         the destination's connector type.
         """
-        from airbyte.caches._utils._dest_to_cache import (  # noqa: PLC0415
-            get_supported_destination_types,
-        )
-
         dest_type = self._normalize_destination_name(
             self.name,
         ).replace(_CANONICAL_PREFIX, "")
@@ -111,10 +111,6 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         Raises:
             ValueError: If the destination type is not supported.
         """
-        from airbyte.caches._utils._dest_to_cache import (  # noqa: PLC0415
-            destination_to_cache,
-        )
-
         resolved_name = self._normalize_destination_name(self.name)
         config = dict(self._hydrated_config)
 
