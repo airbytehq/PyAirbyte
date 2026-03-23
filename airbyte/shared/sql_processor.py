@@ -1271,7 +1271,7 @@ class SqlProcessorBase(abc.ABC):
             for col in columns
         ]
 
-    def get_column_stats(
+    def _get_column_stats(
         self,
         table_name: str,
         columns: list[dict[str, str]],
@@ -1365,7 +1365,7 @@ class SqlProcessorBase(abc.ABC):
 
             row_count = self.get_row_count(table_name)
             columns = self.get_column_info(table_name, inspector=shared_inspector)
-            stats = self.get_column_stats(table_name, columns)
+            stats = self._get_column_stats(table_name, columns)
 
             # Merge column info and stats into ColumnStatistics objects.
             stats_by_col = {s["column_name"]: s for s in stats}
