@@ -315,7 +315,9 @@ def run_destination_smoke_test(
         }
     else:
         logger.info(
-            "Readback not supported for destination '%s'.",
+            "Skipping table and column statistics retrieval for "
+            "destination '%s' because no SQL interface mapping has been "
+            "defined.",
             destination.name,
         )
 
