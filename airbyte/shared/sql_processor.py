@@ -93,13 +93,13 @@ class ColumnStatistics(BaseModel):
     column_type: str
     """The SQL data type name as reported by the database."""
 
-    null_count: int
+    null_count: int | None = None
     """Number of NULL values in this column."""
 
-    non_null_count: int
+    non_null_count: int | None = None
     """Number of non-NULL values in this column."""
 
-    total_count: int
+    total_count: int | None = None
     """Total row count (null_count + non_null_count)."""
 
 
@@ -109,7 +109,7 @@ class TableStatistics(BaseModel):
     table_name: str
     """The table name as found in the destination."""
 
-    row_count: int
+    row_count: int | None = None
     """Number of rows found."""
 
     column_statistics: list[ColumnStatistics]

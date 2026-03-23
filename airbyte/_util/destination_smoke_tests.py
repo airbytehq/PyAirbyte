@@ -399,6 +399,12 @@ def run_destination_smoke_test(
                 "Readback not supported for destination '%s'.",
                 destination.name,
             )
+        except Exception:
+            logger.warning(
+                "Readback failed for destination '%s'.",
+                destination.name,
+                exc_info=True,
+            )
 
     return DestinationSmokeTestResult(
         success=success,
