@@ -1240,15 +1240,28 @@ class SqlProcessorBase(abc.ABC):
     def get_column_info(
         self,
         table_name: str,
+        *,
+        inspector: Inspector | None = None,
     ) -> list[dict[str, str]]:
-        """Return column names and types for the given table.
+        """Return actual column names and types for the given table.
+
+        This method differs from `_get_sql_column_definitions` in that it always
+        returns actual detected column types from the database. It will never
+        return previously-cached types or 'expected' types based on the stream
+        JSON schema.
 
         Each entry is a dict with `column_name` and `column_type` keys.
 
+        Args:
+            table_name: The table to inspect.
+            inspector: An optional pre-created SQLAlchemy `Inspector` to reuse.
+                When inspecting many tables, passing a shared inspector avoids
+                creating a new one per call.
+
         Raises if the table does not exist or is not accessible.
         """
-        engine = self.get_sql_engine()
-        inspector: Inspector = sqlalchemy.inspect(engine)
+        if inspector is None:
+            inspector = sqlalchemy.inspect(self.get_sql_engine())
         columns = inspector.get_columns(table_name, schema=self.sql_config.schema_name)
         return [
             {
@@ -1334,6 +1347,9 @@ class SqlProcessorBase(abc.ABC):
         """
         result: dict[str, TableStatistics] = {}
 
+        # Share a single inspector across all tables to avoid repeated creation.
+        shared_inspector: Inspector = sqlalchemy.inspect(self.get_sql_engine())
+
         for stream_name in stream_names:
             expected_table = self.get_sql_table_name(stream_name)
 
@@ -1348,7 +1364,7 @@ class SqlProcessorBase(abc.ABC):
                 continue
 
             row_count = self.get_row_count(table_name)
-            columns = self.get_column_info(table_name)
+            columns = self.get_column_info(table_name, inspector=shared_inspector)
             stats = self.get_column_stats(table_name, columns)
 
             # Merge column info and stats into ColumnStatistics objects.
