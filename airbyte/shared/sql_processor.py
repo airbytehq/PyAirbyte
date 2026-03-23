@@ -1219,7 +1219,7 @@ class SqlProcessorBase(abc.ABC):
 
     # ---- Table introspection helpers ----
 
-    def get_row_count(
+    def fetch_row_count(
         self,
         table_name: str,
     ) -> int:
@@ -1237,7 +1237,7 @@ class SqlProcessorBase(abc.ABC):
         row_ci = {k.lower(): v for k, v in row.items()}
         return int(row_ci.get("row_count", 0))
 
-    def get_column_info(
+    def fetch_column_info(
         self,
         table_name: str,
         *,
@@ -1279,7 +1279,7 @@ class SqlProcessorBase(abc.ABC):
         """Return per-column null/non-null counts for the given table.
 
         `columns` should be a list of dicts with at least a `column_name`
-        key (as returned by `get_column_info()`).
+        key (as returned by `fetch_column_info()`).
 
         Returns a list of dicts with `column_name`, `null_count`,
         `non_null_count`, and `total_count` keys.
@@ -1329,7 +1329,7 @@ class SqlProcessorBase(abc.ABC):
 
         return stats
 
-    def get_table_statistics(
+    def fetch_table_statistics(
         self,
         stream_names: list[str],
     ) -> dict[str, TableStatistics]:
@@ -1363,8 +1363,8 @@ class SqlProcessorBase(abc.ABC):
             if table_name is None:
                 continue
 
-            row_count = self.get_row_count(table_name)
-            columns = self.get_column_info(table_name, inspector=shared_inspector)
+            row_count = self.fetch_row_count(table_name)
+            columns = self.fetch_column_info(table_name, inspector=shared_inspector)
             stats = self._get_column_stats(table_name, columns)
 
             # Merge column info and stats into ColumnStatistics objects.

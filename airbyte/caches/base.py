@@ -439,20 +439,20 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
 
-    def get_table_statistics(
+    def fetch_table_statistics(
         self,
         stream_names: list[str],
     ) -> dict[str, TableStatistics]:
         """Return table statistics for the given stream names.
 
-        Delegates to `self.processor.get_table_statistics()` which queries
+        Delegates to `self.processor.fetch_table_statistics()` which queries
         row counts, column info, and per-column null/non-null stats for each
         stream.
 
         Returns a dict mapping stream name to a `TableStatistics` instance.
         Streams whose tables are not found are omitted from the result.
         """
-        return self.processor.get_table_statistics(stream_names)
+        return self.processor.fetch_table_statistics(stream_names)
 
     def _write_airbyte_message_stream(
         self,

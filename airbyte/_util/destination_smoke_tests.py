@@ -384,7 +384,7 @@ def run_destination_smoke_test(
     if success:
         try:
             cache = destination.get_sql_cache(schema_name=namespace)
-            table_statistics = cache.get_table_statistics(stream_names)
+            table_statistics = cache.fetch_table_statistics(stream_names)
             tables_missing = [name for name in stream_names if name not in table_statistics]
             readback_result = DestinationReadbackResult(
                 destination=destination.name,
