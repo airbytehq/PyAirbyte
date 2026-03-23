@@ -517,11 +517,13 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
 
         # Build a SQL query that computes COUNT(*), COUNT(col) for each column.
         # COUNT(*) gives total rows, COUNT(col) gives non-null count.
+        # We use positional aliases (nn_0, nn_1, ...) to avoid issues with
+        # databases that truncate long identifiers (PostgreSQL: 63 chars).
         count_exprs: list[str] = []
-        for col in columns:
+        for idx, col in enumerate(columns):
             col_name = col["column_name"]
             quoted = f'"{col_name}"'
-            count_exprs.append(f"COUNT({quoted}) AS non_null_{col_name}")
+            count_exprs.append(f"COUNT({quoted}) AS nn_{idx}")
 
         count_exprs_str = ", ".join(count_exprs)
         sql = (
@@ -549,9 +551,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         total_rows = int(row_ci.get("total_rows", 0))
 
         stats = []
-        for col in columns:
+        for idx, col in enumerate(columns):
             col_name = col["column_name"]
-            non_null_key = f"non_null_{col_name}".lower()
+            non_null_key = f"nn_{idx}"
             val = row_ci.get(non_null_key)
             non_null_count = int(val) if val is not None else 0
             stats.append(
