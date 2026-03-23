@@ -90,6 +90,10 @@ def destination_to_cache(
     cache = conversion_fn(destination_configuration)
     if schema_name is not None:
         cache.schema_name = schema_name
+        # Force engine re-creation so the schema_translate_map picks up
+        # the overridden schema_name (the engine is lazily cached during
+        # __init__ with the original schema from the destination config).
+        cache.processor.sql_config.dispose_engine()
     return cache
 
 
