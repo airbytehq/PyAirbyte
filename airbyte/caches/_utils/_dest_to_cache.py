@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from airbyte_api.models import (
@@ -104,15 +107,38 @@ def bigquery_destination_to_cache(
 
     We may have to inject credentials, because they are obfuscated when config
     is returned from the REST API.
+
+    When the destination config contains a plaintext `credentials_json` field
+    (the local `Destination.get_sql_cache()` path), the JSON is written to a
+    temporary file and used directly.  Otherwise we fall back to the
+    `BIGQUERY_CREDENTIALS_PATH` secret/env-var (the cloud API path).
     """
-    credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
+    # Extract credentials_json before converting to the Pydantic model,
+    # because DestinationBigquery may strip or obfuscate the field.
+    raw_credentials_json: str | None = None
     if isinstance(destination_configuration, dict):
+        raw_credentials_json = destination_configuration.get("credentials_json")
         filtered = {
             k: v
             for k, v in destination_configuration.items()
             if k not in {"destinationType", "DESTINATION_TYPE"}
         }
         destination_configuration = DestinationBigquery(**filtered)
+    elif hasattr(destination_configuration, "credentials_json"):
+        raw_credentials_json = destination_configuration.credentials_json
+
+    if raw_credentials_json and "****" not in raw_credentials_json:
+        # Plaintext credentials from a local destination config — write to
+        # a temp file so BigQueryCache can use it as a credentials path.
+        # The file is intentionally *not* deleted on close because the
+        # cache needs the path to remain valid after this function returns.
+        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="bq_creds_")
+        Path(tmp_path).write_text(raw_credentials_json, encoding="utf-8")
+        # Close the file descriptor opened by mkstemp (write_text uses its own).
+        os.close(tmp_fd)
+        credentials_path = tmp_path
+    else:
+        credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
 
     return BigQueryCache(
         project_name=destination_configuration.project_id,
