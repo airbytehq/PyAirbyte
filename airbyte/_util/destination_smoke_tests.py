@@ -246,7 +246,7 @@ def _prepare_destination_config(
         changed = True
 
     if changed:
-        destination.set_config(config)
+        destination.set_config(config, validate=False)
 
 
 def _sanitize_error(ex: Exception) -> str:
