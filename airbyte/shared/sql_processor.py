@@ -245,9 +245,12 @@ class SqlProcessorBase(abc.ABC):
         ] = defaultdict(list, {})
 
         self._setup()
-        self.file_writer = file_writer or self.file_writer_class(  # pyrefly: ignore[bad-instantiation]
-            cache_dir=cast("Path", temp_dir),
-            cleanup=temp_file_cleanup,
+        self.file_writer = (
+            file_writer
+            or self.file_writer_class(  # pyrefly: ignore[bad-instantiation]
+                cache_dir=cast("Path", temp_dir),
+                cleanup=temp_file_cleanup,
+            )
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}
@@ -572,9 +575,9 @@ class SqlProcessorBase(abc.ABC):
 
         if DEBUG_MODE:
             found_schemas = schemas_list
-            assert schema_name in found_schemas, (
-                f"Schema {schema_name} was not created. Found: {found_schemas}"
-            )
+            assert (
+                schema_name in found_schemas
+            ), f"Schema {schema_name} was not created. Found: {found_schemas}"
 
     def _quote_identifier(self, identifier: str) -> str:
         """Return the given identifier, quoted."""
