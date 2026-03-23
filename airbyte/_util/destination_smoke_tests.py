@@ -101,8 +101,9 @@ class DestinationSmokeTestResult(BaseModel):
     table_statistics: dict[str, TableStatistics] | None = None
     """Map of stream name to table statistics (row counts, columns, stats).
 
-    Populated when readback introspection succeeds. `None` if the write
-    failed or the destination does not have a compatible cache.
+    Populated when the destination has a compatible cache, regardless of
+    write success (to support partial-success inspection). `None` when
+    the destination does not have a compatible cache.
     """
 
     tables_not_found: dict[str, str] | None = None
@@ -239,7 +240,8 @@ def run_destination_smoke_test(
     destination and returns a structured result.
 
     When the destination has a compatible cache implementation, readback
-    introspection is automatically performed after a successful write.
+    introspection is automatically performed (even on write failure, to
+    support partial-success inspection).
     The readback produces stats on the written data (table row counts,
     column names/types, and per-column null/non-null counts) and is
     included in the result as `table_statistics` and `tables_not_found`.
@@ -302,7 +304,7 @@ def run_destination_smoke_test(
 
     elapsed = time.monotonic() - start_time
 
-    # Perform readback introspection if the write succeeded
+    # Perform readback introspection (runs even on write failure for partial-success support)
     table_statistics: dict[str, TableStatistics] | None = None
     tables_not_found: dict[str, str] | None = None
     if destination.is_cache_supported:
