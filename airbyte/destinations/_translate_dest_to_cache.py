@@ -115,7 +115,7 @@ def duckdb_destination_to_cache(
     if db_path.startswith(("/local/", "/local\\")):
         from airbyte.constants import DEFAULT_PROJECT_DIR  # noqa: PLC0415
 
-        host_path = str(DEFAULT_PROJECT_DIR / "destination-duckdb" / db_path[len("/local/"):])
+        host_path = str(DEFAULT_PROJECT_DIR / "destination-duckdb" / db_path[len("/local/") :])
         db_path = host_path
 
     return DuckDBCache(
