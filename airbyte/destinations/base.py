@@ -75,6 +75,22 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             return f"{_CANONICAL_PREFIX}{name}"
         return name
 
+    @property
+    def is_cache_supported(self) -> bool:
+        """Whether this destination has a compatible cache implementation.
+
+        Returns `True` when `get_sql_cache()` is expected to succeed for
+        the destination's connector type.
+        """
+        from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
+            get_supported_destination_types,
+        )
+
+        dest_type = self._normalize_destination_name(
+            self.name,
+        ).replace(_CANONICAL_PREFIX, "")
+        return dest_type in get_supported_destination_types()
+
     def get_sql_cache(
         self,
         *,

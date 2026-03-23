@@ -305,27 +305,19 @@ def run_destination_smoke_test(
     # Perform readback introspection if the write succeeded
     table_statistics: dict[str, TableStatistics] | None = None
     tables_not_found: dict[str, str] | None = None
-    if success:
-        try:
-            cache = destination.get_sql_cache(schema_name=namespace)
-            table_statistics = cache.fetch_table_statistics(stream_names)
-            tables_not_found = {
-                name: cache.processor.get_sql_table_name(name)
-                for name in stream_names
-                if name not in table_statistics
-            }
-        except ValueError:
-            # destination_to_cache raises ValueError for unsupported types
-            logger.info(
-                "Readback not supported for destination '%s'.",
-                destination.name,
-            )
-        except Exception:
-            logger.warning(
-                "Readback failed for destination '%s'.",
-                destination.name,
-                exc_info=True,
-            )
+    if success and destination.is_cache_supported:
+        cache = destination.get_sql_cache(schema_name=namespace)
+        table_statistics = cache.fetch_table_statistics(stream_names)
+        tables_not_found = {
+            name: cache.processor.get_sql_table_name(name)
+            for name in stream_names
+            if name not in table_statistics
+        }
+    elif success:
+        logger.info(
+            "Readback not supported for destination '%s'.",
+            destination.name,
+        )
 
     return DestinationSmokeTestResult(
         success=success,

@@ -33,6 +33,20 @@ if TYPE_CHECKING:
 SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 
+_SUPPORTED_DESTINATION_TYPES: set[str] = {
+    "bigquery",
+    "duckdb",
+    "motherduck",
+    "postgres",
+    "snowflake",
+}
+
+
+def get_supported_destination_types() -> set[str]:
+    """Return the set of destination type identifiers that have cache support."""
+    return _SUPPORTED_DESTINATION_TYPES
+
+
 def destination_to_cache(
     destination_configuration: api_util.DestinationConfiguration | dict[str, Any],
     *,
