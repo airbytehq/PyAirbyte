@@ -295,12 +295,6 @@ def _sanitize_error(ex: Exception) -> str:
     return f"{type(ex).__name__}: {ex}"
 
 
-def _get_stream_names_from_source(source_obj: Source) -> list[str]:
-    """Extract stream names from a configured source."""
-    catalog = source_obj.get_configured_catalog()
-    return [stream.stream.name for stream in catalog.streams]
-
-
 def run_destination_smoke_test(
     *,
     destination: Destination,
@@ -354,7 +348,7 @@ def run_destination_smoke_test(
     )
 
     # Capture stream names for readback before the write consumes the source
-    stream_names = _get_stream_names_from_source(source_obj)
+    stream_names = source_obj.get_selected_streams()
 
     # Normalize scenarios to a display string
     if isinstance(scenarios, list):
