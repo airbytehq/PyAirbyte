@@ -250,8 +250,7 @@ def _apply_namespace_to_destination_config(
     if schema_key:
         config = dict(destination.get_config())
         logger.info(
-            "Overriding destination config '%s' from '%s' to '%s' "
-            "for namespace isolation.",
+            "Overriding destination config '%s' from '%s' to '%s' " "for namespace isolation.",
             schema_key,
             config.get(schema_key, "<not set>"),
             namespace,
