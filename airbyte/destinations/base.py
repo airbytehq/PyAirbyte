@@ -86,25 +86,25 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         """Return a SQL Cache for querying data written by this destination.
 
         This follows the same pattern as
-        :pymethod:`airbyte.cloud.sync_results.SyncResult.get_sql_cache`:
+        `SyncResult.get_sql_cache()` in `airbyte.cloud.sync_results`:
         it builds a cache from the destination's configuration using
-        ``destination_to_cache()``.
+        `destination_to_cache()`.
 
         Args:
             schema_name: Override the schema/namespace on the returned cache.
-                When ``None`` the cache uses the default schema from the
+                When `None` the cache uses the default schema from the
                 destination config.
             destination_name: The canonical destination connector name
-                (e.g. ``destination-snowflake`` or ``snowflake``).  When
-                ``None``, ``self.name`` is used.
+                (e.g. `destination-snowflake` or `snowflake`).  When
+                `None`, `self.name` is used.
             destination_config: The destination configuration dict.  When
-                ``None``, ``self.get_config()`` is used.
-            version: Destination version string.  Currently only ``"latest"``
-                (or ``None``, which is treated as ``"latest"``) is accepted.
-                Any other value raises ``NotImplementedError``.
+                `None`, `self.get_config()` is used.
+            version: Destination version string.  Currently only `"latest"`
+                (or `None`, which is treated as `"latest"`) is accepted.
+                Any other value raises `NotImplementedError`.
 
         Raises:
-            NotImplementedError: If *version* is not ``"latest"`` or ``None``.
+            NotImplementedError: If `version` is not `"latest"` or `None`.
             ValueError: If the destination type is not supported.
         """
         from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
