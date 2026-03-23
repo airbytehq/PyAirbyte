@@ -549,7 +549,9 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         for col in columns:
             col_name = col["column_name"]
             non_null_key = f"non_null_{col_name}"
-            non_null_count = int(row.get(non_null_key, 0))
+            # Try original case first, then lowercase for DBs that normalize
+            # result keys (e.g. PostgreSQL lowercases unquoted identifiers).
+            non_null_count = int(row.get(non_null_key) or row.get(non_null_key.lower(), 0))
             stats.append(
                 {
                     "column_name": col_name,
