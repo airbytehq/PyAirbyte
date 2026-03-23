@@ -439,6 +439,128 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
 
+    # ---- Readback introspection helpers ----
+    # These private methods support destination readback introspection,
+    # allowing the cache to query stats about data written by a destination.
+
+    def _readback_query_row_count(
+        self,
+        table_name: str,
+    ) -> int | None:
+        """Query the row count for a table. Returns None if the table doesn't exist."""
+        import logging  # noqa: PLC0415
+
+        try:
+            result = self.run_sql_query(
+                f"SELECT COUNT(*) AS row_count FROM {self.schema_name}.{table_name}",
+            )
+            if result:
+                return int(result[0]["row_count"])
+            return 0  # noqa: TRY300
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "Table %s.%s not found or not accessible.",
+                self.schema_name,
+                table_name,
+            )
+            return None
+
+    def _readback_query_column_info(
+        self,
+        table_name: str,
+    ) -> list[dict[str, str]]:
+        """Query column names and types for a table.
+
+        Returns a list of dicts with 'column_name' and 'column_type' keys.
+        """
+        import logging  # noqa: PLC0415
+
+        import sqlalchemy as sa  # noqa: PLC0415
+
+        try:
+            engine = self.get_sql_engine()
+            inspector = sa.inspect(engine)
+            columns = inspector.get_columns(table_name, schema=self.schema_name)
+            return [
+                {
+                    "column_name": col["name"],
+                    "column_type": str(col["type"]),
+                }
+                for col in columns
+            ]
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "Could not get column info for %s.%s",
+                self.schema_name,
+                table_name,
+            )
+            return []
+
+    def _readback_query_column_stats(
+        self,
+        table_name: str,
+        columns: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Query per-column null/non-null counts.
+
+        Args:
+            table_name: The table to query.
+            columns: List of dicts with at least a 'column_name' key.
+
+        Returns a list of dicts with column_name, null_count, non_null_count,
+        total_count keys.
+        """
+        import logging  # noqa: PLC0415
+
+        if not columns:
+            return []
+
+        # Build a SQL query that computes COUNT(*), COUNT(col) for each column.
+        # COUNT(*) gives total rows, COUNT(col) gives non-null count.
+        count_exprs: list[str] = []
+        for col in columns:
+            col_name = col["column_name"]
+            quoted = f'"{col_name}"'
+            count_exprs.append(f"COUNT({quoted}) AS non_null_{col_name}")
+
+        count_exprs_str = ", ".join(count_exprs)
+        sql = (
+            f"SELECT COUNT(*) AS total_rows, {count_exprs_str} "
+            f"FROM {self.schema_name}.{table_name}"
+        )
+
+        try:
+            result = self.run_sql_query(sql)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "Could not query column stats for %s.%s",
+                self.schema_name,
+                table_name,
+            )
+            return []
+
+        if not result:
+            return []
+
+        row = result[0]
+        total_rows = int(row["total_rows"])
+
+        stats = []
+        for col in columns:
+            col_name = col["column_name"]
+            non_null_key = f"non_null_{col_name}"
+            non_null_count = int(row.get(non_null_key, 0))
+            stats.append(
+                {
+                    "column_name": col_name,
+                    "null_count": total_rows - non_null_count,
+                    "non_null_count": non_null_count,
+                    "total_count": total_rows,
+                }
+            )
+
+        return stats
+
     def _write_airbyte_message_stream(
         self,
         stdin: IO[str] | AirbyteMessageIterator,

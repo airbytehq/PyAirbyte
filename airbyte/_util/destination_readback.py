@@ -6,7 +6,8 @@ connector and produce stats-level reports: table row counts, column names
 and types, and per-column null/non-null counts.
 
 The readback leverages PyAirbyte's existing cache implementations to query
-the same backends that destinations write to.
+the same backends that destinations write to.  Table and column name
+normalization is delegated to the cache's built-in SQL processor normalizer.
 """
 
 from __future__ import annotations
@@ -16,12 +17,8 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from airbyte._util.name_normalizers import LowerCaseNormalizer
-
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from airbyte.caches.base import CacheBase
 
 logger = logging.getLogger(__name__)
@@ -63,96 +60,6 @@ SUPPORTED_DESTINATIONS: frozenset[str] = frozenset(_DESTINATION_TO_CACHE_INFO.ke
 def _get_readback_supported(destination_name: str) -> bool:
     """Return True if readback is supported for the given destination."""
     return destination_name in SUPPORTED_DESTINATIONS
-
-
-# ---------------------------------------------------------------------------
-# Deterministic table name resolution
-# ---------------------------------------------------------------------------
-
-# Destinations normalize stream names into SQL table names.  The logic
-# differs per destination.  We hard-code the known conventions here so
-# that we can *optimistically* compute the expected table name without
-# scanning the schema.
-
-
-def _normalize_table_name_default(stream_name: str) -> str:
-    """Default normalizer: lowercase + replace non-alphanumeric with underscores.
-
-    This matches the LowerCaseNormalizer used by most PyAirbyte caches and
-    aligns with how the Airbyte Java/Python destinations normalize names.
-    """
-    return LowerCaseNormalizer.normalize(stream_name)
-
-
-def _normalize_table_name_snowflake(stream_name: str) -> str:
-    """Snowflake normalizer: same as default (lowercase).
-
-    Snowflake destinations use quoted identifiers in lowercase,
-    matching the LowerCaseNormalizer behavior.
-    """
-    return LowerCaseNormalizer.normalize(stream_name)
-
-
-def _normalize_table_name_bigquery(stream_name: str) -> str:
-    """BigQuery normalizer: same as default (lowercase).
-
-    BigQuery destinations use backtick-quoted identifiers in lowercase.
-    """
-    return LowerCaseNormalizer.normalize(stream_name)
-
-
-_DESTINATION_TABLE_NORMALIZERS: dict[str, Callable[[str], str]] = {
-    "destination-bigquery": _normalize_table_name_bigquery,
-    "destination-duckdb": _normalize_table_name_default,
-    "destination-motherduck": _normalize_table_name_default,
-    "destination-postgres": _normalize_table_name_default,
-    "destination-snowflake": _normalize_table_name_snowflake,
-}
-
-
-def _get_table_normalizer(
-    destination_name: str,
-) -> Callable[[str], str]:
-    """Return the table name normalizer for the given destination."""
-    return _DESTINATION_TABLE_NORMALIZERS.get(
-        destination_name,
-        _normalize_table_name_default,
-    )
-
-
-def _resolve_expected_table_name(
-    destination_name: str,
-    stream_name: str,
-) -> str:
-    """Deterministically resolve the expected SQL table name for a stream.
-
-    This uses the destination's known naming conventions to predict
-    what the table name should be in the backend.
-    """
-    normalizer = _get_table_normalizer(destination_name)
-    return normalizer(stream_name)
-
-
-# ---------------------------------------------------------------------------
-# Column name normalization
-# ---------------------------------------------------------------------------
-
-
-def _normalize_column_name_default(column_name: str) -> str:
-    """Default column normalizer: lowercase + replace non-alphanumeric with underscores."""
-    return LowerCaseNormalizer.normalize(column_name)
-
-
-def _resolve_expected_column_name(
-    destination_name: str,
-    column_name: str,
-) -> str:
-    """Deterministically resolve the expected SQL column name.
-
-    For now all destinations use the same LowerCaseNormalizer for columns.
-    """
-    _ = destination_name  # Reserved for per-destination overrides
-    return _normalize_column_name_default(column_name)
 
 
 # ---------------------------------------------------------------------------
@@ -329,113 +236,6 @@ def _build_readback_cache(
     return cache
 
 
-# ---------------------------------------------------------------------------
-# Core readback logic
-# ---------------------------------------------------------------------------
-
-
-def _query_table_row_count(
-    cache: CacheBase,
-    table_name: str,
-) -> int | None:
-    """Query the row count for a table. Returns None if the table doesn't exist."""
-    try:
-        result = cache.run_sql_query(
-            f"SELECT COUNT(*) AS row_count FROM {cache.schema_name}.{table_name}",
-        )
-        if result:
-            return int(result[0]["row_count"])
-        return 0  # noqa: TRY300
-    except Exception:
-        logger.debug("Table %s.%s not found or not accessible.", cache.schema_name, table_name)
-        return None
-
-
-def _query_column_info(
-    cache: CacheBase,
-    table_name: str,
-) -> list[ColumnInfo]:
-    """Query column names and types for a table.
-
-    Uses a SELECT with LIMIT 0 to get column metadata from the result set,
-    avoiding INFORMATION_SCHEMA scanning.
-    """
-    try:
-        # We use the SQLAlchemy engine's inspector for column info
-        import sqlalchemy  # noqa: PLC0415
-
-        engine = cache.get_sql_engine()
-        inspector = sqlalchemy.inspect(engine)
-        columns = inspector.get_columns(table_name, schema=cache.schema_name)
-        return [
-            ColumnInfo(
-                column_name=col["name"],
-                column_type=str(col["type"]),
-            )
-            for col in columns
-        ]
-    except Exception:
-        logger.debug(
-            "Could not get column info for %s.%s",
-            cache.schema_name,
-            table_name,
-        )
-        return []
-
-
-def _query_column_stats(
-    cache: CacheBase,
-    table_name: str,
-    columns: list[ColumnInfo],
-) -> list[ColumnStats]:
-    """Query per-column null/non-null counts."""
-    if not columns:
-        return []
-
-    # Build a SQL query that computes COUNT(*), COUNT(col) for each column
-    # COUNT(*) gives total rows, COUNT(col) gives non-null count
-    count_exprs: list[str] = []
-    for col in columns:
-        col_name = col.column_name
-        # Quote column names to handle special characters and reserved words
-        quoted = f'"{col_name}"'
-        count_exprs.append(f"COUNT({quoted}) AS non_null_{col_name}")
-
-    count_exprs_str = ", ".join(count_exprs)
-    sql = f"SELECT COUNT(*) AS total_rows, {count_exprs_str} FROM {cache.schema_name}.{table_name}"
-
-    try:
-        result = cache.run_sql_query(sql)
-    except Exception:
-        logger.debug(
-            "Could not query column stats for %s.%s",
-            cache.schema_name,
-            table_name,
-        )
-        return []
-
-    if not result:
-        return []
-
-    row = result[0]
-    total_rows = int(row["total_rows"])
-
-    stats = []
-    for col in columns:
-        non_null_key = f"non_null_{col.column_name}"
-        non_null_count = int(row.get(non_null_key, 0))
-        stats.append(
-            ColumnStats(
-                column_name=col.column_name,
-                null_count=total_rows - non_null_count,
-                non_null_count=non_null_count,
-                total_count=total_rows,
-            )
-        )
-
-    return stats
-
-
 def run_destination_readback(
     *,
     destination_name: str,
@@ -447,8 +247,9 @@ def run_destination_readback(
 
     This is the main entry point for readback introspection.  It:
     1. Constructs a cache that can query the destination's backend
-    2. For each expected stream, resolves the expected table name
-    3. Queries row counts, column info, and column stats
+    2. For each expected stream, resolves the expected table name using the
+       cache's built-in processor normalizer
+    3. Queries row counts, column info, and column stats via cache methods
 
     Returns a ``DestinationReadbackResult`` with three datasets:
     - tables: table names + row counts
@@ -491,10 +292,14 @@ def run_destination_readback(
     tables_missing: list[str] = []
 
     for stream_name in stream_names:
-        expected_table = _resolve_expected_table_name(destination_name, stream_name)
+        # Use the cache's processor normalizer to resolve the expected table name.
+        # This delegates to the same normalizer the cache uses for writing.
+        expected_table = cache.processor.get_sql_table_name(stream_name)
 
         # Optimistic: try to query the expected table directly
-        row_count = _query_table_row_count(cache, expected_table)
+        row_count = cache._readback_query_row_count(  # noqa: SLF001
+            expected_table,
+        )
 
         if row_count is None:
             tables_missing.append(stream_name)
@@ -508,11 +313,32 @@ def run_destination_readback(
             )
         )
 
-        # Get column info
-        columns = _query_column_info(cache, expected_table)
+        # Get column info via cache method
+        raw_columns = cache._readback_query_column_info(  # noqa: SLF001
+            expected_table,
+        )
+        columns = [
+            ColumnInfo(
+                column_name=c["column_name"],
+                column_type=c["column_type"],
+            )
+            for c in raw_columns
+        ]
 
-        # Get column stats
-        column_stats = _query_column_stats(cache, expected_table, columns)
+        # Get column stats via cache method
+        raw_stats = cache._readback_query_column_stats(  # noqa: SLF001
+            expected_table,
+            raw_columns,
+        )
+        column_stats = [
+            ColumnStats(
+                column_name=s["column_name"],
+                null_count=s["null_count"],
+                non_null_count=s["non_null_count"],
+                total_count=s["total_count"],
+            )
+            for s in raw_stats
+        ]
 
         table_reports.append(
             TableReadbackReport(
