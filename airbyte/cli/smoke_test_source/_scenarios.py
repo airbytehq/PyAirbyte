@@ -497,8 +497,16 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "id": {"type": "integer"},
-                "time_no_tz": {"type": "string", "format": "time"},
-                "time_with_tz": {"type": "string", "format": "time"},
+                "time_no_tz": {
+                    "type": "string",
+                    "format": "time",
+                    "airbyte_type": "time_without_timezone",
+                },
+                "time_with_tz": {
+                    "type": "string",
+                    "format": "time",
+                    "airbyte_type": "time_with_timezone",
+                },
                 "timestamp_no_tz": {
                     "type": "string",
                     "format": "date-time",
