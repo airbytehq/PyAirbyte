@@ -394,7 +394,7 @@ def _query_column_stats(
 
     # Build a SQL query that computes COUNT(*), COUNT(col) for each column
     # COUNT(*) gives total rows, COUNT(col) gives non-null count
-    count_exprs = []
+    count_exprs: list[str] = []
     for col in columns:
         col_name = col.column_name
         # Quote column names to handle special characters and reserved words
@@ -402,10 +402,7 @@ def _query_column_stats(
         count_exprs.append(f"COUNT({quoted}) AS non_null_{col_name}")
 
     count_exprs_str = ", ".join(count_exprs)
-    sql = (
-        f"SELECT COUNT(*) AS total_rows, {count_exprs_str} "
-        f"FROM {cache.schema_name}.{table_name}"
-    )
+    sql = f"SELECT COUNT(*) AS total_rows, {count_exprs_str} FROM {cache.schema_name}.{table_name}"
 
     try:
         result = cache.run_sql_query(sql)
