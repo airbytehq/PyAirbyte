@@ -120,7 +120,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         resolved_name = self._normalize_destination_name(
             destination_name or self.name,
         )
-        config = dict(destination_config or self.get_config())
+        config = dict(destination_config or self._hydrated_config)
 
         # Ensure the config carries a destinationType key so that
         # destination_to_cache() can dispatch correctly.

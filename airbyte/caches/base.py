@@ -543,15 +543,17 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
             return []
 
         row = result[0]
-        total_rows = int(row["total_rows"])
+        # Case-insensitive key lookup: some DBs uppercase (Snowflake) or
+        # lowercase (PostgreSQL) unquoted SQL aliases.
+        row_ci = {k.lower(): v for k, v in row.items()}
+        total_rows = int(row_ci.get("total_rows", 0))
 
         stats = []
         for col in columns:
             col_name = col["column_name"]
-            non_null_key = f"non_null_{col_name}"
-            # Try original case first, then lowercase for DBs that normalize
-            # result keys (e.g. PostgreSQL lowercases unquoted identifiers).
-            non_null_count = int(row.get(non_null_key) or row.get(non_null_key.lower(), 0))
+            non_null_key = f"non_null_{col_name}".lower()
+            val = row_ci.get(non_null_key)
+            non_null_count = int(val) if val is not None else 0
             stats.append(
                 {
                     "column_name": col_name,
@@ -562,6 +564,74 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
             )
 
         return stats
+
+    def _readback_get_table_report(
+        self,
+        table_name: str,
+        stream_name: str,
+    ) -> dict[str, Any] | None:
+        """Build a full readback report for a single table.
+
+        Composes ``_readback_query_row_count``, ``_readback_query_column_info``,
+        and ``_readback_query_column_stats`` into a single dict suitable for
+        constructing a ``TableReadbackReport``.
+
+        Returns ``None`` when the table does not exist (row count is ``None``).
+        """
+        row_count = self._readback_query_row_count(table_name)
+        if row_count is None:
+            return None
+
+        raw_columns = self._readback_query_column_info(table_name)
+        raw_stats = self._readback_query_column_stats(table_name, raw_columns)
+
+        return {
+            "table_name": table_name,
+            "expected_stream_name": stream_name,
+            "row_count": row_count,
+            "columns": raw_columns,
+            "column_stats": raw_stats,
+        }
+
+    def _readback_get_results(
+        self,
+        stream_names: list[str],
+    ) -> dict[str, Any]:
+        """Run readback introspection for the given streams.
+
+        For each stream, resolves the expected table name via the cache's
+        built-in processor normalizer, then queries row counts, column info,
+        and column stats.
+
+        Returns a dict with keys ``tables``, ``table_reports``, and
+        ``tables_missing`` ready for constructing a result model.
+        """
+        tables: list[dict[str, Any]] = []
+        table_reports: list[dict[str, Any]] = []
+        tables_missing: list[str] = []
+
+        for stream_name in stream_names:
+            expected_table = self.processor.get_sql_table_name(stream_name)
+            report = self._readback_get_table_report(expected_table, stream_name)
+
+            if report is None:
+                tables_missing.append(stream_name)
+                continue
+
+            tables.append(
+                {
+                    "table_name": report["table_name"],
+                    "row_count": report["row_count"],
+                    "expected_stream_name": stream_name,
+                }
+            )
+            table_reports.append(report)
+
+        return {
+            "tables": tables,
+            "table_reports": table_reports,
+            "tables_missing": tables_missing,
+        }
 
     def _write_airbyte_message_stream(
         self,

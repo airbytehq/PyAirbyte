@@ -27,10 +27,6 @@ import yaml
 from pydantic import BaseModel
 
 from airbyte import get_source
-from airbyte._util.destination_readback import (
-    DestinationReadbackResult,
-    run_destination_readback,
-)
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -70,6 +66,139 @@ def generate_namespace(
     now = datetime.now(tz=timezone.utc)
     ts = now.strftime("%Y%m%d_%H%M")
     return f"{NAMESPACE_PREFIX}_{ts}_{suffix}"
+
+
+# ---------------------------------------------------------------------------
+# Readback result models
+# ---------------------------------------------------------------------------
+
+
+class ColumnStats(BaseModel):
+    """Null/non-null statistics for a single column."""
+
+    column_name: str
+    """The column name as found in the destination."""
+
+    null_count: int
+    """Number of NULL values in this column."""
+
+    non_null_count: int
+    """Number of non-NULL values in this column."""
+
+    total_count: int
+    """Total row count (null_count + non_null_count)."""
+
+
+class ColumnInfo(BaseModel):
+    """Column name and type information."""
+
+    column_name: str
+    """The column name as found in the destination."""
+
+    column_type: str
+    """The SQL data type name as reported by the database."""
+
+
+class TableInfo(BaseModel):
+    """Basic table info: name and row count."""
+
+    table_name: str
+    """The table name as found in the destination."""
+
+    row_count: int
+    """Number of rows in the table."""
+
+    expected_stream_name: str
+    """The original stream name that this table corresponds to."""
+
+
+class TableReadbackReport(BaseModel):
+    """Full readback report for a single table."""
+
+    table_name: str
+    """The table name as found in the destination."""
+
+    expected_stream_name: str
+    """The original stream name."""
+
+    row_count: int
+    """Number of rows found."""
+
+    columns: list[ColumnInfo]
+    """Column names and types."""
+
+    column_stats: list[ColumnStats]
+    """Per-column null/non-null statistics."""
+
+
+class DestinationReadbackResult(BaseModel):
+    """Result of reading back destination-written data.
+
+    Contains three logical datasets:
+    1. tables - list of tables with row counts
+    2. columns - per-table column names and types
+    3. column_stats - per-table, per-column null/non-null counts
+    """
+
+    destination: str
+    """The destination connector name."""
+
+    namespace: str
+    """The namespace (schema) that was inspected."""
+
+    readback_supported: bool
+    """Whether readback was supported for this destination."""
+
+    tables: list[TableInfo]
+    """Dataset 1: Tables found with row counts."""
+
+    table_reports: list[TableReadbackReport]
+    """Full per-table reports including columns and stats."""
+
+    tables_missing: list[str]
+    """Stream names for which the expected table was not found."""
+
+    error: str | None = None
+    """Error message if readback failed."""
+
+    def get_tables_summary(self) -> list[dict[str, Any]]:
+        """Return dataset 1: tables with row counts as plain dicts."""
+        return [t.model_dump() for t in self.tables]
+
+    def get_columns_summary(self) -> list[dict[str, Any]]:
+        """Return dataset 2: columns with types, grouped by table."""
+        result = []
+        for report in self.table_reports:
+            result.extend(
+                {
+                    "table_name": report.table_name,
+                    "column_name": col.column_name,
+                    "column_type": col.column_type,
+                }
+                for col in report.columns
+            )
+        return result
+
+    def get_column_stats_summary(self) -> list[dict[str, Any]]:
+        """Return dataset 3: per-column null/non-null counts."""
+        result = []
+        for report in self.table_reports:
+            result.extend(
+                {
+                    "table_name": report.table_name,
+                    "column_name": stat.column_name,
+                    "null_count": stat.null_count,
+                    "non_null_count": stat.non_null_count,
+                    "total_count": stat.total_count,
+                }
+                for stat in report.column_stats
+            )
+        return result
+
+
+# ---------------------------------------------------------------------------
+# Smoke test result model
+# ---------------------------------------------------------------------------
 
 
 class DestinationSmokeTestResult(BaseModel):
@@ -306,12 +435,27 @@ def run_destination_smoke_test(
     readback_result: DestinationReadbackResult | None = None
     if success:
         try:
-            readback_result = run_destination_readback(
-                destination=destination,
+            cache = destination.get_sql_cache(schema_name=namespace)
+            raw = cache._readback_get_results(stream_names)  # noqa: SLF001
+            readback_result = DestinationReadbackResult(
+                destination=destination.name,
                 namespace=namespace,
-                stream_names=stream_names,
+                readback_supported=True,
+                tables=[TableInfo(**t) for t in raw["tables"]],
+                table_reports=[
+                    TableReadbackReport(
+                        table_name=r["table_name"],
+                        expected_stream_name=r["expected_stream_name"],
+                        row_count=r["row_count"],
+                        columns=[ColumnInfo(**c) for c in r["columns"]],
+                        column_stats=[ColumnStats(**s) for s in r["column_stats"]],
+                    )
+                    for r in raw["table_reports"]
+                ],
+                tables_missing=raw["tables_missing"],
             )
-        except NotImplementedError:
+        except ValueError:
+            # destination_to_cache raises ValueError for unsupported types
             logger.info(
                 "Readback not supported for destination '%s'.",
                 destination.name,
@@ -320,7 +464,7 @@ def run_destination_smoke_test(
             logger.warning(
                 "Readback failed for destination '%s': %s",
                 destination.name,
-                ex,
+                _sanitize_error(ex),
             )
 
     return DestinationSmokeTestResult(
