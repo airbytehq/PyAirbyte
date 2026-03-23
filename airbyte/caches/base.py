@@ -24,7 +24,7 @@ from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
 from airbyte.shared.catalog_providers import CatalogProvider
-from airbyte.shared.sql_processor import SqlConfig
+from airbyte.shared.sql_processor import SqlConfig, TableStatistics
 from airbyte.shared.state_writers import StdOutStateWriter
 
 
@@ -438,6 +438,21 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     ) -> Iterator[tuple[str, Any]]:
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
+
+    def fetch_table_statistics(
+        self,
+        stream_names: list[str],
+    ) -> dict[str, TableStatistics]:
+        """Return table statistics for the given stream names.
+
+        Delegates to `self.processor.fetch_table_statistics()` which queries
+        row counts, column info, and per-column null/non-null stats for each
+        stream.
+
+        Returns a dict mapping stream name to a `TableStatistics` instance.
+        Streams whose tables are not found are omitted from the result.
+        """
+        return self.processor.fetch_table_statistics(stream_names)
 
     def _write_airbyte_message_stream(
         self,

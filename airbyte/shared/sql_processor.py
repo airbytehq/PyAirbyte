@@ -84,6 +84,44 @@ class SQLRuntimeError(Exception):
     """Raised when an SQL operation fails."""
 
 
+class ColumnStatistics(BaseModel):
+    """Null/non-null statistics for a single column."""
+
+    column_name: str
+    """The column name as found in the destination."""
+
+    column_type: str
+    """The SQL data type name as reported by the database."""
+
+    null_count: int | None = None
+    """Number of NULL values in this column."""
+
+    non_null_count: int | None = None
+    """Number of non-NULL values in this column."""
+
+    total_count: int | None = None
+    """Total row count (null_count + non_null_count)."""
+
+
+class TableStatistics(BaseModel):
+    """Statistics for a single table: row count, column info, and per-column stats."""
+
+    table_name: str
+    """The table name as found in the destination."""
+
+    database_name: str | None = None
+    """The database name where this table resides."""
+
+    schema_name: str | None = None
+    """The schema name where this table resides."""
+
+    row_count: int | None = None
+    """Number of rows found."""
+
+    column_statistics: list[ColumnStatistics]
+    """Per-column names, types, and null/non-null statistics."""
+
+
 class SqlConfig(BaseModel, abc.ABC):
     """Common configuration for SQL connections."""
 
@@ -1012,10 +1050,10 @@ class SqlProcessorBase(abc.ABC):
         self._execute_sql(
             f"""
             INSERT INTO {self._fully_qualified(final_table_name)} (
-            {f',{nl}  '.join(columns)}
+            {f",{nl}  ".join(columns)}
             )
             SELECT
-            {f',{nl}  '.join(columns)}
+            {f",{nl}  ".join(columns)}
             FROM {self._fully_qualified(temp_table_name)}
             """,
         )
@@ -1040,8 +1078,7 @@ class SqlProcessorBase(abc.ABC):
         deletion_name = f"{final_table_name}_deleteme"
         commands = "\n".join(
             [
-                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME "
-                f"TO {deletion_name};",
+                f"ALTER TABLE {self._fully_qualified(final_table_name)} RENAME TO {deletion_name};",
                 f"ALTER TABLE {self._fully_qualified(temp_table_name)} RENAME "
                 f"TO {final_table_name};",
                 f"DROP TABLE {self._fully_qualified(deletion_name)};",
@@ -1081,10 +1118,10 @@ class SqlProcessorBase(abc.ABC):
                 {set_clause}
             WHEN NOT MATCHED THEN INSERT
             (
-                {f',{nl}    '.join(columns)}
+                {f",{nl}    ".join(columns)}
             )
             VALUES (
-                tmp.{f',{nl}    tmp.'.join(columns)}
+                tmp.{f",{nl}    tmp.".join(columns)}
             );
             """,
         )
@@ -1179,3 +1216,179 @@ class SqlProcessorBase(abc.ABC):
         Subclasses may override this method to provide a more efficient implementation.
         """
         return table_name in self._get_tables_list()
+
+    # ---- Table introspection helpers ----
+
+    def fetch_row_count(
+        self,
+        table_name: str,
+    ) -> int:
+        """Return the number of rows in the given table.
+
+        Raises `SQLRuntimeError` if the table does not exist or the query
+        fails for any other reason.
+        """
+        sql = f"SELECT COUNT(*) AS row_count FROM {self._fully_qualified(table_name)}"
+        result = self._execute_sql(sql)
+        row = result.mappings().fetchone()
+        if row is None:
+            return 0
+        # Case-insensitive key lookup: Snowflake uppercases unquoted aliases.
+        row_ci = {k.lower(): v for k, v in row.items()}
+        return int(row_ci.get("row_count", 0))
+
+    def fetch_column_info(
+        self,
+        table_name: str,
+        *,
+        inspector: Inspector | None = None,
+    ) -> list[dict[str, str]]:
+        """Return actual column names and types for the given table.
+
+        This method differs from `_get_sql_column_definitions` in that it always
+        returns actual detected column types from the database. It will never
+        return previously-cached types or 'expected' types based on the stream
+        JSON schema.
+
+        Each entry is a dict with `column_name` and `column_type` keys.
+
+        Args:
+            table_name: The table to inspect.
+            inspector: An optional pre-created SQLAlchemy `Inspector` to reuse.
+                When inspecting many tables, passing a shared inspector avoids
+                creating a new one per call.
+
+        Raises if the table does not exist or is not accessible.
+        """
+        if inspector is None:
+            inspector = sqlalchemy.inspect(self.get_sql_engine())
+        columns = inspector.get_columns(table_name, schema=self.sql_config.schema_name)
+        return [
+            {
+                "column_name": col["name"],
+                "column_type": str(col["type"]),
+            }
+            for col in columns
+        ]
+
+    def _get_column_stats(
+        self,
+        table_name: str,
+        columns: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Return per-column null/non-null counts for the given table.
+
+        `columns` should be a list of dicts with at least a `column_name`
+        key (as returned by `fetch_column_info()`).
+
+        Returns a list of dicts with `column_name`, `null_count`,
+        `non_null_count`, and `total_count` keys.
+
+        Positional aliases (`nn_0`, `nn_1`, ...) are used instead of
+        column-name-derived aliases to avoid issues with databases that
+        truncate long identifiers (PostgreSQL: 63 chars).
+        """
+        if not columns:
+            return []
+
+        count_exprs: list[str] = []
+        for idx, col in enumerate(columns):
+            col_name = col["column_name"]
+            quoted = self._quote_identifier(col_name)
+            count_exprs.append(f"COUNT({quoted}) AS nn_{idx}")
+
+        count_exprs_str = ", ".join(count_exprs)
+        sql = (
+            f"SELECT COUNT(*) AS total_rows, {count_exprs_str} "
+            f"FROM {self._fully_qualified(table_name)}"
+        )
+
+        result = self._execute_sql(sql)
+        row = result.mappings().fetchone()
+        if row is None:
+            return []
+
+        # Case-insensitive key lookup for cross-DB compatibility.
+        row_ci = {k.lower(): v for k, v in row.items()}
+        total_rows = int(row_ci.get("total_rows", 0))
+
+        stats = []
+        for idx, col in enumerate(columns):
+            col_name = col["column_name"]
+            non_null_key = f"nn_{idx}"
+            val = row_ci.get(non_null_key)
+            non_null_count = int(val) if val is not None else 0
+            stats.append(
+                {
+                    "column_name": col_name,
+                    "null_count": total_rows - non_null_count,
+                    "non_null_count": non_null_count,
+                    "total_count": total_rows,
+                }
+            )
+
+        return stats
+
+    def fetch_table_statistics(
+        self,
+        stream_names: list[str],
+    ) -> dict[str, TableStatistics]:
+        """Return table statistics for the given stream names.
+
+        For each stream, resolves the expected table name via the processor's
+        normalizer, queries row counts, column info, and per-column null/non-null
+        stats.
+
+        If the normalized table name is not found, falls back to the original
+        stream name (some destinations preserve original casing).
+
+        Returns a dict mapping stream name to a `TableStatistics` instance.
+        Streams whose tables are not found are omitted from the result.
+        """
+        result: dict[str, TableStatistics] = {}
+
+        # Share a single inspector across all tables to avoid repeated creation.
+        shared_inspector: Inspector = sqlalchemy.inspect(self.get_sql_engine())
+
+        for stream_name in stream_names:
+            expected_table = self.get_sql_table_name(stream_name)
+
+            # Try the normalized name first, then fall back to original.
+            table_name: str | None = None
+            for candidate in (expected_table, stream_name):
+                if self._table_exists(candidate):
+                    table_name = candidate
+                    break
+
+            if table_name is None:
+                continue
+
+            row_count = self.fetch_row_count(table_name)
+            columns = self.fetch_column_info(table_name, inspector=shared_inspector)
+            stats = self._get_column_stats(table_name, columns)
+
+            # Merge column info and stats into ColumnStatistics objects.
+            stats_by_col = {s["column_name"]: s for s in stats}
+            col_statistics: list[ColumnStatistics] = []
+            for col in columns:
+                col_name = col["column_name"]
+                col_stat = stats_by_col.get(col_name, {})
+                col_statistics.append(
+                    ColumnStatistics(
+                        column_name=col_name,
+                        column_type=col["column_type"],
+                        null_count=col_stat.get("null_count", 0),
+                        non_null_count=col_stat.get("non_null_count", 0),
+                        total_count=col_stat.get("total_count", 0),
+                    )
+                )
+
+            result[stream_name] = TableStatistics(
+                table_name=table_name,
+                database_name=self.database_name,
+                schema_name=self.sql_config.schema_name,
+                row_count=row_count,
+                column_statistics=col_statistics,
+            )
+
+        return result

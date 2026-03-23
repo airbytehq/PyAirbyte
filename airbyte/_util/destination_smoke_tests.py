@@ -7,11 +7,17 @@ MCP tool (`destination_smoke_test`).
 
 Smoke tests send synthetic data from the built-in smoke test source to a
 destination connector and report whether the destination accepted the data
-without errors. No readback or comparison is performed.
+without errors.
+
+When the destination has a compatible cache implementation, readback
+introspection is automatically performed to produce stats on the written
+data: table row counts, column names/types, and per-column null/non-null
+counts.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,12 +28,16 @@ from pydantic import BaseModel
 
 from airbyte import get_source
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
+
+
+logger = logging.getLogger(__name__)
 
 
 NAMESPACE_PREFIX = "zz_deleteme"
 """Prefix for auto-generated smoke test namespaces.
 
-The ``zz_`` prefix sorts last alphabetically; ``deleteme`` signals the
+The `zz_` prefix sorts last alphabetically; `deleteme` signals the
 namespace is safe for automated cleanup.
 """
 
@@ -46,17 +56,22 @@ def generate_namespace(
 ) -> str:
     """Generate a smoke-test namespace.
 
-    Format: ``zz_deleteme_yyyymmdd_hhmm_<suffix>``.
-    The ``zz_`` prefix sorts last alphabetically and the ``deleteme``
+    Format: `zz_deleteme_yyyymmdd_hhmm_<suffix>`.
+    The `zz_` prefix sorts last alphabetically and the `deleteme`
     token acts as a guard for automated cleanup scripts.
 
-    If *namespace_suffix* is not provided, ``smoke_test`` is used as the
+    If `namespace_suffix` is not provided, `smoke_test` is used as the
     default suffix.
     """
     suffix = namespace_suffix or DEFAULT_NAMESPACE_SUFFIX
     now = datetime.now(tz=timezone.utc)
     ts = now.strftime("%Y%m%d_%H%M")
     return f"{NAMESPACE_PREFIX}_{ts}_{suffix}"
+
+
+# ---------------------------------------------------------------------------
+# Smoke test result model
+# ---------------------------------------------------------------------------
 
 
 class DestinationSmokeTestResult(BaseModel):
@@ -82,6 +97,22 @@ class DestinationSmokeTestResult(BaseModel):
 
     error: str | None = None
     """Error message if the smoke test failed."""
+
+    table_statistics: dict[str, TableStatistics] | None = None
+    """Map of stream name to table statistics (row counts, columns, stats).
+
+    Populated when the destination has a compatible cache, regardless of
+    write success (to support partial-success inspection). `None` when
+    the destination does not have a compatible cache.
+    """
+
+    tables_not_found: dict[str, str] | None = None
+    """Stream names whose expected tables were not found in the destination.
+
+    Maps stream name to the expected (normalized) table name that was
+    looked up but not found. Populated alongside `table_statistics`.
+    `None` when readback was not performed.
+    """
 
 
 def get_smoke_test_source(
@@ -183,6 +214,41 @@ def get_smoke_test_source(
     )
 
 
+def _prepare_destination_config(
+    destination: Destination,
+) -> None:
+    """Prepare the destination config for smoke testing.
+
+    The catalog namespace (set on each stream by the source) is the primary
+    mechanism that directs destinations to write into the test schema.
+    Modern destinations respect the catalog namespace without needing a
+    config-level schema override.
+
+    This function applies config-level tweaks that are *not* handled by
+    the catalog namespace:
+
+    - **Typing/deduplication enabled** — forces `disable_type_dedupe`
+      to `False` so the destination creates final typed tables (not just
+      raw staging). Readback introspection requires final tables.
+
+    Note: This mutates the destination's config in place.
+    """
+    config = dict(destination.get_config())
+    changed = False
+
+    # Ensure typing and deduplication are enabled so that final tables
+    # (not just raw staging) are created for readback inspection.
+    if config.get("disable_type_dedupe"):
+        logger.info(
+            "Forcing 'disable_type_dedupe' to False so final tables are created.",
+        )
+        config["disable_type_dedupe"] = False
+        changed = True
+
+    if changed:
+        destination.set_config(config, validate=False)
+
+
 def _sanitize_error(ex: Exception) -> str:
     """Extract an error message from an exception without leaking secrets.
 
@@ -208,9 +274,12 @@ def run_destination_smoke_test(
     Sends synthetic test data from the smoke test source to the specified
     destination and returns a structured result.
 
-    This function does NOT read back data from the destination or compare
-    results. It only verifies that the destination accepts the data without
-    errors.
+    When the destination has a compatible cache implementation, readback
+    introspection is automatically performed (even on write failure, to
+    support partial-success inspection).
+    The readback produces stats on the written data (table row counts,
+    column names/types, and per-column null/non-null counts) and is
+    included in the result as `table_statistics` and `tables_not_found`.
 
     `destination` is a resolved `Destination` object ready for writing.
 
@@ -221,8 +290,8 @@ def run_destination_smoke_test(
     - A comma-separated string or list of specific scenario names.
 
     `namespace_suffix` is an optional suffix appended to the auto-generated
-    namespace. Defaults to ``smoke_test`` when not provided
-    (e.g. ``zz_deleteme_20260318_2256_smoke_test``).
+    namespace. Defaults to `smoke_test` when not provided
+    (e.g. `zz_deleteme_20260318_2256_smoke_test`).
 
     `reuse_namespace` is an exact namespace string to reuse from a previous
     run. When set, no new namespace is generated.
@@ -244,11 +313,20 @@ def run_destination_smoke_test(
         custom_scenarios_file=custom_scenarios_file,
     )
 
+    # Capture stream names for readback before the write consumes the source
+    stream_names = source_obj.get_selected_streams()
+
     # Normalize scenarios to a display string
     if isinstance(scenarios, list):
         scenarios_str = ",".join(scenarios) if scenarios else "fast"
     else:
         scenarios_str = scenarios
+
+    # Prepare the destination config for smoke testing (e.g. ensure
+    # disable_type_dedupe is off so final tables are created for readback).
+    # The catalog namespace on each stream is the primary mechanism that
+    # directs the destination to write into the test schema.
+    _prepare_destination_config(destination)
 
     start_time = time.monotonic()
     success = False
@@ -267,6 +345,32 @@ def run_destination_smoke_test(
 
     elapsed = time.monotonic() - start_time
 
+    # Perform readback introspection (runs even on write failure for partial-success support)
+    table_statistics: dict[str, TableStatistics] | None = None
+    tables_not_found: dict[str, str] | None = None
+    if destination.is_cache_supported:
+        try:
+            cache = destination.get_sql_cache(schema_name=namespace)
+            table_statistics = cache.fetch_table_statistics(stream_names)
+            tables_not_found = {
+                name: cache.processor.get_sql_table_name(name)
+                for name in stream_names
+                if name not in table_statistics
+            }
+        except Exception:
+            logger.warning(
+                "Readback failed for destination '%s'.",
+                destination.name,
+                exc_info=True,
+            )
+    else:
+        logger.info(
+            "Skipping table and column statistics retrieval for "
+            "destination '%s' because no SQL interface mapping has been "
+            "defined.",
+            destination.name,
+        )
+
     return DestinationSmokeTestResult(
         success=success,
         destination=destination.name,
@@ -275,4 +379,6 @@ def run_destination_smoke_test(
         scenarios_requested=scenarios_str,
         elapsed_seconds=round(elapsed, 2),
         error=error_message,
+        table_statistics=table_statistics,
+        tables_not_found=tables_not_found,
     )

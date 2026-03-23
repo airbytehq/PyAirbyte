@@ -14,6 +14,10 @@ from airbyte._connector_base import ConnectorBase
 from airbyte._message_iterators import AirbyteMessageIterator
 from airbyte._util.temp_files import as_temp_files
 from airbyte._writers.base import AirbyteWriterInterface
+from airbyte.caches._utils._dest_to_cache import (
+    destination_to_cache,
+    get_supported_destination_types,
+)
 from airbyte.caches.util import get_default_cache
 from airbyte.progress import ProgressTracker
 from airbyte.results import ReadResult, WriteResult
@@ -33,6 +37,9 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
     from airbyte.callbacks import ConfigChangeCallback
     from airbyte.shared.state_writers import StateWriterBase
+
+
+_CANONICAL_PREFIX = "destination-"
 
 
 class Destination(ConnectorBase, AirbyteWriterInterface):
@@ -60,6 +67,60 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             config_change_callback=config_change_callback,
             validate=validate,
         )
+
+    @staticmethod
+    def _normalize_destination_name(name: str) -> str:
+        """Normalize a destination name to canonical form (`destination-<type>`).
+
+        Accepts either the short form (e.g. `snowflake`) or the canonical
+        form (e.g. `destination-snowflake`).
+        """
+        if not name.startswith(_CANONICAL_PREFIX):
+            return f"{_CANONICAL_PREFIX}{name}"
+        return name
+
+    @property
+    def is_cache_supported(self) -> bool:
+        """Whether this destination has a compatible cache implementation.
+
+        Returns `True` when `get_sql_cache()` is expected to succeed for
+        the destination's connector type.
+        """
+        dest_type = self._normalize_destination_name(
+            self.name,
+        ).replace(_CANONICAL_PREFIX, "")
+        return dest_type in get_supported_destination_types()
+
+    def get_sql_cache(
+        self,
+        *,
+        schema_name: str | None = None,
+    ) -> CacheBase:
+        """Return a SQL Cache for querying data written by this destination.
+
+        This follows the same pattern as
+        `SyncResult.get_sql_cache()` in `airbyte.cloud.sync_results`:
+        it builds a cache from the destination's configuration using
+        `destination_to_cache()`.
+
+        Args:
+            schema_name: Override the schema/namespace on the returned cache.
+                When `None` the cache uses the default schema from the
+                destination config.
+
+        Raises:
+            ValueError: If the destination type is not supported.
+        """
+        resolved_name = self._normalize_destination_name(self.name)
+        config = dict(self._hydrated_config)
+
+        # Ensure the config carries a destinationType key so that
+        # destination_to_cache() can dispatch correctly.
+        if "destinationType" not in config and "DESTINATION_TYPE" not in config:
+            dest_type = resolved_name.replace(_CANONICAL_PREFIX, "")
+            config["destinationType"] = dest_type
+
+        return destination_to_cache(config, schema_name=schema_name)
 
     def write(  # noqa: PLR0912, PLR0915 # Too many arguments/statements
         self,
