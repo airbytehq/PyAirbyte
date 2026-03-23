@@ -70,81 +70,6 @@ def generate_namespace(
 
 
 # ---------------------------------------------------------------------------
-# Readback result models
-# ---------------------------------------------------------------------------
-
-
-class DestinationReadbackResult(BaseModel):
-    """Result of reading back destination-written data.
-
-    Uses `TableStatistics` from the SQL processor layer to provide
-    per-table row counts, column names/types, and per-column null/non-null
-    counts.
-    """
-
-    destination: str
-    """The destination connector name."""
-
-    namespace: str
-    """The namespace (schema) that was inspected."""
-
-    readback_supported: bool
-    """Whether readback was supported for this destination."""
-
-    table_statistics: dict[str, TableStatistics]
-    """Map of stream name to table statistics (row counts, columns, stats)."""
-
-    tables_missing: list[str]
-    """Stream names for which the expected table was not found."""
-
-    error: str | None = None
-    """Error message if readback failed."""
-
-    def get_tables_summary(self) -> list[dict[str, Any]]:
-        """Return dataset 1: tables with row counts as plain dicts."""
-        return [
-            {
-                "stream_name": stream_name,
-                "table_name": stats.table_name,
-                "row_count": stats.row_count,
-            }
-            for stream_name, stats in self.table_statistics.items()
-        ]
-
-    def get_columns_summary(self) -> list[dict[str, Any]]:
-        """Return dataset 2: columns with types, grouped by table."""
-        result = []
-        for stream_name, stats in self.table_statistics.items():
-            result.extend(
-                {
-                    "stream_name": stream_name,
-                    "table_name": stats.table_name,
-                    "column_name": col.column_name,
-                    "column_type": col.column_type,
-                }
-                for col in stats.column_statistics
-            )
-        return result
-
-    def get_column_stats_summary(self) -> list[dict[str, Any]]:
-        """Return dataset 3: per-column null/non-null counts."""
-        result = []
-        for stream_name, stats in self.table_statistics.items():
-            result.extend(
-                {
-                    "stream_name": stream_name,
-                    "table_name": stats.table_name,
-                    "column_name": col.column_name,
-                    "null_count": col.null_count,
-                    "non_null_count": col.non_null_count,
-                    "total_count": col.total_count,
-                }
-                for col in stats.column_statistics
-            )
-        return result
-
-
-# ---------------------------------------------------------------------------
 # Smoke test result model
 # ---------------------------------------------------------------------------
 
@@ -173,15 +98,18 @@ class DestinationSmokeTestResult(BaseModel):
     error: str | None = None
     """Error message if the smoke test failed."""
 
-    readback_result: DestinationReadbackResult | None = None
-    """Readback introspection result, if supported for this destination.
+    table_statistics: dict[str, TableStatistics] | None = None
+    """Map of stream name to table statistics (row counts, columns, stats).
 
-    Contains three datasets:
-    1. tables - table names with row counts
-    2. columns - column names and types per table
-    3. column_stats - per-column null/non-null counts
+    Populated when readback introspection succeeds. `None` if the write
+    failed or the destination does not have a compatible cache.
+    """
 
-    None if the write itself failed or readback is not supported.
+    tables_not_found: list[str] | None = None
+    """Stream names for which the expected table was not found.
+
+    Populated alongside `table_statistics`. `None` when readback was
+    not performed.
     """
 
 
@@ -313,7 +241,7 @@ def run_destination_smoke_test(
     introspection is automatically performed after a successful write.
     The readback produces stats on the written data (table row counts,
     column names/types, and per-column null/non-null counts) and is
-    included in the result as `readback_result`.
+    included in the result as `table_statistics` and `tables_not_found`.
 
     `destination` is a resolved `Destination` object ready for writing.
 
@@ -374,19 +302,13 @@ def run_destination_smoke_test(
     elapsed = time.monotonic() - start_time
 
     # Perform readback introspection if the write succeeded
-    readback_result: DestinationReadbackResult | None = None
+    table_statistics: dict[str, TableStatistics] | None = None
+    tables_not_found: list[str] | None = None
     if success:
         try:
             cache = destination.get_sql_cache(schema_name=namespace)
             table_statistics = cache.fetch_table_statistics(stream_names)
-            tables_missing = [name for name in stream_names if name not in table_statistics]
-            readback_result = DestinationReadbackResult(
-                destination=destination.name,
-                namespace=namespace,
-                readback_supported=True,
-                table_statistics=table_statistics,
-                tables_missing=tables_missing,
-            )
+            tables_not_found = [name for name in stream_names if name not in table_statistics]
         except ValueError:
             # destination_to_cache raises ValueError for unsupported types
             logger.info(
@@ -408,5 +330,6 @@ def run_destination_smoke_test(
         scenarios_requested=scenarios_str,
         elapsed_seconds=round(elapsed, 2),
         error=error_message,
-        readback_result=readback_result,
+        table_statistics=table_statistics,
+        tables_not_found=tables_not_found,
     )
