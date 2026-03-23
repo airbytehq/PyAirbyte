@@ -76,7 +76,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "large_decimals_and_numbers",
         "description": (
-            "Tests handling of very large numbers, " "high precision decimals, and boundary values."
+            "Tests handling of very large numbers, high precision decimals, and boundary values."
         ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -221,7 +221,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "column_naming_edge_cases",
-        "description": ("Tests special characters, casing, " "and reserved words in column names."),
+        "description": ("Tests special characters, casing, and reserved words in column names."),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -258,7 +258,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "table_naming_edge_cases",
-        "description": ("Stream with special characters in the name " "to test table naming."),
+        "description": ("Stream with special characters in the name to test table naming."),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -313,7 +313,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "empty_stream",
-        "description": ("A stream that emits zero records, " "testing empty dataset handling."),
+        "description": ("A stream that emits zero records, testing empty dataset handling."),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -344,7 +344,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "large_batch_stream",
         "description": (
-            "A stream that generates a configurable " "number of records for batch testing."
+            "A stream that generates a configurable number of records for batch testing."
         ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -364,7 +364,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "unicode_and_special_strings",
         "description": (
-            "Tests unicode characters, emoji, escape " "sequences, and special string values."
+            "Tests unicode characters, emoji, escape sequences, and special string values."
         ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -401,7 +401,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     },
     {
         "name": "schema_with_no_primary_key",
-        "description": ("A stream without a primary key, " "testing append-only behavior."),
+        "description": ("A stream without a primary key, testing append-only behavior."),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
@@ -425,7 +425,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "long_column_names",
         "description": (
-            "Tests handling of very long column names " "that may exceed database limits."
+            "Tests handling of very long column names that may exceed database limits."
         ),
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
@@ -461,6 +461,245 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
             },
         ],
     },
+    {
+        "name": "duplicate_primary_keys",
+        "description": (
+            "Tests dedup behavior when multiple records share the same primary key. "
+            "Destinations should keep the latest record per key."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+                "updated_value": {"type": "string"},
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {"id": 1, "name": "Alice", "updated_value": "first"},
+            {"id": 2, "name": "Bob", "updated_value": "first"},
+            {"id": 1, "name": "Alice", "updated_value": "second"},
+            {"id": 3, "name": "Charlie", "updated_value": "first"},
+            {"id": 2, "name": "Bob", "updated_value": "second"},
+            {"id": 1, "name": "Alice", "updated_value": "third"},
+        ],
+    },
+    {
+        "name": "time_types",
+        "description": (
+            "Tests time-with-timezone and time-without-timezone formats. "
+            "These are commonly mishandled by destinations."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "time_no_tz": {"type": "string", "format": "time"},
+                "time_with_tz": {"type": "string", "format": "time"},
+                "timestamp_no_tz": {
+                    "type": "string",
+                    "format": "date-time",
+                    "airbyte_type": "timestamp_without_timezone",
+                },
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {
+                "id": 1,
+                "time_no_tz": "10:30:00",
+                "time_with_tz": "10:30:00+05:30",
+                "timestamp_no_tz": "2024-01-15T10:30:00",
+            },
+            {
+                "id": 2,
+                "time_no_tz": "00:00:00",
+                "time_with_tz": "00:00:00Z",
+                "timestamp_no_tz": "1970-01-01T00:00:00",
+            },
+            {
+                "id": 3,
+                "time_no_tz": "23:59:59.999999",
+                "time_with_tz": "23:59:59.999999-08:00",
+                "timestamp_no_tz": "2099-12-31T23:59:59.999999",
+            },
+        ],
+    },
+    {
+        "name": "union_types",
+        "description": (
+            "Tests columns with oneOf/anyOf schemas where a field can hold "
+            "values of different types. Union handling is a frequent source "
+            "of destination bugs."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "string_or_integer": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
+                "number_or_null": {"oneOf": [{"type": "number"}, {"type": "null"}]},
+                "object_or_string": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "properties": {"key": {"type": "string"}},
+                        },
+                        {"type": "string"},
+                    ],
+                },
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {
+                "id": 1,
+                "string_or_integer": "hello",
+                "number_or_null": math.pi,
+                "object_or_string": {"key": "value"},
+            },
+            {
+                "id": 2,
+                "string_or_integer": 42,
+                "number_or_null": None,
+                "object_or_string": "just_a_string",
+            },
+            {
+                "id": 3,
+                "string_or_integer": "",
+                "number_or_null": 0.0,
+                "object_or_string": {},
+            },
+        ],
+    },
+    {
+        "name": "array_of_primitives",
+        "description": (
+            "Tests arrays containing primitive types (strings, integers, mixed). "
+            "Complements nested_json_objects which only tests arrays of objects."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "string_array": {"type": "array", "items": {"type": "string"}},
+                "integer_array": {"type": "array", "items": {"type": "integer"}},
+                "mixed_array": {"type": "array"},
+                "empty_typed_array": {"type": "array", "items": {"type": "number"}},
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {
+                "id": 1,
+                "string_array": ["a", "b", "c"],
+                "integer_array": [1, 2, 3],
+                "mixed_array": ["text", 42, True, None, math.pi],
+                "empty_typed_array": [],
+            },
+            {
+                "id": 2,
+                "string_array": [],
+                "integer_array": [0, -1, 999999999],
+                "mixed_array": [{"nested": "object"}, [1, 2]],
+                "empty_typed_array": [0.0, 1e10, -99.99],
+            },
+            {
+                "id": 3,
+                "string_array": ["", "  ", "normal"],
+                "integer_array": [],
+                "mixed_array": [],
+                "empty_typed_array": [math.pi],
+            },
+        ],
+    },
+    {
+        "name": "large_string_values",
+        "description": (
+            "Tests handling of very long string values that may exceed "
+            "column size limits or buffer sizes in destinations."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "short_value": {"type": "string"},
+                "medium_value": {"type": "string"},
+                "large_value": {"type": "string"},
+            },
+        },
+        "primary_key": [["id"]],
+        "record_generator": "large_strings",
+    },
+    {
+        "name": "sparse_records",
+        "description": (
+            "Tests records where different rows have different subsets "
+            "of columns populated. Destinations must handle missing "
+            "fields gracefully."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "col_a": {"type": ["null", "string"]},
+                "col_b": {"type": ["null", "integer"]},
+                "col_c": {"type": ["null", "number"]},
+                "col_d": {"type": ["null", "boolean"]},
+                "col_e": {"type": ["null", "string"]},
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {"id": 1, "col_a": "only_a"},
+            {"id": 2, "col_b": 42},
+            {"id": 3, "col_c": math.pi},
+            {"id": 4, "col_d": True},
+            {"id": 5, "col_e": "only_e"},
+            {
+                "id": 6,
+                "col_a": "all",
+                "col_b": 99,
+                "col_c": 1.0,
+                "col_d": False,
+                "col_e": "present",
+            },
+            {"id": 7},
+        ],
+    },
+    {
+        "name": "special_number_values",
+        "description": (
+            "Tests boundary and special numeric values including very large "
+            "and very small floats. These commonly break destinations that "
+            "use fixed-precision numeric types."
+        ),
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "float_value": {"type": "number"},
+                "integer_value": {"type": "integer"},
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {"id": 1, "float_value": 1.7976931348623157e308, "integer_value": 1},
+            {"id": 2, "float_value": 5e-324, "integer_value": -1},
+            {"id": 3, "float_value": -1.7976931348623157e308, "integer_value": 0},
+            {"id": 4, "float_value": -5e-324, "integer_value": 9223372036854775807},
+            {"id": 5, "float_value": 0.0, "integer_value": -9223372036854775808},
+            {"id": 6, "float_value": 1.0, "integer_value": 2147483647},
+            {"id": 7, "float_value": -1.0, "integer_value": -2147483648},
+        ],
+    },
 ]
 
 
@@ -481,10 +720,35 @@ def generate_large_batch_records(
     ]
 
 
+def generate_large_string_records() -> list[dict[str, Any]]:
+    """Generate records with progressively larger string values.
+
+    Produces strings of ~1 KB, ~10 KB, and ~100 KB to test column size
+    limits and buffer handling in destinations.
+    """
+    return [
+        {
+            "id": 1,
+            "short_value": "x" * 1_000,
+            "medium_value": "y" * 10_000,
+            "large_value": "z" * 100_000,
+        },
+        {
+            "id": 2,
+            "short_value": "Hello, World!",
+            "medium_value": ("The quick brown fox jumps over the lazy dog. " * 250).strip(),
+            "large_value": ("Pack my box with five dozen liquor jugs. " * 2500).strip(),
+        },
+    ]
+
+
 def get_scenario_records(
     scenario: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """Get records for a scenario, using generator if specified."""
-    if scenario.get("record_generator") == "large_batch":
+    generator = scenario.get("record_generator")
+    if generator == "large_batch":
         return generate_large_batch_records(scenario)
+    if generator == "large_strings":
+        return generate_large_string_records()
     return scenario.get("records", [])
