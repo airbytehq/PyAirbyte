@@ -119,9 +119,18 @@ def motherduck_destination_to_cache(
 
 
 def postgres_destination_to_cache(
-    destination_configuration: DestinationPostgres,
+    destination_configuration: DestinationPostgres | dict[str, Any],
 ) -> PostgresCache:
     """Create a new Postgres cache from the destination configuration."""
+    if isinstance(destination_configuration, dict):
+        # Strip dispatch keys before constructing the model object.
+        filtered = {
+            k: v
+            for k, v in destination_configuration.items()
+            if k not in {"destinationType", "DESTINATION_TYPE"}
+        }
+        destination_configuration = DestinationPostgres(**filtered)
+
     port: int = int(destination_configuration.port) if destination_configuration.port else 5432
     if not destination_configuration.password:
         raise ValueError("Password is required for Postgres cache.")
