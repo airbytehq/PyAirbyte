@@ -308,13 +308,20 @@ def run_destination_smoke_test(
     table_statistics: dict[str, TableStatistics] | None = None
     tables_not_found: dict[str, str] | None = None
     if destination.is_cache_supported:
-        cache = destination.get_sql_cache(schema_name=namespace)
-        table_statistics = cache.fetch_table_statistics(stream_names)
-        tables_not_found = {
-            name: cache.processor.get_sql_table_name(name)
-            for name in stream_names
-            if name not in table_statistics
-        }
+        try:
+            cache = destination.get_sql_cache(schema_name=namespace)
+            table_statistics = cache.fetch_table_statistics(stream_names)
+            tables_not_found = {
+                name: cache.processor.get_sql_table_name(name)
+                for name in stream_names
+                if name not in table_statistics
+            }
+        except Exception:
+            logger.warning(
+                "Readback failed for destination '%s'.",
+                destination.name,
+                exc_info=True,
+            )
     else:
         logger.info(
             "Skipping table and column statistics retrieval for "
