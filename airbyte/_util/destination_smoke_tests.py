@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from airbyte import get_source
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
 
 
 logger = logging.getLogger(__name__)
@@ -73,71 +74,12 @@ def generate_namespace(
 # ---------------------------------------------------------------------------
 
 
-class ColumnStats(BaseModel):
-    """Null/non-null statistics for a single column."""
-
-    column_name: str
-    """The column name as found in the destination."""
-
-    null_count: int
-    """Number of NULL values in this column."""
-
-    non_null_count: int
-    """Number of non-NULL values in this column."""
-
-    total_count: int
-    """Total row count (null_count + non_null_count)."""
-
-
-class ColumnInfo(BaseModel):
-    """Column name and type information."""
-
-    column_name: str
-    """The column name as found in the destination."""
-
-    column_type: str
-    """The SQL data type name as reported by the database."""
-
-
-class TableInfo(BaseModel):
-    """Basic table info: name and row count."""
-
-    table_name: str
-    """The table name as found in the destination."""
-
-    row_count: int
-    """Number of rows in the table."""
-
-    expected_stream_name: str
-    """The original stream name that this table corresponds to."""
-
-
-class TableReadbackReport(BaseModel):
-    """Full readback report for a single table."""
-
-    table_name: str
-    """The table name as found in the destination."""
-
-    expected_stream_name: str
-    """The original stream name."""
-
-    row_count: int
-    """Number of rows found."""
-
-    columns: list[ColumnInfo]
-    """Column names and types."""
-
-    column_stats: list[ColumnStats]
-    """Per-column null/non-null statistics."""
-
-
 class DestinationReadbackResult(BaseModel):
     """Result of reading back destination-written data.
 
-    Contains three logical datasets:
-    1. tables - list of tables with row counts
-    2. columns - per-table column names and types
-    3. column_stats - per-table, per-column null/non-null counts
+    Uses ``TableStatistics`` from the SQL processor layer to provide
+    per-table row counts, column names/types, and per-column null/non-null
+    counts.
     """
 
     destination: str
@@ -149,11 +91,8 @@ class DestinationReadbackResult(BaseModel):
     readback_supported: bool
     """Whether readback was supported for this destination."""
 
-    tables: list[TableInfo]
-    """Dataset 1: Tables found with row counts."""
-
-    table_reports: list[TableReadbackReport]
-    """Full per-table reports including columns and stats."""
+    table_statistics: dict[str, TableStatistics]
+    """Map of stream name to table statistics (row counts, columns, stats)."""
 
     tables_missing: list[str]
     """Stream names for which the expected table was not found."""
@@ -163,35 +102,44 @@ class DestinationReadbackResult(BaseModel):
 
     def get_tables_summary(self) -> list[dict[str, Any]]:
         """Return dataset 1: tables with row counts as plain dicts."""
-        return [t.model_dump() for t in self.tables]
+        return [
+            {
+                "stream_name": stream_name,
+                "table_name": stats.table_name,
+                "row_count": stats.row_count,
+            }
+            for stream_name, stats in self.table_statistics.items()
+        ]
 
     def get_columns_summary(self) -> list[dict[str, Any]]:
         """Return dataset 2: columns with types, grouped by table."""
         result = []
-        for report in self.table_reports:
+        for stream_name, stats in self.table_statistics.items():
             result.extend(
                 {
-                    "table_name": report.table_name,
+                    "stream_name": stream_name,
+                    "table_name": stats.table_name,
                     "column_name": col.column_name,
                     "column_type": col.column_type,
                 }
-                for col in report.columns
+                for col in stats.column_statistics
             )
         return result
 
     def get_column_stats_summary(self) -> list[dict[str, Any]]:
         """Return dataset 3: per-column null/non-null counts."""
         result = []
-        for report in self.table_reports:
+        for stream_name, stats in self.table_statistics.items():
             result.extend(
                 {
-                    "table_name": report.table_name,
-                    "column_name": stat.column_name,
-                    "null_count": stat.null_count,
-                    "non_null_count": stat.non_null_count,
-                    "total_count": stat.total_count,
+                    "stream_name": stream_name,
+                    "table_name": stats.table_name,
+                    "column_name": col.column_name,
+                    "null_count": col.null_count,
+                    "non_null_count": col.non_null_count,
+                    "total_count": col.total_count,
                 }
-                for stat in report.column_stats
+                for col in stats.column_statistics
             )
         return result
 
@@ -436,35 +384,20 @@ def run_destination_smoke_test(
     if success:
         try:
             cache = destination.get_sql_cache(schema_name=namespace)
-            raw = cache._readback_get_results(stream_names)  # noqa: SLF001
+            table_statistics = cache.get_table_statistics(stream_names)
+            tables_missing = [name for name in stream_names if name not in table_statistics]
             readback_result = DestinationReadbackResult(
                 destination=destination.name,
                 namespace=namespace,
                 readback_supported=True,
-                tables=[TableInfo(**t) for t in raw["tables"]],
-                table_reports=[
-                    TableReadbackReport(
-                        table_name=r["table_name"],
-                        expected_stream_name=r["expected_stream_name"],
-                        row_count=r["row_count"],
-                        columns=[ColumnInfo(**c) for c in r["columns"]],
-                        column_stats=[ColumnStats(**s) for s in r["column_stats"]],
-                    )
-                    for r in raw["table_reports"]
-                ],
-                tables_missing=raw["tables_missing"],
+                table_statistics=table_statistics,
+                tables_missing=tables_missing,
             )
         except ValueError:
             # destination_to_cache raises ValueError for unsupported types
             logger.info(
                 "Readback not supported for destination '%s'.",
                 destination.name,
-            )
-        except Exception as ex:
-            logger.warning(
-                "Readback failed for destination '%s': %s",
-                destination.name,
-                _sanitize_error(ex),
             )
 
     return DestinationSmokeTestResult(

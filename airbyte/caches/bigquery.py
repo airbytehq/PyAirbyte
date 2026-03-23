@@ -43,10 +43,6 @@ class BigQueryCache(BigQueryConfig, CacheBase):
     paired_destination_name: ClassVar[str | None] = "destination-bigquery"
     paired_destination_config_class: ClassVar[type | None] = DestinationBigquery
 
-    def _readback_quote_identifier(self, identifier: str) -> str:
-        """BigQuery uses backticks instead of ANSI double-quotes."""
-        return f"`{identifier}`"
-
     @property
     def paired_destination_config(self) -> DestinationBigquery:
         """Return a dictionary of destination configuration values."""

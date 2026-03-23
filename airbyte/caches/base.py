@@ -4,14 +4,12 @@
 from __future__ import annotations
 
 import contextlib
-import logging
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
-import sqlalchemy as sa
 from pydantic import Field, PrivateAttr
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
@@ -26,7 +24,7 @@ from airbyte.caches._state_backend import SqlStateBackend
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE, TEMP_FILE_CLEANUP
 from airbyte.datasets._sql import CachedDataset
 from airbyte.shared.catalog_providers import CatalogProvider
-from airbyte.shared.sql_processor import SqlConfig
+from airbyte.shared.sql_processor import SqlConfig, TableStatistics
 from airbyte.shared.state_writers import StdOutStateWriter
 
 
@@ -441,211 +439,20 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         """Iterate over the streams in the cache."""
         return ((name, dataset) for name, dataset in self.streams.items())
 
-    # ---- Readback introspection helpers ----
-    # These private methods support destination readback introspection,
-    # allowing the cache to query stats about data written by a destination.
-
-    def _readback_quote_identifier(self, identifier: str) -> str:
-        """Quote an identifier for use in readback SQL queries.
-
-        Defaults to ANSI double-quote style.  Subclasses whose SQL dialect
-        uses a different quoting convention (e.g. BigQuery backticks) should
-        override this method.
-        """
-        return f'"{identifier}"'
-
-    def _readback_query_row_count(
-        self,
-        table_name: str,
-    ) -> int | None:
-        """Query the row count for a table. Returns None if the table doesn't exist."""
-        try:
-            quoted_table = self._readback_quote_identifier(table_name)
-            result = self.run_sql_query(
-                f"SELECT COUNT(*) AS row_count FROM {self.schema_name}.{quoted_table}",
-            )
-            if result:
-                row_ci = {k.lower(): v for k, v in result[0].items()}
-                return int(row_ci.get("row_count", 0))
-            return 0  # noqa: TRY300
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "Table %s.%s not found or not accessible.",
-                self.schema_name,
-                table_name,
-            )
-            return None
-
-    def _readback_query_column_info(
-        self,
-        table_name: str,
-    ) -> list[dict[str, str]]:
-        """Query column names and types for a table.
-
-        Returns a list of dicts with 'column_name' and 'column_type' keys.
-        """
-        try:
-            engine = self.get_sql_engine()
-            inspector = sa.inspect(engine)
-            columns = inspector.get_columns(table_name, schema=self.schema_name)
-            return [
-                {
-                    "column_name": col["name"],
-                    "column_type": str(col["type"]),
-                }
-                for col in columns
-            ]
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "Could not get column info for %s.%s",
-                self.schema_name,
-                table_name,
-            )
-            return []
-
-    def _readback_query_column_stats(
-        self,
-        table_name: str,
-        columns: list[dict[str, str]],
-    ) -> list[dict[str, Any]]:
-        """Query per-column null/non-null counts.
-
-        Args:
-            table_name: The table to query.
-            columns: List of dicts with at least a 'column_name' key.
-
-        Returns a list of dicts with column_name, null_count, non_null_count,
-        total_count keys.
-        """
-        if not columns:
-            return []
-
-        # Build a SQL query that computes COUNT(*), COUNT(col) for each column.
-        # COUNT(*) gives total rows, COUNT(col) gives non-null count.
-        # We use positional aliases (nn_0, nn_1, ...) to avoid issues with
-        # databases that truncate long identifiers (PostgreSQL: 63 chars).
-        count_exprs: list[str] = []
-        for idx, col in enumerate(columns):
-            col_name = col["column_name"]
-            quoted = self._readback_quote_identifier(col_name)
-            count_exprs.append(f"COUNT({quoted}) AS nn_{idx}")
-
-        count_exprs_str = ", ".join(count_exprs)
-        sql = (
-            f"SELECT COUNT(*) AS total_rows, {count_exprs_str} "
-            f"FROM {self.schema_name}.{self._readback_quote_identifier(table_name)}"
-        )
-
-        try:
-            result = self.run_sql_query(sql)
-        except Exception:
-            logging.getLogger(__name__).debug(
-                "Could not query column stats for %s.%s",
-                self.schema_name,
-                table_name,
-            )
-            return []
-
-        if not result:
-            return []
-
-        row = result[0]
-        # Case-insensitive key lookup: some DBs uppercase (Snowflake) or
-        # lowercase (PostgreSQL) unquoted SQL aliases.
-        row_ci = {k.lower(): v for k, v in row.items()}
-        total_rows = int(row_ci.get("total_rows", 0))
-
-        stats = []
-        for idx, col in enumerate(columns):
-            col_name = col["column_name"]
-            non_null_key = f"nn_{idx}"
-            val = row_ci.get(non_null_key)
-            non_null_count = int(val) if val is not None else 0
-            stats.append(
-                {
-                    "column_name": col_name,
-                    "null_count": total_rows - non_null_count,
-                    "non_null_count": non_null_count,
-                    "total_count": total_rows,
-                }
-            )
-
-        return stats
-
-    def _readback_get_table_report(
-        self,
-        table_name: str,
-        stream_name: str,
-    ) -> dict[str, Any] | None:
-        """Build a full readback report for a single table.
-
-        Composes ``_readback_query_row_count``, ``_readback_query_column_info``,
-        and ``_readback_query_column_stats`` into a single dict suitable for
-        constructing a ``TableReadbackReport``.
-
-        Returns ``None`` when the table does not exist (row count is ``None``).
-        """
-        row_count = self._readback_query_row_count(table_name)
-        if row_count is None:
-            return None
-
-        raw_columns = self._readback_query_column_info(table_name)
-        raw_stats = self._readback_query_column_stats(table_name, raw_columns)
-
-        return {
-            "table_name": table_name,
-            "expected_stream_name": stream_name,
-            "row_count": row_count,
-            "columns": raw_columns,
-            "column_stats": raw_stats,
-        }
-
-    def _readback_get_results(
+    def get_table_statistics(
         self,
         stream_names: list[str],
-    ) -> dict[str, Any]:
-        """Run readback introspection for the given streams.
+    ) -> dict[str, TableStatistics]:
+        """Return table statistics for the given stream names.
 
-        For each stream, resolves the expected table name via the cache's
-        built-in processor normalizer, then queries row counts, column info,
-        and column stats.
+        Delegates to ``self.processor.get_table_statistics()`` which queries
+        row counts, column info, and per-column null/non-null stats for each
+        stream.
 
-        Returns a dict with keys ``tables``, ``table_reports``, and
-        ``tables_missing`` ready for constructing a result model.
+        Returns a dict mapping stream name to a ``TableStatistics`` instance.
+        Streams whose tables are not found are omitted from the result.
         """
-        tables: list[dict[str, Any]] = []
-        table_reports: list[dict[str, Any]] = []
-        tables_missing: list[str] = []
-
-        for stream_name in stream_names:
-            expected_table = self.processor.get_sql_table_name(stream_name)
-            report = self._readback_get_table_report(expected_table, stream_name)
-
-            # Fallback: if the normalized name isn't found, try the
-            # original stream name.  Some destinations preserve the
-            # original casing (e.g. "CamelCaseStreamName") while the
-            # cache normalizer lowercases it.
-            if report is None and expected_table != stream_name:
-                report = self._readback_get_table_report(stream_name, stream_name)
-
-            if report is None:
-                tables_missing.append(stream_name)
-                continue
-
-            tables.append(
-                {
-                    "table_name": report["table_name"],
-                    "row_count": report["row_count"],
-                    "expected_stream_name": stream_name,
-                }
-            )
-            table_reports.append(report)
-
-        return {
-            "tables": tables,
-            "table_reports": table_reports,
-            "tables_missing": tables_missing,
-        }
+        return self.processor.get_table_statistics(stream_names)
 
     def _write_airbyte_message_stream(
         self,
