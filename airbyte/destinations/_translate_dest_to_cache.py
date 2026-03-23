@@ -84,7 +84,12 @@ def bigquery_destination_to_cache(
     """
     credentials_path = get_secret("BIGQUERY_CREDENTIALS_PATH")
     if isinstance(destination_configuration, dict):
-        destination_configuration = DestinationBigquery(**destination_configuration)
+        filtered = {
+            k: v
+            for k, v in destination_configuration.items()
+            if k not in {"destinationType", "DESTINATION_TYPE"}
+        }
+        destination_configuration = DestinationBigquery(**filtered)
 
     return BigQueryCache(
         project_name=destination_configuration.project_id,
@@ -183,7 +188,12 @@ def snowflake_destination_to_cache(
     is returned from the REST API.
     """
     if isinstance(destination_configuration, dict):
-        destination_configuration = DestinationSnowflake(**destination_configuration)
+        filtered = {
+            k: v
+            for k, v in destination_configuration.items()
+            if k not in {"destinationType", "DESTINATION_TYPE"}
+        }
+        destination_configuration = DestinationSnowflake(**filtered)
 
     snowflake_password: str | None = None
     if (
