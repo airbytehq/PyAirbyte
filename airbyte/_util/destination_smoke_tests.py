@@ -306,10 +306,8 @@ def run_destination_smoke_test(
     readback_result: DestinationReadbackResult | None = None
     if success:
         try:
-            destination_config = destination.get_config()
             readback_result = run_destination_readback(
-                destination_name=destination.name,
-                destination_config=destination_config,
+                destination=destination,
                 namespace=namespace,
                 stream_names=stream_names,
             )

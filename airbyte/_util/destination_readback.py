@@ -19,47 +19,9 @@ from pydantic import BaseModel
 
 
 if TYPE_CHECKING:
-    from airbyte.caches.base import CacheBase
+    from airbyte.destinations.base import Destination
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Destination-to-cache mapping
-# ---------------------------------------------------------------------------
-
-# Maps destination connector names to cache class import paths.
-# We use strings to avoid importing all cache classes at module load time.
-_DESTINATION_TO_CACHE_INFO: dict[str, dict[str, str]] = {
-    "destination-bigquery": {
-        "module": "airbyte.caches.bigquery",
-        "class": "BigQueryCache",
-    },
-    "destination-duckdb": {
-        "module": "airbyte.caches.duckdb",
-        "class": "DuckDBCache",
-    },
-    "destination-motherduck": {
-        "module": "airbyte.caches.motherduck",
-        "class": "MotherDuckCache",
-    },
-    "destination-postgres": {
-        "module": "airbyte.caches.postgres",
-        "class": "PostgresCache",
-    },
-    "destination-snowflake": {
-        "module": "airbyte.caches.snowflake",
-        "class": "SnowflakeCache",
-    },
-}
-
-SUPPORTED_DESTINATIONS: frozenset[str] = frozenset(_DESTINATION_TO_CACHE_INFO.keys())
-"""Destination connector names that support readback introspection."""
-
-
-def _get_readback_supported(destination_name: str) -> bool:
-    """Return True if readback is supported for the given destination."""
-    return destination_name in SUPPORTED_DESTINATIONS
 
 
 # ---------------------------------------------------------------------------
@@ -191,62 +153,21 @@ class DestinationReadbackResult(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Cache construction from destination config
+# Readback orchestration
 # ---------------------------------------------------------------------------
-
-
-def _build_readback_cache(
-    destination_name: str,
-    destination_config: dict[str, Any],
-    namespace: str,
-) -> CacheBase:
-    """Construct a cache instance that can query the destination's backend.
-
-    The cache is configured to point at the same backend the destination
-    wrote to, using the supplied namespace as the schema.
-
-    Raises:
-        NotImplementedError: If the destination is not supported.
-    """
-    from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
-        destination_to_cache,
-    )
-
-    if destination_name not in SUPPORTED_DESTINATIONS:
-        raise NotImplementedError(
-            f"Readback is not supported for '{destination_name}'. "
-            f"Supported destinations: {sorted(SUPPORTED_DESTINATIONS)}"
-        )
-
-    # The destination_to_cache function expects the config to have
-    # a 'destinationType' field.  We ensure it's present.
-    config_with_type = dict(destination_config)
-    if "destinationType" not in config_with_type and "DESTINATION_TYPE" not in config_with_type:
-        # Infer the type from the destination name
-        dest_type = destination_name.replace("destination-", "")
-        config_with_type["destinationType"] = dest_type
-
-    cache = destination_to_cache(config_with_type)
-
-    # Override the schema to match the namespace used by the smoke test
-    if hasattr(cache, "schema_name"):
-        # Use model_copy to create a new instance with updated schema
-        cache = cache.model_copy(update={"schema_name": namespace})
-
-    return cache
 
 
 def run_destination_readback(
     *,
-    destination_name: str,
-    destination_config: dict[str, Any],
+    destination: Destination,
     namespace: str,
     stream_names: list[str],
 ) -> DestinationReadbackResult:
     """Read back data from a destination after a smoke test and produce stats.
 
     This is the main entry point for readback introspection.  It:
-    1. Constructs a cache that can query the destination's backend
+    1. Builds a cache via ``destination.get_sql_cache()`` (same pattern as
+       :pymethod:`airbyte.cloud.sync_results.SyncResult.get_sql_cache`)
     2. For each expected stream, resolves the expected table name using the
        cache's built-in processor normalizer
     3. Queries row counts, column info, and column stats via cache methods
@@ -259,26 +180,22 @@ def run_destination_readback(
     If the destination is not supported for readback, returns a result
     with ``readback_supported=False`` and empty data.
     """
-    if not _get_readback_supported(destination_name):
+    try:
+        cache = destination.get_sql_cache(schema_name=namespace)
+    except ValueError:
+        # destination_to_cache raises ValueError for unsupported types
         return DestinationReadbackResult(
-            destination=destination_name,
+            destination=destination.name,
             namespace=namespace,
             readback_supported=False,
             tables=[],
             table_reports=[],
             tables_missing=stream_names,
         )
-
-    try:
-        cache = _build_readback_cache(
-            destination_name=destination_name,
-            destination_config=destination_config,
-            namespace=namespace,
-        )
     except Exception as ex:
-        logger.warning("Failed to build readback cache for %s: %s", destination_name, ex)
+        logger.warning("Failed to build readback cache for %s: %s", destination.name, ex)
         return DestinationReadbackResult(
-            destination=destination_name,
+            destination=destination.name,
             namespace=namespace,
             readback_supported=True,
             tables=[],
@@ -351,7 +268,7 @@ def run_destination_readback(
         )
 
     return DestinationReadbackResult(
-        destination=destination_name,
+        destination=destination.name,
         namespace=namespace,
         readback_supported=True,
         tables=tables,

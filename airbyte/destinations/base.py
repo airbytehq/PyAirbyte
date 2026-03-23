@@ -35,6 +35,9 @@ if TYPE_CHECKING:
     from airbyte.shared.state_writers import StateWriterBase
 
 
+_CANONICAL_PREFIX = "destination-"
+
+
 class Destination(ConnectorBase, AirbyteWriterInterface):
     """A class representing a destination that can be called."""
 
@@ -60,6 +63,77 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             config_change_callback=config_change_callback,
             validate=validate,
         )
+
+    @staticmethod
+    def _normalize_destination_name(name: str) -> str:
+        """Normalize a destination name to canonical form (``destination-<type>``).
+
+        Accepts either the short form (e.g. ``snowflake``) or the canonical
+        form (e.g. ``destination-snowflake``).
+        """
+        if not name.startswith(_CANONICAL_PREFIX):
+            return f"{_CANONICAL_PREFIX}{name}"
+        return name
+
+    def get_sql_cache(
+        self,
+        *,
+        schema_name: str | None = None,
+        destination_name: str | None = None,
+        destination_config: dict[str, Any] | None = None,
+        version: str | None = None,
+    ) -> CacheBase:
+        """Return a SQL Cache for querying data written by this destination.
+
+        This follows the same pattern as
+        :pymethod:`airbyte.cloud.sync_results.SyncResult.get_sql_cache`:
+        it builds a cache from the destination's configuration using
+        ``destination_to_cache()``.
+
+        Args:
+            schema_name: Override the schema/namespace on the returned cache.
+                When ``None`` the cache uses the default schema from the
+                destination config.
+            destination_name: The canonical destination connector name
+                (e.g. ``destination-snowflake`` or ``snowflake``).  When
+                ``None``, ``self.name`` is used.
+            destination_config: The destination configuration dict.  When
+                ``None``, ``self.get_config()`` is used.
+            version: Destination version string.  Currently only ``"latest"``
+                (or ``None``, which is treated as ``"latest"``) is accepted.
+                Any other value raises ``NotImplementedError``.
+
+        Raises:
+            NotImplementedError: If *version* is not ``"latest"`` or ``None``.
+            ValueError: If the destination type is not supported.
+        """
+        from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
+            destination_to_cache,
+        )
+
+        # Version gate - future-proof the signature.
+        if version is not None and version != "latest":
+            raise NotImplementedError(
+                f"Only version='latest' (or None) is currently supported. " f"Got: {version!r}"
+            )
+
+        resolved_name = self._normalize_destination_name(
+            destination_name or self.name,
+        )
+        config = dict(destination_config or self.get_config())
+
+        # Ensure the config carries a destinationType key so that
+        # destination_to_cache() can dispatch correctly.
+        if "destinationType" not in config and "DESTINATION_TYPE" not in config:
+            dest_type = resolved_name.replace(_CANONICAL_PREFIX, "")
+            config["destinationType"] = dest_type
+
+        cache: CacheBase = destination_to_cache(config)
+
+        if schema_name is not None:
+            cache = cache.model_copy(update={"schema_name": schema_name})
+
+        return cache
 
     def write(  # noqa: PLR0912, PLR0915 # Too many arguments/statements
         self,
