@@ -110,9 +110,9 @@ from typing_extensions import final
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 
 from airbyte._util import api_util
+from airbyte.caches._utils._dest_to_cache import destination_to_cache
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
-from airbyte.destinations._translate_dest_to_cache import destination_to_cache
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
 

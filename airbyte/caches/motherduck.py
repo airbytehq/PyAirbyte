@@ -26,10 +26,10 @@ from pydantic import Field
 
 from airbyte._processors.sql.duckdb import DuckDBConfig
 from airbyte._processors.sql.motherduck import MotherDuckSqlProcessor
-from airbyte.caches.duckdb import DuckDBCache
-from airbyte.destinations._translate_cache_to_dest import (
+from airbyte.caches._utils._cache_to_dest import (
     motherduck_cache_to_destination_configuration,
 )
+from airbyte.caches.duckdb import DuckDBCache
 from airbyte.secrets import SecretString
 
 

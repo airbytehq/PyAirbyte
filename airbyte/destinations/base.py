@@ -82,7 +82,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         Returns `True` when `get_sql_cache()` is expected to succeed for
         the destination's connector type.
         """
-        from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
+        from airbyte.caches._utils._dest_to_cache import (  # noqa: PLC0415
             get_supported_destination_types,
         )
 
@@ -111,7 +111,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         Raises:
             ValueError: If the destination type is not supported.
         """
-        from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
+        from airbyte.caches._utils._dest_to_cache import (  # noqa: PLC0415
             destination_to_cache,
         )
 

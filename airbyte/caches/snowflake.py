@@ -64,10 +64,10 @@ from typing import ClassVar
 from airbyte_api.models import DestinationSnowflake
 
 from airbyte._processors.sql.snowflake import SnowflakeConfig, SnowflakeSqlProcessor
-from airbyte.caches.base import CacheBase
-from airbyte.destinations._translate_cache_to_dest import (
+from airbyte.caches._utils._cache_to_dest import (
     snowflake_cache_to_destination_configuration,
 )
+from airbyte.caches.base import CacheBase
 from airbyte.shared.sql_processor import RecordDedupeMode, SqlProcessorBase
 
 
