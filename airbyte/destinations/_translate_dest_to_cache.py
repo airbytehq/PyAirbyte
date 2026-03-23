@@ -125,9 +125,17 @@ def duckdb_destination_to_cache(
 
 
 def motherduck_destination_to_cache(
-    destination_configuration: DestinationDuckdb,
+    destination_configuration: DestinationDuckdb | dict[str, Any],
 ) -> MotherDuckCache:
-    """Create a new DuckDB cache from the destination configuration."""
+    """Create a new MotherDuck cache from the destination configuration."""
+    if isinstance(destination_configuration, dict):
+        filtered = {
+            k: v
+            for k, v in destination_configuration.items()
+            if k not in {"destinationType", "DESTINATION_TYPE"}
+        }
+        destination_configuration = DestinationDuckdb(**filtered)
+
     if not destination_configuration.motherduck_api_key:
         raise ValueError("MotherDuck API key is required for MotherDuck cache.")
 
