@@ -445,14 +445,24 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     # These private methods support destination readback introspection,
     # allowing the cache to query stats about data written by a destination.
 
+    def _readback_quote_identifier(self, identifier: str) -> str:
+        """Quote an identifier for use in readback SQL queries.
+
+        Defaults to ANSI double-quote style.  Subclasses whose SQL dialect
+        uses a different quoting convention (e.g. BigQuery backticks) should
+        override this method.
+        """
+        return f'"{identifier}"'
+
     def _readback_query_row_count(
         self,
         table_name: str,
     ) -> int | None:
         """Query the row count for a table. Returns None if the table doesn't exist."""
         try:
+            quoted_table = self._readback_quote_identifier(table_name)
             result = self.run_sql_query(
-                f'SELECT COUNT(*) AS row_count FROM {self.schema_name}."{table_name}"',
+                f"SELECT COUNT(*) AS row_count FROM {self.schema_name}.{quoted_table}",
             )
             if result:
                 row_ci = {k.lower(): v for k, v in result[0].items()}
@@ -517,13 +527,13 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
         count_exprs: list[str] = []
         for idx, col in enumerate(columns):
             col_name = col["column_name"]
-            quoted = f'"{col_name}"'
+            quoted = self._readback_quote_identifier(col_name)
             count_exprs.append(f"COUNT({quoted}) AS nn_{idx}")
 
         count_exprs_str = ", ".join(count_exprs)
         sql = (
             f"SELECT COUNT(*) AS total_rows, {count_exprs_str} "
-            f'FROM {self.schema_name}."{table_name}"'
+            f"FROM {self.schema_name}.{self._readback_quote_identifier(table_name)}"
         )
 
         try:
