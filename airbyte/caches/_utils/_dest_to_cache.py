@@ -233,7 +233,10 @@ def snowflake_destination_to_cache(
                     "Password is required for Snowflake cache, but it was not available."
                 ) from ex
         else:
-            snowflake_password = get_secret(destination_password)
+            # The password is a plaintext value (e.g. from a local
+            # Destination's hydrated config).  Use it directly instead
+            # of treating it as a secret name to look up.
+            snowflake_password = destination_password
     else:
         snowflake_password = get_secret(password_secret_name)
 
