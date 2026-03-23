@@ -95,9 +95,6 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         self,
         *,
         schema_name: str | None = None,
-        destination_name: str | None = None,
-        destination_config: dict[str, Any] | None = None,
-        version: str | None = None,
     ) -> CacheBase:
         """Return a SQL Cache for querying data written by this destination.
 
@@ -110,33 +107,16 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             schema_name: Override the schema/namespace on the returned cache.
                 When `None` the cache uses the default schema from the
                 destination config.
-            destination_name: The canonical destination connector name
-                (e.g. `destination-snowflake` or `snowflake`).  When
-                `None`, `self.name` is used.
-            destination_config: The destination configuration dict.  When
-                `None`, `self.get_config()` is used.
-            version: Destination version string.  Currently only `"latest"`
-                (or `None`, which is treated as `"latest"`) is accepted.
-                Any other value raises `NotImplementedError`.
 
         Raises:
-            NotImplementedError: If `version` is not `"latest"` or `None`.
             ValueError: If the destination type is not supported.
         """
         from airbyte.destinations._translate_dest_to_cache import (  # noqa: PLC0415
             destination_to_cache,
         )
 
-        # Version gate - future-proof the signature.
-        if version is not None and version != "latest":
-            raise NotImplementedError(
-                f"Only version='latest' (or None) is currently supported. " f"Got: {version!r}"
-            )
-
-        resolved_name = self._normalize_destination_name(
-            destination_name or self.name,
-        )
-        config = dict(destination_config or self._hydrated_config)
+        resolved_name = self._normalize_destination_name(self.name)
+        config = dict(self._hydrated_config)
 
         # Ensure the config carries a destinationType key so that
         # destination_to_cache() can dispatch correctly.
@@ -144,9 +124,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             dest_type = resolved_name.replace(_CANONICAL_PREFIX, "")
             config["destinationType"] = dest_type
 
-        cache: CacheBase = destination_to_cache(config, schema_name=schema_name)
-
-        return cache
+        return destination_to_cache(config, schema_name=schema_name)
 
     def write(  # noqa: PLR0912, PLR0915 # Too many arguments/statements
         self,
