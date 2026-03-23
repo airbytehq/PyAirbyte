@@ -228,16 +228,20 @@ def _apply_namespace_to_destination_config(
     destination: Destination,
     namespace: str,
 ) -> None:
-    """Override the schema/dataset in the destination config for namespace isolation.
+    """Prepare the destination config for smoke testing.
 
-    Some destinations use their config schema key (e.g. `schema` for Snowflake)
-    rather than the catalog namespace when deciding where to write data.
-    This ensures the destination writes to the smoke-test namespace by
-    overriding the config key directly.
+    Applies two overrides to the destination config:
 
-    The catalog namespace is already set on each stream by the source, but
-    this "belt and suspenders" approach guarantees correct schema targeting
-    regardless of how a given destination resolves its output schema.
+    1. **Schema/dataset override** — sets the config's schema key
+       (e.g. `schema` for Snowflake/Postgres, `dataset_id` for BigQuery)
+       to the test namespace. Some destinations use their config schema
+       rather than the catalog namespace when deciding where to write.
+       This "belt and suspenders" approach guarantees correct schema targeting
+       regardless of how a given destination resolves its output schema.
+
+    2. **Typing/deduplication enabled** — forces `disable_type_dedupe`
+       to `False` so the destination creates final typed tables (not just
+       raw staging). Readback introspection requires final tables.
 
     Note: This mutates the destination's config in place.
     """
@@ -246,16 +250,31 @@ def _apply_namespace_to_destination_config(
         dest_name = f"destination-{dest_name}"
     dest_type = dest_name.removeprefix("destination-")
 
+    config = dict(destination.get_config())
+    changed = False
+
+    # Override the schema/dataset config key to the test namespace.
     schema_key = _DESTINATION_SCHEMA_CONFIG_KEYS.get(dest_type)
     if schema_key:
-        config = dict(destination.get_config())
         logger.info(
-            "Overriding destination config '%s' from '%s' to '%s' " "for namespace isolation.",
+            "Overriding destination config '%s' from '%s' to '%s' for namespace isolation.",
             schema_key,
             config.get(schema_key, "<not set>"),
             namespace,
         )
         config[schema_key] = namespace
+        changed = True
+
+    # Ensure typing and deduplication are enabled so that final tables
+    # (not just raw staging) are created for readback inspection.
+    if config.get("disable_type_dedupe"):
+        logger.info(
+            "Forcing 'disable_type_dedupe' to False so final tables are created.",
+        )
+        config["disable_type_dedupe"] = False
+        changed = True
+
+    if changed:
         destination.set_config(config)
 
 
