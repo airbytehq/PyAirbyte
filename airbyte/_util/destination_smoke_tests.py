@@ -7,11 +7,17 @@ MCP tool (`destination_smoke_test`).
 
 Smoke tests send synthetic data from the built-in smoke test source to a
 destination connector and report whether the destination accepted the data
-without errors. No readback or comparison is performed.
+without errors.
+
+When the destination has a compatible cache implementation, readback
+introspection is automatically performed to produce stats on the written
+data: table row counts, column names/types, and per-column null/non-null
+counts.
 """
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,7 +27,14 @@ import yaml
 from pydantic import BaseModel
 
 from airbyte import get_source
+from airbyte._util.destination_readback import (
+    DestinationReadbackResult,
+    run_destination_readback,
+)
 from airbyte.exceptions import PyAirbyteInputError
+
+
+logger = logging.getLogger(__name__)
 
 
 NAMESPACE_PREFIX = "zz_deleteme"
@@ -82,6 +95,17 @@ class DestinationSmokeTestResult(BaseModel):
 
     error: str | None = None
     """Error message if the smoke test failed."""
+
+    readback_result: DestinationReadbackResult | None = None
+    """Readback introspection result, if supported for this destination.
+
+    Contains three datasets:
+    1. tables - table names with row counts
+    2. columns - column names and types per table
+    3. column_stats - per-column null/non-null counts
+
+    None if the write itself failed or readback is not supported.
+    """
 
 
 def get_smoke_test_source(
@@ -194,6 +218,12 @@ def _sanitize_error(ex: Exception) -> str:
     return f"{type(ex).__name__}: {ex}"
 
 
+def _get_stream_names_from_source(source_obj: Source) -> list[str]:
+    """Extract stream names from a configured source."""
+    catalog = source_obj.get_configured_catalog()
+    return [stream.stream.name for stream in catalog.streams]
+
+
 def run_destination_smoke_test(
     *,
     destination: Destination,
@@ -208,9 +238,11 @@ def run_destination_smoke_test(
     Sends synthetic test data from the smoke test source to the specified
     destination and returns a structured result.
 
-    This function does NOT read back data from the destination or compare
-    results. It only verifies that the destination accepts the data without
-    errors.
+    When the destination has a compatible cache implementation, readback
+    introspection is automatically performed after a successful write.
+    The readback produces stats on the written data (table row counts,
+    column names/types, and per-column null/non-null counts) and is
+    included in the result as ``readback_result``.
 
     `destination` is a resolved `Destination` object ready for writing.
 
@@ -244,6 +276,9 @@ def run_destination_smoke_test(
         custom_scenarios_file=custom_scenarios_file,
     )
 
+    # Capture stream names for readback before the write consumes the source
+    stream_names = _get_stream_names_from_source(source_obj)
+
     # Normalize scenarios to a display string
     if isinstance(scenarios, list):
         scenarios_str = ",".join(scenarios) if scenarios else "fast"
@@ -267,6 +302,29 @@ def run_destination_smoke_test(
 
     elapsed = time.monotonic() - start_time
 
+    # Perform readback introspection if the write succeeded
+    readback_result: DestinationReadbackResult | None = None
+    if success:
+        try:
+            destination_config = destination.get_config()
+            readback_result = run_destination_readback(
+                destination_name=destination.name,
+                destination_config=destination_config,
+                namespace=namespace,
+                stream_names=stream_names,
+            )
+        except NotImplementedError:
+            logger.info(
+                "Readback not supported for destination '%s'.",
+                destination.name,
+            )
+        except Exception as ex:
+            logger.warning(
+                "Readback failed for destination '%s': %s",
+                destination.name,
+                ex,
+            )
+
     return DestinationSmokeTestResult(
         success=success,
         destination=destination.name,
@@ -275,4 +333,5 @@ def run_destination_smoke_test(
         scenarios_requested=scenarios_str,
         elapsed_seconds=round(elapsed, 2),
         error=error_message,
+        readback_result=readback_result,
     )

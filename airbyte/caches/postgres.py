@@ -42,7 +42,7 @@ class PostgresCache(PostgresConfig, CacheBase):
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = PostgresSqlProcessor
 
-    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_name: ClassVar[str | None] = "destination-postgres"
     paired_destination_config_class: ClassVar[type | None] = DestinationPostgres
 
     @property

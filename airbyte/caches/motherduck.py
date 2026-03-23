@@ -73,7 +73,7 @@ class MotherDuckCache(MotherDuckConfig, DuckDBCache):
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = MotherDuckSqlProcessor
 
-    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_name: ClassVar[str | None] = "destination-motherduck"
     paired_destination_config_class: ClassVar[type | None] = DestinationDuckdb
 
     @property

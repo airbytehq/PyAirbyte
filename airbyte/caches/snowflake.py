@@ -78,7 +78,7 @@ class SnowflakeCache(SnowflakeConfig, CacheBase):
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = SnowflakeSqlProcessor
 
-    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_name: ClassVar[str | None] = "destination-snowflake"
     paired_destination_config_class: ClassVar[type | None] = DestinationSnowflake
 
     @property

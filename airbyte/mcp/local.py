@@ -543,9 +543,7 @@ def get_stream_previews(
     )
     source.set_config(config_dict)
 
-    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(
-        streams
-    )  # pyrefly: ignore[no-matching-overload]
+    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(streams)  # pyrefly: ignore[no-matching-overload]
     if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
         streams_param = "*"
 
@@ -910,8 +908,12 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
     type variations, null handling, naming edge cases, schema variations, and
     batch sizes.
 
-    This tool does NOT read back data from the destination or compare results.
-    It only verifies that the destination accepts the data without errors.
+    When the destination has a compatible cache implementation (DuckDB,
+    Postgres, Snowflake, BigQuery, MotherDuck), readback introspection is
+    automatically performed after a successful write. The readback produces
+    stats on the written data: table row counts, column names/types, and
+    per-column null/non-null counts. Results are included in the response
+    as ``readback_result``.
     """
     # Resolve destination config
     config_dict = resolve_connector_config(

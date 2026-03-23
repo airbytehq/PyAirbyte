@@ -729,9 +729,11 @@ def destination_smoke_test(
     failure patterns: type variations, null handling, naming edge cases,
     schema variations, and batch sizes.
 
-    This command does NOT read back data from the destination or compare
-    results. It only verifies that the destination accepts the data without
-    errors.
+    When the destination has a compatible cache implementation (DuckDB,
+    Postgres, Snowflake, BigQuery, MotherDuck), readback introspection
+    is automatically performed after a successful write. The readback
+    produces stats on the written data: table row counts, column
+    names/types, and per-column null/non-null counts.
 
     Usage examples:
 
