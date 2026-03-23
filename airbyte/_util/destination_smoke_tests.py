@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 NAMESPACE_PREFIX = "zz_deleteme"
 """Prefix for auto-generated smoke test namespaces.
 
-The ``zz_`` prefix sorts last alphabetically; ``deleteme`` signals the
+The `zz_` prefix sorts last alphabetically; `deleteme` signals the
 namespace is safe for automated cleanup.
 """
 
@@ -56,11 +56,11 @@ def generate_namespace(
 ) -> str:
     """Generate a smoke-test namespace.
 
-    Format: ``zz_deleteme_yyyymmdd_hhmm_<suffix>``.
-    The ``zz_`` prefix sorts last alphabetically and the ``deleteme``
+    Format: `zz_deleteme_yyyymmdd_hhmm_<suffix>`.
+    The `zz_` prefix sorts last alphabetically and the `deleteme`
     token acts as a guard for automated cleanup scripts.
 
-    If *namespace_suffix* is not provided, ``smoke_test`` is used as the
+    If `namespace_suffix` is not provided, `smoke_test` is used as the
     default suffix.
     """
     suffix = namespace_suffix or DEFAULT_NAMESPACE_SUFFIX
@@ -77,7 +77,7 @@ def generate_namespace(
 class DestinationReadbackResult(BaseModel):
     """Result of reading back destination-written data.
 
-    Uses ``TableStatistics`` from the SQL processor layer to provide
+    Uses `TableStatistics` from the SQL processor layer to provide
     per-table row counts, column names/types, and per-column null/non-null
     counts.
     """
@@ -319,7 +319,7 @@ def run_destination_smoke_test(
     introspection is automatically performed after a successful write.
     The readback produces stats on the written data (table row counts,
     column names/types, and per-column null/non-null counts) and is
-    included in the result as ``readback_result``.
+    included in the result as `readback_result`.
 
     `destination` is a resolved `Destination` object ready for writing.
 
@@ -330,8 +330,8 @@ def run_destination_smoke_test(
     - A comma-separated string or list of specific scenario names.
 
     `namespace_suffix` is an optional suffix appended to the auto-generated
-    namespace. Defaults to ``smoke_test`` when not provided
-    (e.g. ``zz_deleteme_20260318_2256_smoke_test``).
+    namespace. Defaults to `smoke_test` when not provided
+    (e.g. `zz_deleteme_20260318_2256_smoke_test`).
 
     `reuse_namespace` is an exact namespace string to reuse from a previous
     run. When set, no new namespace is generated.

@@ -1219,7 +1219,7 @@ class SqlProcessorBase(abc.ABC):
     ) -> int:
         """Return the number of rows in the given table.
 
-        Raises ``SQLRuntimeError`` if the table does not exist or the query
+        Raises `SQLRuntimeError` if the table does not exist or the query
         fails for any other reason.
         """
         sql = f"SELECT COUNT(*) AS row_count FROM {self._fully_qualified(table_name)}"
@@ -1237,7 +1237,7 @@ class SqlProcessorBase(abc.ABC):
     ) -> list[dict[str, str]]:
         """Return column names and types for the given table.
 
-        Each entry is a dict with ``column_name`` and ``column_type`` keys.
+        Each entry is a dict with `column_name` and `column_type` keys.
 
         Raises if the table does not exist or is not accessible.
         """
@@ -1259,13 +1259,13 @@ class SqlProcessorBase(abc.ABC):
     ) -> list[dict[str, Any]]:
         """Return per-column null/non-null counts for the given table.
 
-        *columns* should be a list of dicts with at least a ``column_name``
-        key (as returned by :meth:`get_column_info`).
+        `columns` should be a list of dicts with at least a `column_name`
+        key (as returned by `get_column_info()`).
 
-        Returns a list of dicts with ``column_name``, ``null_count``,
-        ``non_null_count``, and ``total_count`` keys.
+        Returns a list of dicts with `column_name`, `null_count`,
+        `non_null_count`, and `total_count` keys.
 
-        Positional aliases (``nn_0``, ``nn_1``, ...) are used instead of
+        Positional aliases (`nn_0`, `nn_1`, ...) are used instead of
         column-name-derived aliases to avoid issues with databases that
         truncate long identifiers (PostgreSQL: 63 chars).
         """
@@ -1323,7 +1323,7 @@ class SqlProcessorBase(abc.ABC):
         If the normalized table name is not found, falls back to the original
         stream name (some destinations preserve original casing).
 
-        Returns a dict mapping stream name to a ``TableStatistics`` instance.
+        Returns a dict mapping stream name to a `TableStatistics` instance.
         Streams whose tables are not found are omitted from the result.
         """
         result: dict[str, TableStatistics] = {}

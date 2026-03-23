@@ -445,11 +445,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     ) -> dict[str, TableStatistics]:
         """Return table statistics for the given stream names.
 
-        Delegates to ``self.processor.get_table_statistics()`` which queries
+        Delegates to `self.processor.get_table_statistics()` which queries
         row counts, column info, and per-column null/non-null stats for each
         stream.
 
-        Returns a dict mapping stream name to a ``TableStatistics`` instance.
+        Returns a dict mapping stream name to a `TableStatistics` instance.
         Streams whose tables are not found are omitted from the result.
         """
         return self.processor.get_table_statistics(stream_names)

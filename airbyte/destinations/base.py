@@ -66,10 +66,10 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
 
     @staticmethod
     def _normalize_destination_name(name: str) -> str:
-        """Normalize a destination name to canonical form (``destination-<type>``).
+        """Normalize a destination name to canonical form (`destination-<type>`).
 
-        Accepts either the short form (e.g. ``snowflake``) or the canonical
-        form (e.g. ``destination-snowflake``).
+        Accepts either the short form (e.g. `snowflake`) or the canonical
+        form (e.g. `destination-snowflake`).
         """
         if not name.startswith(_CANONICAL_PREFIX):
             return f"{_CANONICAL_PREFIX}{name}"
