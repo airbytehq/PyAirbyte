@@ -128,10 +128,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             dest_type = resolved_name.replace(_CANONICAL_PREFIX, "")
             config["destinationType"] = dest_type
 
-        cache: CacheBase = destination_to_cache(config)
-
-        if schema_name is not None:
-            cache = cache.model_copy(update={"schema_name": schema_name})
+        cache: CacheBase = destination_to_cache(config, schema_name=schema_name)
 
         return cache
 

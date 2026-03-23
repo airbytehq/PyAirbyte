@@ -915,7 +915,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
     automatically performed after a successful write. The readback produces
     stats on the written data: table row counts, column names/types, and
     per-column null/non-null counts. Results are included in the response
-    as ``readback_result``.
+    as `readback_result`.
     """
     # Resolve destination config
     config_dict = resolve_connector_config(

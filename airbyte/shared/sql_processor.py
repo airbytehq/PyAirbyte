@@ -109,6 +109,12 @@ class TableStatistics(BaseModel):
     table_name: str
     """The table name as found in the destination."""
 
+    database_name: str | None = None
+    """The database name where this table resides."""
+
+    schema_name: str | None = None
+    """The schema name where this table resides."""
+
     row_count: int | None = None
     """Number of rows found."""
 
@@ -1363,6 +1369,8 @@ class SqlProcessorBase(abc.ABC):
 
             result[stream_name] = TableStatistics(
                 table_name=table_name,
+                database_name=self.database_name,
+                schema_name=self.sql_config.schema_name,
                 row_count=row_count,
                 column_statistics=col_statistics,
             )

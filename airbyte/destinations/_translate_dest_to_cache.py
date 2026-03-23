@@ -35,6 +35,8 @@ SNOWFLAKE_PASSWORD_SECRET_NAME = "SNOWFLAKE_PASSWORD"
 
 def destination_to_cache(
     destination_configuration: api_util.DestinationConfiguration | dict[str, Any],
+    *,
+    schema_name: str | None = None,
 ) -> CacheBase:
     """Get the destination configuration from the cache."""
     conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {
@@ -71,7 +73,10 @@ def destination_to_cache(
         )
 
     conversion_fn = conversion_fn_map[destination_type]
-    return conversion_fn(destination_configuration)
+    cache = conversion_fn(destination_configuration)
+    if schema_name is not None:
+        cache.schema_name = schema_name
+    return cache
 
 
 def bigquery_destination_to_cache(
