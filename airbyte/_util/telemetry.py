@@ -150,7 +150,10 @@ def _setup_analytics() -> str | bool:
 
     if DEBUG and issues:
         nl = "\n"
-        print(f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}", file=sys.stderr)
+        print(
+            f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}",
+            file=sys.stderr,
+        )
 
     return anonymous_user_id
 
