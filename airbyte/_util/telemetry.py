@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import sys
 from contextlib import suppress
 from enum import Enum
 from functools import lru_cache
@@ -104,7 +105,8 @@ def _setup_analytics() -> str | bool:
         print(
             "Thank you for using PyAirbyte!\n"
             "Anonymous usage reporting is currently enabled. For more information, please"
-            " see https://docs.airbyte.com/telemetry"
+            " see https://docs.airbyte.com/telemetry",
+            file=sys.stderr,
         )
 
     if _ANALYTICS_FILE.exists():
@@ -127,7 +129,8 @@ def _setup_analytics() -> str | bool:
             issues.append("Provided analytics ID did not match the file. Rewriting the file.")
             print(
                 f"Received a user-provided analytics ID override in the '{_ENV_ANALYTICS_ID}' "
-                "environment variable."
+                "environment variable.",
+                file=sys.stderr,
             )
 
     # File is missing, incomplete, or stale. Create a new one.
@@ -147,7 +150,7 @@ def _setup_analytics() -> str | bool:
 
     if DEBUG and issues:
         nl = "\n"
-        print(f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}")
+        print(f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}", file=sys.stderr)
 
     return anonymous_user_id
 
