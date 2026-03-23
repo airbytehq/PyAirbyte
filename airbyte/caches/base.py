@@ -11,8 +11,8 @@ from typing import IO, TYPE_CHECKING, Any, ClassVar, Literal, final
 import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
-from pydantic import Field, PrivateAttr
 import sqlalchemy as sa
+from pydantic import Field, PrivateAttr
 from sqlalchemy import exc as sqlalchemy_exc
 from sqlalchemy import text
 from typing_extensions import Self

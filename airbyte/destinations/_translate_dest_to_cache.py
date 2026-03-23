@@ -95,11 +95,31 @@ def bigquery_destination_to_cache(
 
 
 def duckdb_destination_to_cache(
-    destination_configuration: DestinationDuckdb,
+    destination_configuration: DestinationDuckdb | dict[str, Any],
 ) -> DuckDBCache:
     """Create a new DuckDB cache from the destination configuration."""
+    if isinstance(destination_configuration, dict):
+        filtered = {
+            k: v
+            for k, v in destination_configuration.items()
+            if k not in {"destinationType", "DESTINATION_TYPE"}
+        }
+        destination_configuration = DestinationDuckdb(**filtered)
+
+    db_path = destination_configuration.destination_path
+
+    # The DuckDB destination Docker container mounts a host directory to
+    # ``/local`` inside the container.  Paths written as ``/local/foo.duckdb``
+    # actually live at ``<project_dir>/destination-duckdb/foo.duckdb`` on the
+    # host.  Resolve the host-side path so the cache can open the file.
+    if db_path.startswith(("/local/", "/local\\")):
+        from airbyte.constants import DEFAULT_PROJECT_DIR  # noqa: PLC0415
+
+        host_path = str(DEFAULT_PROJECT_DIR / "destination-duckdb" / db_path[len("/local/"):])
+        db_path = host_path
+
     return DuckDBCache(
-        db_path=destination_configuration.destination_path,
+        db_path=db_path,
         schema_name=destination_configuration.schema or "main",
     )
 
