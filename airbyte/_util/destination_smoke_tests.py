@@ -266,15 +266,15 @@ def _prepare_destination_config(
 
 
 def _extract_trace_error_from_log(ex: Exception) -> str | None:
-    """Search the connector log file for a TRACE ERROR ``internal_message``.
+    """Search the connector log file for a TRACE ERROR `internal_message`.
 
-    Many Java-based connectors emit a generic user-facing ``message`` in
+    Many Java-based connectors emit a generic user-facing `message` in
     their TRACE ERROR output (e.g. "Something went wrong in the connector")
-    while the actionable detail lives in the ``internal_message`` field.
-    PyAirbyte only captures the ``message`` in the exception chain, so this
-    helper reads the connector's log file to recover the ``internal_message``.
+    while the actionable detail lives in the `internal_message` field.
+    PyAirbyte only captures the `message` in the exception chain, so this
+    helper reads the connector's log file to recover the `internal_message`.
 
-    Returns the ``internal_message`` string if found, or ``None``.
+    Returns the `internal_message` string if found, or `None`.
     """
     # Walk the exception chain looking for a log_file path
     log_file: Path | None = None
@@ -317,16 +317,16 @@ def _sanitize_error(ex: Exception) -> str:
 
     Resolution order (first match wins):
 
-    1. **Connector log file** - The TRACE ERROR ``internal_message`` from the
+    1. **Connector log file** - The TRACE ERROR `internal_message` from the
        connector's log is typically the most specific error available (e.g.
-       ``password authentication failed for user "bob"``).  Many Java-based
-       connectors emit a generic user-facing ``message`` while the real
-       detail lives only in ``internal_message``.
-    2. **Exception chain** - Walks ``original_exception`` to find the deepest
+       `password authentication failed for user "bob"`).  Many Java-based
+       connectors emit a generic user-facing `message` while the real
+       detail lives only in `internal_message`.
+    2. **Exception chain** - Walks `original_exception` to find the deepest
        exception with a message more specific than the top-level wrapper.
-    3. **Top-level exception** - Falls back to ``get_message()`` or ``str()``.
+    3. **Top-level exception** - Falls back to `get_message()` or `str()`.
 
-    Uses ``get_message()`` when available (PyAirbyte exceptions) to avoid
+    Uses `get_message()` when available (PyAirbyte exceptions) to avoid
     including full config/context in the error string.
     """
     # 1. Try the connector log file first — it has the most detail.
@@ -362,7 +362,7 @@ PREFLIGHT_SCENARIO = "basic_types"
 PREFLIGHT_STREAM_NAME = "_preflight_basic_types"
 """Stream name used by the preflight write.
 
-This is deliberately different from the predefined ``basic_types`` stream
+This is deliberately different from the predefined `basic_types` stream
 so that the preflight data lands in its own table and never collides with
 the main smoke-test run."""
 
@@ -370,12 +370,12 @@ the main smoke-test run."""
 def _build_preflight_scenario() -> dict[str, Any]:
     """Build the preflight custom scenario.
 
-    Returns a scenario dict that mirrors the predefined ``basic_types``
-    scenario but with the stream name set to :data:`PREFLIGHT_STREAM_NAME`
+    Returns a scenario dict that mirrors the predefined `basic_types`
+    scenario but with the stream name set to `PREFLIGHT_STREAM_NAME`
     so the preflight data lands in its own table.
 
     The schema and records are defined inline to avoid a circular import
-    from :mod:`airbyte.cli.smoke_test_source._scenarios`.
+    from `airbyte.cli.smoke_test_source._scenarios`.
     """
     return {
         "name": PREFLIGHT_STREAM_NAME,
@@ -406,14 +406,14 @@ def _run_preflight(
 ) -> tuple[bool, str | None]:
     """Run the preflight connectivity check.
 
-    Writes a small dataset (based on the ``basic_types`` scenario) using a
-    dedicated stream name (:data:`PREFLIGHT_STREAM_NAME`) so the preflight
+    Writes a small dataset (based on the `basic_types` scenario) using a
+    dedicated stream name (`PREFLIGHT_STREAM_NAME`) so the preflight
     data never collides with the main smoke-test run.
 
-    Returns a tuple of ``(passed, error_message)``.
+    Returns a tuple of `(passed, error_message)`.
 
-    *  ``(True, None)`` when the preflight write succeeded.
-    *  ``(False, '<sanitized error>')`` when the write failed.
+    *  `(True, None)` when the preflight write succeeded.
+    *  `(False, '<sanitized error>')` when the write failed.
 
     Failures are logged but not raised so the caller can return a
     structured result that includes the actionable connector error.
