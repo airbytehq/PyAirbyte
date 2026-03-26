@@ -303,12 +303,16 @@ def _run_preflight(
     *,
     destination: Destination,
     namespace: str,
-) -> bool:
+) -> tuple[bool, str | None]:
     """Run the preflight `basic_types` scenario to validate connectivity.
 
-    Returns `True` if the preflight write succeeded, `False` otherwise.
+    Returns a tuple of ``(passed, error_message)``.
+
+    *  ``(True, None)`` when the preflight write succeeded.
+    *  ``(False, '<sanitized error>')`` when the write failed.
+
     Failures are logged but not raised so the caller can return a
-    structured result.
+    structured result that includes the actionable connector error.
     """
     logger.info(
         "Running preflight check ('%s') for destination '%s'...",
@@ -326,18 +330,19 @@ def _run_preflight(
             state_cache=False,
         )
     except Exception as ex:
+        sanitized = _sanitize_error(ex)
         logger.warning(
             "Preflight check failed for destination '%s': %s",
             destination.name,
-            _sanitize_error(ex),
+            sanitized,
         )
-        return False
+        return False, sanitized
 
     logger.info(
         "Preflight check passed for destination '%s'.",
         destination.name,
     )
-    return True
+    return True, None
 
 
 def run_destination_smoke_test(  # noqa: PLR0914
@@ -396,7 +401,7 @@ def run_destination_smoke_test(  # noqa: PLR0914
     # --- Preflight check ---------------------------------------------------
     preflight_passed: bool | None = None
     if not skip_preflight:
-        preflight_passed = _run_preflight(
+        preflight_passed, preflight_error = _run_preflight(
             destination=destination,
             namespace=namespace,
         )
@@ -411,9 +416,8 @@ def run_destination_smoke_test(  # noqa: PLR0914
                 ),
                 elapsed_seconds=0.0,
                 error=(
-                    f"Preflight check failed: {PREFLIGHT_SCENARIO} scenario could not "
-                    "write to destination. Verify credentials and connectivity "
-                    "before testing other scenarios."
+                    f"Preflight check failed for '{PREFLIGHT_SCENARIO}': "
+                    f"{preflight_error or 'unknown error'}"
                 ),
                 preflight_passed=False,
             )
