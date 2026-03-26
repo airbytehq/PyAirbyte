@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
@@ -33,7 +35,7 @@ DEFAULT_MANIFEST_URL = (
     "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
 )
 DEFAULT_COMPONENTS_URL = (
-    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/components.py"
+    "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/components.zip"
 )
 
 
@@ -41,15 +43,18 @@ def _try_get_manifest_connector_files(
     source_name: str,
     version: str | None = None,
 ) -> tuple[dict, str | None, str | None]:
-    """Try to get source manifest and components.py from URLs.
+    """Try to get the source manifest and components.zip from URLs and extract components.py.
 
     Returns tuple of (manifest_dict, components_py_content, components_py_checksum).
-    Components values are None if components.py is not found (404 is handled gracefully).
+    Components values are None if components.zip is not found (404 is handled gracefully).
+
+    The registry serves custom components as `components.zip` archives. This function
+    downloads and extracts `components.py` from the zip archive.
 
     Raises:
         - `PyAirbyteInputError`: If `source_name` is `None`.
         - `AirbyteConnectorInstallationError`: If the manifest cannot be downloaded or parsed,
-          or if components.py cannot be downloaded (excluding 404 errors).
+          or if components.zip cannot be downloaded or extracted (excluding 404 errors).
     """
     if source_name is None:
         raise exc.PyAirbyteInputError(
@@ -104,13 +109,23 @@ def _try_get_manifest_connector_files(
         response.raise_for_status()
     except requests.exceptions.HTTPError as ex:
         raise exc.AirbyteConnectorInstallationError(
-            message="Failed to download the connector components.py file.",
+            message="Failed to download the connector components.zip file.",
             context={
                 "components_url": components_url,
             },
         ) from ex
 
-    components_content = response.text
+    try:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+            components_content = zf.read("components.py").decode("utf-8")
+    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as ex:
+        raise exc.AirbyteConnectorInstallationError(
+            message="Failed to extract components.py from components.zip.",
+            context={
+                "components_url": components_url,
+            },
+        ) from ex
+
     components_py_checksum = hashlib.md5(components_content.encode()).hexdigest()
 
     return manifest_dict, components_content, components_py_checksum
