@@ -43,7 +43,7 @@ def _try_get_manifest_connector_files(
     source_name: str,
     version: str | None = None,
 ) -> tuple[dict, str | None, str | None]:
-    """Try to get source manifest and components.py from URLs.
+    """Try to get the source manifest and components.zip from URLs and extract components.py.
 
     Returns tuple of (manifest_dict, components_py_content, components_py_checksum).
     Components values are None if components.zip is not found (404 is handled gracefully).
