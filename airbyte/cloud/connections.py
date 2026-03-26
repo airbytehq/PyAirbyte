@@ -648,6 +648,170 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
         )
 
+    def refresh_catalog(self) -> dict[str, Any]:
+        """Refresh the connection's catalog by re-discovering the source schema.
+
+        Triggers a discover operation on the connection's source connector, then
+        replaces the connection's catalog with the refreshed result. This is
+        equivalent to clicking "Refresh source schema" in the Airbyte UI.
+
+        This is useful after pinning a new connector version that advertises
+        new streams or updated sync mode support.
+
+        Returns:
+            The refreshed syncCatalog dict.
+
+        Raises:
+            PyAirbyteInputError: If the refreshed catalog is empty or missing.
+        """
+        refreshed_response = api_util.get_refreshed_connection_catalog(
+            connection_id=self.connection_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        refreshed_catalog = refreshed_response.get("syncCatalog")
+        if not refreshed_catalog:
+            raise PyAirbyteInputError(
+                message="Refreshed catalog is empty.",
+                context={"connection_id": self.connection_id},
+            )
+
+        api_util.replace_connection_catalog(
+            connection_id=self.connection_id,
+            configured_catalog_dict=refreshed_catalog,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return refreshed_catalog
+
+    def set_stream_sync_mode(
+        self,
+        stream_name: str,
+        *,
+        sync_mode: str,
+        stream_namespace: str | None = None,
+        destination_sync_mode: str | None = None,
+        cursor_field: str | None = None,
+    ) -> None:
+        """Set the sync mode for a specific stream on this connection.
+
+        Safely modifies only the specified stream in the connection's syncCatalog.
+        Validates that the requested sync mode is supported by the stream before
+        applying the change.
+
+        Args:
+            stream_name: The name of the stream to modify.
+            sync_mode: The source sync mode to set (``"incremental"`` or ``"full_refresh"``).
+            stream_namespace: The namespace of the stream to modify. If not provided and
+                multiple streams share the same name, a ``PyAirbyteInputError`` is raised.
+            destination_sync_mode: The destination sync mode to set
+                (``"append"``, ``"overwrite"``, or ``"append_dedup"``). If not provided,
+                the existing destination sync mode is preserved.
+            cursor_field: The cursor field to use for incremental syncs. Required when
+                switching to incremental mode if the stream does not have a default
+                cursor. If not provided, the existing cursor field is preserved.
+
+        Raises:
+            PyAirbyteInputError: If the stream is not found in the catalog, the requested
+                sync mode is not in the stream's ``supportedSyncModes``, the stream name
+                is ambiguous (multiple matches without a namespace), or incremental mode
+                is requested without a usable cursor field.
+        """
+        catalog = self.dump_raw_catalog()
+        if not catalog or "streams" not in catalog:
+            raise PyAirbyteInputError(
+                message="Connection catalog is empty or missing.",
+                context={"connection_id": self.connection_id},
+            )
+
+        # Find all matching streams by name (and optionally namespace)
+        matching_entries: list[dict[str, Any]] = []
+        for entry in catalog["streams"]:
+            stream_def = entry.get("stream", {})
+            if stream_def.get("name") != stream_name:
+                continue
+            if stream_namespace is not None and stream_def.get("namespace") != stream_namespace:
+                continue
+            matching_entries.append(entry)
+
+        if not matching_entries:
+            available_streams = [
+                f"{e.get('stream', {}).get('namespace', '')}.{e.get('stream', {}).get('name', '')}"
+                for e in catalog["streams"]
+            ]
+            raise PyAirbyteInputError(
+                message=f"Stream '{stream_name}' not found in connection catalog.",
+                context={
+                    "connection_id": self.connection_id,
+                    "available_streams": available_streams,
+                },
+            )
+
+        if len(matching_entries) > 1:
+            matching_namespaces = [e.get("stream", {}).get("namespace") for e in matching_entries]
+            raise PyAirbyteInputError(
+                message=(
+                    f"Stream name '{stream_name}' is ambiguous "
+                    f"({len(matching_entries)} matches found)."
+                ),
+                context={
+                    "connection_id": self.connection_id,
+                    "stream_name": stream_name,
+                    "matching_namespaces": matching_namespaces,
+                },
+            )
+
+        target_entry = matching_entries[0]
+
+        # Validate the sync mode is supported
+        stream_def = target_entry.get("stream", {})
+        supported_sync_modes: list[str] = stream_def.get("supportedSyncModes", [])
+        if sync_mode not in supported_sync_modes:
+            raise PyAirbyteInputError(
+                message=(f"Sync mode '{sync_mode}' is not supported by stream '{stream_name}'."),
+                context={
+                    "stream_name": stream_name,
+                    "requested_sync_mode": sync_mode,
+                    "supported_sync_modes": supported_sync_modes,
+                },
+            )
+
+        # Update the stream config
+        config = target_entry.get("config") or {}
+
+        # Guard: fail fast if switching to incremental without a usable cursor
+        if sync_mode == "incremental":
+            existing_cursor = config.get("cursorField") or stream_def.get("defaultCursorField")
+            source_defined_cursor = bool(stream_def.get("sourceDefinedCursor"))
+            if cursor_field is None and not existing_cursor and not source_defined_cursor:
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Stream '{stream_name}' needs a cursor field before switching "
+                        "to incremental sync mode."
+                    ),
+                    context={
+                        "connection_id": self.connection_id,
+                        "stream_name": stream_name,
+                    },
+                )
+
+        config["syncMode"] = sync_mode
+
+        if destination_sync_mode is not None:
+            config["destinationSyncMode"] = destination_sync_mode
+
+        if cursor_field is not None:
+            config["cursorField"] = [cursor_field]
+
+        target_entry["config"] = config
+
+        # Save the updated catalog
+        self.import_raw_catalog(catalog)
+
     def rename(self, name: str) -> CloudConnection:
         """Rename the connection.
 
