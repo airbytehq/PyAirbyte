@@ -17,6 +17,7 @@ counts.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -264,22 +265,80 @@ def _prepare_destination_config(
         destination.set_config(config, validate=False)
 
 
+def _extract_trace_error_from_log(ex: Exception) -> str | None:
+    """Search the connector log file for a TRACE ERROR ``internal_message``.
+
+    Many Java-based connectors emit a generic user-facing ``message`` in
+    their TRACE ERROR output (e.g. "Something went wrong in the connector")
+    while the actionable detail lives in the ``internal_message`` field.
+    PyAirbyte only captures the ``message`` in the exception chain, so this
+    helper reads the connector's log file to recover the ``internal_message``.
+
+    Returns the ``internal_message`` string if found, or ``None``.
+    """
+    # Walk the exception chain looking for a log_file path
+    log_file: Path | None = None
+    current: Exception | None = ex
+    while current is not None:
+        if hasattr(current, "log_file") and current.log_file is not None:
+            log_file = current.log_file
+            break
+        current = getattr(current, "original_exception", None)
+
+    if log_file is None or not log_file.exists():
+        return None
+
+    # Scan the log file in reverse for the last TRACE ERROR with an
+    # internal_message.  We only need the last one (the fatal error).
+    try:
+        lines = log_file.read_text().splitlines()
+    except OSError:
+        return None
+
+    for line in reversed(lines):
+        # TRACE messages are logged as JSON-serialised Airbyte messages.
+        # They may be prefixed by a timestamp; look for the JSON payload.
+        json_start = line.find('{"type":"TRACE"')
+        if json_start == -1:
+            continue
+        try:
+            payload = json.loads(line[json_start:])
+            internal = payload.get("trace", {}).get("error", {}).get("internal_message")
+            if internal:
+                return str(internal)
+        except (json.JSONDecodeError, AttributeError):
+            continue
+
+    return None
+
+
 def _sanitize_error(ex: Exception) -> str:
     """Extract an actionable error message from an exception without leaking secrets.
 
-    Walks the exception chain (`original_exception`, then `__cause__`) to
-    find the most specific error message available, which is typically the
-    actual connector error rather than the generic wrapper message.
+    Resolution order (first match wins):
 
-    Uses `get_message()` when available (PyAirbyte exceptions) to avoid
+    1. **Connector log file** - The TRACE ERROR ``internal_message`` from the
+       connector's log is typically the most specific error available (e.g.
+       ``password authentication failed for user "bob"``).  Many Java-based
+       connectors emit a generic user-facing ``message`` while the real
+       detail lives only in ``internal_message``.
+    2. **Exception chain** - Walks ``original_exception`` to find the deepest
+       exception with a message more specific than the top-level wrapper.
+    3. **Top-level exception** - Falls back to ``get_message()`` or ``str()``.
+
+    Uses ``get_message()`` when available (PyAirbyte exceptions) to avoid
     including full config/context in the error string.
     """
-    # Walk original_exception chain to find the deepest specific message
+    # 1. Try the connector log file first — it has the most detail.
+    trace_msg = _extract_trace_error_from_log(ex)
+    if trace_msg:
+        return f"{type(ex).__name__}: {trace_msg}"
+
+    # 2. Walk original_exception chain to find the deepest specific message.
     deepest = ex
     while hasattr(deepest, "original_exception") and deepest.original_exception is not None:
         deepest = deepest.original_exception
 
-    # If we found a deeper exception with a specific message, use it
     if deepest is not ex:
         deep_msg = (
             deepest.get_message()
@@ -290,6 +349,7 @@ def _sanitize_error(ex: Exception) -> str:
         if deep_msg and hasattr(ex, "get_message") and deep_msg != ex.get_message():
             return f"{type(ex).__name__}: {deep_msg}"
 
+    # 3. Fall back to the top-level exception message.
     if hasattr(ex, "get_message"):
         return f"{type(ex).__name__}: {ex.get_message()}"
     return f"{type(ex).__name__}: {ex}"
