@@ -291,7 +291,7 @@ def _extract_trace_error_from_log(ex: Exception) -> str | None:
     # Scan the log file in reverse for the last TRACE ERROR with an
     # internal_message.  We only need the last one (the fatal error).
     try:
-        lines = log_file.read_text().splitlines()
+        lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
         return None
 
@@ -346,7 +346,8 @@ def _sanitize_error(ex: Exception) -> str:
             else str(deepest)  # Standard exceptions (ConnectionError, ValueError, etc.)
         )
         # Only use the deep message if it's more specific than the wrapper
-        if deep_msg and hasattr(ex, "get_message") and deep_msg != ex.get_message():
+        wrapper_msg = ex.get_message() if hasattr(ex, "get_message") else str(ex)
+        if deep_msg and deep_msg != wrapper_msg:
             return f"{type(ex).__name__}: {deep_msg}"
 
     # 3. Fall back to the top-level exception message.
