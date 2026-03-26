@@ -710,7 +710,17 @@ def sync(
         "Useful for running a second test against an already-populated namespace."
     ),
 )
-def destination_smoke_test(
+@click.option(
+    "--skip-preflight",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the automatic preflight check that runs basic_types before "
+        "the requested scenarios. Use when you expect basic_types itself to fail "
+        "or want to save time on repeated runs."
+    ),
+)
+def destination_smoke_test(  # noqa: PLR0913
     *,
     destination: str,
     config: str | None = None,
@@ -720,6 +730,7 @@ def destination_smoke_test(
     custom_scenarios: str | None = None,
     namespace_suffix: str | None = None,
     reuse_namespace: str | None = None,
+    skip_preflight: bool = False,
 ) -> None:
     """Run smoke tests against a destination connector.
 
@@ -770,6 +781,7 @@ def destination_smoke_test(
         namespace_suffix=namespace_suffix,
         reuse_namespace=reuse_namespace,
         custom_scenarios_file=custom_scenarios,
+        skip_preflight=skip_preflight,
     )
 
     click.echo(json.dumps(result.model_dump(), indent=2))

@@ -901,6 +901,17 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
             default=None,
         ),
     ],
+    skip_preflight: Annotated[
+        bool,
+        Field(
+            description=(
+                "Skip the automatic preflight check that runs basic_types before "
+                "the requested scenarios. Set to true when you expect basic_types "
+                "itself to fail or want to save time on repeated runs."
+            ),
+            default=False,
+        ),
+    ],
 ) -> DestinationSmokeTestResult:
     """Run smoke tests against a destination connector.
 
@@ -949,6 +960,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
         namespace_suffix=namespace_suffix,
         reuse_namespace=reuse_namespace,
         custom_scenarios=custom_scenarios,
+        skip_preflight=skip_preflight,
     )
 
 

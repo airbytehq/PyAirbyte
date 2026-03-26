@@ -98,6 +98,13 @@ class DestinationSmokeTestResult(BaseModel):
     error: str | None = None
     """Error message if the smoke test failed."""
 
+    preflight_passed: bool | None = None
+    """Whether the preflight `basic_types` check passed.
+
+    `True` if the preflight check succeeded, `False` if it failed,
+    `None` if the preflight check was skipped.
+    """
+
     table_statistics: dict[str, TableStatistics] | None = None
     """Map of stream name to table statistics (row counts, columns, stats).
 
@@ -250,14 +257,75 @@ def _prepare_destination_config(
 
 
 def _sanitize_error(ex: Exception) -> str:
-    """Extract an error message from an exception without leaking secrets.
+    """Extract an actionable error message from an exception without leaking secrets.
+
+    Walks the exception chain (`original_exception`, then `__cause__`) to
+    find the most specific error message available, which is typically the
+    actual connector error rather than the generic wrapper message.
 
     Uses `get_message()` when available (PyAirbyte exceptions) to avoid
     including full config/context in the error string.
     """
+    # Walk original_exception chain to find the deepest specific message
+    deepest = ex
+    while hasattr(deepest, "original_exception") and deepest.original_exception is not None:
+        deepest = deepest.original_exception
+
+    # If we found a deeper exception with a specific message, use it
+    if deepest is not ex and hasattr(deepest, "get_message"):
+        deep_msg = deepest.get_message()
+        # Only use the deep message if it's more specific than the wrapper
+        if deep_msg and hasattr(ex, "get_message") and deep_msg != ex.get_message():
+            return f"{type(ex).__name__}: {deep_msg}"
+
     if hasattr(ex, "get_message"):
         return f"{type(ex).__name__}: {ex.get_message()}"
     return f"{type(ex).__name__}: {ex}"
+
+
+PREFLIGHT_SCENARIO = "basic_types"
+"""The scenario used as a preflight connectivity/credential check."""
+
+
+def _run_preflight(
+    *,
+    destination: Destination,
+    namespace: str,
+) -> bool:
+    """Run the preflight `basic_types` scenario to validate connectivity.
+
+    Returns `True` if the preflight write succeeded, `False` otherwise.
+    Failures are logged but not raised so the caller can return a
+    structured result.
+    """
+    logger.info(
+        "Running preflight check ('%s') for destination '%s'...",
+        PREFLIGHT_SCENARIO,
+        destination.name,
+    )
+    preflight_source = get_smoke_test_source(
+        scenarios=[PREFLIGHT_SCENARIO],
+        namespace=namespace,
+    )
+    try:
+        destination.write(
+            source_data=preflight_source,
+            cache=False,
+            state_cache=False,
+        )
+    except Exception as ex:
+        logger.warning(
+            "Preflight check failed for destination '%s': %s",
+            destination.name,
+            _sanitize_error(ex),
+        )
+        return False
+
+    logger.info(
+        "Preflight check passed for destination '%s'.",
+        destination.name,
+    )
+    return True
 
 
 def run_destination_smoke_test(
@@ -268,6 +336,7 @@ def run_destination_smoke_test(
     reuse_namespace: str | None = None,
     custom_scenarios: list[dict[str, Any]] | None = None,
     custom_scenarios_file: str | None = None,
+    skip_preflight: bool = False,
 ) -> DestinationSmokeTestResult:
     """Run a smoke test against a destination connector.
 
@@ -300,11 +369,42 @@ def run_destination_smoke_test(
 
     `custom_scenarios_file` is an optional path to a JSON/YAML file with
     additional scenario definitions.
+
+    `skip_preflight` disables the automatic `basic_types` preflight check.
     """
     # Determine namespace
     namespace = reuse_namespace or generate_namespace(
         namespace_suffix=namespace_suffix,
     )
+
+    # Prepare the destination config for smoke testing (e.g. ensure
+    # disable_type_dedupe is off so final tables are created for readback).
+    _prepare_destination_config(destination)
+
+    # --- Preflight check ---------------------------------------------------
+    preflight_passed: bool | None = None
+    if not skip_preflight:
+        preflight_passed = _run_preflight(
+            destination=destination,
+            namespace=namespace,
+        )
+        if not preflight_passed:
+            return DestinationSmokeTestResult(
+                success=False,
+                destination=destination.name,
+                namespace=namespace,
+                records_delivered=0,
+                scenarios_requested=(
+                    ",".join(scenarios) if isinstance(scenarios, list) else scenarios
+                ),
+                elapsed_seconds=0.0,
+                error=(
+                    f"Preflight check failed: {PREFLIGHT_SCENARIO} scenario could not "
+                    "write to destination. Verify credentials and connectivity "
+                    "before testing other scenarios."
+                ),
+                preflight_passed=False,
+            )
 
     source_obj = get_smoke_test_source(
         scenarios=scenarios,
@@ -321,12 +421,6 @@ def run_destination_smoke_test(
         scenarios_str = ",".join(scenarios) if scenarios else "fast"
     else:
         scenarios_str = scenarios
-
-    # Prepare the destination config for smoke testing (e.g. ensure
-    # disable_type_dedupe is off so final tables are created for readback).
-    # The catalog namespace on each stream is the primary mechanism that
-    # directs the destination to write into the test schema.
-    _prepare_destination_config(destination)
 
     start_time = time.monotonic()
     success = False
@@ -379,6 +473,7 @@ def run_destination_smoke_test(
         scenarios_requested=scenarios_str,
         elapsed_seconds=round(elapsed, 2),
         error=error_message,
+        preflight_passed=preflight_passed,
         table_statistics=table_statistics,
         tables_not_found=tables_not_found,
     )
