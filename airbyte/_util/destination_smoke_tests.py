@@ -28,6 +28,7 @@ import yaml
 from pydantic import BaseModel
 
 from airbyte import get_source
+from airbyte.cli.smoke_test_source._scenarios import PREDEFINED_SCENARIOS
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
 
@@ -356,7 +357,48 @@ def _sanitize_error(ex: Exception) -> str:
 
 
 PREFLIGHT_SCENARIO = "basic_types"
-"""The scenario used as a preflight connectivity/credential check."""
+"""The predefined scenario whose schema/records are reused for the preflight check."""
+
+PREFLIGHT_STREAM_NAME = "_preflight_basic_types"
+"""Stream name used by the preflight write.
+
+This is deliberately different from the predefined ``basic_types`` stream
+so that the preflight data lands in its own table and never collides with
+the main smoke-test run."""
+
+
+def _build_preflight_scenario() -> dict[str, Any]:
+    """Build the preflight custom scenario from the predefined ``basic_types`` scenario.
+
+    Returns a scenario dict identical to ``basic_types`` but with the stream
+    name set to :data:`PREFLIGHT_STREAM_NAME` so the preflight data lands in
+    its own table.
+    """
+    for scenario in PREDEFINED_SCENARIOS:
+        if scenario["name"] == PREFLIGHT_SCENARIO:
+            return {
+                "name": PREFLIGHT_STREAM_NAME,
+                "description": f"Preflight check (based on '{PREFLIGHT_SCENARIO}').",
+                "json_schema": scenario["json_schema"],
+                "primary_key": scenario.get("primary_key"),
+                "records": list(scenario.get("records", [])),
+            }
+
+    # Fallback: if basic_types is somehow missing, use a minimal schema.
+    return {
+        "name": PREFLIGHT_STREAM_NAME,
+        "description": "Preflight connectivity check.",
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "value": {"type": "string"},
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [{"id": 1, "value": "preflight"}],
+    }
 
 
 def _run_preflight(
@@ -364,7 +406,11 @@ def _run_preflight(
     destination: Destination,
     namespace: str,
 ) -> tuple[bool, str | None]:
-    """Run the preflight `basic_types` scenario to validate connectivity.
+    """Run the preflight connectivity check.
+
+    Writes a small dataset (based on the ``basic_types`` scenario) using a
+    dedicated stream name (:data:`PREFLIGHT_STREAM_NAME`) so the preflight
+    data never collides with the main smoke-test run.
 
     Returns a tuple of ``(passed, error_message)``.
 
@@ -376,12 +422,14 @@ def _run_preflight(
     """
     logger.info(
         "Running preflight check ('%s') for destination '%s'...",
-        PREFLIGHT_SCENARIO,
+        PREFLIGHT_STREAM_NAME,
         destination.name,
     )
+    preflight_scenario = _build_preflight_scenario()
     preflight_source = get_smoke_test_source(
-        scenarios=[PREFLIGHT_SCENARIO],
+        scenarios=[],  # No predefined scenarios
         namespace=namespace,
+        custom_scenarios=[preflight_scenario],
     )
     try:
         destination.write(
@@ -476,7 +524,7 @@ def run_destination_smoke_test(  # noqa: PLR0914
                 ),
                 elapsed_seconds=0.0,
                 error=(
-                    f"Preflight check failed for '{PREFLIGHT_SCENARIO}': "
+                    f"Preflight check failed for '{PREFLIGHT_STREAM_NAME}': "
                     f"{preflight_error or 'unknown error'}"
                 ),
                 preflight_passed=False,
