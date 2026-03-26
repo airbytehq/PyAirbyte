@@ -28,7 +28,6 @@ import yaml
 from pydantic import BaseModel
 
 from airbyte import get_source
-from airbyte.cli.smoke_test_source._scenarios import PREDEFINED_SCENARIOS
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
 
@@ -368,36 +367,34 @@ the main smoke-test run."""
 
 
 def _build_preflight_scenario() -> dict[str, Any]:
-    """Build the preflight custom scenario from the predefined ``basic_types`` scenario.
+    """Build the preflight custom scenario.
 
-    Returns a scenario dict identical to ``basic_types`` but with the stream
-    name set to :data:`PREFLIGHT_STREAM_NAME` so the preflight data lands in
-    its own table.
+    Returns a scenario dict that mirrors the predefined ``basic_types``
+    scenario but with the stream name set to :data:`PREFLIGHT_STREAM_NAME`
+    so the preflight data lands in its own table.
+
+    The schema and records are defined inline to avoid a circular import
+    from :mod:`airbyte.cli.smoke_test_source._scenarios`.
     """
-    for scenario in PREDEFINED_SCENARIOS:
-        if scenario["name"] == PREFLIGHT_SCENARIO:
-            return {
-                "name": PREFLIGHT_STREAM_NAME,
-                "description": f"Preflight check (based on '{PREFLIGHT_SCENARIO}').",
-                "json_schema": scenario["json_schema"],
-                "primary_key": scenario.get("primary_key"),
-                "records": list(scenario.get("records", [])),
-            }
-
-    # Fallback: if basic_types is somehow missing, use a minimal schema.
     return {
         "name": PREFLIGHT_STREAM_NAME,
-        "description": "Preflight connectivity check.",
+        "description": f"Preflight check (based on '{PREFLIGHT_SCENARIO}').",
         "json_schema": {
             "$schema": "http://json-schema.org/draft-07/schema#",
             "type": "object",
             "properties": {
                 "id": {"type": "integer"},
-                "value": {"type": "string"},
+                "name": {"type": "string"},
+                "amount": {"type": "number"},
+                "is_active": {"type": "boolean"},
             },
         },
         "primary_key": [["id"]],
-        "records": [{"id": 1, "value": "preflight"}],
+        "records": [
+            {"id": 1, "name": "Alice", "amount": 100.50, "is_active": True},
+            {"id": 2, "name": "Bob", "amount": 0.0, "is_active": False},
+            {"id": 3, "name": "", "amount": -99.99, "is_active": True},
+        ],
     }
 
 
