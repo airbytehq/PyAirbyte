@@ -424,7 +424,7 @@ def _run_preflight(
     )
     preflight_scenario = _build_preflight_scenario()
     preflight_source = get_smoke_test_source(
-        scenarios=[],  # No predefined scenarios
+        scenarios="",  # No predefined scenarios
         namespace=namespace,
         custom_scenarios=[preflight_scenario],
     )
@@ -574,12 +574,17 @@ def run_destination_smoke_test(  # noqa: PLR0914
                 if name not in table_statistics
             }
         except Exception as readback_ex:
+            sanitized_readback = _sanitize_error(readback_ex)
             readback_msg = (
-                f"Readback failed for destination '{destination.name}': "
-                f"{_sanitize_error(readback_ex)}"
+                f"Readback failed for destination '{destination.name}': {sanitized_readback}"
             )
             readback_warnings.append(readback_msg)
-            logger.warning(readback_msg, exc_info=True)
+            logger.warning(
+                "Readback failed for destination '%s': %s",
+                destination.name,
+                sanitized_readback,
+                exc_info=True,
+            )
     else:
         logger.info(
             "Skipping table and column statistics retrieval for "
