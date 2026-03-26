@@ -121,6 +121,14 @@ class DestinationSmokeTestResult(BaseModel):
     `None` when readback was not performed.
     """
 
+    warnings: list[str] | None = None
+    """Non-fatal warnings encountered during the smoke test.
+
+    Includes readback errors (e.g. cache connection failures) that
+    prevented `table_statistics` from being populated, as well as
+    any other non-fatal issues worth surfacing to the caller.
+    """
+
 
 def get_smoke_test_source(
     *,
@@ -272,8 +280,12 @@ def _sanitize_error(ex: Exception) -> str:
         deepest = deepest.original_exception
 
     # If we found a deeper exception with a specific message, use it
-    if deepest is not ex and hasattr(deepest, "get_message"):
-        deep_msg = deepest.get_message()
+    if deepest is not ex:
+        deep_msg = (
+            deepest.get_message()
+            if hasattr(deepest, "get_message")
+            else str(deepest)  # Standard exceptions (ConnectionError, ValueError, etc.)
+        )
         # Only use the deep message if it's more specific than the wrapper
         if deep_msg and hasattr(ex, "get_message") and deep_msg != ex.get_message():
             return f"{type(ex).__name__}: {deep_msg}"
@@ -328,7 +340,7 @@ def _run_preflight(
     return True
 
 
-def run_destination_smoke_test(
+def run_destination_smoke_test(  # noqa: PLR0914
     *,
     destination: Destination,
     scenarios: str | list[str] = "fast",
@@ -442,6 +454,7 @@ def run_destination_smoke_test(
     # Perform readback introspection (runs even on write failure for partial-success support)
     table_statistics: dict[str, TableStatistics] | None = None
     tables_not_found: dict[str, str] | None = None
+    readback_warnings: list[str] = []
     if destination.is_cache_supported:
         try:
             cache = destination.get_sql_cache(schema_name=namespace)
@@ -451,12 +464,13 @@ def run_destination_smoke_test(
                 for name in stream_names
                 if name not in table_statistics
             }
-        except Exception:
-            logger.warning(
-                "Readback failed for destination '%s'.",
-                destination.name,
-                exc_info=True,
+        except Exception as readback_ex:
+            readback_msg = (
+                f"Readback failed for destination '{destination.name}': "
+                f"{_sanitize_error(readback_ex)}"
             )
+            readback_warnings.append(readback_msg)
+            logger.warning(readback_msg, exc_info=True)
     else:
         logger.info(
             "Skipping table and column statistics retrieval for "
@@ -476,4 +490,5 @@ def run_destination_smoke_test(
         preflight_passed=preflight_passed,
         table_statistics=table_statistics,
         tables_not_found=tables_not_found,
+        warnings=readback_warnings or None,
     )
