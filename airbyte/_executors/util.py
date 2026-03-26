@@ -118,7 +118,7 @@ def _try_get_manifest_connector_files(
     try:
         with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
             components_content = zf.read("components.py").decode("utf-8")
-    except (zipfile.BadZipFile, KeyError) as ex:
+    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as ex:
         raise exc.AirbyteConnectorInstallationError(
             message="Failed to extract components.py from components.zip.",
             context={
