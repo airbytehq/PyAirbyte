@@ -31,7 +31,7 @@ jobs:
           fetch-depth: 1
 
       - name: Get release version (dry-run)
-        uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
+        uses: aaronsteers/semantic-pr-release-drafter@v1.1.0
         id: dry-run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -45,7 +45,7 @@ jobs:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
       - name: Create or update draft release
-        uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
+        uses: aaronsteers/semantic-pr-release-drafter@v1.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
