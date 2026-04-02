@@ -211,8 +211,14 @@ def workspaces_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
             optional_params={"workspace_id": "Filter to a specific workspace ID."},
         )
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
-    # The SDK list_workspaces requires a workspace_id; resolve from raw value.
-    workspace_id = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
+    raw_ws = ctx.obj["_raw_workspace_id"]
+    workspace_id = resolve_workspace_id(raw_ws) if raw_ws else None
+    if workspace_id is None:
+        _error_json(
+            "workspace_id is required. Provide --workspace-id, set AIRBYTE_WORKSPACE_ID, "
+            "or add workspace_id to ~/.airbyte/credentials.",
+            type="MissingWorkspaceId",
+        )
     results = api_util.list_workspaces(
         workspace_id=workspace_id,
         api_root=api_url,
@@ -289,12 +295,10 @@ def sources_get(ctx: click.Context, source_id: str, describe: bool) -> None:  # 
         _describe_output(
             description="Get details of a specific source.",
             required_params={
-                "workspace_id": "The workspace ID.",
                 "source_id": "The source ID to retrieve.",
             },
         )
-    api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
-    _ = workspace_id  # used for context only
+    api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_source(
         source_id=source_id,
         api_root=api_url,
@@ -419,12 +423,10 @@ def destinations_get(ctx: click.Context, destination_id: str, describe: bool) ->
         _describe_output(
             description="Get details of a specific destination.",
             required_params={
-                "workspace_id": "The workspace ID.",
                 "destination_id": "The destination ID to retrieve.",
             },
         )
-    api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
-    _ = workspace_id
+    api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_destination(
         destination_id=destination_id,
         api_root=api_url,
@@ -591,7 +593,8 @@ def connections_create(ctx: click.Context, json_str: str, describe: bool) -> Non
                 "destination_id": "The destination ID.",
             },
             optional_params={
-                "stream_configurations": "List of stream configuration objects.",
+                "selected_stream_names": "List of stream names to sync.",
+                "prefix": "Optional table prefix for destination.",
             },
         )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -731,8 +734,7 @@ def jobs_get(ctx: click.Context, job_id: int, describe: bool) -> None:  # noqa: 
                 "job_id": "The job ID to retrieve.",
             },
         )
-    api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
-    _ = workspace_id
+    api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_job_info(
         job_id=job_id,
         api_root=api_url,
@@ -755,11 +757,13 @@ def main() -> None:
     output on stderr, maintaining the agent-first error contract.
     """
     try:
-        cli()
+        cli(standalone_mode=False)
     except SystemExit:
         raise
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, click.Abort):
         _error_json("Operation cancelled.")
+    except click.ClickException as exc:
+        _error_json(exc.format_message(), type=exc.__class__.__name__)
     except json.JSONDecodeError as exc:
         _error_json(str(exc), type="JSONDecodeError")
     except PyAirbyteInputError as exc:
