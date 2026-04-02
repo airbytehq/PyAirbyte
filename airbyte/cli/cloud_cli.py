@@ -33,6 +33,7 @@ from airbyte.cli._cli_auth import (
     resolve_client_secret,
     resolve_workspace_id,
 )
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
@@ -81,23 +82,22 @@ def _describe_output(
 
 
 def _get_auth_context(ctx: click.Context) -> tuple[str, SecretString, SecretString, str]:
-    """Extract resolved (api_url, client_id, client_secret, workspace_id) from Click context.
+    """Resolve and return (api_url, client_id, client_secret, workspace_id).
 
-    The workspace_id may raise if not set; callers that don't need it
-    should catch `PyAirbyteInputError`.
+    Credentials are resolved lazily from raw values stored in `ctx.obj`.
     """
-    api_url: str = ctx.obj["api_url"]
-    client_id = SecretString(ctx.obj["client_id"])
-    client_secret = SecretString(ctx.obj["client_secret"])
-    workspace_id: str = ctx.obj["workspace_id"]
+    api_url = resolve_api_url(ctx.obj["_raw_api_url"])
+    client_id = SecretString(resolve_client_id(ctx.obj["_raw_client_id"]))
+    client_secret = SecretString(resolve_client_secret(ctx.obj["_raw_client_secret"]))
+    workspace_id = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
     return api_url, client_id, client_secret, workspace_id
 
 
 def _get_auth_no_workspace(ctx: click.Context) -> tuple[str, SecretString, SecretString]:
-    """Extract resolved auth without requiring workspace_id."""
-    api_url: str = ctx.obj["api_url"]
-    client_id = SecretString(ctx.obj["client_id"])
-    client_secret = SecretString(ctx.obj["client_secret"])
+    """Resolve and return auth credentials without requiring workspace_id."""
+    api_url = resolve_api_url(ctx.obj["_raw_api_url"])
+    client_id = SecretString(resolve_client_id(ctx.obj["_raw_client_id"]))
+    client_secret = SecretString(resolve_client_secret(ctx.obj["_raw_client_secret"]))
     return api_url, client_id, client_secret
 
 
@@ -180,12 +180,11 @@ def cli(
     `~/.airbyte/credentials` file.
     """
     ctx.ensure_object(dict)
-    # Resolve auth eagerly so sub-commands get clear errors up front.
-    ctx.obj["client_id"] = resolve_client_id(client_id)
-    ctx.obj["client_secret"] = resolve_client_secret(client_secret)
-    ctx.obj["api_url"] = resolve_api_url(api_url)
-    # workspace_id is resolved lazily — some commands don't need it.
-    # Store the raw value; sub-commands call resolve_workspace_id when needed.
+    # Store raw values — credentials are resolved lazily when subcommands need them.
+    # This allows `--describe` to work without any auth configured.
+    ctx.obj["_raw_client_id"] = client_id
+    ctx.obj["_raw_client_secret"] = client_secret
+    ctx.obj["_raw_api_url"] = api_url
     ctx.obj["_raw_workspace_id"] = workspace_id
 
 
@@ -212,29 +211,15 @@ def workspaces_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
             optional_params={"workspace_id": "Filter to a specific workspace ID."},
         )
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
-    # The SDK list_workspaces requires a workspace_id param for filtering;
-    # pass empty list behavior via the raw value.
-    raw_ws = ctx.obj["_raw_workspace_id"]
-    if raw_ws:
-        workspace_id = resolve_workspace_id(raw_ws)
-        results = api_util.list_workspaces(
-            workspace_id=workspace_id,
-            api_root=api_url,
-            client_id=client_id,
-            client_secret=client_secret,
-            bearer_token=None,
-        )
-    else:
-        # Without a workspace_id filter we still need to pass one for the SDK.
-        # Try resolving; if unavailable, error clearly.
-        workspace_id = resolve_workspace_id(raw_ws)
-        results = api_util.list_workspaces(
-            workspace_id=workspace_id,
-            api_root=api_url,
-            client_id=client_id,
-            client_secret=client_secret,
-            bearer_token=None,
-        )
+    # The SDK list_workspaces requires a workspace_id; resolve from raw value.
+    workspace_id = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
+    results = api_util.list_workspaces(
+        workspace_id=workspace_id,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
     _json_output([_workspace_to_dict(w) for w in results])
 
 
@@ -270,8 +255,7 @@ def workspaces_get(ctx: click.Context, cmd_workspace_id: str | None, describe: b
 @click.pass_context
 def sources(ctx: click.Context) -> None:
     """Manage Airbyte sources."""
-    # Resolve workspace_id now — all source commands need it.
-    ctx.obj["workspace_id"] = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
+    pass
 
 
 @sources.command("list")
@@ -363,9 +347,10 @@ def sources_create(ctx: click.Context, json_str: str, describe: bool) -> None:  
 
 @sources.command("delete")
 @click.option("--source-id", required=True, help="The source ID to delete.")
+@click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_delete(ctx: click.Context, source_id: str, describe: bool) -> None:  # noqa: FBT001
+def sources_delete(ctx: click.Context, source_id: str, force: bool, describe: bool) -> None:  # noqa: FBT001
     """Delete a source."""
     if describe:
         _describe_output(
@@ -373,6 +358,9 @@ def sources_delete(ctx: click.Context, source_id: str, describe: bool) -> None: 
             required_params={
                 "workspace_id": "The workspace ID.",
                 "source_id": "The source ID to delete.",
+            },
+            optional_params={
+                "force": "Skip delete safety checks (default: false).",
             },
         )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -383,7 +371,7 @@ def sources_delete(ctx: click.Context, source_id: str, describe: bool) -> None: 
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=None,
-        safe_mode=False,
+        safe_mode=not force,
     )
     _json_output({"deleted": True, "source_id": source_id})
 
@@ -397,7 +385,7 @@ def sources_delete(ctx: click.Context, source_id: str, describe: bool) -> None: 
 @click.pass_context
 def destinations(ctx: click.Context) -> None:
     """Manage Airbyte destinations."""
-    ctx.obj["workspace_id"] = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
+    pass
 
 
 @destinations.command("list")
@@ -489,9 +477,15 @@ def destinations_create(ctx: click.Context, json_str: str, describe: bool) -> No
 
 @destinations.command("delete")
 @click.option("--destination-id", required=True, help="The destination ID to delete.")
+@click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def destinations_delete(ctx: click.Context, destination_id: str, describe: bool) -> None:  # noqa: FBT001
+def destinations_delete(
+    ctx: click.Context,
+    destination_id: str,
+    force: bool,  # noqa: FBT001
+    describe: bool,  # noqa: FBT001
+) -> None:
     """Delete a destination."""
     if describe:
         _describe_output(
@@ -499,6 +493,9 @@ def destinations_delete(ctx: click.Context, destination_id: str, describe: bool)
             required_params={
                 "workspace_id": "The workspace ID.",
                 "destination_id": "The destination ID to delete.",
+            },
+            optional_params={
+                "force": "Skip delete safety checks (default: false).",
             },
         )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -509,7 +506,7 @@ def destinations_delete(ctx: click.Context, destination_id: str, describe: bool)
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=None,
-        safe_mode=False,
+        safe_mode=not force,
     )
     _json_output({"deleted": True, "destination_id": destination_id})
 
@@ -523,7 +520,7 @@ def destinations_delete(ctx: click.Context, destination_id: str, describe: bool)
 @click.pass_context
 def connections(ctx: click.Context) -> None:
     """Manage Airbyte connections."""
-    ctx.obj["workspace_id"] = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
+    pass
 
 
 @connections.command("list")
@@ -623,9 +620,10 @@ def connections_create(ctx: click.Context, json_str: str, describe: bool) -> Non
 
 @connections.command("delete")
 @click.option("--connection-id", required=True, help="The connection ID to delete.")
+@click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_delete(ctx: click.Context, connection_id: str, describe: bool) -> None:  # noqa: FBT001
+def connections_delete(ctx: click.Context, connection_id: str, force: bool, describe: bool) -> None:  # noqa: FBT001
     """Delete a connection."""
     if describe:
         _describe_output(
@@ -633,6 +631,9 @@ def connections_delete(ctx: click.Context, connection_id: str, describe: bool) -
             required_params={
                 "workspace_id": "The workspace ID.",
                 "connection_id": "The connection ID to delete.",
+            },
+            optional_params={
+                "force": "Skip delete safety checks (default: false).",
             },
         )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -643,7 +644,7 @@ def connections_delete(ctx: click.Context, connection_id: str, describe: bool) -
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=None,
-        safe_mode=False,
+        safe_mode=not force,
     )
     _json_output({"deleted": True, "connection_id": connection_id})
 
@@ -683,7 +684,7 @@ def connections_sync(ctx: click.Context, connection_id: str, describe: bool) -> 
 @click.pass_context
 def jobs(ctx: click.Context) -> None:
     """View Airbyte sync jobs."""
-    ctx.obj["workspace_id"] = resolve_workspace_id(ctx.obj["_raw_workspace_id"])
+    pass
 
 
 @jobs.command("list")
@@ -748,8 +749,23 @@ def jobs_get(ctx: click.Context, job_id: int, describe: bool) -> None:  # noqa: 
 
 
 def main() -> None:
-    """Entry point for `uvx airbyte` / `airbyte` command."""
-    cli()
+    """Entry point for `uvx airbyte` / `airbyte` command.
+
+    Wraps the CLI invocation to ensure all errors produce structured JSON
+    output on stderr, maintaining the agent-first error contract.
+    """
+    try:
+        cli()
+    except SystemExit:
+        raise
+    except KeyboardInterrupt:
+        _error_json("Operation cancelled.")
+    except json.JSONDecodeError as exc:
+        _error_json(str(exc), type="JSONDecodeError")
+    except PyAirbyteInputError as exc:
+        _error_json(str(exc), type="PyAirbyteInputError")
+    except Exception as exc:
+        _error_json(str(exc), type=exc.__class__.__name__)
 
 
 if __name__ == "__main__":
