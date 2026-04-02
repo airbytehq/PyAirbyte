@@ -607,9 +607,9 @@ def connections_create(ctx: click.Context, json_str: str, describe: bool) -> Non
     selected_streams: list[str] = config.get("selected_stream_names", [])
     prefix: str = config.get("prefix", "")
     result = api_util.create_connection(
-        name=name,
-        source_id=source_id,
-        destination_id=destination_id,
+        name=str(name),
+        source_id=str(source_id),
+        destination_id=str(destination_id),
         workspace_id=workspace_id,
         prefix=prefix,
         selected_stream_names=selected_streams,
