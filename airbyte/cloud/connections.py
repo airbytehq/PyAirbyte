@@ -376,6 +376,52 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             job_id=job_id,
         )
 
+    def get_previous_sync_state(
+        self,
+        *,
+        current_job_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Get the state from the most recent completed sync job.
+
+        Fetches the previous completed (succeeded) sync job from job history
+        and extracts the final committed state from its last attempt's output.
+        This is useful for determining the baseline cursor values before
+        the current sync started advancing state.
+
+        When `current_job_id` is provided, that job is skipped so the
+        returned state always comes from a *previous* job.
+
+        Returns the state dict (same shape as `dump_raw_state()`), or `None`
+        if no previous completed sync is found or if state data is not
+        available in the job output.
+        """
+        previous_jobs = self.get_previous_sync_logs(limit=5)
+
+        for job in previous_jobs:
+            # Skip the current job if specified
+            if current_job_id is not None and job.job_id == current_job_id:
+                continue
+
+            status = str(job.get_job_status())
+            if status != "succeeded":
+                continue
+
+            # Fetch full job data including attempt output
+            job_data = job._fetch_job_with_attempts()  # noqa: SLF001
+            attempts = job_data.get("attempts", [])
+            if not attempts:
+                return None
+
+            last_attempt = attempts[-1]
+            output = last_attempt.get("attempt", {}).get("output", {})
+            state = output.get("state")
+            if state and isinstance(state, dict):
+                return state
+
+            return None
+
+        return None
+
     # Artifacts
 
     @deprecated("Use 'dump_raw_state()' instead.")

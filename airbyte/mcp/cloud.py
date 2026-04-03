@@ -699,11 +699,14 @@ def get_cloud_sync_status(
     if with_stream_progress:
         state_data = connection.dump_raw_state()
         catalog_data = connection.dump_raw_catalog()
+        previous_state_data = connection.get_previous_sync_state(
+            current_job_id=sync_result.job_id,
+        )
         result["stream_progress"] = compute_stream_progress(
             state_data=state_data,
             catalog_data=catalog_data,
             sync_start_time=sync_result.start_time,
-            previous_state_data=None,
+            previous_state_data=previous_state_data,
         )
 
     return result
