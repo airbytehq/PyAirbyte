@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import click
 
@@ -47,7 +47,7 @@ def _json_output(data: list[dict[str, object]] | dict[str, object]) -> None:
     click.echo(json.dumps(data, indent=2, default=str))
 
 
-def _error_json(message: str, **extra: object) -> None:
+def _error_json(message: str, **extra: object) -> NoReturn:
     """Print an error object to stderr and exit."""
     payload: dict[str, object] = {"error": message, **extra}
     click.echo(json.dumps(payload, indent=2, default=str), err=True)
@@ -294,16 +294,7 @@ _register_schema(
 @click.pass_context
 def workspaces_list(ctx: click.Context) -> None:
     """List workspaces accessible with the current credentials."""
-    api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
-    raw_ws: str | None = ctx.obj["_raw_workspace_id"]
-    workspace_id: str | None = resolve_workspace_id(raw_ws) if raw_ws else None
-    if workspace_id is None:
-        _error_json(
-            "workspace_id is required. Provide --workspace-id, set AIRBYTE_WORKSPACE_ID, "
-            "or add workspace_id to ~/.airbyte/credentials.",
-            type="MissingWorkspaceId",
-        )
-        return  # unreachable; _error_json calls sys.exit(1)
+    api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     results = api_util.list_workspaces(
         workspace_id=workspace_id,
         api_root=api_url,
@@ -879,6 +870,8 @@ def main() -> None:
         _error_json(str(exc), type="JSONDecodeError")
     except PyAirbyteInputError as exc:
         _error_json(str(exc), type="PyAirbyteInputError")
+    except Exception as exc:
+        _error_json(str(exc), type=exc.__class__.__name__)
 
 
 if __name__ == "__main__":
