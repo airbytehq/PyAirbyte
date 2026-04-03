@@ -1,20 +1,22 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Sync progress estimation for datetime-cursor-based incremental streams.
 
-This module provides functions to estimate per-stream sync progress by
-comparing the current cursor value against the sync start time. The
-progress formula is:
+This module provides functions to estimate per-stream sync progress using
+a wall-clock time heuristic:
 
 ```
-progress = (current_cursor - sync_start_cursor) / (now - sync_start_cursor)
+progress = (cursor_dt - sync_start_time) / (now - sync_start_time)
 ```
 
 Where:
-- `current_cursor` is the latest committed cursor value (from state).
-- `sync_start_cursor` is the cursor value at the start of the sync
-  (from the previous completed sync's final state, or from the current
-  state if no previous sync is available).
-- `now` is the current UTC time (estimated sync completion point).
+- `cursor_dt` is the latest committed cursor value parsed as a datetime.
+- `sync_start_time` is the wall-clock time when the sync job started.
+- `now` is the current UTC time.
+
+This heuristic works well for real-time incremental syncs where cursor
+timestamps advance roughly with wall-clock time. It may be inaccurate
+for historical backfills where the cursor covers a different time range
+than the actual sync duration (progress will clamp to 0% in that case).
 
 Only streams with datetime-based cursors are supported. Non-datetime
 cursors (integers, opaque tokens, etc.) are skipped.
