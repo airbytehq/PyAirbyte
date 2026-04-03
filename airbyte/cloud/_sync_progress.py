@@ -56,8 +56,10 @@ def _try_parse_datetime_cursor(value: str) -> datetime | None:
         return None  # It's a number, not a datetime
 
     # Try ISO 8601 parsing (handles most Airbyte cursor formats)
+    # Normalize trailing "Z" to "+00:00" for Python 3.10 compatibility
+    normalized = stripped[:-1] + "+00:00" if stripped.endswith(("Z", "z")) else stripped
     try:
-        dt = datetime.fromisoformat(stripped)
+        dt = datetime.fromisoformat(normalized)
     except (ValueError, TypeError):
         pass
     else:
@@ -93,10 +95,12 @@ def _extract_cursor_field_from_catalog(
         if (entry_namespace or None) != (stream_namespace or None):
             continue
 
-        # cursor_field is a list of field path segments (usually single element)
+        # cursor_field may be a list of path segments or a plain string
         cursor_field = config.get("cursorField")
-        if cursor_field and isinstance(cursor_field, list) and len(cursor_field) > 0:
-            return str(cursor_field[0])
+        if isinstance(cursor_field, str) and cursor_field:
+            return cursor_field
+        if isinstance(cursor_field, list) and cursor_field:
+            return ".".join(str(segment) for segment in cursor_field)
 
     return None
 
@@ -115,11 +119,17 @@ def _find_cursor_value_in_state(
     if not stream_state:
         return None
 
-    # If we know the cursor field, look for it directly
-    if cursor_field and cursor_field in stream_state:
-        val = stream_state[cursor_field]
-        if val is not None:
-            return str(val)
+    # If we know the cursor field, look for it directly (supports dot-delimited paths)
+    if cursor_field:
+        current: Any = stream_state
+        for segment in cursor_field.split("."):
+            if isinstance(current, dict) and segment in current:
+                current = current[segment]
+            else:
+                current = None
+                break
+        if current is not None:
+            return str(current)
 
     # Try common cursor field names as fallback
     common_cursor_names = ["cursor", "updated_at", "date", "timestamp"]
@@ -166,8 +176,12 @@ def compute_stream_progress(
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
 
-    state = ConnectionStateResponse(**state_data)
-    streams: list[StreamState] = _get_stream_list(state)
+    try:
+        state = ConnectionStateResponse(**state_data)
+        streams: list[StreamState] = _get_stream_list(state)
+    except Exception:
+        logger.warning("Failed to parse connection state data; returning empty progress.")
+        streams = []
 
     results: list[dict[str, Any]] = []
     for stream in streams:
