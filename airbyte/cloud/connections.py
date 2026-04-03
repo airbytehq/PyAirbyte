@@ -15,6 +15,7 @@ from airbyte.cloud._connection_state import (
     _match_stream,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
 
@@ -402,23 +403,20 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             if current_job_id is not None and job.job_id == current_job_id:
                 continue
 
-            status = str(job.get_job_status())
-            if status != "succeeded":
+            if job.get_job_status() != JobStatusEnum.SUCCEEDED:
                 continue
 
             # Fetch full job data including attempt output
             job_data = job._fetch_job_with_attempts()  # noqa: SLF001
             attempts = job_data.get("attempts", [])
             if not attempts:
-                return None
+                continue
 
             last_attempt = attempts[-1]
             output = last_attempt.get("attempt", {}).get("output", {})
             state = output.get("state")
-            if state and isinstance(state, dict):
+            if isinstance(state, dict):
                 return state
-
-            return None
 
         return None
 
