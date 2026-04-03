@@ -37,10 +37,9 @@ logger = logging.getLogger(__name__)
 
 
 def _try_parse_datetime_cursor(value: str) -> datetime | None:
-    """Attempt to parse a string as a datetime.
+    """Attempt to parse a string as a datetime via ISO 8601.
 
-    Tries ISO 8601 format first, then common datetime patterns.
-    Returns `None` if the value cannot be parsed as a datetime.
+    Returns `None` if the value is numeric or cannot be parsed.
     """
     # Fast rejection: if it looks like a pure integer or float, skip it
     stripped = value.strip()
@@ -146,22 +145,15 @@ def compute_stream_progress(
 ) -> list[dict[str, Any]]:
     """Compute per-stream sync progress for datetime-cursor-based streams.
 
-    Args:
-        state_data: The raw connection state dict (from `dump_raw_state()`).
-        catalog_data: The raw configured catalog dict (from `dump_raw_catalog()`),
-            or `None` if not available.
-        sync_start_time: The start time of the current sync job.
-        now: The current time (defaults to `datetime.now(timezone.utc)`).
+    Uses a wall-clock time heuristic:
+    `progress = (cursor_dt - sync_start_time) / (now - sync_start_time)`.
+    This assumes cursor timestamps advance roughly with wall-clock time,
+    which works well for real-time incremental syncs but may be inaccurate
+    for historical backfills where the cursor covers a different time range
+    than the actual sync duration.
 
-    Returns:
-        A list of per-stream progress dicts, each containing:
-        - `stream_name`: The stream name.
-        - `stream_namespace`: The stream namespace (or `None`).
-        - `cursor_field`: The cursor field name (or `None` if unknown).
-        - `cursor_value`: The current cursor value string (or `None`).
-        - `progress_pct`: Estimated progress as a float 0.0-1.0 (or `None`
-          if progress cannot be calculated).
-        - `reason`: Human-readable explanation if progress cannot be calculated.
+    Progress is `None` for streams without datetime cursors or without
+    state. Values are clamped to [0.0, 1.0].
     """
     if now is None:
         now = datetime.now(timezone.utc)
