@@ -211,14 +211,15 @@ def workspaces_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
             optional_params={"workspace_id": "Filter to a specific workspace ID."},
         )
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
-    raw_ws = ctx.obj["_raw_workspace_id"]
-    workspace_id = resolve_workspace_id(raw_ws) if raw_ws else None
+    raw_ws: str | None = ctx.obj["_raw_workspace_id"]
+    workspace_id: str | None = resolve_workspace_id(raw_ws) if raw_ws else None
     if workspace_id is None:
         _error_json(
             "workspace_id is required. Provide --workspace-id, set AIRBYTE_WORKSPACE_ID, "
             "or add workspace_id to ~/.airbyte/credentials.",
             type="MissingWorkspaceId",
         )
+        return  # unreachable; _error_json calls sys.exit(1)
     results = api_util.list_workspaces(
         workspace_id=workspace_id,
         api_root=api_url,
