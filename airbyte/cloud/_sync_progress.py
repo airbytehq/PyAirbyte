@@ -28,6 +28,8 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from pydantic import ValidationError
+
 from airbyte.cloud._connection_state import (
     ConnectionStateResponse,
     StreamState,
@@ -179,7 +181,7 @@ def compute_stream_progress(
     try:
         state = ConnectionStateResponse(**state_data)
         streams: list[StreamState] = _get_stream_list(state)
-    except Exception:
+    except (ValidationError, TypeError, KeyError):
         logger.warning("Failed to parse connection state data; returning empty progress.")
         streams = []
 
