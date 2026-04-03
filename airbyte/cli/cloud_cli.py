@@ -64,21 +64,51 @@ def _parse_json_option(raw: str | None) -> dict[str, Any]:
     return parsed
 
 
-def _describe_output(
+# ---------------------------------------------------------------------------
+# JSON help infrastructure
+# ---------------------------------------------------------------------------
+
+# Registry mapping command function names to their JSON help metadata.
+_COMMAND_SCHEMAS: dict[str, dict[str, Any]] = {}
+
+
+def _register_schema(
+    func_name: str,
     description: str,
     required_params: dict[str, str] | None = None,
     optional_params: dict[str, str] | None = None,
 ) -> None:
-    """Print a `--describe` schema and exit."""
-    schema: dict[str, Any] = {
-        "description": description,
-    }
+    """Register JSON-help metadata for a command."""
+    schema: dict[str, Any] = {"description": description}
     if required_params:
         schema["required_params"] = required_params
     if optional_params:
         schema["optional_params"] = optional_params
-    _json_output(schema)
-    sys.exit(0)
+    _COMMAND_SCHEMAS[func_name] = schema
+
+
+def _emit_json_help(ctx: click.Context) -> None:
+    """If `--format json` is active, print JSON help and exit (used by --help)."""
+    if not _is_json_format(ctx):
+        return  # fall through to normal Click help
+
+    # Walk context chain to build the full command name.
+    cmd_name = ctx.info_name or ""
+    parent = ctx.parent
+    while parent and parent.info_name:
+        cmd_name = f"{parent.info_name}_{cmd_name}"
+        parent = parent.parent
+
+    # Try the leaf command, then the subcommand function name.
+    func = ctx.command.callback
+    func_name = func.__name__ if func else cmd_name
+    schema = _COMMAND_SCHEMAS.get(func_name)
+    if schema:
+        _json_output(schema)
+    else:
+        # Fallback: emit a minimal JSON help with the docstring.
+        _json_output({"description": ctx.command.help or cmd_name})
+    ctx.exit(0)
 
 
 def _get_auth_context(ctx: click.Context) -> tuple[str, SecretString, SecretString, str]:
@@ -155,13 +185,63 @@ def _job_to_dict(job: models.JobResponse) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+def _is_json_format(ctx: click.Context) -> bool:
+    """Check if ``--format json`` was requested.
+
+    Click's ``--help`` is an eager option that fires before the group
+    callback, so ``ctx.params`` may be empty at the root level.  We
+    fall back to inspecting ``sys.argv`` when the param is missing.
+    """
+    fmt = ctx.find_root().params.get("output_format")
+    if fmt:
+        return fmt == "json"
+    # Fallback: scan raw argv for ``--format json`` or ``--format=json``.
+    for i, arg in enumerate(sys.argv):
+        if arg == "--format" and i + 1 < len(sys.argv) and sys.argv[i + 1].lower() == "json":
+            return True
+        if arg.lower() == "--format=json":
+            return True
+    return False
+
+
+class _JsonHelpGroup(click.Group):
+    """Click group that emits JSON help when ``--format json --help`` is used."""
+
+    def get_help(self, ctx: click.Context) -> str:
+        if _is_json_format(ctx):
+            # List subcommands as JSON.
+            commands: dict[str, str] = {}
+            for name in self.list_commands(ctx):
+                cmd = self.get_command(ctx, name)
+                if cmd:
+                    commands[name] = cmd.get_short_help_str(limit=300)
+            _json_output({"description": self.help or "", "commands": commands})
+            ctx.exit(0)
+        return super().get_help(ctx)
+
+
+class _JsonHelpCommand(click.Command):
+    """Click command that emits JSON help when ``--format json --help`` is used."""
+
+    def get_help(self, ctx: click.Context) -> str:
+        _emit_json_help(ctx)
+        return super().get_help(ctx)
+
+
+@click.group(cls=_JsonHelpGroup)
 @click.option("--client-id", envvar="AIRBYTE_CLIENT_ID", default=None, help="Airbyte client ID.")
 @click.option(
     "--client-secret", envvar="AIRBYTE_CLIENT_SECRET", default=None, help="Airbyte client secret."
 )
 @click.option("--workspace-id", default=None, help="Airbyte workspace ID.")
 @click.option("--api-url", default=None, help="Airbyte API URL override.")
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["text", "json"], case_sensitive=False),
+    default="text",
+    help="Output format for --help (default: text).",
+)
 @click.pass_context
 def cli(
     ctx: click.Context,
@@ -169,6 +249,7 @@ def cli(
     client_secret: str | None,
     workspace_id: str | None,
     api_url: str | None,
+    output_format: str,  # noqa: ARG001
 ) -> None:
     """Airbyte CLI — agent-first interface for Airbyte Cloud.
 
@@ -178,10 +259,12 @@ def cli(
     Authentication is resolved from (in order): CLI flags, env vars
     (`AIRBYTE_CLIENT_ID` / `AIRBYTE_CLIENT_SECRET`), or
     `~/.airbyte/credentials` file.
+
+    Use `--format json --help` on any command for machine-readable parameter
+    schemas (no auth required).
     """
     ctx.ensure_object(dict)
     # Store raw values — credentials are resolved lazily when subcommands need them.
-    # This allows `--describe` to work without any auth configured.
     ctx.obj["_raw_client_id"] = client_id
     ctx.obj["_raw_client_secret"] = client_secret
     ctx.obj["_raw_api_url"] = api_url
@@ -193,23 +276,24 @@ def cli(
 # ---------------------------------------------------------------------------
 
 
-@cli.group()
+@cli.group(cls=_JsonHelpGroup)
 @click.pass_context
 def workspaces(ctx: click.Context) -> None:
     """Manage Airbyte workspaces."""
     pass
 
 
-@workspaces.command("list")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
+_register_schema(
+    "workspaces_list",
+    description="List all workspaces accessible with the current credentials.",
+    optional_params={"workspace_id": "Filter to a specific workspace ID."},
+)
+
+
+@workspaces.command("list", cls=_JsonHelpCommand)
 @click.pass_context
-def workspaces_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
+def workspaces_list(ctx: click.Context) -> None:
     """List workspaces accessible with the current credentials."""
-    if describe:
-        _describe_output(
-            description="List all workspaces accessible with the current credentials.",
-            optional_params={"workspace_id": "Filter to a specific workspace ID."},
-        )
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     raw_ws: str | None = ctx.obj["_raw_workspace_id"]
     workspace_id: str | None = resolve_workspace_id(raw_ws) if raw_ws else None
@@ -230,17 +314,18 @@ def workspaces_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
     _json_output([_workspace_to_dict(w) for w in results])
 
 
-@workspaces.command("get")
+_register_schema(
+    "workspaces_get",
+    description="Get details of a specific workspace.",
+    required_params={"workspace_id": "The workspace ID to retrieve."},
+)
+
+
+@workspaces.command("get", cls=_JsonHelpCommand)
 @click.option("--workspace-id", "cmd_workspace_id", default=None, help="Workspace ID to retrieve.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def workspaces_get(ctx: click.Context, cmd_workspace_id: str | None, describe: bool) -> None:  # noqa: FBT001
+def workspaces_get(ctx: click.Context, cmd_workspace_id: str | None) -> None:
     """Get details of a specific workspace."""
-    if describe:
-        _describe_output(
-            description="Get details of a specific workspace.",
-            required_params={"workspace_id": "The workspace ID to retrieve."},
-        )
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     workspace_id = resolve_workspace_id(cmd_workspace_id or ctx.obj["_raw_workspace_id"])
     result = api_util.get_workspace(
@@ -258,23 +343,24 @@ def workspaces_get(ctx: click.Context, cmd_workspace_id: str | None, describe: b
 # ---------------------------------------------------------------------------
 
 
-@cli.group()
+@cli.group(cls=_JsonHelpGroup)
 @click.pass_context
 def sources(ctx: click.Context) -> None:
     """Manage Airbyte sources."""
     pass
 
 
-@sources.command("list")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
+_register_schema(
+    "sources_list",
+    description="List all sources in the workspace.",
+    required_params={"workspace_id": "The workspace ID."},
+)
+
+
+@sources.command("list", cls=_JsonHelpCommand)
 @click.pass_context
-def sources_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
+def sources_list(ctx: click.Context) -> None:
     """List sources in the workspace."""
-    if describe:
-        _describe_output(
-            description="List all sources in the workspace.",
-            required_params={"workspace_id": "The workspace ID."},
-        )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     results = api_util.list_sources(
         workspace_id=workspace_id,
@@ -286,19 +372,18 @@ def sources_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
     _json_output([_source_to_dict(s) for s in results])
 
 
-@sources.command("get")
+_register_schema(
+    "sources_get",
+    description="Get details of a specific source.",
+    required_params={"source_id": "The source ID to retrieve."},
+)
+
+
+@sources.command("get", cls=_JsonHelpCommand)
 @click.option("--source-id", default=None, help="The source ID to retrieve.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_get(ctx: click.Context, source_id: str | None, describe: bool) -> None:  # noqa: FBT001
+def sources_get(ctx: click.Context, source_id: str | None) -> None:
     """Get details of a specific source."""
-    if describe:
-        _describe_output(
-            description="Get details of a specific source.",
-            required_params={
-                "source_id": "The source ID to retrieve.",
-            },
-        )
     if not source_id:
         _error_json("--source-id is required.", type="MissingParameter")
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
@@ -312,29 +397,28 @@ def sources_get(ctx: click.Context, source_id: str | None, describe: bool) -> No
     _json_output(_source_to_dict(result))
 
 
-@sources.command("create")
+_register_schema(
+    "sources_create",
+    description="Create a new source in the workspace.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "name": "Display name for the source.",
+        "sourceType": "The source connector type (e.g. 'postgres').",
+    },
+    optional_params={"...": "Additional connector-specific configuration fields."},
+)
+
+
+@sources.command("create", cls=_JsonHelpCommand)
 @click.option(
     "--json",
     "json_str",
     default=None,
     help='JSON config: {"name": "...", "sourceType": "...", ...}',
 )
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_create(ctx: click.Context, json_str: str | None, describe: bool) -> None:  # noqa: FBT001
+def sources_create(ctx: click.Context, json_str: str | None) -> None:
     """Create a new source in the workspace."""
-    if describe:
-        _describe_output(
-            description="Create a new source in the workspace.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "name": "Display name for the source.",
-                "sourceType": "The source connector type (e.g. 'postgres').",
-            },
-            optional_params={
-                "...": "Additional connector-specific configuration fields.",
-            },
-        )
     if not json_str:
         _error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -354,24 +438,23 @@ def sources_create(ctx: click.Context, json_str: str | None, describe: bool) -> 
     _json_output(_source_to_dict(result))
 
 
-@sources.command("delete")
+_register_schema(
+    "sources_delete",
+    description="Delete a source by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "source_id": "The source ID to delete.",
+    },
+    optional_params={"force": "Skip delete safety checks (default: false)."},
+)
+
+
+@sources.command("delete", cls=_JsonHelpCommand)
 @click.option("--source-id", default=None, help="The source ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_delete(ctx: click.Context, source_id: str | None, force: bool, describe: bool) -> None:  # noqa: FBT001
+def sources_delete(ctx: click.Context, source_id: str | None, force: bool) -> None:  # noqa: FBT001
     """Delete a source."""
-    if describe:
-        _describe_output(
-            description="Delete a source by ID.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "source_id": "The source ID to delete.",
-            },
-            optional_params={
-                "force": "Skip delete safety checks (default: false).",
-            },
-        )
     if not source_id:
         _error_json("--source-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -392,23 +475,24 @@ def sources_delete(ctx: click.Context, source_id: str | None, force: bool, descr
 # ---------------------------------------------------------------------------
 
 
-@cli.group()
+@cli.group(cls=_JsonHelpGroup)
 @click.pass_context
 def destinations(ctx: click.Context) -> None:
     """Manage Airbyte destinations."""
     pass
 
 
-@destinations.command("list")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
+_register_schema(
+    "destinations_list",
+    description="List all destinations in the workspace.",
+    required_params={"workspace_id": "The workspace ID."},
+)
+
+
+@destinations.command("list", cls=_JsonHelpCommand)
 @click.pass_context
-def destinations_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
+def destinations_list(ctx: click.Context) -> None:
     """List destinations in the workspace."""
-    if describe:
-        _describe_output(
-            description="List all destinations in the workspace.",
-            required_params={"workspace_id": "The workspace ID."},
-        )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     results = api_util.list_destinations(
         workspace_id=workspace_id,
@@ -420,19 +504,18 @@ def destinations_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT0
     _json_output([_destination_to_dict(d) for d in results])
 
 
-@destinations.command("get")
+_register_schema(
+    "destinations_get",
+    description="Get details of a specific destination.",
+    required_params={"destination_id": "The destination ID to retrieve."},
+)
+
+
+@destinations.command("get", cls=_JsonHelpCommand)
 @click.option("--destination-id", default=None, help="The destination ID to retrieve.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def destinations_get(ctx: click.Context, destination_id: str | None, describe: bool) -> None:  # noqa: FBT001
+def destinations_get(ctx: click.Context, destination_id: str | None) -> None:
     """Get details of a specific destination."""
-    if describe:
-        _describe_output(
-            description="Get details of a specific destination.",
-            required_params={
-                "destination_id": "The destination ID to retrieve.",
-            },
-        )
     if not destination_id:
         _error_json("--destination-id is required.", type="MissingParameter")
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
@@ -446,29 +529,28 @@ def destinations_get(ctx: click.Context, destination_id: str | None, describe: b
     _json_output(_destination_to_dict(result))
 
 
-@destinations.command("create")
+_register_schema(
+    "destinations_create",
+    description="Create a new destination in the workspace.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "name": "Display name for the destination.",
+        "destinationType": "The destination connector type (e.g. 'bigquery').",
+    },
+    optional_params={"...": "Additional connector-specific configuration fields."},
+)
+
+
+@destinations.command("create", cls=_JsonHelpCommand)
 @click.option(
     "--json",
     "json_str",
     default=None,
     help='JSON config: {"name": "...", "destinationType": "...", ...}',
 )
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def destinations_create(ctx: click.Context, json_str: str | None, describe: bool) -> None:  # noqa: FBT001
+def destinations_create(ctx: click.Context, json_str: str | None) -> None:
     """Create a new destination in the workspace."""
-    if describe:
-        _describe_output(
-            description="Create a new destination in the workspace.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "name": "Display name for the destination.",
-                "destinationType": "The destination connector type (e.g. 'bigquery').",
-            },
-            optional_params={
-                "...": "Additional connector-specific configuration fields.",
-            },
-        )
     if not json_str:
         _error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -488,29 +570,27 @@ def destinations_create(ctx: click.Context, json_str: str | None, describe: bool
     _json_output(_destination_to_dict(result))
 
 
-@destinations.command("delete")
+_register_schema(
+    "destinations_delete",
+    description="Delete a destination by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "destination_id": "The destination ID to delete.",
+    },
+    optional_params={"force": "Skip delete safety checks (default: false)."},
+)
+
+
+@destinations.command("delete", cls=_JsonHelpCommand)
 @click.option("--destination-id", default=None, help="The destination ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
 def destinations_delete(
     ctx: click.Context,
     destination_id: str | None,
     force: bool,  # noqa: FBT001
-    describe: bool,  # noqa: FBT001
 ) -> None:
     """Delete a destination."""
-    if describe:
-        _describe_output(
-            description="Delete a destination by ID.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "destination_id": "The destination ID to delete.",
-            },
-            optional_params={
-                "force": "Skip delete safety checks (default: false).",
-            },
-        )
     if not destination_id:
         _error_json("--destination-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -531,23 +611,24 @@ def destinations_delete(
 # ---------------------------------------------------------------------------
 
 
-@cli.group()
+@cli.group(cls=_JsonHelpGroup)
 @click.pass_context
 def connections(ctx: click.Context) -> None:
     """Manage Airbyte connections."""
     pass
 
 
-@connections.command("list")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
+_register_schema(
+    "connections_list",
+    description="List all connections in the workspace.",
+    required_params={"workspace_id": "The workspace ID."},
+)
+
+
+@connections.command("list", cls=_JsonHelpCommand)
 @click.pass_context
-def connections_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
+def connections_list(ctx: click.Context) -> None:
     """List connections in the workspace."""
-    if describe:
-        _describe_output(
-            description="List all connections in the workspace.",
-            required_params={"workspace_id": "The workspace ID."},
-        )
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     results = api_util.list_connections(
         workspace_id=workspace_id,
@@ -559,20 +640,21 @@ def connections_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT00
     _json_output([_connection_to_dict(c) for c in results])
 
 
-@connections.command("get")
+_register_schema(
+    "connections_get",
+    description="Get details of a specific connection.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to retrieve.",
+    },
+)
+
+
+@connections.command("get", cls=_JsonHelpCommand)
 @click.option("--connection-id", default=None, help="The connection ID to retrieve.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_get(ctx: click.Context, connection_id: str | None, describe: bool) -> None:  # noqa: FBT001
+def connections_get(ctx: click.Context, connection_id: str | None) -> None:
     """Get details of a specific connection."""
-    if describe:
-        _describe_output(
-            description="Get details of a specific connection.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "connection_id": "The connection ID to retrieve.",
-            },
-        )
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -587,31 +669,32 @@ def connections_get(ctx: click.Context, connection_id: str | None, describe: boo
     _json_output(_connection_to_dict(result))
 
 
-@connections.command("create")
+_register_schema(
+    "connections_create",
+    description="Create a new connection between a source and destination.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "name": "Display name for the connection.",
+        "source_id": "The source ID.",
+        "destination_id": "The destination ID.",
+    },
+    optional_params={
+        "selected_stream_names": "List of stream names to sync.",
+        "prefix": "Optional table prefix for destination.",
+    },
+)
+
+
+@connections.command("create", cls=_JsonHelpCommand)
 @click.option(
     "--json",
     "json_str",
     default=None,
     help='JSON config: {"name": "...", "source_id": "...", "destination_id": "...", ...}',
 )
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_create(ctx: click.Context, json_str: str | None, describe: bool) -> None:  # noqa: FBT001
+def connections_create(ctx: click.Context, json_str: str | None) -> None:
     """Create a new connection."""
-    if describe:
-        _describe_output(
-            description="Create a new connection between a source and destination.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "name": "Display name for the connection.",
-                "source_id": "The source ID.",
-                "destination_id": "The destination ID.",
-            },
-            optional_params={
-                "selected_stream_names": "List of stream names to sync.",
-                "prefix": "Optional table prefix for destination.",
-            },
-        )
     if not json_str:
         _error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -638,29 +721,27 @@ def connections_create(ctx: click.Context, json_str: str | None, describe: bool)
     _json_output(_connection_to_dict(result))
 
 
-@connections.command("delete")
+_register_schema(
+    "connections_delete",
+    description="Delete a connection by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to delete.",
+    },
+    optional_params={"force": "Skip delete safety checks (default: false)."},
+)
+
+
+@connections.command("delete", cls=_JsonHelpCommand)
 @click.option("--connection-id", default=None, help="The connection ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
 def connections_delete(
     ctx: click.Context,
     connection_id: str | None,
     force: bool,  # noqa: FBT001
-    describe: bool,  # noqa: FBT001
 ) -> None:
     """Delete a connection."""
-    if describe:
-        _describe_output(
-            description="Delete a connection by ID.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "connection_id": "The connection ID to delete.",
-            },
-            optional_params={
-                "force": "Skip delete safety checks (default: false).",
-            },
-        )
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -676,20 +757,21 @@ def connections_delete(
     _json_output({"deleted": True, "connection_id": connection_id})
 
 
-@connections.command("sync")
+_register_schema(
+    "connections_sync",
+    description="Trigger a sync job for a connection.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to sync.",
+    },
+)
+
+
+@connections.command("sync", cls=_JsonHelpCommand)
 @click.option("--connection-id", default=None, help="The connection ID to sync.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_sync(ctx: click.Context, connection_id: str | None, describe: bool) -> None:  # noqa: FBT001
+def connections_sync(ctx: click.Context, connection_id: str | None) -> None:
     """Trigger a sync for a connection."""
-    if describe:
-        _describe_output(
-            description="Trigger a sync job for a connection.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "connection_id": "The connection ID to sync.",
-            },
-        )
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -709,31 +791,30 @@ def connections_sync(ctx: click.Context, connection_id: str | None, describe: bo
 # ---------------------------------------------------------------------------
 
 
-@cli.group()
+@cli.group(cls=_JsonHelpGroup)
 @click.pass_context
 def jobs(ctx: click.Context) -> None:
     """View Airbyte sync jobs."""
     pass
 
 
-@jobs.command("list")
+_register_schema(
+    "jobs_list",
+    description="List recent sync jobs for a connection.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID.",
+    },
+    optional_params={"limit": "Maximum number of jobs to return (default: 20)."},
+)
+
+
+@jobs.command("list", cls=_JsonHelpCommand)
 @click.option("--connection-id", default=None, help="The connection ID to list jobs for.")
 @click.option("--limit", default=20, help="Maximum number of jobs to return.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def jobs_list(ctx: click.Context, connection_id: str | None, limit: int, describe: bool) -> None:  # noqa: FBT001
+def jobs_list(ctx: click.Context, connection_id: str | None, limit: int) -> None:
     """List recent jobs for a connection."""
-    if describe:
-        _describe_output(
-            description="List recent sync jobs for a connection.",
-            required_params={
-                "workspace_id": "The workspace ID.",
-                "connection_id": "The connection ID.",
-            },
-            optional_params={
-                "limit": "Maximum number of jobs to return (default: 20).",
-            },
-        )
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
@@ -749,19 +830,18 @@ def jobs_list(ctx: click.Context, connection_id: str | None, limit: int, describ
     _json_output([_job_to_dict(j) for j in results])
 
 
-@jobs.command("get")
+_register_schema(
+    "jobs_get",
+    description="Get details of a specific job by ID.",
+    required_params={"job_id": "The job ID to retrieve."},
+)
+
+
+@jobs.command("get", cls=_JsonHelpCommand)
 @click.option("--job-id", default=None, type=int, help="The job ID to retrieve.")
-@click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def jobs_get(ctx: click.Context, job_id: int | None, describe: bool) -> None:  # noqa: FBT001
+def jobs_get(ctx: click.Context, job_id: int | None) -> None:
     """Get details of a specific job."""
-    if describe:
-        _describe_output(
-            description="Get details of a specific job by ID.",
-            required_params={
-                "job_id": "The job ID to retrieve.",
-            },
-        )
     if job_id is None:
         _error_json("--job-id is required.", type="MissingParameter")
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
