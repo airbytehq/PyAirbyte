@@ -870,8 +870,6 @@ def main() -> None:
         _error_json(str(exc), type="JSONDecodeError")
     except PyAirbyteInputError as exc:
         _error_json(str(exc), type="PyAirbyteInputError")
-    except Exception as exc:
-        _error_json(str(exc), type=exc.__class__.__name__)
 
 
 if __name__ == "__main__":
