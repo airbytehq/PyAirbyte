@@ -754,8 +754,9 @@ def jobs_get(ctx: click.Context, job_id: int, describe: bool) -> None:  # noqa: 
 def main() -> None:
     """Entry point for `uvx airbyte` / `airbyte` command.
 
-    Wraps the CLI invocation to ensure all errors produce structured JSON
-    output on stderr, maintaining the agent-first error contract.
+    Wraps the CLI invocation to catch known failure modes and emit
+    structured JSON on stderr.  Unknown exceptions propagate naturally
+    so they surface with a full traceback for debugging.
     """
     try:
         cli(standalone_mode=False)
@@ -769,8 +770,6 @@ def main() -> None:
         _error_json(str(exc), type="JSONDecodeError")
     except PyAirbyteInputError as exc:
         _error_json(str(exc), type="PyAirbyteInputError")
-    except Exception as exc:
-        _error_json(str(exc), type=exc.__class__.__name__)
 
 
 if __name__ == "__main__":

@@ -45,19 +45,11 @@ def _read_credentials_file() -> dict[str, Any]:
     if not CREDENTIALS_FILE_PATH.exists():
         return {}
 
-    try:
-        content = CREDENTIALS_FILE_PATH.read_text(encoding="utf-8").strip()
-    except OSError:
-        return {}
-
+    content = CREDENTIALS_FILE_PATH.read_text(encoding="utf-8").strip()
     if not content:
         return {}
 
-    try:
-        parsed = yaml.safe_load(content)
-    except yaml.YAMLError:
-        return {}
-
+    parsed = yaml.safe_load(content)
     if not isinstance(parsed, dict):
         return {}
 
