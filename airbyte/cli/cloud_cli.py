@@ -377,6 +377,7 @@ def sources_get(ctx: click.Context, source_id: str | None) -> None:
     """Get details of a specific source."""
     if not source_id:
         _error_json("--source-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_source(
         source_id=source_id,
@@ -448,6 +449,7 @@ def sources_delete(ctx: click.Context, source_id: str | None, force: bool) -> No
     """Delete a source."""
     if not source_id:
         _error_json("--source-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     api_util.delete_source(
         source_id=source_id,
@@ -509,6 +511,7 @@ def destinations_get(ctx: click.Context, destination_id: str | None) -> None:
     """Get details of a specific destination."""
     if not destination_id:
         _error_json("--destination-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_destination(
         destination_id=destination_id,
@@ -584,6 +587,7 @@ def destinations_delete(
     """Delete a destination."""
     if not destination_id:
         _error_json("--destination-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     api_util.delete_destination(
         destination_id=destination_id,
@@ -648,6 +652,7 @@ def connections_get(ctx: click.Context, connection_id: str | None) -> None:
     """Get details of a specific connection."""
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     result = api_util.get_connection(
         workspace_id=workspace_id,
@@ -735,6 +740,7 @@ def connections_delete(
     """Delete a connection."""
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     api_util.delete_connection(
         connection_id,
@@ -765,6 +771,7 @@ def connections_sync(ctx: click.Context, connection_id: str | None) -> None:
     """Trigger a sync for a connection."""
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     result = api_util.run_connection(
         workspace_id,
@@ -808,6 +815,7 @@ def jobs_list(ctx: click.Context, connection_id: str | None, limit: int) -> None
     """List recent jobs for a connection."""
     if not connection_id:
         _error_json("--connection-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     results = api_util.get_job_logs(
         workspace_id,
@@ -835,6 +843,7 @@ def jobs_get(ctx: click.Context, job_id: int | None) -> None:
     """Get details of a specific job."""
     if job_id is None:
         _error_json("--job-id is required.", type="MissingParameter")
+        return
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_job_info(
         job_id=job_id,
