@@ -703,6 +703,7 @@ def get_cloud_sync_status(
             state_data=state_data,
             catalog_data=catalog_data,
             sync_start_time=sync_result.start_time,
+            previous_state_data=None,
         )
 
     return result
