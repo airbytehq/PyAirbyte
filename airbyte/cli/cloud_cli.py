@@ -287,10 +287,10 @@ def sources_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT001
 
 
 @sources.command("get")
-@click.option("--source-id", required=True, help="The source ID to retrieve.")
+@click.option("--source-id", default=None, help="The source ID to retrieve.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_get(ctx: click.Context, source_id: str, describe: bool) -> None:  # noqa: FBT001
+def sources_get(ctx: click.Context, source_id: str | None, describe: bool) -> None:  # noqa: FBT001
     """Get details of a specific source."""
     if describe:
         _describe_output(
@@ -299,6 +299,8 @@ def sources_get(ctx: click.Context, source_id: str, describe: bool) -> None:  # 
                 "source_id": "The source ID to retrieve.",
             },
         )
+    if not source_id:
+        _error_json("--source-id is required.", type="MissingParameter")
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_source(
         source_id=source_id,
@@ -314,12 +316,12 @@ def sources_get(ctx: click.Context, source_id: str, describe: bool) -> None:  # 
 @click.option(
     "--json",
     "json_str",
-    required=True,
+    default=None,
     help='JSON config: {"name": "...", "sourceType": "...", ...}',
 )
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_create(ctx: click.Context, json_str: str, describe: bool) -> None:  # noqa: FBT001
+def sources_create(ctx: click.Context, json_str: str | None, describe: bool) -> None:  # noqa: FBT001
     """Create a new source in the workspace."""
     if describe:
         _describe_output(
@@ -333,6 +335,8 @@ def sources_create(ctx: click.Context, json_str: str, describe: bool) -> None:  
                 "...": "Additional connector-specific configuration fields.",
             },
         )
+    if not json_str:
+        _error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     config = _parse_json_option(json_str)
     name = config.pop("name", None)
@@ -351,11 +355,11 @@ def sources_create(ctx: click.Context, json_str: str, describe: bool) -> None:  
 
 
 @sources.command("delete")
-@click.option("--source-id", required=True, help="The source ID to delete.")
+@click.option("--source-id", default=None, help="The source ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def sources_delete(ctx: click.Context, source_id: str, force: bool, describe: bool) -> None:  # noqa: FBT001
+def sources_delete(ctx: click.Context, source_id: str | None, force: bool, describe: bool) -> None:  # noqa: FBT001
     """Delete a source."""
     if describe:
         _describe_output(
@@ -368,6 +372,8 @@ def sources_delete(ctx: click.Context, source_id: str, force: bool, describe: bo
                 "force": "Skip delete safety checks (default: false).",
             },
         )
+    if not source_id:
+        _error_json("--source-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     api_util.delete_source(
         source_id=source_id,
@@ -415,10 +421,10 @@ def destinations_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT0
 
 
 @destinations.command("get")
-@click.option("--destination-id", required=True, help="The destination ID to retrieve.")
+@click.option("--destination-id", default=None, help="The destination ID to retrieve.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def destinations_get(ctx: click.Context, destination_id: str, describe: bool) -> None:  # noqa: FBT001
+def destinations_get(ctx: click.Context, destination_id: str | None, describe: bool) -> None:  # noqa: FBT001
     """Get details of a specific destination."""
     if describe:
         _describe_output(
@@ -427,6 +433,8 @@ def destinations_get(ctx: click.Context, destination_id: str, describe: bool) ->
                 "destination_id": "The destination ID to retrieve.",
             },
         )
+    if not destination_id:
+        _error_json("--destination-id is required.", type="MissingParameter")
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_destination(
         destination_id=destination_id,
@@ -442,12 +450,12 @@ def destinations_get(ctx: click.Context, destination_id: str, describe: bool) ->
 @click.option(
     "--json",
     "json_str",
-    required=True,
+    default=None,
     help='JSON config: {"name": "...", "destinationType": "...", ...}',
 )
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def destinations_create(ctx: click.Context, json_str: str, describe: bool) -> None:  # noqa: FBT001
+def destinations_create(ctx: click.Context, json_str: str | None, describe: bool) -> None:  # noqa: FBT001
     """Create a new destination in the workspace."""
     if describe:
         _describe_output(
@@ -461,6 +469,8 @@ def destinations_create(ctx: click.Context, json_str: str, describe: bool) -> No
                 "...": "Additional connector-specific configuration fields.",
             },
         )
+    if not json_str:
+        _error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     config = _parse_json_option(json_str)
     name = config.pop("name", None)
@@ -479,13 +489,13 @@ def destinations_create(ctx: click.Context, json_str: str, describe: bool) -> No
 
 
 @destinations.command("delete")
-@click.option("--destination-id", required=True, help="The destination ID to delete.")
+@click.option("--destination-id", default=None, help="The destination ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
 def destinations_delete(
     ctx: click.Context,
-    destination_id: str,
+    destination_id: str | None,
     force: bool,  # noqa: FBT001
     describe: bool,  # noqa: FBT001
 ) -> None:
@@ -501,6 +511,8 @@ def destinations_delete(
                 "force": "Skip delete safety checks (default: false).",
             },
         )
+    if not destination_id:
+        _error_json("--destination-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     api_util.delete_destination(
         destination_id=destination_id,
@@ -548,10 +560,10 @@ def connections_list(ctx: click.Context, describe: bool) -> None:  # noqa: FBT00
 
 
 @connections.command("get")
-@click.option("--connection-id", required=True, help="The connection ID to retrieve.")
+@click.option("--connection-id", default=None, help="The connection ID to retrieve.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_get(ctx: click.Context, connection_id: str, describe: bool) -> None:  # noqa: FBT001
+def connections_get(ctx: click.Context, connection_id: str | None, describe: bool) -> None:  # noqa: FBT001
     """Get details of a specific connection."""
     if describe:
         _describe_output(
@@ -561,6 +573,8 @@ def connections_get(ctx: click.Context, connection_id: str, describe: bool) -> N
                 "connection_id": "The connection ID to retrieve.",
             },
         )
+    if not connection_id:
+        _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     result = api_util.get_connection(
         workspace_id=workspace_id,
@@ -577,12 +591,12 @@ def connections_get(ctx: click.Context, connection_id: str, describe: bool) -> N
 @click.option(
     "--json",
     "json_str",
-    required=True,
+    default=None,
     help='JSON config: {"name": "...", "source_id": "...", "destination_id": "...", ...}',
 )
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_create(ctx: click.Context, json_str: str, describe: bool) -> None:  # noqa: FBT001
+def connections_create(ctx: click.Context, json_str: str | None, describe: bool) -> None:  # noqa: FBT001
     """Create a new connection."""
     if describe:
         _describe_output(
@@ -598,6 +612,8 @@ def connections_create(ctx: click.Context, json_str: str, describe: bool) -> Non
                 "prefix": "Optional table prefix for destination.",
             },
         )
+    if not json_str:
+        _error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     config = _parse_json_option(json_str)
     name = config.get("name")
@@ -623,11 +639,16 @@ def connections_create(ctx: click.Context, json_str: str, describe: bool) -> Non
 
 
 @connections.command("delete")
-@click.option("--connection-id", required=True, help="The connection ID to delete.")
+@click.option("--connection-id", default=None, help="The connection ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_delete(ctx: click.Context, connection_id: str, force: bool, describe: bool) -> None:  # noqa: FBT001
+def connections_delete(
+    ctx: click.Context,
+    connection_id: str | None,
+    force: bool,  # noqa: FBT001
+    describe: bool,  # noqa: FBT001
+) -> None:
     """Delete a connection."""
     if describe:
         _describe_output(
@@ -640,6 +661,8 @@ def connections_delete(ctx: click.Context, connection_id: str, force: bool, desc
                 "force": "Skip delete safety checks (default: false).",
             },
         )
+    if not connection_id:
+        _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     api_util.delete_connection(
         connection_id,
@@ -654,10 +677,10 @@ def connections_delete(ctx: click.Context, connection_id: str, force: bool, desc
 
 
 @connections.command("sync")
-@click.option("--connection-id", required=True, help="The connection ID to sync.")
+@click.option("--connection-id", default=None, help="The connection ID to sync.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def connections_sync(ctx: click.Context, connection_id: str, describe: bool) -> None:  # noqa: FBT001
+def connections_sync(ctx: click.Context, connection_id: str | None, describe: bool) -> None:  # noqa: FBT001
     """Trigger a sync for a connection."""
     if describe:
         _describe_output(
@@ -667,6 +690,8 @@ def connections_sync(ctx: click.Context, connection_id: str, describe: bool) -> 
                 "connection_id": "The connection ID to sync.",
             },
         )
+    if not connection_id:
+        _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     result = api_util.run_connection(
         workspace_id,
@@ -692,11 +717,11 @@ def jobs(ctx: click.Context) -> None:
 
 
 @jobs.command("list")
-@click.option("--connection-id", required=True, help="The connection ID to list jobs for.")
+@click.option("--connection-id", default=None, help="The connection ID to list jobs for.")
 @click.option("--limit", default=20, help="Maximum number of jobs to return.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def jobs_list(ctx: click.Context, connection_id: str, limit: int, describe: bool) -> None:  # noqa: FBT001
+def jobs_list(ctx: click.Context, connection_id: str | None, limit: int, describe: bool) -> None:  # noqa: FBT001
     """List recent jobs for a connection."""
     if describe:
         _describe_output(
@@ -709,6 +734,8 @@ def jobs_list(ctx: click.Context, connection_id: str, limit: int, describe: bool
                 "limit": "Maximum number of jobs to return (default: 20).",
             },
         )
+    if not connection_id:
+        _error_json("--connection-id is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = _get_auth_context(ctx)
     results = api_util.get_job_logs(
         workspace_id,
@@ -723,10 +750,10 @@ def jobs_list(ctx: click.Context, connection_id: str, limit: int, describe: bool
 
 
 @jobs.command("get")
-@click.option("--job-id", required=True, type=int, help="The job ID to retrieve.")
+@click.option("--job-id", default=None, type=int, help="The job ID to retrieve.")
 @click.option("--describe", is_flag=True, help="Print operation schema and exit.")
 @click.pass_context
-def jobs_get(ctx: click.Context, job_id: int, describe: bool) -> None:  # noqa: FBT001
+def jobs_get(ctx: click.Context, job_id: int | None, describe: bool) -> None:  # noqa: FBT001
     """Get details of a specific job."""
     if describe:
         _describe_output(
@@ -735,6 +762,8 @@ def jobs_get(ctx: click.Context, job_id: int, describe: bool) -> None:  # noqa: 
                 "job_id": "The job ID to retrieve.",
             },
         )
+    if job_id is None:
+        _error_json("--job-id is required.", type="MissingParameter")
     api_url, client_id, client_secret = _get_auth_no_workspace(ctx)
     result = api_util.get_job_info(
         job_id=job_id,
