@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
+from airbyte.cloud._sync_progress import compute_stream_progress
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.workspaces import CloudOrganization, CloudWorkspace
@@ -647,6 +648,19 @@ def get_cloud_sync_status(
             default=False,
         ),
     ],
+    with_stream_progress: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether to include per-stream sync progress estimates. "
+                "When enabled, fetches current connection state and catalog to "
+                "compute an estimated progress percentage for each stream with "
+                "a datetime-based cursor. This adds latency from additional API "
+                "calls. Progress is approximate and advances at checkpoint intervals."
+            ),
+            default=False,
+        ),
+    ],
 ) -> dict[str, Any]:
     """Get the status of a sync job from the Airbyte Cloud."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -681,6 +695,15 @@ def get_cloud_sync_status(
             }
             for attempt in attempts
         ]
+
+    if with_stream_progress:
+        state_data = connection.dump_raw_state()
+        catalog_data = connection.dump_raw_catalog()
+        result["stream_progress"] = compute_stream_progress(
+            state_data=state_data,
+            catalog_data=catalog_data,
+            sync_start_time=sync_result.start_time,
+        )
 
     return result
 

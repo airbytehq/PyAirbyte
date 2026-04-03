@@ -1,0 +1,230 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+"""Sync progress estimation for datetime-cursor-based incremental streams.
+
+This module provides functions to estimate per-stream sync progress by
+comparing the current cursor value against the sync start time. The
+progress formula is:
+
+```
+progress = (current_cursor - sync_start_cursor) / (now - sync_start_cursor)
+```
+
+Where:
+- `current_cursor` is the latest committed cursor value (from state).
+- `sync_start_cursor` is the cursor value at the start of the sync
+  (from the previous completed sync's final state, or from the current
+  state if no previous sync is available).
+- `now` is the current UTC time (estimated sync completion point).
+
+Only streams with datetime-based cursors are supported. Non-datetime
+cursors (integers, opaque tokens, etc.) are skipped.
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Any
+
+from airbyte.cloud._connection_state import (
+    ConnectionStateResponse,
+    StreamState,
+    _get_stream_list,
+)
+
+
+logger = logging.getLogger(__name__)
+
+
+def _try_parse_datetime_cursor(value: str) -> datetime | None:
+    """Attempt to parse a string as a datetime.
+
+    Tries ISO 8601 format first, then common datetime patterns.
+    Returns `None` if the value cannot be parsed as a datetime.
+    """
+    # Fast rejection: if it looks like a pure integer or float, skip it
+    stripped = value.strip()
+    if not stripped:
+        return None
+
+    try:
+        float(stripped)
+    except ValueError:
+        pass
+    else:
+        return None  # It's a number, not a datetime
+
+    # Try ISO 8601 parsing (handles most Airbyte cursor formats)
+    try:
+        dt = datetime.fromisoformat(stripped)
+    except (ValueError, TypeError):
+        pass
+    else:
+        # Ensure timezone-aware (assume UTC if naive)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    return None
+
+
+def _extract_cursor_field_from_catalog(
+    catalog: dict[str, Any],
+    stream_name: str,
+    stream_namespace: str | None,
+) -> str | None:
+    """Extract the cursor field name for a stream from the configured catalog.
+
+    Returns the cursor field name, or `None` if the stream is not found
+    or does not have a cursor field configured.
+    """
+    streams = catalog.get("streams", [])
+    for stream_entry in streams:
+        config = stream_entry.get("config", {})
+        stream_info = stream_entry.get("stream", {})
+
+        entry_name = stream_info.get("name") or config.get("aliasName")
+        entry_namespace = stream_info.get("namespace")
+
+        # Normalize namespace comparison (None and "" are equivalent)
+        if entry_name != stream_name:
+            continue
+        if (entry_namespace or None) != (stream_namespace or None):
+            continue
+
+        # cursor_field is a list of field path segments (usually single element)
+        cursor_field = config.get("cursorField")
+        if cursor_field and isinstance(cursor_field, list) and len(cursor_field) > 0:
+            return str(cursor_field[0])
+
+    return None
+
+
+def _find_cursor_value_in_state(
+    stream_state: dict[str, Any] | None,
+    cursor_field: str | None,
+) -> str | None:
+    """Find a cursor value in a stream state blob.
+
+    If `cursor_field` is provided, looks for it directly. Otherwise,
+    attempts common cursor field names and heuristics.
+
+    Returns the cursor value as a string, or `None` if not found.
+    """
+    if not stream_state:
+        return None
+
+    # If we know the cursor field, look for it directly
+    if cursor_field and cursor_field in stream_state:
+        val = stream_state[cursor_field]
+        if val is not None:
+            return str(val)
+
+    # Try common cursor field names as fallback
+    common_cursor_names = ["cursor", "updated_at", "date", "timestamp"]
+    for name in common_cursor_names:
+        if name in stream_state:
+            val = stream_state[name]
+            if val is not None:
+                return str(val)
+
+    # Last resort: check for a single string value that parses as datetime
+    string_values = [str(v) for v in stream_state.values() if v is not None and isinstance(v, str)]
+    datetime_values = [(v, _try_parse_datetime_cursor(v)) for v in string_values]
+    parsed = [(v, dt) for v, dt in datetime_values if dt is not None]
+    if len(parsed) == 1:
+        return parsed[0][0]
+
+    return None
+
+
+def compute_stream_progress(
+    state_data: dict[str, Any],
+    catalog_data: dict[str, Any] | None,
+    sync_start_time: datetime,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Compute per-stream sync progress for datetime-cursor-based streams.
+
+    Args:
+        state_data: The raw connection state dict (from `dump_raw_state()`).
+        catalog_data: The raw configured catalog dict (from `dump_raw_catalog()`),
+            or `None` if not available.
+        sync_start_time: The start time of the current sync job.
+        now: The current time (defaults to `datetime.now(timezone.utc)`).
+
+    Returns:
+        A list of per-stream progress dicts, each containing:
+        - `stream_name`: The stream name.
+        - `stream_namespace`: The stream namespace (or `None`).
+        - `cursor_field`: The cursor field name (or `None` if unknown).
+        - `cursor_value`: The current cursor value string (or `None`).
+        - `progress_pct`: Estimated progress as a float 0.0-1.0 (or `None`
+          if progress cannot be calculated).
+        - `reason`: Human-readable explanation if progress cannot be calculated.
+    """
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    # Ensure times are timezone-aware
+    if sync_start_time.tzinfo is None:
+        sync_start_time = sync_start_time.replace(tzinfo=timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+
+    state = ConnectionStateResponse(**state_data)
+    streams: list[StreamState] = _get_stream_list(state)
+
+    results: list[dict[str, Any]] = []
+    for stream in streams:
+        stream_name = stream.stream_descriptor.name
+        stream_namespace = stream.stream_descriptor.namespace
+
+        # Look up cursor field from catalog
+        cursor_field: str | None = None
+        if catalog_data:
+            cursor_field = _extract_cursor_field_from_catalog(
+                catalog_data, stream_name, stream_namespace
+            )
+
+        # Find cursor value in state
+        cursor_value_str = _find_cursor_value_in_state(stream.stream_state, cursor_field)
+
+        entry: dict[str, Any] = {
+            "stream_name": stream_name,
+            "stream_namespace": stream_namespace,
+            "cursor_field": cursor_field,
+            "cursor_value": cursor_value_str,
+            "progress_pct": None,
+            "reason": None,
+        }
+
+        if cursor_value_str is None:
+            entry["reason"] = "No cursor value found in state."
+            results.append(entry)
+            continue
+
+        cursor_dt = _try_parse_datetime_cursor(cursor_value_str)
+        if cursor_dt is None:
+            entry["reason"] = (
+                f"Cursor value '{cursor_value_str}' is not a recognized datetime format."
+            )
+            results.append(entry)
+            continue
+
+        # Calculate progress: (cursor - sync_start) / (now - sync_start)
+        denominator = (now - sync_start_time).total_seconds()
+        if denominator <= 0:
+            entry["reason"] = "Sync start time is not before current time."
+            results.append(entry)
+            continue
+
+        numerator = (cursor_dt - sync_start_time).total_seconds()
+
+        # Clamp to [0.0, 1.0]
+        progress = max(0.0, min(1.0, numerator / denominator))
+        entry["progress_pct"] = round(progress, 4)
+
+        results.append(entry)
+
+    return results
