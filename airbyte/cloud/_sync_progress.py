@@ -253,33 +253,80 @@ def _compute_single_stream_progress(
 
     entry["cursor_datetime"] = cursor_dt.isoformat()
 
-    # Determine the range anchor (baseline) using tiered fallback:
-    #   Tier 1: Previous completed sync's cursor (prev_cursor_dt)
-    #   Tier 2: First-observed cursor during this polling session
-    #   Tier 3: sync_start_time (only useful for real-time cursors)
-    range_start: datetime | None = prev_cursor_dt
-    if range_start is None and first_seen_cursors:
+    # Resolve the first-observed cursor for this stream (tier 2 baseline).
+    first_seen_dt: datetime | None = None
+    if first_seen_cursors:
         first_seen_val = first_seen_cursors.get((stream_name, stream_namespace))
         if first_seen_val is not None:
-            range_start = _try_parse_datetime_cursor(first_seen_val)
+            first_seen_dt = _try_parse_datetime_cursor(first_seen_val)
 
+    _compute_progress_pct(
+        entry=entry,
+        cursor_dt=cursor_dt,
+        prev_cursor_dt=prev_cursor_dt,
+        first_seen_dt=first_seen_dt,
+        sync_start_time=sync_start_time,
+        now=now,
+    )
+    return entry
+
+
+def _compute_progress_pct(
+    *,
+    entry: dict[str, Any],
+    cursor_dt: datetime,
+    prev_cursor_dt: datetime | None,
+    first_seen_dt: datetime | None,
+    sync_start_time: datetime,
+    now: datetime,
+) -> None:
+    """Populate `progress_pct` and `reason` on `entry` in-place.
+
+    Handles two modes:
+
+    1. *Historical backfill* — the cursor is at or behind the previous
+       bookmark (e.g. GA4 re-processing from an earlier date).  Progress is
+       measured as ``(cursor - first_seen) / (prev_bookmark - first_seen)``.
+
+    2. *Standard forward progress* — the cursor advances beyond the
+       baseline toward ``now``.  Progress is
+       ``(cursor - range_start) / (now - range_start)``.
+    """
+    # --- Historical backfill path ---
+    if (
+        prev_cursor_dt is not None
+        and cursor_dt <= prev_cursor_dt
+        and first_seen_dt is not None
+        and first_seen_dt < prev_cursor_dt
+    ):
+        denominator = (prev_cursor_dt - first_seen_dt).total_seconds()
+        if denominator <= 0:
+            entry["reason"] = "Range anchor is not before target time."
+            return
+        numerator = (cursor_dt - first_seen_dt).total_seconds()
+        entry["progress_pct"] = round(max(0.0, min(1.0, numerator / denominator)), 4)
+        if entry["progress_pct"] == 0.0:
+            entry["reason"] = "Cursor has not yet advanced past the first observed value."
+        return
+
+    # --- Standard forward-progress path ---
+    range_start: datetime | None = prev_cursor_dt
+    if range_start is None and first_seen_dt is not None:
+        range_start = first_seen_dt
     if range_start is None:
         range_start = sync_start_time
 
     denominator = (now - range_start).total_seconds()
     if denominator <= 0:
         entry["reason"] = "Range anchor is not before target time."
-        return entry
+        return
 
     numerator = (cursor_dt - range_start).total_seconds()
-
     if numerator < 0:
         _set_negative_progress_reason(entry, prev_cursor_dt)
-        return entry
+        return
 
-    # Clamp to [0.0, 1.0]
     entry["progress_pct"] = round(max(0.0, min(1.0, numerator / denominator)), 4)
-    return entry
 
 
 def _set_negative_progress_reason(
