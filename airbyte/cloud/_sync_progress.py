@@ -203,6 +203,7 @@ def _compute_single_stream_progress(
     sync_start_time: datetime,
     now: datetime,
     prev_cursor_map: dict[tuple[str, str | None], str | None],
+    first_seen_cursors: dict[tuple[str, str | None], str] | None = None,
 ) -> dict[str, Any]:
     """Compute progress for a single stream.
 
@@ -252,9 +253,18 @@ def _compute_single_stream_progress(
 
     entry["cursor_datetime"] = cursor_dt.isoformat()
 
-    # Determine the range anchor (baseline).
-    # Prefer previous bookmark; fall back to sync_start_time.
-    range_start: datetime = prev_cursor_dt if prev_cursor_dt is not None else sync_start_time
+    # Determine the range anchor (baseline) using tiered fallback:
+    #   Tier 1: Previous completed sync's cursor (prev_cursor_dt)
+    #   Tier 2: First-observed cursor during this polling session
+    #   Tier 3: sync_start_time (only useful for real-time cursors)
+    range_start: datetime | None = prev_cursor_dt
+    if range_start is None and first_seen_cursors:
+        first_seen_val = first_seen_cursors.get((stream_name, stream_namespace))
+        if first_seen_val is not None:
+            range_start = _try_parse_datetime_cursor(first_seen_val)
+
+    if range_start is None:
+        range_start = sync_start_time
 
     denominator = (now - range_start).total_seconds()
     if denominator <= 0:
@@ -296,6 +306,7 @@ def compute_stream_progress(
     sync_start_time: datetime,
     now: datetime | None = None,
     previous_state_data: dict[str, Any] | None = None,
+    first_seen_cursors: dict[tuple[str, str | None], str] | None = None,
 ) -> list[dict[str, Any]]:
     """Compute per-stream sync progress for datetime-cursor-based streams.
 
@@ -307,15 +318,15 @@ def compute_stream_progress(
 
         progress = (cursor_dt - previous_bookmark_dt) / (now - previous_bookmark_dt)
 
-    When `previous_state_data` is not supplied, falls back to
-    `sync_start_time` as the range anchor:
+    Baseline selection uses a tiered fallback:
 
-        progress = (cursor_dt - sync_start_time) / (now - sync_start_time)
+    1. Previous completed sync's cursor from ``previous_state_data``.
+    2. First-observed cursor during polling (``first_seen_cursors``).
+    3. ``sync_start_time`` (wall-clock job start).
 
-    This fallback works for real-time incremental syncs where cursors
-    advance near wall-clock time, but yields `progress_pct = None`
-    for historical back-fills where the cursor is behind
-    `sync_start_time`.
+    Tier 3 works for real-time incremental syncs where cursors advance
+    near wall-clock time, but yields ``progress_pct = None`` for
+    historical back-fills where the cursor is behind ``sync_start_time``.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -345,6 +356,7 @@ def compute_stream_progress(
             sync_start_time=sync_start_time,
             now=now,
             prev_cursor_map=prev_cursor_map,
+            first_seen_cursors=first_seen_cursors,
         )
         for stream in streams
     ]

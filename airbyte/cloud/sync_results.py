@@ -107,6 +107,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from pydantic import ValidationError
 from rich.console import Console
 from rich.live import Live as RichLive
 from rich.table import Table
@@ -116,7 +117,15 @@ from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 
 from airbyte._util import api_util
 from airbyte.caches._utils._dest_to_cache import destination_to_cache
-from airbyte.cloud._sync_progress import compute_stream_progress
+from airbyte.cloud._connection_state import (
+    ConnectionStateResponse,
+    _get_stream_list,
+)
+from airbyte.cloud._sync_progress import (
+    _extract_cursor_field_from_catalog,
+    _find_cursor_value_in_state,
+    compute_stream_progress,
+)
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
@@ -301,6 +310,41 @@ class SyncAttempt:
         return result
 
 
+def _update_first_seen_cursors(
+    *,
+    first_seen_cursors: dict[tuple[str, str | None], str],
+    state_data: dict[str, Any],
+    catalog_data: dict[str, Any] | None,
+) -> None:
+    """Record the first observed cursor value for each stream.
+
+    On the first poll iteration where a stream appears in the state,
+    its cursor value is captured.  This provides a fallback baseline
+    for first-ever syncs where no previous completed state exists.
+    """
+    try:
+        state = ConnectionStateResponse(**state_data)
+        streams = _get_stream_list(state)
+    except (ValidationError, TypeError, KeyError):
+        return
+
+    for stream in streams:
+        key = (stream.stream_descriptor.name, stream.stream_descriptor.namespace)
+        if key in first_seen_cursors:
+            continue  # already recorded
+
+        cursor_field: str | None = None
+        if catalog_data:
+            cursor_field = _extract_cursor_field_from_catalog(
+                catalog_data,
+                stream.stream_descriptor.name,
+                stream.stream_descriptor.namespace,
+            )
+        cursor_val = _find_cursor_value_in_state(stream.stream_state, cursor_field)
+        if cursor_val is not None:
+            first_seen_cursors[key] = cursor_val
+
+
 @dataclass
 class SyncResult:
     """The result of a sync operation.
@@ -318,6 +362,7 @@ class SyncResult:
     _connection_response: ConnectionResponse | None = None
     _cache: CacheBase | None = None
     _job_with_attempts_info: dict[str, Any] | None = None
+    _pre_sync_state: dict[str, Any] | None = None
 
     @property
     def job_url(self) -> str:
@@ -566,18 +611,20 @@ class SyncResult:
         raise_failure: bool,
     ) -> JobStatusEnum:
         """Polling loop with Rich Live table showing per-stream progress."""
-        previous_state: dict[str, Any] | None = None
+        previous_state: dict[str, Any] | None = self._pre_sync_state
         catalog_data: dict[str, Any] | None = None
-        state_fetched = False
+        catalog_fetched = False
+
+        # Track first-observed cursors as a fallback baseline when no
+        # previous sync state is available.  Keys are (stream_name, namespace)
+        # and values are the raw cursor string captured on first sighting.
+        first_seen_cursors: dict[tuple[str, str | None], str] = {}
 
         while True:
             latest_status = self.get_job_status()
 
-            # Lazy-fetch baseline data on first iteration
-            if not state_fetched:
-                previous_state = self.connection.get_previous_sync_state(
-                    current_job_id=self.job_id,
-                )
+            # Lazy-fetch catalog on first iteration
+            if not catalog_fetched:
                 catalog_data = api_util.get_connection_catalog(
                     connection_id=self.connection.connection_id,
                     api_root=self.workspace.api_root,
@@ -585,7 +632,7 @@ class SyncResult:
                     client_secret=self.workspace.client_secret,
                     bearer_token=self.workspace.bearer_token,
                 )
-                state_fetched = True
+                catalog_fetched = True
 
             # Fetch current state and compute progress
             state_data = api_util.get_connection_state(
@@ -595,6 +642,14 @@ class SyncResult:
                 client_secret=self.workspace.client_secret,
                 bearer_token=self.workspace.bearer_token,
             )
+
+            # Record first-observed cursors for streams we haven't seen yet
+            _update_first_seen_cursors(
+                first_seen_cursors=first_seen_cursors,
+                state_data=state_data,
+                catalog_data=catalog_data,
+            )
+
             sync_start_time_dt: datetime
             try:
                 sync_start_time_dt = self.start_time
@@ -606,6 +661,7 @@ class SyncResult:
                 catalog_data=catalog_data,
                 sync_start_time=sync_start_time_dt,
                 previous_state_data=previous_state,
+                first_seen_cursors=first_seen_cursors,
             )
 
             elapsed = time.time() - start_time

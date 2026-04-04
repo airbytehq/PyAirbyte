@@ -278,6 +278,13 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 "Rich status updates require waiting for the sync to complete."
             )
 
+        # Snapshot the current committed state *before* triggering the sync.
+        # This gives us the baseline (denominator) for progress calculation,
+        # since the state API only exposes the latest advancing cursor.
+        pre_sync_state: dict[str, Any] | None = None
+        if with_rich_status_updates:
+            pre_sync_state = self.dump_raw_state()
+
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -290,6 +297,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             workspace=self.workspace,
             connection=self,
             job_id=connection_response.job_id,
+            _pre_sync_state=pre_sync_state,
         )
 
         if wait:
