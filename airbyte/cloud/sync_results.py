@@ -126,7 +126,7 @@ from airbyte.cloud._sync_progress import (
     _find_cursor_value_in_state,
     compute_stream_progress,
 )
-from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
+from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES, JobStatusEnum
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
@@ -143,7 +143,7 @@ DEFAULT_RICH_UPDATE_INTERVAL_SECS = 15
 if TYPE_CHECKING:
     import sqlalchemy
 
-    from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
+    from airbyte._util.api_imports import ConnectionResponse, JobResponse
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -663,6 +663,16 @@ class SyncResult:
                 previous_state_data=previous_state,
                 first_seen_cursors=first_seen_cursors,
             )
+
+            # Override progress to 100% for successful syncs.  The formula
+            # compares cursors against `now`, so a source whose data stops
+            # before "today" (e.g. GA4 data through 2025-12-27 when today
+            # is 2026-04-04) would otherwise show <100% even after the job
+            # completes successfully.
+            if latest_status == JobStatusEnum.SUCCEEDED:
+                for entry in stream_progress:
+                    if entry.get("progress_pct") is not None:
+                        entry["progress_pct"] = 1.0
 
             elapsed = time.time() - start_time
             table = _build_rich_table(
