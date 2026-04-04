@@ -654,12 +654,16 @@ class SyncResult:
                 )
                 catalog_fetched = True
 
-                # Resolve total selected streams from the catalog.
+                # Resolve total *selected* streams from the catalog.
                 if catalog_data:
                     cat_streams = catalog_data.get("streams", [])
                     if not cat_streams and "syncCatalog" in catalog_data:
                         cat_streams = catalog_data["syncCatalog"].get("streams", [])
-                    catalog_stream_count = len(cat_streams) if cat_streams else None
+                    if cat_streams:
+                        selected = [
+                            s for s in cat_streams if s.get("config", {}).get("selected", False)
+                        ]
+                        catalog_stream_count = len(selected) if selected else len(cat_streams)
 
             # Fetch current state and compute progress
             state_data = api_util.get_connection_state(
