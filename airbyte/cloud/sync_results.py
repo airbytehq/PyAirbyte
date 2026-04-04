@@ -176,6 +176,7 @@ def _build_rich_table(
     stream_progress: list[dict[str, Any]],
     job_status: str,
     elapsed_secs: float,
+    sync_start_time: datetime | None = None,
 ) -> Table:
     """Build a Rich `Table` showing per-stream sync progress."""
     elapsed_str = _format_elapsed(elapsed_secs)
@@ -189,7 +190,20 @@ def _build_rich_table(
         f"Streams: {streams_with_pct}/{total_streams} reporting progress"
     )
 
-    table = Table(title=title, show_lines=False, expand=True)
+    # Build a caption with start / end / elapsed timestamps
+    caption_parts: list[str] = []
+    if sync_start_time is not None:
+        caption_parts.append(f"Start: {sync_start_time:%Y-%m-%d %H:%M:%S} UTC")
+    end_time = datetime.now(timezone.utc)
+    caption_parts.extend(
+        [
+            f"Current: {end_time:%Y-%m-%d %H:%M:%S} UTC",
+            f"Elapsed: {elapsed_str}",
+        ]
+    )
+    caption = "  |  ".join(caption_parts)
+
+    table = Table(title=title, caption=caption, show_lines=False, expand=True)
     table.add_column("Stream", style="cyan", no_wrap=True)
     table.add_column("Progress", justify="right", style="green")
     table.add_column("Cursor Value", style="yellow")
@@ -679,6 +693,7 @@ class SyncResult:
                 stream_progress=stream_progress,
                 job_status=str(latest_status),
                 elapsed_secs=elapsed,
+                sync_start_time=sync_start_time_dt,
             )
             live.update(table, refresh=True)
 
