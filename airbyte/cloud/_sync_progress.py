@@ -44,7 +44,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import ValidationError
+from airbyte_cdk.utils.datetime_helpers import ab_datetime_try_parse
 
 from airbyte.cloud._connection_state import (
     ConnectionStateResponse,
@@ -57,36 +57,32 @@ logger = logging.getLogger(__name__)
 
 
 def _try_parse_datetime_cursor(value: str) -> datetime | None:
-    """Attempt to parse a string as a datetime via ISO 8601.
+    """Attempt to parse a string as a datetime.
 
+    Delegates to the CDK's `ab_datetime_try_parse` for the actual parsing.
     Returns `None` if the value is numeric or cannot be parsed.
     """
-    # Fast rejection: if it looks like a pure integer or float, skip it
     stripped = value.strip()
     if not stripped:
         return None
 
+    # Reject pure numeric strings — the CDK parser interprets them as
+    # epoch timestamps, but cursor values like "12345" are opaque tokens.
     try:
         float(stripped)
     except ValueError:
         pass
     else:
-        return None  # It's a number, not a datetime
+        return None
 
-    # Try ISO 8601 parsing (handles most Airbyte cursor formats)
-    # Normalize trailing "Z" to "+00:00" for Python 3.10 compatibility
-    normalized = stripped[:-1] + "+00:00" if stripped.endswith(("Z", "z")) else stripped
-    try:
-        dt = datetime.fromisoformat(normalized)
-    except (ValueError, TypeError):
-        pass
-    else:
-        # Ensure timezone-aware (assume UTC if naive)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+    dt = ab_datetime_try_parse(stripped)
+    if dt is None:
+        return None
 
-    return None
+    # Ensure timezone-aware (assume UTC if naive)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def _extract_cursor_field_from_catalog(
@@ -129,40 +125,25 @@ def _find_cursor_value_in_state(
 ) -> str | None:
     """Find a cursor value in a stream state blob.
 
-    If `cursor_field` is provided, looks for it directly. Otherwise,
-    attempts common cursor field names and heuristics.
-
-    Returns the cursor value as a string, or `None` if not found.
+    Requires `cursor_field` (from the configured catalog) to locate the
+    cursor.  Returns `None` when the cursor field is unknown or absent.
     """
     if not stream_state:
         return None
 
-    # If we know the cursor field, look for it directly (supports dot-delimited paths)
-    if cursor_field:
-        current: Any = stream_state
-        for segment in cursor_field.split("."):
-            if isinstance(current, dict) and segment in current:
-                current = current[segment]
-            else:
-                current = None
-                break
-        if current is not None:
-            return str(current)
+    if not cursor_field:
+        return None
 
-    # Try common cursor field names as fallback
-    common_cursor_names = ["cursor", "updated_at", "date", "timestamp"]
-    for name in common_cursor_names:
-        if name in stream_state:
-            val = stream_state[name]
-            if val is not None:
-                return str(val)
+    # Traverse dot-delimited paths (e.g. "metadata.updated_at")
+    current: Any = stream_state
+    for segment in cursor_field.split("."):
+        if isinstance(current, dict) and segment in current:
+            current = current[segment]
+        else:
+            return None
 
-    # Last resort: check for a single string value that parses as datetime
-    string_values = [str(v) for v in stream_state.values() if v is not None and isinstance(v, str)]
-    datetime_values = [(v, _try_parse_datetime_cursor(v)) for v in string_values]
-    parsed = [(v, dt) for v, dt in datetime_values if dt is not None]
-    if len(parsed) == 1:
-        return parsed[0][0]
+    if current is not None:
+        return str(current)
 
     return None
 
@@ -177,11 +158,11 @@ def _build_previous_cursor_map(
     each stream, returning a lookup dict.
     """
     result: dict[tuple[str, str | None], str | None] = {}
-    try:
-        prev_state = ConnectionStateResponse(**previous_state_data)
-        prev_streams: list[StreamState] = _get_stream_list(prev_state)
-    except (ValidationError, TypeError, KeyError):
+    if not isinstance(previous_state_data, dict):
         return result
+
+    prev_state = ConnectionStateResponse(**previous_state_data)
+    prev_streams: list[StreamState] = _get_stream_list(prev_state)
 
     for stream in prev_streams:
         s_name = stream.stream_descriptor.name
@@ -286,11 +267,11 @@ def _compute_progress_pct(
 
     1. *Historical backfill* — the cursor is at or behind the previous
        bookmark (e.g. GA4 re-processing from an earlier date).  Progress is
-       measured as ``(cursor - first_seen) / (prev_bookmark - first_seen)``.
+       measured as `(cursor - first_seen) / (prev_bookmark - first_seen)`.
 
     2. *Standard forward progress* — the cursor advances beyond the
-       baseline toward ``now``.  Progress is
-       ``(cursor - range_start) / (now - range_start)``.
+       baseline toward `now`.  Progress is
+       `(cursor - range_start) / (now - range_start)`.
     """
     # --- Historical backfill path ---
     if (
@@ -367,13 +348,13 @@ def compute_stream_progress(
 
     Baseline selection uses a tiered fallback:
 
-    1. Previous completed sync's cursor from ``previous_state_data``.
-    2. First-observed cursor during polling (``first_seen_cursors``).
-    3. ``sync_start_time`` (wall-clock job start).
+    1. Previous completed sync's cursor from `previous_state_data`.
+    2. First-observed cursor during polling (`first_seen_cursors`).
+    3. `sync_start_time` (wall-clock job start).
 
     Tier 3 works for real-time incremental syncs where cursors advance
-    near wall-clock time, but yields ``progress_pct = None`` for
-    historical back-fills where the cursor is behind ``sync_start_time``.
+    near wall-clock time, but yields `progress_pct = None` for
+    historical back-fills where the cursor is behind `sync_start_time`.
     """
     if now is None:
         now = datetime.now(timezone.utc)
@@ -389,12 +370,15 @@ def compute_stream_progress(
     if previous_state_data:
         prev_cursor_map = _build_previous_cursor_map(previous_state_data, catalog_data)
 
-    try:
-        state = ConnectionStateResponse(**state_data)
-        streams: list[StreamState] = _get_stream_list(state)
-    except (ValidationError, TypeError, KeyError):
-        logger.warning("Failed to parse connection state data; returning empty progress.")
-        streams = []
+    if not isinstance(state_data, dict):
+        logger.warning(
+            "Expected dict for state_data, got %s; returning empty progress.",
+            type(state_data).__name__,
+        )
+        return []
+
+    state = ConnectionStateResponse(**state_data)
+    streams: list[StreamState] = _get_stream_list(state)
 
     return [
         _compute_single_stream_progress(
