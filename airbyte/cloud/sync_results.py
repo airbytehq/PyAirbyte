@@ -177,12 +177,15 @@ def _build_rich_table(
     job_status: str,
     elapsed_secs: float,
     sync_start_time: datetime | None = None,
+    total_selected_streams: int | None = None,
 ) -> Table:
     """Build a Rich `Table` showing per-stream sync progress."""
     elapsed_str = _format_elapsed(elapsed_secs)
 
     streams_with_pct = sum(1 for s in stream_progress if s.get("progress_pct") is not None)
-    total_streams = len(stream_progress)
+    # Use the catalog stream count as the denominator when available;
+    # fall back to the number of streams currently reporting state.
+    total_streams = total_selected_streams or len(stream_progress)
 
     title = (
         f"Sync Progress  |  Status: {job_status}  |  "
@@ -634,6 +637,9 @@ class SyncResult:
         # and values are the raw cursor string captured on first sighting.
         first_seen_cursors: dict[tuple[str, str | None], str] = {}
 
+        # Total selected streams from catalog (resolved after first fetch).
+        catalog_stream_count: int | None = None
+
         while True:
             latest_status = self.get_job_status()
 
@@ -647,6 +653,13 @@ class SyncResult:
                     bearer_token=self.workspace.bearer_token,
                 )
                 catalog_fetched = True
+
+                # Resolve total selected streams from the catalog.
+                if catalog_data:
+                    cat_streams = catalog_data.get("streams", [])
+                    if not cat_streams and "syncCatalog" in catalog_data:
+                        cat_streams = catalog_data["syncCatalog"].get("streams", [])
+                    catalog_stream_count = len(cat_streams) if cat_streams else None
 
             # Fetch current state and compute progress
             state_data = api_util.get_connection_state(
@@ -694,6 +707,7 @@ class SyncResult:
                 job_status=str(latest_status),
                 elapsed_secs=elapsed,
                 sync_start_time=sync_start_time_dt,
+                total_selected_streams=catalog_stream_count,
             )
             live.update(table, refresh=True)
 
