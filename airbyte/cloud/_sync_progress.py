@@ -95,7 +95,12 @@ def _extract_cursor_field_from_catalog(
     Returns the cursor field name, or `None` if the stream is not found
     or does not have a cursor field configured.
     """
+    # Handle both raw catalog ({"streams": [...]}) and full connection
+    # response ({"syncCatalog": {"streams": [...]}}) from the Config API.
     streams = catalog.get("streams", [])
+    if not streams and "syncCatalog" in catalog:
+        streams = catalog["syncCatalog"].get("streams", [])
+
     for stream_entry in streams:
         config = stream_entry.get("config", {})
         stream_info = stream_entry.get("stream", {})
