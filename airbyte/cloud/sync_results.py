@@ -172,12 +172,25 @@ def _resolve_rich_interval(*, with_rich_status_updates: bool | int) -> float:
     return float(interval)
 
 
+def _format_bytes(num_bytes: int) -> str:
+    """Format a byte count as a human-readable string (e.g. ``1.2 MB``)."""
+    if num_bytes < 1_000:  # noqa: PLR2004  # Byte thresholds are self-documenting
+        return f"{num_bytes} B"
+    if num_bytes < 1_000_000:  # noqa: PLR2004
+        return f"{num_bytes / 1_000:,.1f} KB"
+    if num_bytes < 1_000_000_000:  # noqa: PLR2004
+        return f"{num_bytes / 1_000_000:,.1f} MB"
+    return f"{num_bytes / 1_000_000_000:,.2f} GB"
+
+
 def _build_rich_table(
     stream_progress: list[dict[str, Any]],
     job_status: str,
     elapsed_secs: float,
     sync_start_time: datetime | None = None,
     total_selected_streams: int | None = None,
+    records_synced: int = 0,
+    bytes_synced: int = 0,
 ) -> Table:
     """Build a Rich `Table` showing per-stream sync progress."""
     elapsed_str = _format_elapsed(elapsed_secs)
@@ -187,11 +200,23 @@ def _build_rich_table(
     # fall back to the number of streams currently reporting state.
     total_streams = total_selected_streams or len(stream_progress)
 
+    # Build throughput string (records/sec, bytes/sec) like Source.read()
+    throughput_parts: list[str] = []
+    if records_synced:
+        throughput_parts.append(f"{records_synced:,} records")
+    if bytes_synced:
+        throughput_parts.append(_format_bytes(bytes_synced))
+    if records_synced and elapsed_secs > 0:
+        rps = records_synced / elapsed_secs
+        throughput_parts.append(f"{rps:,.1f} records/s")
+
     title = (
         f"Sync Progress  |  Status: {job_status}  |  "
         f"Elapsed: {elapsed_str}  |  "
         f"Streams: {streams_with_pct}/{total_streams} reporting progress"
     )
+    if throughput_parts:
+        title += f"  |  {', '.join(throughput_parts)}"
 
     # Build a caption with start / end / elapsed timestamps
     caption_parts: list[str] = []
@@ -209,22 +234,16 @@ def _build_rich_table(
     table = Table(title=title, caption=caption, show_lines=False, expand=True)
     table.add_column("Stream", style="cyan", no_wrap=True)
     table.add_column("Progress", justify="right", style="green")
-    table.add_column("Cursor Value", style="yellow")
-    table.add_column("Previous Cursor", style="dim")
     table.add_column("Status / Reason", style="dim")
 
     for entry in stream_progress:
         pct = entry.get("progress_pct")
         pct_str = f"{pct:.1%}" if pct is not None else "--"
-        cursor_val = entry.get("cursor_value") or "--"
-        prev_cursor = entry.get("previous_cursor_value") or "--"
         reason = entry.get("reason") or ""
 
         table.add_row(
             entry.get("stream_name", "?"),
             pct_str,
-            str(cursor_val),
-            str(prev_cursor),
             reason,
         )
 
@@ -706,12 +725,15 @@ class SyncResult:
                         entry["progress_pct"] = 1.0
 
             elapsed = time.time() - start_time
+            job_info = self._latest_job_info
             table = _build_rich_table(
                 stream_progress=stream_progress,
                 job_status=str(latest_status),
                 elapsed_secs=elapsed,
                 sync_start_time=sync_start_time_dt,
                 total_selected_streams=catalog_stream_count,
+                records_synced=(job_info.rows_synced or 0) if job_info else 0,
+                bytes_synced=(job_info.bytes_synced or 0) if job_info else 0,
             )
             live.update(table, refresh=True)
 
