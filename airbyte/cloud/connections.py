@@ -263,8 +263,21 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         *,
         wait: bool = True,
         wait_timeout: int = 300,
+        with_rich_status_updates: bool | int = False,
     ) -> SyncResult:
-        """Run a sync."""
+        """Run a sync.
+
+        When `with_rich_status_updates` is truthy, a Rich Live table
+        showing per-stream progress is displayed while waiting for
+        completion.  Requires `wait=True`; passing `wait=False` with a
+        truthy `with_rich_status_updates` raises `ValueError`.
+        """
+        if not wait and with_rich_status_updates:
+            raise ValueError(
+                "Cannot use `with_rich_status_updates` when `wait=False`. "
+                "Rich status updates require waiting for the sync to complete."
+            )
+
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -284,6 +297,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 wait_timeout=wait_timeout,
                 raise_failure=True,
                 raise_timeout=True,
+                with_rich_status_updates=with_rich_status_updates,
             )
 
         return sync_result

@@ -101,16 +101,22 @@ for record in dataset:
 from __future__ import annotations
 
 import time
+import warnings
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from rich.console import Console
+from rich.live import Live as RichLive
+from rich.table import Table
 from typing_extensions import final
 
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 
 from airbyte._util import api_util
 from airbyte.caches._utils._dest_to_cache import destination_to_cache
+from airbyte.cloud._sync_progress import compute_stream_progress
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
@@ -119,15 +125,96 @@ from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSync
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 """The default timeout for waiting for a sync job to complete, in seconds."""
 
-if TYPE_CHECKING:
-    from datetime import datetime
+MIN_RICH_UPDATE_INTERVAL_SECS = 15
+"""Minimum polling interval when Rich status updates are enabled."""
 
+DEFAULT_RICH_UPDATE_INTERVAL_SECS = 15
+"""Default polling interval when `with_rich_status_updates=True`."""
+
+if TYPE_CHECKING:
     import sqlalchemy
 
     from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
+
+
+def _resolve_rich_interval(*, with_rich_status_updates: bool | int) -> float:
+    """Normalize `with_rich_status_updates` to a polling interval in seconds.
+
+    `True` maps to `DEFAULT_RICH_UPDATE_INTERVAL_SECS`.  An `int` is
+    clamped to `MIN_RICH_UPDATE_INTERVAL_SECS` with a warning when the
+    caller-provided value is too low.
+    """
+    if with_rich_status_updates is True:
+        return float(DEFAULT_RICH_UPDATE_INTERVAL_SECS)
+
+    interval = int(with_rich_status_updates)
+    if interval < MIN_RICH_UPDATE_INTERVAL_SECS:
+        warnings.warn(
+            f"Rich status update interval {interval}s is below the minimum "
+            f"of {MIN_RICH_UPDATE_INTERVAL_SECS}s. Using {MIN_RICH_UPDATE_INTERVAL_SECS}s.",
+            UserWarning,
+            stacklevel=3,
+        )
+        return float(MIN_RICH_UPDATE_INTERVAL_SECS)
+
+    return float(interval)
+
+
+def _build_rich_table(
+    stream_progress: list[dict[str, Any]],
+    job_status: str,
+    elapsed_secs: float,
+) -> Table:
+    """Build a Rich `Table` showing per-stream sync progress."""
+    elapsed_str = _format_elapsed(elapsed_secs)
+
+    streams_with_pct = sum(1 for s in stream_progress if s.get("progress_pct") is not None)
+    total_streams = len(stream_progress)
+
+    title = (
+        f"Sync Progress  |  Status: {job_status}  |  "
+        f"Elapsed: {elapsed_str}  |  "
+        f"Streams: {streams_with_pct}/{total_streams} reporting progress"
+    )
+
+    table = Table(title=title, show_lines=False, expand=True)
+    table.add_column("Stream", style="cyan", no_wrap=True)
+    table.add_column("Progress", justify="right", style="green")
+    table.add_column("Cursor Value", style="yellow")
+    table.add_column("Previous Cursor", style="dim")
+    table.add_column("Status / Reason", style="dim")
+
+    for entry in stream_progress:
+        pct = entry.get("progress_pct")
+        pct_str = f"{pct:.1%}" if pct is not None else "--"
+        cursor_val = entry.get("cursor_value") or "--"
+        prev_cursor = entry.get("previous_cursor_value") or "--"
+        reason = entry.get("reason") or ""
+
+        table.add_row(
+            entry.get("stream_name", "?"),
+            pct_str,
+            str(cursor_val),
+            str(prev_cursor),
+            reason,
+        )
+
+    return table
+
+
+def _format_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as `HH:MM:SS`."""
+    total = int(seconds)
+    hours, remainder = divmod(total, 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{secs}s"
 
 
 @dataclass
@@ -388,16 +475,71 @@ class SyncResult:
         wait_timeout: int = DEFAULT_SYNC_TIMEOUT_SECONDS,
         raise_timeout: bool = True,
         raise_failure: bool = False,
+        with_rich_status_updates: bool | int = False,
     ) -> JobStatusEnum:
-        """Wait for a job to finish running."""
+        """Wait for a job to finish running.
+
+        When `with_rich_status_updates` is truthy, a Rich Live table is
+        rendered to stderr showing per-stream sync progress.  Pass `True`
+        for 15-second polling, or an `int` for a custom interval in
+        seconds (minimum 15s -- values below 15 are clamped with a
+        warning).  The rich polling interval replaces
+        `JOB_WAIT_INTERVAL_SECS` as the sole loop cadence.
+        """
+        poll_interval: float = api_util.JOB_WAIT_INTERVAL_SECS
+        rich_enabled = bool(with_rich_status_updates)
+
+        if rich_enabled:
+            poll_interval = _resolve_rich_interval(
+                with_rich_status_updates=with_rich_status_updates,
+            )
+
         start_time = time.time()
+
+        if not rich_enabled:
+            return self._poll_until_complete(
+                start_time=start_time,
+                poll_interval=poll_interval,
+                wait_timeout=wait_timeout,
+                raise_timeout=raise_timeout,
+                raise_failure=raise_failure,
+            )
+
+        # Rich status updates path
+        console = Console(stderr=True)
+        live = RichLive(console=console, auto_refresh=False)
+        try:
+            live.start()
+            return self._poll_until_complete_with_rich(
+                live=live,
+                start_time=start_time,
+                poll_interval=poll_interval,
+                wait_timeout=wait_timeout,
+                raise_timeout=raise_timeout,
+                raise_failure=raise_failure,
+            )
+        finally:
+            live.stop()
+
+    # ------------------------------------------------------------------
+    # Internal polling helpers
+    # ------------------------------------------------------------------
+
+    def _poll_until_complete(
+        self,
+        *,
+        start_time: float,
+        poll_interval: float,
+        wait_timeout: int,
+        raise_timeout: bool,
+        raise_failure: bool,
+    ) -> JobStatusEnum:
+        """Plain polling loop without Rich output."""
         while True:
             latest_status = self.get_job_status()
             if latest_status in FINAL_STATUSES:
                 if raise_failure:
-                    # No-op if the job succeeded or is still running:
                     self.raise_failure_status()
-
                 return latest_status
 
             if time.time() - start_time > wait_timeout:
@@ -409,10 +551,88 @@ class SyncResult:
                         job_status=latest_status,
                         timeout=wait_timeout,
                     )
+                return latest_status
 
-                return latest_status  # This will be a non-final status
+            time.sleep(poll_interval)
 
-            time.sleep(api_util.JOB_WAIT_INTERVAL_SECS)
+    def _poll_until_complete_with_rich(
+        self,
+        *,
+        live: RichLive,
+        start_time: float,
+        poll_interval: float,
+        wait_timeout: int,
+        raise_timeout: bool,
+        raise_failure: bool,
+    ) -> JobStatusEnum:
+        """Polling loop with Rich Live table showing per-stream progress."""
+        previous_state: dict[str, Any] | None = None
+        catalog_data: dict[str, Any] | None = None
+        state_fetched = False
+
+        while True:
+            latest_status = self.get_job_status()
+
+            # Lazy-fetch baseline data on first iteration
+            if not state_fetched:
+                previous_state = self.connection.get_previous_sync_state(
+                    current_job_id=self.job_id,
+                )
+                catalog_data = api_util.get_connection_catalog(
+                    connection_id=self.connection.connection_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+                state_fetched = True
+
+            # Fetch current state and compute progress
+            state_data = api_util.get_connection_state(
+                connection_id=self.connection.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            sync_start_time_dt: datetime
+            try:
+                sync_start_time_dt = self.start_time
+            except (ValueError, TypeError):
+                sync_start_time_dt = datetime.now(timezone.utc)
+
+            stream_progress = compute_stream_progress(
+                state_data=state_data,
+                catalog_data=catalog_data,
+                sync_start_time=sync_start_time_dt,
+                previous_state_data=previous_state,
+            )
+
+            elapsed = time.time() - start_time
+            table = _build_rich_table(
+                stream_progress=stream_progress,
+                job_status=str(latest_status),
+                elapsed_secs=elapsed,
+            )
+            live.update(table, refresh=True)
+
+            if latest_status in FINAL_STATUSES:
+                if raise_failure:
+                    self.raise_failure_status()
+                return latest_status
+
+            if time.time() - start_time > wait_timeout:
+                if raise_timeout:
+                    raise AirbyteConnectionSyncTimeoutError(
+                        workspace=self.workspace,
+                        connection_id=self.connection.connection_id,
+                        job_id=self.job_id,
+                        job_status=latest_status,
+                        timeout=wait_timeout,
+                    )
+                return latest_status
+
+            time.sleep(poll_interval)
 
     def get_sql_cache(self) -> CacheBase:
         """Return a SQL Cache object for working with the data in a SQL-based destination's."""

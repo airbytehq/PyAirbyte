@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     )
 
 
-JOB_WAIT_INTERVAL_SECS = 2.0
+JOB_WAIT_INTERVAL_SECS = 5.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 
 # Job ordering constants for list_jobs API
