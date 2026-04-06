@@ -37,12 +37,15 @@ def main() -> None:
     """Trigger a Cloud sync and display a Rich Live progress table."""
     workspace = CloudWorkspace(
         workspace_id=WORKSPACE_ID,
-        api_key=ab.get_secret("AIRBYTE_CLOUD_API_KEY"),
+        client_id=ab.get_secret("AIRBYTE_CLOUD_CLIENT_ID"),
+        client_secret=ab.get_secret("AIRBYTE_CLOUD_CLIENT_SECRET"),
+        # api_key=ab.get_secret("AIRBYTE_CLOUD_API_KEY"),
     )
 
     connection = workspace.get_connection(connection_id=CONNECTION_ID)
-    print(f"Connection: {connection.connection_id}")
-    print(f"Streams:    {connection.stream_names}")
+    print(f"Connection ID:  {connection.connection_id}")
+    print(f"Connection URL: {connection.connection_url}")
+    print(f"Streams:        {connection.stream_names}")
     print()
     print("Starting sync with Rich status updates (15 s refresh) ...")
     print("(The Rich table renders to stderr; watch your terminal.)")
