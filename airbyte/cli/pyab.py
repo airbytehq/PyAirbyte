@@ -64,10 +64,10 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any
 
-import click
 import yaml
+from cyclopts import App, Parameter
 
 from airbyte._util.destination_smoke_tests import run_destination_smoke_test
 from airbyte.destinations.util import get_destination, get_noop_destination
@@ -126,6 +126,12 @@ PIP_URL_HELP = (
     "This can be anything pip accepts, including: a PyPI package name, a local path, "
     "a git repository, a git branch ref, etc. Use '.' to install from the current local "
     "directory."
+)
+
+USE_PYTHON_HELP = (
+    "Python interpreter specification. Use 'true' for current Python, "
+    "'false' for Docker, a path for specific interpreter, or a version "
+    "string for uv-managed Python (e.g., '3.11', 'python3.12')."
 )
 
 
@@ -353,49 +359,45 @@ def _resolve_destination_job(
     )
 
 
-@click.command(
-    help=(
-        "Validate the connector has a valid CLI and is able to run `spec`. "
-        "If 'config' is provided, we will also run a `check` on the connector "
-        "with the provided config.\n\n" + CLI_GUIDANCE
-    ),
+cli = App(
+    name="pyab",  # pyrefly: ignore[unexpected-keyword]
+    help="@private PyAirbyte CLI.",  # pyrefly: ignore[unexpected-keyword]
+    help_format="plaintext",  # pyrefly: ignore[unexpected-keyword]
+    version_flags=[],  # pyrefly: ignore[unexpected-keyword]
 )
-@click.option(
-    "--connector",
-    type=str,
-    help="The connector name or a path to the local executable.",
-)
-@click.option(
-    "--pip-url",
-    type=str,
-    help=(
-        "Optional. The location from which to install the connector. "
-        "This can be a anything pip accepts, including: a PyPI package name, a local path, "
-        "a git repository, a git branch ref, etc."
-    ),
-)
-@click.option(
-    "--config",
-    type=str,
-    required=False,
-    help=CONFIG_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
+
+
+@cli.command
 def validate(
-    connector: str | None = None,
-    config: str | None = None,
-    pip_url: str | None = None,
-    use_python: str | None = None,
+    *,
+    connector: Annotated[
+        str | None,
+        Parameter(help="The connector name or a path to the local executable."),
+    ] = None,
+    pip_url: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "Optional. The location from which to install the connector. "
+                "This can be a anything pip accepts, including: a PyPI package name, a local "
+                "path, a git repository, a git branch ref, etc."
+            ),
+        ),
+    ] = None,
+    config: Annotated[
+        str | None,
+        Parameter(help=CONFIG_HELP),
+    ] = None,
+    use_python: Annotated[
+        str | None,
+        Parameter(help=USE_PYTHON_HELP),
+    ] = None,
 ) -> None:
-    """CLI command to run a `benchmark` operation."""
+    """Validate the connector has a valid CLI and is able to run `spec`.
+
+    If 'config' is provided, we will also run a `check` on the connector
+    with the provided config.
+    """
     if not connector:
         raise PyAirbyteInputError(
             message="No connector provided.",
@@ -428,65 +430,63 @@ def validate(
         connector_obj.check()
 
 
-@click.command()
-@click.option(
-    "--source",
-    type=str,
-    help=(
-        "The source name, with an optional version declaration. "
-        "If the name contains a colon (':'), it will be interpreted as a docker image and tag. "
-    ),
-)
-@click.option(
-    "--streams",
-    type=str,
-    default="*",
-    help=(
-        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
-        "will be selected. Defaults to '*'."
-    ),
-)
-@click.option(
-    "--num-records",
-    type=str,
-    default="5e5",
-    help=(
-        "The number of records to generate for the benchmark. Ignored if a source is provided. "
-        "You can specify the number of records to generate using scientific notation. "
-        "For example, `5e6` will generate 5 million records. By default, 500,000 records will "
-        "be generated (`5e5` records). If underscores are providing within a numeric a string, "
-        "they will be ignored."
-    ),
-)
-@click.option(
-    "--destination",
-    type=str,
-    help=(
-        "The destination name, with an optional version declaration. "
-        "If a path is provided, it will be interpreted as a path to the local executable. "
-    ),
-)
-@click.option(
-    "--config",
-    type=str,
-    help=CONFIG_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
+# Append the full CLI guidance so `pyab validate --help` continues to include
+# the extended usage notes that Click's `help=` argument previously injected.
+validate.__doc__ = (validate.__doc__ or "") + "\n" + CLI_GUIDANCE
+
+
+@cli.command
 def benchmark(
-    source: str | None = None,
-    streams: str = "*",
-    num_records: int | str = "5e5",  # 500,000 records
-    destination: str | None = None,
-    config: str | None = None,
-    use_python: str | None = None,
+    *,
+    source: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "The source name, with an optional version declaration. "
+                "If the name contains a colon (':'), it will be interpreted as a docker image "
+                "and tag. "
+            ),
+        ),
+    ] = None,
+    streams: Annotated[
+        str,
+        Parameter(
+            help=(
+                "A comma-separated list of stream names to select for reading. If set to '*', "
+                "all streams will be selected. Defaults to '*'."
+            ),
+        ),
+    ] = "*",
+    num_records: Annotated[
+        str,
+        Parameter(
+            help=(
+                "The number of records to generate for the benchmark. Ignored if a source is "
+                "provided. You can specify the number of records to generate using scientific "
+                "notation. For example, `5e6` will generate 5 million records. By default, "
+                "500,000 records will be generated (`5e5` records). If underscores are providing "
+                "within a numeric a string, they will be ignored."
+            ),
+        ),
+    ] = "5e5",
+    destination: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "The destination name, with an optional version declaration. "
+                "If a path is provided, it will be interpreted as a path to the local "
+                "executable. "
+            ),
+        ),
+    ] = None,
+    config: Annotated[
+        str | None,
+        Parameter(help=CONFIG_HELP),
+    ] = None,
+    use_python: Annotated[
+        str | None,
+        Parameter(help=USE_PYTHON_HELP),
+    ] = None,
 ) -> None:
     """CLI command to run a `benchmark` operation.
 
@@ -526,7 +526,7 @@ def benchmark(
         else get_noop_destination()
     )
 
-    click.echo("Running benchmarks...", sys.stderr)
+    print("Running benchmarks...", file=sys.stderr)
     destination_obj.write(
         source_data=source_obj,
         cache=False,
@@ -534,74 +534,70 @@ def benchmark(
     )
 
 
-@click.command()
-@click.option(
-    "--source",
-    type=str,
-    help=(
-        "The source name, with an optional version declaration. "
-        "If the name contains a colon (':'), it will be interpreted as a docker image and tag. "
-    ),
-)
-@click.option(
-    "--destination",
-    type=str,
-    help=(
-        "The destination name, with an optional version declaration. "
-        "If a path is provided, it will be interpreted as a path to the local executable. "
-    ),
-)
-@click.option(
-    "--streams",
-    type=str,
-    help=(
-        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
-        "will be selected. Defaults to '*'."
-    ),
-)
-@click.option(
-    "--Sconfig",
-    "source_config",
-    type=str,
-    help="The source config. " + CONFIG_HELP,
-)
-@click.option(
-    "--Dconfig",
-    "destination_config",
-    type=str,
-    help="The destination config. " + CONFIG_HELP,
-)
-@click.option(
-    "--Spip-url",
-    "source_pip_url",
-    type=str,
-    help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--Dpip-url",
-    "destination_pip_url",
-    type=str,
-    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
+@cli.command
 def sync(
     *,
-    source: str,
-    source_config: str | None = None,
-    source_pip_url: str | None = None,
-    destination: str,
-    destination_config: str | None = None,
-    destination_pip_url: str | None = None,
-    streams: str | None = None,
-    use_python: str | None = None,
+    source: Annotated[
+        str,
+        Parameter(
+            help=(
+                "The source name, with an optional version declaration. "
+                "If the name contains a colon (':'), it will be interpreted as a docker image "
+                "and tag. "
+            ),
+        ),
+    ],
+    destination: Annotated[
+        str,
+        Parameter(
+            help=(
+                "The destination name, with an optional version declaration. "
+                "If a path is provided, it will be interpreted as a path to the local "
+                "executable. "
+            ),
+        ),
+    ],
+    streams: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "A comma-separated list of stream names to select for reading. If set to '*', "
+                "all streams will be selected. Defaults to '*'."
+            ),
+        ),
+    ] = None,
+    source_config: Annotated[
+        str | None,
+        Parameter(
+            name="--Sconfig",
+            help="The source config. " + CONFIG_HELP,
+        ),
+    ] = None,
+    destination_config: Annotated[
+        str | None,
+        Parameter(
+            name="--Dconfig",
+            help="The destination config. " + CONFIG_HELP,
+        ),
+    ] = None,
+    source_pip_url: Annotated[
+        str | None,
+        Parameter(
+            name="--Spip-url",
+            help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
+        ),
+    ] = None,
+    destination_pip_url: Annotated[
+        str | None,
+        Parameter(
+            name="--Dpip-url",
+            help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
+        ),
+    ] = None,
+    use_python: Annotated[
+        str | None,
+        Parameter(help=USE_PYTHON_HELP),
+    ] = None,
 ) -> None:
     """CLI command to run a `sync` operation.
 
@@ -625,7 +621,7 @@ def sync(
         use_python=use_python,
     )
 
-    click.echo("Running sync...")
+    print("Running sync...")
     destination_obj.write(
         source_data=source_obj,
         cache=False,
@@ -633,104 +629,91 @@ def sync(
     )
 
 
-@click.command(name="destination-smoke-test")
-@click.option(
-    "--destination",
-    type=str,
-    required=True,
-    help=(
-        "The destination connector to test. Can be a connector name "
-        "(e.g. 'destination-snowflake'), a Docker image with tag "
-        "(e.g. 'airbyte/destination-snowflake:3.14.0'), or a path to a local executable."
-    ),
-)
-@click.option(
-    "--config",
-    type=str,
-    help="The destination configuration. " + CONFIG_HELP,
-)
-@click.option(
-    "--pip-url",
-    type=str,
-    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
-@click.option(
-    "--scenarios",
-    type=str,
-    default="fast",
-    help=(
-        "Which smoke test scenarios to run. "
-        "Use 'fast' (default) for all fast predefined scenarios "
-        "(excludes large_batch_stream), 'all' for every predefined scenario "
-        "including large batch, or provide a comma-separated list of scenario names. "
-        "Available scenarios: basic_types, timestamp_types, "
-        "large_decimals_and_numbers, nested_json_objects, null_handling, "
-        "column_naming_edge_cases, table_naming_edge_cases, "
-        "CamelCaseStreamName, wide_table_50_columns, empty_stream, "
-        "single_record_stream, unicode_and_special_strings, "
-        "schema_with_no_primary_key, long_column_names, large_batch_stream."
-    ),
-)
-@click.option(
-    "--custom-scenarios",
-    type=str,
-    default=None,
-    help=(
-        "Path to a JSON or YAML file containing additional custom test scenarios. "
-        "Each scenario should define 'name', 'json_schema', and optionally 'records' "
-        "and 'primary_key'. These are unioned with the predefined scenarios."
-    ),
-)
-@click.option(
-    "--namespace-suffix",
-    type=str,
-    default=None,
-    help=(
-        "Optional suffix appended to the auto-generated namespace. "
-        "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
-        "Use this to distinguish concurrent runs."
-    ),
-)
-@click.option(
-    "--reuse-namespace",
-    type=str,
-    default=None,
-    help=(
-        "Exact namespace to reuse from a previous run. "
-        "When set, no new namespace is generated. "
-        "Useful for running a second test against an already-populated namespace."
-    ),
-)
-@click.option(
-    "--skip-preflight",
-    is_flag=True,
-    default=False,
-    help=(
-        "Skip the automatic preflight check that runs basic_types before "
-        "the requested scenarios. Use when you expect basic_types itself to fail "
-        "or want to save time on repeated runs."
-    ),
-)
+@cli.command(name="destination-smoke-test")
 def destination_smoke_test(  # noqa: PLR0913
     *,
-    destination: str,
-    config: str | None = None,
-    pip_url: str | None = None,
-    use_python: str | None = None,
-    scenarios: str = "fast",
-    custom_scenarios: str | None = None,
-    namespace_suffix: str | None = None,
-    reuse_namespace: str | None = None,
-    skip_preflight: bool = False,
+    destination: Annotated[
+        str,
+        Parameter(
+            help=(
+                "The destination connector to test. Can be a connector name "
+                "(e.g. 'destination-snowflake'), a Docker image with tag "
+                "(e.g. 'airbyte/destination-snowflake:3.14.0'), or a path to a local executable."
+            ),
+        ),
+    ],
+    config: Annotated[
+        str | None,
+        Parameter(help="The destination configuration. " + CONFIG_HELP),
+    ] = None,
+    pip_url: Annotated[
+        str | None,
+        Parameter(
+            help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
+        ),
+    ] = None,
+    use_python: Annotated[
+        str | None,
+        Parameter(help=USE_PYTHON_HELP),
+    ] = None,
+    scenarios: Annotated[
+        str,
+        Parameter(
+            help=(
+                "Which smoke test scenarios to run. "
+                "Use 'fast' (default) for all fast predefined scenarios "
+                "(excludes large_batch_stream), 'all' for every predefined scenario "
+                "including large batch, or provide a comma-separated list of scenario names. "
+                "Available scenarios: basic_types, timestamp_types, "
+                "large_decimals_and_numbers, nested_json_objects, null_handling, "
+                "column_naming_edge_cases, table_naming_edge_cases, "
+                "CamelCaseStreamName, wide_table_50_columns, empty_stream, "
+                "single_record_stream, unicode_and_special_strings, "
+                "schema_with_no_primary_key, long_column_names, large_batch_stream."
+            ),
+        ),
+    ] = "fast",
+    custom_scenarios: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "Path to a JSON or YAML file containing additional custom test scenarios. "
+                "Each scenario should define 'name', 'json_schema', and optionally 'records' "
+                "and 'primary_key'. These are unioned with the predefined scenarios."
+            ),
+        ),
+    ] = None,
+    namespace_suffix: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "Optional suffix appended to the auto-generated namespace. "
+                "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
+                "Use this to distinguish concurrent runs."
+            ),
+        ),
+    ] = None,
+    reuse_namespace: Annotated[
+        str | None,
+        Parameter(
+            help=(
+                "Exact namespace to reuse from a previous run. "
+                "When set, no new namespace is generated. "
+                "Useful for running a second test against an already-populated namespace."
+            ),
+        ),
+    ] = None,
+    skip_preflight: Annotated[
+        bool,
+        Parameter(
+            help=(
+                "Skip the automatic preflight check that runs basic_types before "
+                "the requested scenarios. Use when you expect basic_types itself to fail "
+                "or want to save time on repeated runs."
+            ),
+            negative=[],
+        ),
+    ] = False,
 ) -> None:
     """Run smoke tests against a destination connector.
 
@@ -766,7 +749,7 @@ def destination_smoke_test(  # noqa: PLR0913
     --config=./secrets/snowflake.json
     --reuse-namespace=zz_deleteme_20260318_2256`
     """
-    click.echo("Resolving destination...", file=sys.stderr)
+    print("Resolving destination...", file=sys.stderr)
     destination_obj = _resolve_destination_job(
         destination=destination,
         config=config,
@@ -774,7 +757,7 @@ def destination_smoke_test(  # noqa: PLR0913
         use_python=use_python,
     )
 
-    click.echo("Running destination smoke test...", file=sys.stderr)
+    print("Running destination smoke test...", file=sys.stderr)
     result = run_destination_smoke_test(
         destination=destination_obj,
         scenarios=scenarios,
@@ -784,24 +767,13 @@ def destination_smoke_test(  # noqa: PLR0913
         skip_preflight=skip_preflight,
     )
 
-    click.echo(json.dumps(result.model_dump(), indent=2))
+    print(json.dumps(result.model_dump(), indent=2))
 
     if not result.success:
         if result.error:
-            click.echo(f"Smoke test FAILED: {result.error}", file=sys.stderr)
+            print(f"Smoke test FAILED: {result.error}", file=sys.stderr)
         sys.exit(1)
 
-
-@click.group()
-def cli() -> None:
-    """@private PyAirbyte CLI."""
-    pass
-
-
-cli.add_command(validate)
-cli.add_command(benchmark)
-cli.add_command(sync)
-cli.add_command(destination_smoke_test)
 
 if __name__ == "__main__":
     cli()
