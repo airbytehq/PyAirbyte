@@ -1,5 +1,8 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Airbyte Cloud MCP operations."""
+"""Airbyte Cloud MCP operations.
+
+.. include:: ../../docs/mcp-generated/cloud.md
+"""
 
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast

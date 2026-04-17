@@ -4,25 +4,51 @@
 
 Runs `fastmcp inspect` against `airbyte.mcp.server:app` to obtain the full
 FastMCP protocol surface (tools, resources, resource templates, prompts) as a
-JSON report, then renders it into a small set of Markdown files under
-`docs/mcp-generated/`.
+JSON report, then renders it into one Markdown file **per MCP module** under
+`docs/mcp-generated/`, plus an `index.md` overview.
+
+The per-module grouping uses the `mcp_module` annotation that
+`fastmcp_extensions.mcp_tool` attaches to every registered tool (derived from
+the Python file the tool is defined in — e.g. tools in `airbyte/mcp/cloud.py`
+get `mcp_module="cloud"`). Prompts and resources fall back to `meta.mcp_module`
+when present, and otherwise to an import-based lookup against
+`fastmcp_extensions.decorators._REGISTERED_*`; anything still unresolved lands
+in `misc.md`.
+
+Inside each module file, content is grouped by primitive with L2 headings:
+
+```
+# airbyte.mcp.cloud
+
+## Tools
+### `deploy_source_to_cloud`
+...
+## Prompts
+### `some_prompt`
+...
+## Resources
+### `some_resource`
+...
+```
 
 The output is designed to be:
 
+- **`pdoc`/`pdoc3`-includable**: each `<module>.md` is a self-contained body
+  intended to be spliced into the corresponding Python module's docstring via
+  pdoc's `.. include::` directive, so the generated tool docs render inline on
+  the module's pdoc page.
 - **Docusaurus-hostable**: each file starts with YAML front-matter (`title`,
   `sidebar_label`, `description`); the body is plain CommonMark + GFM tables +
   `<details><summary>` blocks for collapsible JSON schemas. No MDX-only
   components are used.
-- **`pdoc3`-compatible**: standard Markdown that renders correctly alongside
-  the existing `pdoc3` output in `docs/generated/` without any special config.
-- **Deep-linkable**: every tool/resource/prompt name is an H2 with a stable
-  slug anchor (e.g. `tools.md#list_connectors`).
+- **Deep-linkable**: every tool/resource/prompt name is an H3 with a stable
+  slug anchor (e.g. `cloud.md#deploy_source_to_cloud`).
 
-Formatting is deliberately modeled on the
+Formatting is modeled on the
 [`mcpdocs-gen`](https://github.com/smytsyk/mcpdocs) static HTML output — same
-sections, same per-tool shape (description → parameters table → JSON schema) —
-but emitted as Markdown rather than HTML so it can slot into an existing docs
-site.
+per-tool shape (description → parameters table → JSON schema) — but emitted as
+Markdown, one file per MCP module, so the output can slot into both
+`pdoc`-rendered per-module pages and an external Docusaurus site.
 
 Usage:
 
@@ -40,17 +66,20 @@ poe mcp-docs-md
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import shutil
 import subprocess
 import sys
 import tempfile
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
 
 DEFAULT_OUTPUT = Path("docs/mcp-generated")
 DEFAULT_SERVER_SPEC = "airbyte/mcp/server.py:app"
+MISC_MODULE = "misc"
 
 
 def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
@@ -74,6 +103,66 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
         check=True,
     )
     return json.loads(report_path.read_text(encoding="utf-8"))
+
+
+def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
+    """Best-effort import-based lookup of `mcp_module` for prompts/resources.
+
+    `fastmcp_extensions`'s `mcp_tool` decorator embeds `mcp_module` in the MCP
+    tool `annotations` dict, which the inspect JSON surfaces directly. But
+    `mcp_prompt` and `mcp_resource` store `mcp_module` on the library's
+    internal `_REGISTERED_*` lists only — it is not re-emitted as an MCP
+    annotation, so it doesn't appear in the inspect JSON.
+
+    To still recover that information, we import the server module and read
+    those internal lists. If that fails (not a `fastmcp_extensions`-based
+    server, import errors, etc.), we silently return an empty map and the
+    caller falls back to `MISC_MODULE`.
+
+    Returns a map of `name/uri -> mcp_module` covering both prompts and
+    resources.
+    """
+    file_part = server_spec.split(":", 1)[0]
+    module_name = file_part.removesuffix(".py").replace("/", ".")
+    mapping: dict[str, str] = {}
+    try:
+        importlib.import_module(module_name)
+        # Import private lists from fastmcp_extensions: these are the only
+        # place `mcp_module` is recorded for prompts/resources, so we accept
+        # the private-name coupling.
+        from fastmcp_extensions.decorators import (  # noqa: PLC0415
+            _REGISTERED_PROMPTS,  # noqa: PLC2701
+            _REGISTERED_RESOURCES,  # noqa: PLC2701
+        )
+    except Exception:
+        return mapping
+    for _fn, ann in _REGISTERED_PROMPTS:
+        if name := ann.get("name"):
+            mapping[name] = ann.get("mcp_module") or MISC_MODULE
+    for _fn, ann in _REGISTERED_RESOURCES:
+        mcp_module = ann.get("mcp_module") or MISC_MODULE
+        if uri := ann.get("uri"):
+            mapping[uri] = mcp_module
+            # FastMCP exposes the URI stem as the resource `name` in inspect
+            # output; index by that too so lookup by either key works.
+            mapping[uri.rsplit("/", 1)[-1]] = mcp_module
+    return mapping
+
+
+def _get_module(item: dict[str, Any], fallback_map: dict[str, str]) -> str:
+    """Extract the `mcp_module` for a tool / resource / prompt."""
+    annotations = item.get("annotations") or {}
+    if mcp_module := annotations.get("mcp_module"):
+        return str(mcp_module)
+    meta = item.get("meta") or {}
+    if mcp_module := meta.get("mcp_module"):
+        return str(mcp_module)
+    name = item.get("name")
+    uri = item.get("uri") or item.get("uri_template")
+    for key in (name, uri):
+        if key and key in fallback_map:
+            return fallback_map[key]
+    return MISC_MODULE
 
 
 def _fmt_type(schema: dict[str, Any]) -> str:
@@ -151,16 +240,18 @@ def _render_parameters_table(input_schema: dict[str, Any]) -> str:
 
 
 def _render_tool(tool: dict[str, Any]) -> str:
-    """Render a single tool as a Markdown section."""
+    """Render a single tool as L3 under its module's `## Tools` section."""
     name = tool["name"]
-    parts: list[str] = [f"## `{name}` {{#{name}}}\n\n"]
+    # HTML anchor + heading (instead of Pandoc `{#...}` attr syntax, which
+    # renders as literal text in pdoc3's markdown processor).
+    parts: list[str] = [f'<a id="{name}"></a>\n\n### `{name}`\n\n']
     if description := tool.get("description"):
         parts.append(description.strip() + "\n\n")
     if tags := tool.get("tags"):
         parts.append("**Tags:** " + ", ".join(f"`{t}`" for t in tags) + "\n\n")
     parts.extend(
         [
-            "### Parameters\n\n",
+            "#### Parameters\n\n",
             _render_parameters_table(tool.get("input_schema") or {}),
         ]
     )
@@ -172,9 +263,9 @@ def _render_tool(tool: dict[str, Any]) -> str:
 
 
 def _render_resource(resource: dict[str, Any]) -> str:
-    """Render a single resource as a Markdown section."""
+    """Render a single resource as L3 under its module's `## Resources` section."""
     name = resource["name"]
-    parts: list[str] = [f"## `{name}` {{#{name}}}\n\n"]
+    parts: list[str] = [f"### `{name}` {{#{name}}}\n\n"]
     if description := resource.get("description"):
         parts.append(description.strip() + "\n\n")
     meta_lines: list[str] = []
@@ -192,16 +283,16 @@ def _render_resource(resource: dict[str, Any]) -> str:
 
 
 def _render_prompt(prompt: dict[str, Any]) -> str:
-    """Render a single prompt as a Markdown section."""
+    """Render a single prompt as L3 under its module's `## Prompts` section."""
     name = prompt["name"]
-    parts: list[str] = [f"## `{name}` {{#{name}}}\n\n"]
+    parts: list[str] = [f"### `{name}` {{#{name}}}\n\n"]
     if description := prompt.get("description"):
         parts.append(description.strip() + "\n\n")
     args = prompt.get("arguments") or []
     if args:
         parts.extend(
             [
-                "### Arguments\n\n",
+                "#### Arguments\n\n",
                 "| Name | Required | Description |\n| --- | --- | --- |\n",
             ]
         )
@@ -215,7 +306,94 @@ def _render_prompt(prompt: dict[str, Any]) -> str:
     return "".join(parts)
 
 
-def _render_index(report: dict[str, Any]) -> str:
+# -----------------------------------------------------------------------------
+# Bucketing + per-module pages
+# -----------------------------------------------------------------------------
+
+
+class _ModuleBucket:
+    """Accumulator for a single mcp_module's tools / prompts / resources."""
+
+    def __init__(self, name: str) -> None:
+        """Create an empty bucket for the given mcp_module name."""
+        self.name = name
+        self.tools: list[dict[str, Any]] = []
+        self.prompts: list[dict[str, Any]] = []
+        self.resources: list[dict[str, Any]] = []  # concrete + templates
+
+    @property
+    def total(self) -> int:
+        """Total count of MCP primitives in this bucket."""
+        return len(self.tools) + len(self.prompts) + len(self.resources)
+
+
+def _bucket_by_module(
+    report: dict[str, Any],
+    fallback_map: dict[str, str],
+) -> OrderedDict[str, _ModuleBucket]:
+    """Group report items by mcp_module, preserving first-seen order."""
+    buckets: OrderedDict[str, _ModuleBucket] = OrderedDict()
+
+    def get(mcp_module: str) -> _ModuleBucket:
+        if mcp_module not in buckets:
+            buckets[mcp_module] = _ModuleBucket(mcp_module)
+        return buckets[mcp_module]
+
+    for tool in report.get("tools") or []:
+        get(_get_module(tool, fallback_map)).tools.append(tool)
+    for prompt in report.get("prompts") or []:
+        get(_get_module(prompt, fallback_map)).prompts.append(prompt)
+    for resource in report.get("resources") or []:
+        get(_get_module(resource, fallback_map)).resources.append(resource)
+    for template in report.get("templates") or []:
+        get(_get_module(template, fallback_map)).resources.append(template)
+
+    return buckets
+
+
+def _render_module_page(bucket: _ModuleBucket, server_name: str) -> str:
+    """Render a single `<module>.md` page with L2 Tools/Prompts/Resources sections.
+
+    No YAML front-matter is emitted on module pages: these files are consumed
+    by pdoc3 via the `.. include::` directive (pdoc's Markdown renderer does
+    not strip front-matter and would emit it as body text). Docusaurus infers
+    the page title from the first H1, which we always emit here.
+    """
+    parts: list[str] = [
+        f"# `{bucket.name}` module\n\n",
+        (
+            f"MCP primitives registered by the `{bucket.name}` module "
+            f"of the `{server_name}` server: "
+            f"**{len(bucket.tools)}** tool(s), "
+            f"**{len(bucket.prompts)}** prompt(s), "
+            f"**{len(bucket.resources)}** resource(s).\n\n"
+        ),
+    ]
+    if bucket.tools:
+        parts.extend(
+            [
+                f"## Tools ({len(bucket.tools)})\n\n",
+                (
+                    "**Index:** "
+                    + ", ".join(f"[`{t['name']}`](#{t['name']})" for t in bucket.tools)
+                    + "\n\n"
+                ),
+            ]
+        )
+        parts.extend(_render_tool(tool) for tool in bucket.tools)
+    if bucket.prompts:
+        parts.append(f"## Prompts ({len(bucket.prompts)})\n\n")
+        parts.extend(_render_prompt(prompt) for prompt in bucket.prompts)
+    if bucket.resources:
+        parts.append(f"## Resources ({len(bucket.resources)})\n\n")
+        parts.extend(_render_resource(resource) for resource in bucket.resources)
+    return "".join(parts)
+
+
+def _render_index(
+    report: dict[str, Any],
+    buckets: OrderedDict[str, _ModuleBucket],
+) -> str:
     """Render the top-level overview page."""
     server = report.get("server") or {}
     server_name = server.get("name", "mcp-server")
@@ -235,84 +413,28 @@ def _render_index(report: dict[str, Any]) -> str:
     out += "\n"
     if instructions := server.get("instructions"):
         out += instructions.strip() + "\n\n"
-    out += "## Contents\n\n"
-    counts = {
-        "tools": len(report.get("tools") or []),
-        "resources": (len(report.get("resources") or []) + len(report.get("templates") or [])),
-        "prompts": len(report.get("prompts") or []),
-    }
+    total_tools = sum(len(b.tools) for b in buckets.values())
+    total_prompts = sum(len(b.prompts) for b in buckets.values())
+    total_resources = sum(len(b.resources) for b in buckets.values())
     out += (
-        f"- [Tools](./tools.md) — {counts['tools']}\n"
-        f"- [Resources](./resources.md) — {counts['resources']}\n"
-        f"- [Prompts](./prompts.md) — {counts['prompts']}\n\n"
+        "## Totals\n\n"
+        f"- **Tools:** {total_tools}\n"
+        f"- **Prompts:** {total_prompts}\n"
+        f"- **Resources:** {total_resources}\n\n"
     )
+    out += "## Modules\n\n"
+    out += "| Module | Tools | Prompts | Resources |\n"
+    out += "| --- | ---: | ---: | ---: |\n"
+    for name, bucket in buckets.items():
+        out += (
+            f"| [`{name}`](./{name}.md) | {len(bucket.tools)} | "
+            f"{len(bucket.prompts)} | {len(bucket.resources)} |\n"
+        )
+    out += "\n"
     out += (
         "> These pages are generated from the live `fastmcp inspect` report. "
         "Regenerate with `poe mcp-docs-md`.\n"
     )
-    return out
-
-
-def _render_tools_page(report: dict[str, Any]) -> str:
-    """Render the tools page."""
-    tools = report.get("tools") or []
-    out = _frontmatter(
-        title="Tools",
-        sidebar_label="Tools",
-        description=f"All {len(tools)} MCP tools exposed by this server.",
-    )
-    out += "# Tools\n\n"
-    if not tools:
-        out += "_No tools are exposed by this server._\n"
-        return out
-    out += f"This server exposes **{len(tools)}** tool(s).\n\n"
-    out += "**Index:** "
-    out += ", ".join(f"[`{t['name']}`](#{t['name']})" for t in tools) + "\n\n"
-    for tool in tools:
-        out += _render_tool(tool)
-    return out
-
-
-def _render_resources_page(report: dict[str, Any]) -> str:
-    """Render the resources + resource-templates page."""
-    resources = report.get("resources") or []
-    templates = report.get("templates") or []
-    total = len(resources) + len(templates)
-    out = _frontmatter(
-        title="Resources",
-        sidebar_label="Resources",
-        description=f"All {total} MCP resource(s) and resource template(s).",
-    )
-    out += "# Resources\n\n"
-    if not resources and not templates:
-        out += "_No resources or resource templates are exposed by this server._\n"
-        return out
-    if resources:
-        out += f"## Concrete resources ({len(resources)})\n\n"
-        for resource in resources:
-            out += _render_resource(resource)
-    if templates:
-        out += f"## Resource templates ({len(templates)})\n\n"
-        for template in templates:
-            out += _render_resource(template)
-    return out
-
-
-def _render_prompts_page(report: dict[str, Any]) -> str:
-    """Render the prompts page."""
-    prompts = report.get("prompts") or []
-    out = _frontmatter(
-        title="Prompts",
-        sidebar_label="Prompts",
-        description=f"All {len(prompts)} MCP prompt(s).",
-    )
-    out += "# Prompts\n\n"
-    if not prompts:
-        out += "_No prompts are exposed by this server._\n"
-        return out
-    out += f"This server exposes **{len(prompts)}** prompt(s).\n\n"
-    for prompt in prompts:
-        out += _render_prompt(prompt)
     return out
 
 
@@ -347,22 +469,25 @@ def generate(server_spec: str, output: Path) -> None:
         print(f"Running `fastmcp inspect {server_spec}`...")
         report = _run_fastmcp_inspect(server_spec, report_path)
 
+    fallback_map = _resolve_extra_module_map(server_spec)
+    buckets = _bucket_by_module(report, fallback_map)
+
     _prepare_output_dir(output)
 
-    pages: dict[str, str] = {
-        "index.md": _render_index(report),
-        "tools.md": _render_tools_page(report),
-        "resources.md": _render_resources_page(report),
-        "prompts.md": _render_prompts_page(report),
-    }
+    server_name = (report.get("server") or {}).get("name", "mcp-server")
+    pages: dict[str, str] = {"index.md": _render_index(report, buckets)}
+    for name, bucket in buckets.items():
+        pages[f"{name}.md"] = _render_module_page(bucket, server_name)
+
     for name, content in pages.items():
         (output / name).write_text(content, encoding="utf-8")
         print(f"  wrote {output / name}")
 
     print(
-        f"Done. {len(report.get('tools') or [])} tool(s), "
-        f"{len(report.get('resources') or []) + len(report.get('templates') or [])} "
-        f"resource(s), {len(report.get('prompts') or [])} prompt(s) documented."
+        f"Done. {len(buckets)} module(s) documented — "
+        f"{sum(len(b.tools) for b in buckets.values())} tool(s), "
+        f"{sum(len(b.resources) for b in buckets.values())} resource(s), "
+        f"{sum(len(b.prompts) for b in buckets.values())} prompt(s)."
     )
 
 

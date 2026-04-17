@@ -1,5 +1,8 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Local MCP operations."""
+"""Local MCP operations.
+
+.. include:: ../../docs/mcp-generated/local.md
+"""
 
 import sys
 import traceback

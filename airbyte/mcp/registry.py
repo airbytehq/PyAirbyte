@@ -1,5 +1,8 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Airbyte Cloud MCP operations."""
+"""Airbyte connector registry MCP operations.
+
+.. include:: ../../docs/mcp-generated/registry.md
+"""
 
 # Note: Deferred type evaluation must be avoided due to FastMCP/Pydantic needing
 # types to be available at import time for tool registration.

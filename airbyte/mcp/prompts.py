@@ -3,6 +3,8 @@
 
 This module defines prompts that can be invoked by MCP clients to perform
 common workflows.
+
+.. include:: ../../docs/mcp-generated/prompts.md
 """
 
 from __future__ import annotations
