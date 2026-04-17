@@ -143,3 +143,29 @@ poe mcp-serve-sse      # Server-Sent Events transport on localhost:8000
 
 poe mcp-inspect        # Show all available MCP tools and their schemas
 ```
+
+### Generating Markdown docs for the MCP Server
+
+The repo ships a small script that introspects the MCP server via
+`fastmcp inspect` and emits a Markdown documentation site under
+`docs/mcp-generated/` (git-ignored). The output is designed to be both
+Docusaurus-hostable and `pdoc`-compatible — plain CommonMark with YAML
+front-matter, no MDX-only components.
+
+```bash
+uv sync --group dev
+poe mcp-docs-md
+```
+
+Four files are produced:
+
+- `index.md` — server overview (name, version, instructions, counts)
+- `tools.md` — one section per tool with a parameters table and collapsible
+  input/output JSON schemas
+- `resources.md` — concrete resources + resource templates
+- `prompts.md` — prompts and their arguments
+
+Each tool/resource/prompt has a stable slug anchor (e.g.
+`tools.md#list_connectors`) so the pages can be deep-linked from Slack, issues,
+or other docs. Regenerate after any change to MCP tool signatures, descriptions,
+or schemas. The underlying script is at `scripts/generate_mcp_markdown.py`.
