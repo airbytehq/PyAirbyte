@@ -2,9 +2,10 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Generate Markdown documentation for the PyAirbyte MCP server.
 
-Runs `fastmcp inspect` against `airbyte.mcp.server:app` to obtain the full
-FastMCP protocol surface (tools, resources, resource templates, prompts) as a
-JSON report, then renders it into one Markdown file **per MCP module** under
+Runs `fastmcp inspect` against the default `airbyte/mcp/server.py:app` spec
+(override with `--server-spec`) to obtain the full FastMCP protocol surface
+(tools, resources, resource templates, prompts) as a JSON report, then
+renders it into one Markdown file **per MCP module** under
 `docs/mcp-generated/`, plus an `index.md` overview.
 
 The per-module grouping uses the `mcp_module` annotation that
@@ -18,16 +19,16 @@ in `misc.md`.
 Inside each module file, content is grouped by primitive with L2 headings:
 
 ```
-# airbyte.mcp.cloud
+# cloud module
 
-## Tools
-### `deploy_source_to_cloud`
+## Tools (35)
+### deploy_source_to_cloud
 ...
-## Prompts
-### `some_prompt`
+## Prompts (N)
+### some_prompt
 ...
-## Resources
-### `some_resource`
+## Resources (N)
+### some_resource
 ...
 ```
 
@@ -36,13 +37,17 @@ The output is designed to be:
 - **`pdoc`/`pdoc3`-includable**: each `<module>.md` is a self-contained body
   intended to be spliced into the corresponding Python module's docstring via
   pdoc's `.. include::` directive, so the generated tool docs render inline on
-  the module's pdoc page.
-- **Docusaurus-hostable**: each file starts with YAML front-matter (`title`,
-  `sidebar_label`, `description`); the body is plain CommonMark + GFM tables +
+  the module's pdoc page. Per-module pages intentionally emit **no** YAML
+  front-matter (pdoc's Markdown renderer would surface it as body text);
+  only `index.md` carries front-matter.
+- **Docusaurus-hostable**: `index.md` starts with YAML front-matter (`title`,
+  `sidebar_label`, `description`); module pages rely on Docusaurus'
+  first-H1-as-title inference. The body is plain CommonMark + GFM tables +
   `<details><summary>` blocks for collapsible JSON schemas. No MDX-only
   components are used.
-- **Deep-linkable**: every tool/resource/prompt name is an H3 with a stable
-  slug anchor (e.g. `cloud.md#deploy_source_to_cloud`).
+- **Deep-linkable**: every tool/resource/prompt name gets an HTML anchor
+  (`<a id="name"></a>`) above its H3, so links like
+  `cloud.md#deploy_source_to_cloud` resolve in both pdoc and Docusaurus.
 
 Formatting is modeled on the
 [`mcpdocs-gen`](https://github.com/smytsyk/mcpdocs) static HTML output — same
@@ -395,10 +400,12 @@ def _render_index(
     """Render the top-level overview page."""
     server = report.get("server") or {}
     server_name = server.get("name", "mcp-server")
+    # `splitlines()` on an empty string returns `[]`, so we can't index [0].
+    first_instruction_line = next(iter((server.get("instructions") or "").splitlines()), "")
     out = _frontmatter(
         title=f"{server_name} — MCP server",
         sidebar_label="Overview",
-        description=(server.get("instructions") or "").splitlines()[0]
+        description=first_instruction_line
         or f"Auto-generated docs for the {server_name} MCP server.",
     )
     out += f"# `{server_name}`\n\n"
@@ -436,24 +443,24 @@ def _render_index(
     return out
 
 
-# Paths we refuse to `rmtree` even if the user passes them as --output, to
-# avoid cases like `--output /` or `--output $HOME` accidentally nuking data.
-_FORBIDDEN_OUTPUT_PATHS = frozenset(
-    {
-        Path("/"),
-        Path.home(),
-        Path.cwd(),
-    }
-)
-
-
 def _prepare_output_dir(output: Path) -> None:
-    """Reset (or create) an output directory, with a minimal safety guard."""
+    """Reset (or create) an output directory, with a strict safety guard.
+
+    The script unconditionally `rmtree`s `output` before regenerating, so we
+    need to be careful about what callers can point `--output` at. We require
+    the resolved output path to live **strictly inside** the current working
+    directory (typically the repo root) — this rules out `/`, `$HOME`,
+    `--output ..`, and any absolute path outside the repo, while still
+    letting the default `docs/mcp-generated/` work. The cwd itself is also
+    rejected so we never nuke the whole repo.
+    """
     resolved = output.resolve()
-    if resolved in {p.resolve() for p in _FORBIDDEN_OUTPUT_PATHS}:
+    cwd = Path.cwd().resolve()
+    if resolved == cwd or not resolved.is_relative_to(cwd):
         raise RuntimeError(
-            f"Refusing to rmtree suspicious output path {resolved}. "
-            "Pass --output pointing at a dedicated subdirectory."
+            f"Refusing to rmtree output path {resolved}: must be a dedicated "
+            f"subdirectory strictly inside the current working directory "
+            f"({cwd}). Pass --output pointing at e.g. `docs/mcp-generated`."
         )
     if output.exists():
         shutil.rmtree(output)

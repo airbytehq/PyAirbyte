@@ -12,14 +12,62 @@ from __future__ import annotations
 
 import pathlib
 import shutil
+import sys
 
 import pdoc
 import pdoc.render_helpers
 
 
+def _regenerate_mcp_markdown() -> None:
+    """Regenerate `docs/mcp-generated/` before pdoc runs.
+
+    The `airbyte.mcp.{cloud,local,registry,prompts}` modules pull the
+    per-module Markdown files from `docs/mcp-generated/` via pdoc's
+    `.. include::` directive. That directory is git-ignored, so on a clean
+    checkout pdoc would fail to resolve the include unless we regenerate it
+    here. Running the generator from inside `docs-generate` makes the full
+    docs build reproducible from a fresh clone (and matches the standalone
+    `poe mcp-docs-md` task).
+
+    If generation fails (e.g. `fastmcp` is not installed, or the MCP server
+    import fails), we print a warning and continue: pdoc will still build,
+    and the include directive will just surface the missing file.
+    """
+    script = pathlib.Path(__file__).parent.parent / "scripts" / "generate_mcp_markdown.py"
+    if not script.exists():
+        print(f"[docs-generate] MCP markdown generator not found at {script}; skipping.")
+        return
+    # Import-and-call rather than subprocess so we share the current venv and
+    # surface tracebacks directly. The generator resolves paths relative to
+    # cwd, which `poe docs-generate` runs from the repo root.
+    sys.path.insert(0, str(script.parent))
+    try:
+        from generate_mcp_markdown import (  # noqa: PLC0415
+            DEFAULT_OUTPUT,
+            DEFAULT_SERVER_SPEC,
+            generate,
+        )
+
+        print("[docs-generate] Regenerating docs/mcp-generated/ ...")
+        generate(server_spec=DEFAULT_SERVER_SPEC, output=DEFAULT_OUTPUT)
+    except Exception as ex:
+        print(
+            f"[docs-generate] WARNING: failed to regenerate MCP Markdown docs: {ex}. "
+            "pdoc will continue, but module pages may show missing include warnings.",
+            file=sys.stderr,
+        )
+    finally:
+        sys.path.pop(0)
+
+
 def run() -> None:
     """Generate docs for all public modules in PyAirbyte and save them to docs/generated."""
     public_modules = ["airbyte", "airbyte/cli/pyab.py"]
+
+    # Regenerate MCP Markdown first so the `.. include::` directives in the
+    # MCP module docstrings resolve on a clean checkout (docs/mcp-generated/
+    # is git-ignored).
+    _regenerate_mcp_markdown()
 
     # recursively delete the docs/generated folder if it exists
     if pathlib.Path("docs/generated").exists():

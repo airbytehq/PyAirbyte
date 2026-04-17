@@ -146,26 +146,33 @@ poe mcp-inspect        # Show all available MCP tools and their schemas
 
 ### Generating Markdown docs for the MCP Server
 
-The repo ships a small script that introspects the MCP server via
-`fastmcp inspect` and emits a Markdown documentation site under
-`docs/mcp-generated/` (git-ignored). The output is designed to be both
-Docusaurus-hostable and `pdoc`-compatible — plain CommonMark with YAML
-front-matter, no MDX-only components.
+The repo ships a small script (`scripts/generate_mcp_markdown.py`) that
+introspects the MCP server via `fastmcp inspect` and emits a Markdown
+documentation site under `docs/mcp-generated/` (git-ignored). The output is
+plain CommonMark with no MDX-only components, so it is both Docusaurus-hostable
+and consumable by `pdoc` — the four `airbyte.mcp.{cloud,local,registry,prompts}`
+modules pull their respective generated file in via pdoc's `.. include::`
+directive, so `poe docs-generate` surfaces the generated tool docs on each
+module's pdoc page alongside the regular `docs/generated/` output.
 
 ```bash
 uv sync --group dev
 poe mcp-docs-md
 ```
 
-Four files are produced:
+One Markdown file is produced per MCP module, plus an `index.md`. For the
+PyAirbyte server that is:
 
-- `index.md` — server overview (name, version, instructions, counts)
-- `tools.md` — one section per tool with a parameters table and collapsible
-  input/output JSON schemas
-- `resources.md` — concrete resources + resource templates
-- `prompts.md` — prompts and their arguments
+- `index.md` — server overview (name, version, instructions, totals, module table)
+- `cloud.md` — tools registered by `airbyte.mcp.cloud`
+- `local.md` — tools registered by `airbyte.mcp.local`
+- `registry.md` — tools registered by `airbyte.mcp.registry`
+- `prompts.md` — prompts registered by `airbyte.mcp.prompts`
+- `misc.md` — anything without an `mcp_module` annotation (currently just the
+  `server_info` resource)
 
-Each tool/resource/prompt has a stable slug anchor (e.g.
-`tools.md#list_connectors`) so the pages can be deep-linked from Slack, issues,
-or other docs. Regenerate after any change to MCP tool signatures, descriptions,
-or schemas. The underlying script is at `scripts/generate_mcp_markdown.py`.
+Inside each module page, primitives are grouped by kind (`## Tools`,
+`## Prompts`, `## Resources`), and each primitive has an HTML anchor
+(`<a id="name"></a>`) above its H3 so links like
+`cloud.md#deploy_source_to_cloud` resolve in both pdoc and Docusaurus.
+Regenerate after any change to MCP tool signatures, descriptions, or schemas.
