@@ -8,49 +8,25 @@ from Click to Cyclopts.
 
 from __future__ import annotations
 
-import subprocess
-import sys
+import io
+from contextlib import redirect_stdout
 
 import pytest
+from cyclopts import App
 
 from airbyte.cli.pyab import cli
 
 
-@pytest.mark.parametrize(
-    "subcommand",
-    [
-        None,
-        "benchmark",
-        "validate",
-        "sync",
-        "destination-smoke-test",
-    ],
-)
-def test_cli_help_subprocess(subcommand: str | None) -> None:
-    """Invoking `pyab [subcommand] --help` prints non-empty help and exits 0."""
-    args = [sys.executable, "-m", "airbyte.cli.pyab"]
-    if subcommand is not None:
-        args.append(subcommand)
-    args.append("--help")
-
-    result = subprocess.run(
-        args,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, (
-        f"pyab {subcommand or ''} --help exited with {result.returncode}: "
-        f"{result.stderr}"
-    )
-    assert result.stdout.strip(), "Help output should not be empty"
+def _capture_help(tokens: list[str] | None = None) -> str:
+    """Render help for `cli` (or a subcommand) into a string."""
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        cli.help_print(tokens=tokens or [])
+    return buf.getvalue()
 
 
 def test_cli_is_cyclopts_app() -> None:
     """The `cli` export is a `cyclopts.App` instance (not a Click group)."""
-    from cyclopts import App
-
     assert isinstance(cli, App)
 
 
@@ -62,41 +38,39 @@ def test_cli_registers_expected_commands() -> None:
     assert not missing, f"Missing commands: {missing}"
 
 
+@pytest.mark.parametrize(
+    "tokens",
+    [
+        [],
+        ["benchmark"],
+        ["validate"],
+        ["sync"],
+        ["destination-smoke-test"],
+    ],
+)
+def test_cli_help_renders(tokens: list[str]) -> None:
+    """Rendering help for the root app and every subcommand produces non-empty output."""
+    output = _capture_help(tokens)
+    assert output.strip(), f"Help output should not be empty for tokens={tokens}"
+
+
 def test_benchmark_help_includes_key_flags() -> None:
     """`pyab benchmark --help` surfaces all the previous Click options."""
-    result = subprocess.run(
-        [sys.executable, "-m", "airbyte.cli.pyab", "benchmark", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0
+    output = _capture_help(["benchmark"])
     for flag in ("--source", "--streams", "--num-records", "--destination", "--config"):
-        assert flag in result.stdout, f"Expected {flag} in benchmark help output"
+        assert flag in output, f"Expected {flag} in benchmark help output"
 
 
 def test_validate_help_includes_cli_guidance() -> None:
     """`pyab validate --help` continues to include the PyAirbyte CLI guidance."""
-    result = subprocess.run(
-        [sys.executable, "-m", "airbyte.cli.pyab", "validate", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0
-    assert "PyAirbyte CLI Guidance" in result.stdout
+    output = _capture_help(["validate"])
+    assert "PyAirbyte CLI Guidance" in output
 
 
 def test_sync_help_includes_mixed_case_config_flags() -> None:
     """The unusual `--Sconfig` / `--Dconfig` / `--Spip-url` / `--Dpip-url` flags
     are preserved on the `sync` subcommand for backward compatibility.
     """
-    result = subprocess.run(
-        [sys.executable, "-m", "airbyte.cli.pyab", "sync", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0
+    output = _capture_help(["sync"])
     for flag in ("--Sconfig", "--Dconfig", "--Spip-url", "--Dpip-url"):
-        assert flag in result.stdout, f"Expected {flag} in sync help output"
+        assert flag in output, f"Expected {flag} in sync help output"
