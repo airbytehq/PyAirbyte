@@ -374,16 +374,10 @@ def _render_module_page(bucket: _ModuleBucket, server_name: str) -> str:
         ),
     ]
     if bucket.tools:
-        parts.extend(
-            [
-                f"## Tools ({len(bucket.tools)})\n\n",
-                (
-                    "**Index:** "
-                    + ", ".join(f"[`{t['name']}`](#{t['name']})" for t in bucket.tools)
-                    + "\n\n"
-                ),
-            ]
-        )
+        # The left-nav sidebar already lists every tool under this H2 via the
+        # TOC, so we intentionally omit the inline "Index: …" row that we used
+        # to emit here.
+        parts.append(f"## Tools ({len(bucket.tools)})\n\n")
         parts.extend(_render_tool(tool) for tool in bucket.tools)
     if bucket.prompts:
         parts.append(f"## Prompts ({len(bucket.prompts)})\n\n")
