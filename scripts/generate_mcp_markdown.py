@@ -73,7 +73,7 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
         ],
         check=True,
     )
-    return json.loads(report_path.read_text())
+    return json.loads(report_path.read_text(encoding="utf-8"))
 
 
 def _fmt_type(schema: dict[str, Any]) -> str:
@@ -82,7 +82,7 @@ def _fmt_type(schema: dict[str, Any]) -> str:
         if key in schema:
             return " | ".join(_fmt_type(s) for s in schema[key])
     if "enum" in schema:
-        return "enum(" + ", ".join(repr(v) for v in schema["enum"]) + ")"
+        return "enum(" + ", ".join(json.dumps(v) for v in schema["enum"]) + ")"
     t = schema.get("type")
     if t == "array":
         items = schema.get("items", {})
@@ -207,9 +207,8 @@ def _render_prompt(prompt: dict[str, Any]) -> str:
         )
         for arg in args:
             desc = _escape_table_cell(arg.get("description", ""))
-            parts.append(
-                f"| `{arg['name']}` | " f"{'yes' if arg.get('required') else 'no'} | " f"{desc} |\n"
-            )
+            required = "yes" if arg.get("required") else "no"
+            parts.append(f"| `{arg['name']}` | {required} | {desc} |\n")
         parts.append("\n")
     else:
         parts.append("_No arguments._\n\n")
@@ -229,8 +228,10 @@ def _render_index(report: dict[str, Any]) -> str:
     out += f"# `{server_name}`\n\n"
     if version := server.get("version"):
         out += f"**Version:** `{version}`  \n"
-    if proto := server.get("protocol_version") or server.get("fastmcp_version"):
-        out += f"**FastMCP version:** `{proto}`  \n"
+    if proto := server.get("protocol_version"):
+        out += f"**Protocol version:** `{proto}`  \n"
+    if fastmcp_version := server.get("fastmcp_version"):
+        out += f"**FastMCP version:** `{fastmcp_version}`  \n"
     out += "\n"
     if instructions := server.get("instructions"):
         out += instructions.strip() + "\n\n"
@@ -241,9 +242,9 @@ def _render_index(report: dict[str, Any]) -> str:
         "prompts": len(report.get("prompts") or []),
     }
     out += (
-        f"- [Tools]({'./tools'}) — {counts['tools']}\n"
-        f"- [Resources]({'./resources'}) — {counts['resources']}\n"
-        f"- [Prompts]({'./prompts'}) — {counts['prompts']}\n\n"
+        f"- [Tools](./tools.md) — {counts['tools']}\n"
+        f"- [Resources](./resources.md) — {counts['resources']}\n"
+        f"- [Prompts](./prompts.md) — {counts['prompts']}\n\n"
     )
     out += (
         "> These pages are generated from the live `fastmcp inspect` report. "
@@ -315,6 +316,30 @@ def _render_prompts_page(report: dict[str, Any]) -> str:
     return out
 
 
+# Paths we refuse to `rmtree` even if the user passes them as --output, to
+# avoid cases like `--output /` or `--output $HOME` accidentally nuking data.
+_FORBIDDEN_OUTPUT_PATHS = frozenset(
+    {
+        Path("/"),
+        Path.home(),
+        Path.cwd(),
+    }
+)
+
+
+def _prepare_output_dir(output: Path) -> None:
+    """Reset (or create) an output directory, with a minimal safety guard."""
+    resolved = output.resolve()
+    if resolved in {p.resolve() for p in _FORBIDDEN_OUTPUT_PATHS}:
+        raise RuntimeError(
+            f"Refusing to rmtree suspicious output path {resolved}. "
+            "Pass --output pointing at a dedicated subdirectory."
+        )
+    if output.exists():
+        shutil.rmtree(output)
+    output.mkdir(parents=True, exist_ok=True)
+
+
 def generate(server_spec: str, output: Path) -> None:
     """Run `fastmcp inspect`, render Markdown, and write files to `output/`."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -322,9 +347,7 @@ def generate(server_spec: str, output: Path) -> None:
         print(f"Running `fastmcp inspect {server_spec}`...")
         report = _run_fastmcp_inspect(server_spec, report_path)
 
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir(parents=True, exist_ok=True)
+    _prepare_output_dir(output)
 
     pages: dict[str, str] = {
         "index.md": _render_index(report),
@@ -333,7 +356,7 @@ def generate(server_spec: str, output: Path) -> None:
         "prompts.md": _render_prompts_page(report),
     }
     for name, content in pages.items():
-        (output / name).write_text(content)
+        (output / name).write_text(content, encoding="utf-8")
         print(f"  wrote {output / name}")
 
     print(
@@ -349,7 +372,7 @@ def main() -> int:
     parser.add_argument(
         "--server-spec",
         default=DEFAULT_SERVER_SPEC,
-        help=("FastMCP server spec to inspect, e.g. " f"'{DEFAULT_SERVER_SPEC}' (default)."),
+        help=f"FastMCP server spec to inspect, e.g. '{DEFAULT_SERVER_SPEC}' (default).",
     )
     parser.add_argument(
         "--output",
