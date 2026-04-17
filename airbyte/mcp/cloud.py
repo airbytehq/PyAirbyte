@@ -1,5 +1,14 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Airbyte Cloud MCP operations."""
+"""Airbyte Cloud MCP operations.
+
+.. include:: ../../docs/mcp-generated/cloud.md
+"""
+
+# No public Python API — MCP primitives are registered via decorators and
+# documented via the generated Markdown include above. Setting `__all__` to an
+# empty list tells pdoc (and other doc tools) not to surface the individual
+# tool / helper definitions as a redundant "API Documentation" list.
+__all__: list[str] = []
 
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast

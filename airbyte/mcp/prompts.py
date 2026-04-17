@@ -3,6 +3,8 @@
 
 This module defines prompts that can be invoked by MCP clients to perform
 common workflows.
+
+.. include:: ../../docs/mcp-generated/prompts.md
 """
 
 from __future__ import annotations
@@ -11,6 +13,13 @@ from typing import TYPE_CHECKING, Annotated
 
 from fastmcp_extensions import mcp_prompt, register_mcp_prompts
 from pydantic import Field
+
+
+# No public Python API — MCP primitives are registered via decorators and
+# documented via the generated Markdown include above. Setting `__all__` to an
+# empty list tells pdoc (and other doc tools) not to surface the individual
+# tool / helper definitions as a redundant "API Documentation" list.
+__all__: list[str] = []
 
 
 if TYPE_CHECKING:
