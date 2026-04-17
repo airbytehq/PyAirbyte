@@ -67,6 +67,19 @@ def test_validate_help_includes_cli_guidance() -> None:
     assert "PyAirbyte CLI Guidance" in output
 
 
+def test_destination_smoke_test_has_no_auto_negated_flag() -> None:
+    """Cyclopts normally auto-generates `--no-<flag>` for bool parameters.
+
+    The `sync` command's `--skip-preflight` uses `Parameter(negative=[])` to
+    match Click's `is_flag=True` behavior (only `--skip-preflight` is exposed).
+    This test pins that down so a future cyclopts default change doesn't
+    silently introduce `--no-skip-preflight` as a new user-facing flag.
+    """
+    output = _capture_help(["destination-smoke-test"])
+    assert "--skip-preflight" in output
+    assert "--no-skip-preflight" not in output
+
+
 def test_sync_help_includes_mixed_case_config_flags() -> None:
     """The unusual `--Sconfig` / `--Dconfig` / `--Spip-url` / `--Dpip-url` flags
     are preserved on the `sync` subcommand for backward compatibility.
