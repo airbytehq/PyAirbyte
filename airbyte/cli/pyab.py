@@ -379,7 +379,7 @@ def validate(
         Parameter(
             help=(
                 "Optional. The location from which to install the connector. "
-                "This can be a anything pip accepts, including: a PyPI package name, a local "
+                "This can be anything pip accepts, including: a PyPI package name, a local "
                 "path, a git repository, a git branch ref, etc."
             ),
         ),
@@ -464,8 +464,8 @@ def benchmark(
                 "The number of records to generate for the benchmark. Ignored if a source is "
                 "provided. You can specify the number of records to generate using scientific "
                 "notation. For example, `5e6` will generate 5 million records. By default, "
-                "500,000 records will be generated (`5e5` records). If underscores are providing "
-                "within a numeric a string, they will be ignored."
+                "500,000 records will be generated (`5e5` records). If underscores are provided "
+                "within a numeric string, they will be ignored."
             ),
         ),
     ] = "5e5",

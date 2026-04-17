@@ -31,11 +31,19 @@ def test_cli_is_cyclopts_app() -> None:
 
 
 def test_cli_registers_expected_commands() -> None:
-    """All four existing subcommands are registered on the Cyclopts App."""
+    """Exactly the four existing subcommands are registered on the Cyclopts App.
+
+    Cyclopts exposes meta options (e.g. `--help`, `-h`) alongside user commands
+    when iterating the app, so we filter those out before comparing. Asserting
+    equality (not just "no missing") ensures an accidental new command would
+    also fail this test.
+    """
     expected = {"benchmark", "validate", "sync", "destination-smoke-test"}
-    registered = set(cli)
-    missing = expected - registered
-    assert not missing, f"Missing commands: {missing}"
+    meta = {"--help", "-h", "--version"}
+    registered = {name for name in cli if name not in meta}
+    assert registered == expected, (
+        f"Missing: {expected - registered}; unexpected: {registered - expected}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -70,10 +78,11 @@ def test_validate_help_includes_cli_guidance() -> None:
 def test_destination_smoke_test_has_no_auto_negated_flag() -> None:
     """Cyclopts normally auto-generates `--no-<flag>` for bool parameters.
 
-    The `sync` command's `--skip-preflight` uses `Parameter(negative=[])` to
-    match Click's `is_flag=True` behavior (only `--skip-preflight` is exposed).
-    This test pins that down so a future cyclopts default change doesn't
-    silently introduce `--no-skip-preflight` as a new user-facing flag.
+    The `destination-smoke-test` command's `--skip-preflight` uses
+    `Parameter(negative=[])` to match Click's `is_flag=True` behavior (only
+    `--skip-preflight` is exposed). This test pins that down so a future
+    cyclopts default change doesn't silently introduce `--no-skip-preflight`
+    as a new user-facing flag.
     """
     output = _capture_help(["destination-smoke-test"])
     assert "--skip-preflight" in output
