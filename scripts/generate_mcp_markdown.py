@@ -540,7 +540,7 @@ def _resolve_output_dir(output: Path) -> Path:
     return (output if output.is_absolute() else _REPO_ROOT / output).resolve()
 
 
-def _prepare_output_dir(output: Path) -> None:
+def _prepare_output_dir(output: Path) -> Path:
     """Reset (or create) an output directory, with a strict safety guard.
 
     The script unconditionally `rmtree`s `output` before regenerating, so we
@@ -549,6 +549,12 @@ def _prepare_output_dir(output: Path) -> None:
     rules out `/`, `$HOME`, `--output ..`, and any absolute path outside the
     repo, while still letting the default `docs/mcp-generated/` work. The
     repo root itself is also rejected so we never nuke the whole repo.
+
+    Returns the *resolved* (absolute, repo-root-anchored) path so callers can
+    use a single canonical location for subsequent file writes — avoids a
+    footgun where preparing a resolved dir but writing via the raw `output`
+    would silently target a different, non-existent path when cwd differs
+    from the repo root.
     """
     resolved = _resolve_output_dir(output)
     if resolved == _REPO_ROOT or not resolved.is_relative_to(_REPO_ROOT):
@@ -560,6 +566,7 @@ def _prepare_output_dir(output: Path) -> None:
     if resolved.exists():
         shutil.rmtree(resolved)
     resolved.mkdir(parents=True, exist_ok=True)
+    return resolved
 
 
 def generate(server_spec: str, output: Path) -> None:
@@ -572,7 +579,10 @@ def generate(server_spec: str, output: Path) -> None:
     fallback_map = _resolve_extra_module_map(server_spec)
     buckets = _bucket_by_module(report, fallback_map)
 
-    _prepare_output_dir(output)
+    # Use the resolved path returned by `_prepare_output_dir` for subsequent
+    # writes: when called from a subdirectory, the raw `output` is
+    # cwd-relative and would target a non-existent directory.
+    resolved_output = _prepare_output_dir(output)
 
     server_name = (report.get("server") or {}).get("name", "mcp-server")
     pages: dict[str, str] = {"index.md": _render_index(report, buckets)}
@@ -580,8 +590,8 @@ def generate(server_spec: str, output: Path) -> None:
         pages[f"{name}.md"] = _render_module_page(bucket, server_name)
 
     for name, content in pages.items():
-        (output / name).write_text(content, encoding="utf-8")
-        print(f"  wrote {output / name}")
+        (resolved_output / name).write_text(content, encoding="utf-8")
+        print(f"  wrote {resolved_output / name}")
 
     print(
         f"Done. {len(buckets)} module(s) documented — "
