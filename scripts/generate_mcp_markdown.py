@@ -242,9 +242,10 @@ def _render_parameters_table(input_schema: dict[str, Any]) -> str:
 def _render_tool(tool: dict[str, Any]) -> str:
     """Render a single tool as L3 under its module's `## Tools` section."""
     name = tool["name"]
-    # HTML anchor + heading (instead of Pandoc `{#...}` attr syntax, which
-    # renders as literal text in pdoc3's markdown processor).
-    parts: list[str] = [f'<a id="{name}"></a>\n\n### `{name}`\n\n']
+    # Plain text in the heading (no backticks) so pdoc's TOC extractor
+    # produces a clean sidebar nav entry. The HTML anchor above the heading
+    # is what we deep-link to.
+    parts: list[str] = [f'<a id="{name}"></a>\n\n### {name}\n\n']
     if description := tool.get("description"):
         parts.append(description.strip() + "\n\n")
     if tags := tool.get("tags"):
@@ -265,7 +266,7 @@ def _render_tool(tool: dict[str, Any]) -> str:
 def _render_resource(resource: dict[str, Any]) -> str:
     """Render a single resource as L3 under its module's `## Resources` section."""
     name = resource["name"]
-    parts: list[str] = [f"### `{name}` {{#{name}}}\n\n"]
+    parts: list[str] = [f'<a id="{name}"></a>\n\n### {name}\n\n']
     if description := resource.get("description"):
         parts.append(description.strip() + "\n\n")
     meta_lines: list[str] = []
@@ -285,7 +286,7 @@ def _render_resource(resource: dict[str, Any]) -> str:
 def _render_prompt(prompt: dict[str, Any]) -> str:
     """Render a single prompt as L3 under its module's `## Prompts` section."""
     name = prompt["name"]
-    parts: list[str] = [f"### `{name}` {{#{name}}}\n\n"]
+    parts: list[str] = [f'<a id="{name}"></a>\n\n### {name}\n\n']
     if description := prompt.get("description"):
         parts.append(description.strip() + "\n\n")
     args = prompt.get("arguments") or []
@@ -359,8 +360,11 @@ def _render_module_page(bucket: _ModuleBucket, server_name: str) -> str:
     not strip front-matter and would emit it as body text). Docusaurus infers
     the page title from the first H1, which we always emit here.
     """
+    # Headings are plain text (no backticks) so pdoc's TOC extractor yields
+    # clean nav entries; cosmetic backticks inside headings produced
+    # unbalanced `<code>` tags in the generated TOC HTML.
     parts: list[str] = [
-        f"# `{bucket.name}` module\n\n",
+        f"# {bucket.name} module\n\n",
         (
             f"MCP primitives registered by the `{bucket.name}` module "
             f"of the `{server_name}` server: "

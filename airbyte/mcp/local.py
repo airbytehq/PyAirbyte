@@ -4,6 +4,12 @@
 .. include:: ../../docs/mcp-generated/local.md
 """
 
+# No public Python API — MCP primitives are registered via decorators and
+# documented via the generated Markdown include above. Setting `__all__` to an
+# empty list tells pdoc (and other doc tools) not to surface the individual
+# tool / helper definitions as a redundant "API Documentation" list.
+__all__: list[str] = []
+
 import sys
 import traceback
 from itertools import islice
