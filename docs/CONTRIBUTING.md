@@ -143,3 +143,22 @@ poe mcp-serve-sse      # Server-Sent Events transport on localhost:8000
 
 poe mcp-inspect        # Show all available MCP tools and their schemas
 ```
+
+### Generating static HTML docs for the MCP Server
+
+The repo ships a prototype integration with
+[`mcpdocs-gen`](https://github.com/smytsyk/mcpdocs) that introspects the
+running MCP server (over SSE) and emits a static HTML documentation site:
+
+```bash
+# One-time: install the generator alongside the project's dev deps.
+uv pip install mcpdocs-gen
+
+# Start the MCP server in SSE mode, run mcpdocs, then tear the server down.
+poe mcp-docs-generate
+```
+
+The generated site is written to `docs/mcp-generated/` (git-ignored). Open
+`docs/mcp-generated/index.html` in a browser to browse tools, resources, and
+prompts. The underlying script is at `scripts/generate_mcp_docs.py` and
+handles starting/stopping the SSE server as well as waiting for readiness.

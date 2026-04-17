@@ -11,6 +11,9 @@ viztracer_report.json
 # Packaged docs
 docs/*.zip
 
+# Generated MCP server docs (regenerate via `poe mcp-docs-generate`)
+docs/mcp-generated/
+
 # Misc
 .DS_Store
 
