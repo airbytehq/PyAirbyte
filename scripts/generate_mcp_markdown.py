@@ -85,6 +85,19 @@ from typing import Any
 DEFAULT_OUTPUT = Path("docs/mcp-generated")
 DEFAULT_SERVER_SPEC = "airbyte/mcp/server.py:app"
 MISC_MODULE = "misc"
+# Upper bound on how long `fastmcp inspect` may take before we fail the build.
+# 120s is generous: local runs finish in ~10s, but CI / cold caches occasionally
+# spend longer on the server-module import (e.g. re-resolving wheels). Anything
+# beyond this almost certainly indicates a hang (blocking import, stalled
+# network I/O during registration) rather than real work, so failing fast is
+# preferable to an indefinitely stuck `poe docs-generate` / `poe mcp-docs-md`.
+_FASTMCP_INSPECT_TIMEOUT_SEC = 120
+# Repo root anchor for path-safety checks. `__file__` is always the on-disk
+# location of this script, so `parent.parent` reliably points at the repo root
+# regardless of the caller's `cwd`. We use this instead of `Path.cwd()` when
+# resolving repo-relative defaults like `DEFAULT_OUTPUT` so that
+# `poe mcp-docs-md` works even when invoked from a subdirectory.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
@@ -95,18 +108,28 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
             "`fastmcp` CLI not found on PATH. Install project dev deps first "
             "(e.g. `uv sync --group dev`) and re-run from the repo root."
         )
-    subprocess.run(
-        [
-            fastmcp_bin,
-            "inspect",
-            server_spec,
-            "--format",
-            "fastmcp",
-            "--output",
-            str(report_path),
-        ],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            [
+                fastmcp_bin,
+                "inspect",
+                server_spec,
+                "--format",
+                "fastmcp",
+                "--output",
+                str(report_path),
+            ],
+            check=True,
+            timeout=_FASTMCP_INSPECT_TIMEOUT_SEC,
+        )
+    except subprocess.TimeoutExpired as ex:
+        msg = (
+            f"`fastmcp inspect {server_spec}` timed out after "
+            f"{_FASTMCP_INSPECT_TIMEOUT_SEC}s. The server module likely hangs "
+            "on import (blocking network I/O during tool registration?). "
+            "Re-run with the server imported manually to investigate."
+        )
+        raise RuntimeError(msg) from ex
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
@@ -130,6 +153,11 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     file_part = server_spec.split(":", 1)[0]
     module_name = file_part.removesuffix(".py").replace("/", ".")
     mapping: dict[str, str] = {}
+    # The iteration sits inside the same `try` as the import so any shape
+    # drift in the private `_REGISTERED_*` tuples (e.g. an added third element,
+    # or `ann` becoming a dataclass instead of a dict) falls back to an empty
+    # mapping — preserving this helper's documented best-effort semantics —
+    # rather than aborting doc generation.
     try:
         importlib.import_module(module_name)
         # Import private lists from fastmcp_extensions: these are the only
@@ -139,18 +167,20 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
             _REGISTERED_PROMPTS,  # noqa: PLC2701
             _REGISTERED_RESOURCES,  # noqa: PLC2701
         )
+
+        for _fn, ann in _REGISTERED_PROMPTS:
+            if name := ann.get("name"):
+                mapping[name] = ann.get("mcp_module") or MISC_MODULE
+        for _fn, ann in _REGISTERED_RESOURCES:
+            mcp_module = ann.get("mcp_module") or MISC_MODULE
+            if uri := ann.get("uri"):
+                mapping[uri] = mcp_module
+                # FastMCP exposes the URI stem as the resource `name` in
+                # inspect output; index by that too so lookup by either key
+                # works.
+                mapping[uri.rsplit("/", 1)[-1]] = mcp_module
     except Exception:
-        return mapping
-    for _fn, ann in _REGISTERED_PROMPTS:
-        if name := ann.get("name"):
-            mapping[name] = ann.get("mcp_module") or MISC_MODULE
-    for _fn, ann in _REGISTERED_RESOURCES:
-        mcp_module = ann.get("mcp_module") or MISC_MODULE
-        if uri := ann.get("uri"):
-            mapping[uri] = mcp_module
-            # FastMCP exposes the URI stem as the resource `name` in inspect
-            # output; index by that too so lookup by either key works.
-            mapping[uri.rsplit("/", 1)[-1]] = mcp_module
+        return {}
     return mapping
 
 
@@ -497,28 +527,39 @@ def _render_index(
     return out
 
 
+def _resolve_output_dir(output: Path) -> Path:
+    """Resolve an `--output` path against the repo root when it's relative.
+
+    `DEFAULT_OUTPUT` is a repo-relative path, so anchoring relative inputs to
+    `_REPO_ROOT` (rather than `Path.cwd()`) means `poe mcp-docs-md` works
+    regardless of where the task is invoked from — a contributor running the
+    task from inside `docs/` still writes to `<repo>/docs/mcp-generated/`.
+    Absolute paths are honoured as-given (the safety guard below still
+    rejects any absolute path that escapes the repo root).
+    """
+    return (output if output.is_absolute() else _REPO_ROOT / output).resolve()
+
+
 def _prepare_output_dir(output: Path) -> None:
     """Reset (or create) an output directory, with a strict safety guard.
 
     The script unconditionally `rmtree`s `output` before regenerating, so we
     need to be careful about what callers can point `--output` at. We require
-    the resolved output path to live **strictly inside** the current working
-    directory (typically the repo root) — this rules out `/`, `$HOME`,
-    `--output ..`, and any absolute path outside the repo, while still
-    letting the default `docs/mcp-generated/` work. The cwd itself is also
-    rejected so we never nuke the whole repo.
+    the resolved output path to live **strictly inside** the repo root — this
+    rules out `/`, `$HOME`, `--output ..`, and any absolute path outside the
+    repo, while still letting the default `docs/mcp-generated/` work. The
+    repo root itself is also rejected so we never nuke the whole repo.
     """
-    resolved = output.resolve()
-    cwd = Path.cwd().resolve()
-    if resolved == cwd or not resolved.is_relative_to(cwd):
+    resolved = _resolve_output_dir(output)
+    if resolved == _REPO_ROOT or not resolved.is_relative_to(_REPO_ROOT):
         raise RuntimeError(
             f"Refusing to rmtree output path {resolved}: must be a dedicated "
-            f"subdirectory strictly inside the current working directory "
-            f"({cwd}). Pass --output pointing at e.g. `docs/mcp-generated`."
+            f"subdirectory strictly inside the repo root ({_REPO_ROOT}). "
+            f"Pass --output pointing at e.g. `docs/mcp-generated`."
         )
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir(parents=True, exist_ok=True)
+    if resolved.exists():
+        shutil.rmtree(resolved)
+    resolved.mkdir(parents=True, exist_ok=True)
 
 
 def generate(server_spec: str, output: Path) -> None:
