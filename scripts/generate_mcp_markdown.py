@@ -221,6 +221,41 @@ def _json_block(label: str, obj: Any) -> str:  # noqa: ANN401
     )
 
 
+# MCP tool annotation hints (per the MCP spec): we render a badge for every
+# hint whose value is `True`, using a stable, human-readable label. The four
+# standardised hints come from
+# https://modelcontextprotocol.io/specification/server/tools#tool-annotations.
+_HINT_LABELS: dict[str, str] = {
+    "readOnlyHint": "read-only",
+    "destructiveHint": "destructive",
+    "idempotentHint": "idempotent",
+    "openWorldHint": "open-world",
+}
+
+
+def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
+    """Render MCP tool-annotation hints as inline `code` badges.
+
+    Only hints whose value is explicitly `True` are rendered — an unset or
+    `False` hint is omitted. The MCP spec treats hints as advisory, so
+    "absence" and "false" are equivalent for documentation purposes.
+
+    Also surfaces the optional human-readable `annotations.title` (distinct
+    from the top-level `title` field) when present, so e.g.
+    `annotations.title == "Deploy a source to Airbyte Cloud"` shows up in
+    the rendered doc.
+    """
+    if not annotations:
+        return ""
+    lines: list[str] = []
+    badges = [f"`{label}`" for key, label in _HINT_LABELS.items() if annotations.get(key) is True]
+    if badges:
+        lines.append("**Hints:** " + " · ".join(badges))
+    if title := annotations.get("title"):
+        lines.append(f"**Title:** {title}")
+    return ("\n\n".join(lines) + "\n\n") if lines else ""
+
+
 def _render_parameters_table(input_schema: dict[str, Any]) -> str:
     """Render a GFM parameters table for a tool's `input_schema`."""
     properties = input_schema.get("properties") or {}
@@ -251,6 +286,7 @@ def _render_tool(tool: dict[str, Any]) -> str:
     # produces a clean sidebar nav entry. The HTML anchor above the heading
     # is what we deep-link to.
     parts: list[str] = [f'<a id="{name}"></a>\n\n### {name}\n\n']
+    parts.append(_render_hint_badges(tool.get("annotations")))
     if description := tool.get("description"):
         parts.append(description.strip() + "\n\n")
     if tags := tool.get("tags"):
@@ -354,7 +390,25 @@ def _bucket_by_module(
     for template in report.get("templates") or []:
         get(_get_module(template, fallback_map)).resources.append(template)
 
-    return buckets
+    # Alpha-sort each bucket's primitives (case-insensitive) so the rendered
+    # pages, left-nav entries, and deep-link IDs are in a stable, predictable
+    # order across regenerations instead of reflecting server registration
+    # order (which is effectively arbitrary).
+    def _sort_key(item: dict[str, Any]) -> str:
+        return str(item.get("name") or item.get("uri") or "").lower()
+
+    for bucket in buckets.values():
+        bucket.tools.sort(key=_sort_key)
+        bucket.prompts.sort(key=_sort_key)
+        bucket.resources.sort(key=_sort_key)
+
+    # Also sort the module-level ordering so `index.md`'s module table and the
+    # order of files on disk are alphabetical (the `misc` bucket, which is a
+    # catch-all, is always pinned last).
+    sorted_buckets: OrderedDict[str, _ModuleBucket] = OrderedDict()
+    for name in sorted(buckets, key=lambda n: (n == MISC_MODULE, n.lower())):
+        sorted_buckets[name] = buckets[name]
+    return sorted_buckets
 
 
 def _render_module_page(bucket: _ModuleBucket, server_name: str) -> str:
