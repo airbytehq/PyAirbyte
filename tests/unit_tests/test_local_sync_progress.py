@@ -17,9 +17,27 @@ from airbyte_protocol.models import (
     AirbyteStateMessage,
     AirbyteStateType,
     AirbyteStreamState,
+    AirbyteStreamStatus,
+    AirbyteStreamStatusTraceMessage,
+    AirbyteTraceMessage,
     StreamDescriptor,
+    TraceType,
     Type,
 )
+
+
+def _stream_complete_msg(stream: str) -> AirbyteMessage:
+    return AirbyteMessage(
+        type=Type.TRACE,
+        trace=AirbyteTraceMessage(
+            type=TraceType.STREAM_STATUS,
+            emitted_at=0.0,
+            stream_status=AirbyteStreamStatusTraceMessage(
+                stream_descriptor=StreamDescriptor(name=stream),
+                status=AirbyteStreamStatus.COMPLETE,
+            ),
+        ),
+    )
 
 
 def _state_msg(
@@ -201,6 +219,48 @@ def test_progress_audit_log_written(tmp_path, monkeypatch) -> None:
     assert "streams" in last
     contacts = next(s for s in last["streams"] if s["stream_name"] == "contacts")
     assert contacts["latest_cursor"] == "2024-06-15T10:30:00Z"
+
+
+def test_stream_complete_trace_forces_progress_to_100pct() -> None:
+    tracker = ProgressTracker(
+        ProgressStyle.NONE,
+        source=None,
+        cache=None,
+        destination=None,
+    )
+    list(
+        tracker.tally_records_read(
+            iter([
+                _state_msg("contacts", "2024-01-01T00:00:00Z"),
+                _state_msg("contacts", "2024-06-15T10:30:00Z"),
+                _stream_complete_msg("contacts"),
+            ])
+        )
+    )
+    assert "contacts" in tracker.stream_read_end_times
+    assert tracker.stream_progress_pcts["contacts"] == 1.0
+
+
+def test_log_success_forces_all_streams_to_100pct() -> None:
+    tracker = ProgressTracker(
+        ProgressStyle.NONE,
+        source=None,
+        cache=None,
+        destination=None,
+    )
+    list(
+        tracker.tally_records_read(
+            iter([
+                _state_msg("contacts", "2024-01-01T00:00:00Z"),
+                _state_msg("companies", "2024-03-15T00:00:00Z"),
+            ])
+        )
+    )
+    tracker.log_success()
+    assert tracker.stream_progress_pcts == {
+        "contacts": 1.0,
+        "companies": 1.0,
+    }
 
 
 if __name__ == "__main__":

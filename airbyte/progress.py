@@ -457,8 +457,11 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     def stream_progress_pcts(self) -> dict[str, float]:
         """Per-stream datetime-cursor progress estimates.
 
-        Only streams with a datetime-parseable baseline and latest cursor are
-        included.  Values are in the range `[0.0, 1.0]`.
+        Returns values in `[0.0, 1.0]`. A stream is reported as `1.0` once the
+        source has emitted a `STREAM_STATUS=COMPLETE` trace (or the sync has
+        otherwise been finalized via `log_success()`); otherwise the value is
+        derived from the datetime-cursor formula and only streams with a
+        datetime-parseable baseline + latest cursor are included.
         """
         now = datetime.datetime.now(datetime.timezone.utc)
         result: dict[str, float] = {}
@@ -471,6 +474,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             )
             if pct is not None:
                 result[stream_name] = pct
+        for stream_name in self.stream_read_end_times:
+            result[stream_name] = 1.0
         return result
 
     def _build_progress_snapshot(self) -> dict[str, Any]:
@@ -776,6 +781,16 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
             self.end_time = time.time()
 
+        now = time.time()
+        all_known_streams = (
+            set(self.stream_read_counts)
+            | set(self.stream_latest_cursors)
+            | set(self.stream_committed_cursors)
+            | set(self.written_stream_names)
+        )
+        for stream_name in all_known_streams:
+            self.stream_read_end_times.setdefault(stream_name, now)
+
         self._update_display(force_refresh=True)
         audit_path = self._get_progress_audit_log_path()
         if audit_path is not None:
@@ -1036,7 +1051,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._append_progress_audit_log()
         self._last_update_time = time.time()
 
-    def _get_status_message(self) -> str:  # noqa: PLR0915  # Too many statements
+    def _get_status_message(self) -> str:  # noqa: PLR0914, PLR0915
         """Compile and return a status message."""
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
@@ -1083,19 +1098,26 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 + "\n\n"
             )
 
-        # Cursor progress (from observed source state messages)
-        if self.stream_latest_cursors:
+        # Cursor progress (from observed source state messages + completion traces)
+        progress_pcts = self.stream_progress_pcts
+        cursor_progress_streams = sorted(
+            set(self.stream_latest_cursors) | set(self.stream_read_end_times)
+        )
+        if cursor_progress_streams:
             status_message += "- Cursor progress:\n"
-            progress_pcts = self.stream_progress_pcts
-            for stream_name, latest in self.stream_latest_cursors.items():
+            for stream_name in cursor_progress_streams:
                 cursor_field = self.stream_cursor_fields.get(stream_name)
                 field_str = f" [`{cursor_field}`]" if cursor_field else ""
+                latest = self.stream_latest_cursors.get(stream_name)
+                latest_str = f": `{latest}`" if latest else ""
                 pct = progress_pcts.get(stream_name)
                 pct_str = f" ({pct * 100:.1f}%)" if pct is not None else ""
+                done_str = " ✓" if stream_name in self.stream_read_end_times else ""
                 committed = self.stream_committed_cursors.get(stream_name)
                 committed_str = f" (committed: `{committed}`)" if committed else ""
                 status_message += (
-                    f"  - `{stream_name}`{field_str}: `{latest}`{pct_str}{committed_str}\n"
+                    f"  - `{stream_name}`{field_str}{latest_str}"
+                    f"{pct_str}{done_str}{committed_str}\n"
                 )
             status_message += "\n"
 
