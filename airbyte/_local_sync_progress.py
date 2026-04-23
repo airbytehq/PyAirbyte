@@ -99,38 +99,97 @@ def _normalize_stream_state(stream_state: object) -> dict[str, Any] | None:
     return None
 
 
+_MAX_STATE_RECURSION_DEPTH = 4
+
+
+def _find_known_cursor(
+    state_dict: dict[str, Any],
+    depth: int,
+) -> tuple[str | None, str | None]:
+    """Depth-first search for a `_COMMON_CURSOR_FIELDS` key in nested dicts.
+
+    Some connectors (notably `source-github`) nest per-stream state under a
+    partition key (e.g. the repo name), so the cursor lives at
+    `stream_state[<repo>][updated_at]` rather than `stream_state[updated_at]`.
+    This helper walks up to `_MAX_STATE_RECURSION_DEPTH` levels, checking
+    known cursor field names at each level before descending. Non-`dict` and
+    `None` values are skipped.
+    """
+    for candidate in _COMMON_CURSOR_FIELDS:
+        if candidate in state_dict:
+            raw = state_dict[candidate]
+            if raw is not None and not isinstance(raw, dict):
+                return candidate, str(raw)
+
+    if depth >= _MAX_STATE_RECURSION_DEPTH:
+        return None, None
+
+    for raw in state_dict.values():
+        nested = _normalize_stream_state(raw)
+        if not nested:
+            continue
+        cursor_field, cursor_value = _find_known_cursor(nested, depth + 1)
+        if cursor_field is not None:
+            return cursor_field, cursor_value
+
+    return None, None
+
+
+def _find_datetime_fallback(
+    state_dict: dict[str, Any],
+    depth: int,
+) -> tuple[str | None, str | None]:
+    """Depth-first search for the first datetime-parseable scalar value.
+
+    Used only when no well-known cursor field name (`_COMMON_CURSOR_FIELDS`)
+    is present anywhere in the state tree. Recurses up to
+    `_MAX_STATE_RECURSION_DEPTH` levels into nested dicts.
+    """
+    for key, raw in state_dict.items():
+        if raw is None:
+            continue
+        if isinstance(raw, (str, int, float)):
+            value = str(raw)
+            if _try_parse_datetime_cursor(value) is not None:
+                return key, value
+
+    if depth >= _MAX_STATE_RECURSION_DEPTH:
+        return None, None
+
+    for raw in state_dict.values():
+        nested = _normalize_stream_state(raw)
+        if not nested:
+            continue
+        cursor_field, cursor_value = _find_datetime_fallback(nested, depth + 1)
+        if cursor_field is not None:
+            return cursor_field, cursor_value
+
+    return None, None
+
+
 def _extract_cursor_from_stream_state(
     stream_state: object,
 ) -> tuple[str | None, str | None]:
     """Return `(cursor_field, cursor_value)` from a `stream_state` blob.
 
+    Recursively searches nested state dicts so per-partition state (e.g.
+    `source-github`'s `{"<repo>": {"updated_at": "..."}}`) is handled.
+
     The search prefers well-known cursor field names (`updatedAt`,
-    `created_at`, etc.). If none of those are present, falls back to the
-    first top-level value that parses as a datetime. Returns
-    `(None, None)` when no usable cursor can be extracted.
+    `created_at`, …) at any depth up to `_MAX_STATE_RECURSION_DEPTH`. If
+    none of those are present anywhere in the tree, falls back to the first
+    datetime-parseable scalar. Returns `(None, None)` when no usable cursor
+    can be extracted.
     """
     state_dict = _normalize_stream_state(stream_state)
     if not state_dict:
         return None, None
 
-    for candidate in _COMMON_CURSOR_FIELDS:
-        if candidate in state_dict:
-            raw = state_dict[candidate]
-            if raw is None:
-                continue
-            value = str(raw)
-            # Always return explicit cursor fields, even non-datetime ones.
-            return candidate, value
+    cursor_field, cursor_value = _find_known_cursor(state_dict, depth=0)
+    if cursor_field is not None:
+        return cursor_field, cursor_value
 
-    # Fallback: look for the first datetime-parseable scalar at the top level.
-    for key, raw in state_dict.items():
-        if raw is None or not isinstance(raw, (str, int, float)):
-            continue
-        value = str(raw)
-        if _try_parse_datetime_cursor(value) is not None:
-            return key, value
-
-    return None, None
+    return _find_datetime_fallback(state_dict, depth=0)
 
 
 def extract_cursor_from_state_message(

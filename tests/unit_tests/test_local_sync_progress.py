@@ -68,6 +68,47 @@ def test_extract_cursor_from_state_message_prefers_known_fields() -> None:
     assert value == "2024-06-15T10:30:00Z"
 
 
+def test_extract_cursor_from_nested_partition_state() -> None:
+    """`source-github`-style per-partition state: `{repo: {updated_at: ...}}`."""
+    msg = AirbyteMessage(
+        type=Type.STATE,
+        state=AirbyteStateMessage(
+            type=AirbyteStateType.STREAM,
+            stream=AirbyteStreamState(
+                stream_descriptor=StreamDescriptor(name="issues"),
+                stream_state={
+                    "airbytehq/airbyte": {"updated_at": "2026-04-23T22:20:47Z"},
+                },
+            ),
+        ),
+    )
+    name, field, value = extract_cursor_from_state_message(msg.state)
+    assert name == "issues"
+    assert field == "updated_at"
+    assert value == "2026-04-23T22:20:47Z"
+
+
+def test_extract_cursor_from_deeply_nested_state() -> None:
+    msg = AirbyteMessage(
+        type=Type.STATE,
+        state=AirbyteStateMessage(
+            type=AirbyteStateType.STREAM,
+            stream=AirbyteStreamState(
+                stream_descriptor=StreamDescriptor(name="commits"),
+                stream_state={
+                    "airbytehq/airbyte": {
+                        "main": {"created_at": "2026-04-23T22:20:47Z"},
+                    },
+                },
+            ),
+        ),
+    )
+    name, field, value = extract_cursor_from_state_message(msg.state)
+    assert name == "commits"
+    assert field == "created_at"
+    assert value == "2026-04-23T22:20:47Z"
+
+
 def test_extract_cursor_falls_back_to_first_datetime_value() -> None:
     msg = AirbyteMessage(
         type=Type.STATE,
