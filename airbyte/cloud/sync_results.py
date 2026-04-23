@@ -303,13 +303,13 @@ def _build_rich_table(  # noqa: PLR0913, PLR0914, PLR0915, PLR0917
         cursor_pct_str = f"{pct:.1%}" if pct is not None else "--"
         reason = entry.get("reason") or ""
 
-        stats = stream_stats.get(name) or {}
+        stats = stream_stats.get(name, {})
         recs = stats.get("records_emitted", 0)
         byts = stats.get("bytes_emitted", 0)
         recs_str = f"{recs:,}" if recs else "0"
         bytes_str = _format_bytes(byts) if byts else "0 B"
 
-        prev_stats = previous_stream_stats.get(name) or {}
+        prev_stats = previous_stream_stats.get(name, {})
         prev_recs = prev_stats.get("records_emitted", 0)
         if prev_recs > 0:
             records_pct = min(recs / prev_recs, 1.0)
@@ -862,16 +862,18 @@ class SyncResult:
             # Write JSONL progress log entry when a log path is configured.
             if progress_log_path is not None:
                 log_streams: list[dict[str, Any]] = []
-                progress_names = {e.get("stream_name"): e for e in stream_progress}
-                all_names = list(progress_names.keys())
+                progress_names: dict[str, dict[str, Any]] = {
+                    str(e.get("stream_name", "")): e for e in stream_progress
+                }
+                all_names: list[str] = list(progress_names.keys())
                 all_names.extend(
                     name for name in current_stream_stats if name not in progress_names
                 )
 
                 for name in all_names:
                     entry = progress_names.get(name, {"stream_name": name})
-                    stats = current_stream_stats.get(name) or {}
-                    prev_stats = previous_stream_stats.get(name) or {}
+                    stats = current_stream_stats.get(name, {})
+                    prev_stats = previous_stream_stats.get(name, {})
                     prev_recs = prev_stats.get("records_emitted", 0)
                     recs = stats.get("records_emitted", 0)
                     records_progress = min(recs / prev_recs, 1.0) if prev_recs > 0 else None
