@@ -54,6 +54,7 @@ def main() -> None:
     sync_result = connection.run_sync(
         wait_timeout=60 * 60,  # 1 hour
         with_rich_status_updates=True,  # 15s default refresh
+        progress_log_path="sync_progress.jsonl",  # audit log
     )
 
     print()

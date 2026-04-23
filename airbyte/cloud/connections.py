@@ -264,6 +264,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         wait: bool = True,
         wait_timeout: int = 300,
         with_rich_status_updates: bool | int = False,
+        progress_log_path: str | None = None,
     ) -> SyncResult:
         """Run a sync.
 
@@ -271,6 +272,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         showing per-stream progress is displayed while waiting for
         completion.  Requires `wait=True`; passing `wait=False` with a
         truthy `with_rich_status_updates` raises `ValueError`.
+
+        When `progress_log_path` is set, each Rich polling iteration
+        appends a JSONL line to the given file with timestamped
+        per-stream progress data for auditing.
         """
         if not wait and with_rich_status_updates:
             raise ValueError(
@@ -306,6 +311,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 raise_failure=True,
                 raise_timeout=True,
                 with_rich_status_updates=with_rich_status_updates,
+                progress_log_path=progress_log_path,
             )
 
         return sync_result

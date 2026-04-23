@@ -100,11 +100,13 @@ for record in dataset:
 
 from __future__ import annotations
 
+import json
 import time
 import warnings
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
@@ -557,6 +559,7 @@ class SyncResult:
         raise_timeout: bool = True,
         raise_failure: bool = False,
         with_rich_status_updates: bool | int = False,
+        progress_log_path: str | Path | None = None,
     ) -> JobStatusEnum:
         """Wait for a job to finish running.
 
@@ -566,6 +569,10 @@ class SyncResult:
         seconds (minimum 15s -- values below 15 are clamped with a
         warning).  The rich polling interval replaces
         `JOB_WAIT_INTERVAL_SECS` as the sole loop cadence.
+
+        When `progress_log_path` is set (requires Rich updates enabled),
+        each polling iteration appends a JSONL line to the given file
+        with timestamped per-stream progress data for auditing.
         """
         poll_interval: float = api_util.JOB_WAIT_INTERVAL_SECS
         rich_enabled = bool(with_rich_status_updates)
@@ -574,6 +581,8 @@ class SyncResult:
             poll_interval = _resolve_rich_interval(
                 with_rich_status_updates=with_rich_status_updates,
             )
+
+        log_path: Path | None = Path(progress_log_path) if progress_log_path else None
 
         start_time = time.time()
 
@@ -598,6 +607,7 @@ class SyncResult:
                 wait_timeout=wait_timeout,
                 raise_timeout=raise_timeout,
                 raise_failure=raise_failure,
+                progress_log_path=log_path,
             )
         finally:
             live.stop()
@@ -645,6 +655,7 @@ class SyncResult:
         wait_timeout: int,
         raise_timeout: bool,
         raise_failure: bool,
+        progress_log_path: Path | None = None,
     ) -> JobStatusEnum:
         """Polling loop with Rich Live table showing per-stream progress."""
         previous_state: dict[str, Any] | None = self._pre_sync_state
@@ -736,6 +747,28 @@ class SyncResult:
                 bytes_synced=(job_info.bytes_synced or 0) if job_info else 0,
             )
             live.update(table, refresh=True)
+
+            # Write JSONL progress log entry when a log path is configured.
+            if progress_log_path is not None:
+                log_entry = {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "elapsed_secs": round(elapsed, 1),
+                    "job_status": str(latest_status),
+                    "records_synced": (job_info.rows_synced or 0) if job_info else 0,
+                    "bytes_synced": (job_info.bytes_synced or 0) if job_info else 0,
+                    "streams": [
+                        {
+                            "stream_name": e.get("stream_name"),
+                            "progress_pct": e.get("progress_pct"),
+                            "cursor_value": e.get("cursor_value"),
+                            "previous_cursor_value": e.get("previous_cursor_value"),
+                            "reason": e.get("reason"),
+                        }
+                        for e in stream_progress
+                    ],
+                }
+                with progress_log_path.open("a") as f:
+                    f.write(json.dumps(log_entry) + "\n")
 
             if latest_status in FINAL_STATUSES:
                 if raise_failure:
