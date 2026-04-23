@@ -478,6 +478,28 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
             result[stream_name] = 1.0
         return result
 
+    @property
+    def stream_write_progress_pcts(self) -> dict[str, float]:
+        """Per-stream datetime-cursor write-progress estimates.
+
+        Uses the same formula as `stream_progress_pcts` but with the
+        destination-acknowledged (committed) cursor instead of the latest
+        source-emitted cursor. Only populated for streams with a
+        datetime-parseable baseline + committed cursor.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        result: dict[str, float] = {}
+        for stream_name, committed in self.stream_committed_cursors.items():
+            baseline = self.stream_baseline_cursors.get(stream_name)
+            pct = compute_stream_progress_pct(
+                baseline_cursor=baseline,
+                latest_cursor=committed,
+                now=now,
+            )
+            if pct is not None:
+                result[stream_name] = pct
+        return result
+
     def _build_progress_snapshot(self) -> dict[str, Any]:
         """Build a point-in-time progress snapshot for JSONL audit logging.
 
@@ -486,6 +508,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         """
         now_dt = datetime.datetime.now(datetime.timezone.utc)
         progress_pcts = self.stream_progress_pcts
+        write_progress_pcts = self.stream_write_progress_pcts
         stream_names = (
             set(self.stream_read_counts)
             | set(self.written_stream_names)
@@ -503,6 +526,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 "latest_cursor": self.stream_latest_cursors.get(stream_name),
                 "committed_cursor": self.stream_committed_cursors.get(stream_name),
                 "progress_pct": progress_pcts.get(stream_name),
+                "write_progress_pct": write_progress_pcts.get(stream_name),
             }
             for stream_name in sorted(stream_names)
         ]
@@ -1051,7 +1075,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._append_progress_audit_log()
         self._last_update_time = time.time()
 
-    def _get_status_message(self) -> str:  # noqa: PLR0914, PLR0915
+    def _get_status_message(self) -> str:  # noqa: PLR0912, PLR0914, PLR0915
         """Compile and return a status message."""
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
@@ -1080,46 +1104,45 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 f"({records_per_second:,.1f} records/s{mb_per_second_str}).\n\n"
             )
 
-        if self.stream_read_counts:
-            status_message += (
-                f"- Received records for {len(self.stream_read_counts)}"
-                + (
-                    f" out of {self.num_streams_expected} expected"
-                    if self.num_streams_expected
-                    else ""
-                )
-                + " streams:\n  - "
-                + join_streams_strings(
-                    [
-                        f"{self.stream_read_counts[stream_name]:,} {stream_name}"
-                        for stream_name in self.stream_read_counts
-                    ]
-                )
-                + "\n\n"
-            )
-
-        # Cursor progress (from observed source state messages + completion traces)
-        progress_pcts = self.stream_progress_pcts
-        cursor_progress_streams = sorted(
-            set(self.stream_latest_cursors) | set(self.stream_read_end_times)
+        # Consolidated per-stream status: records + read/write progress per line.
+        read_progress_pcts = self.stream_progress_pcts
+        write_progress_pcts = self.stream_write_progress_pcts
+        per_stream_names = sorted(
+            set(self.stream_read_counts)
+            | set(self.stream_latest_cursors)
+            | set(self.stream_read_end_times)
+            | set(self.stream_committed_cursors)
         )
-        if cursor_progress_streams:
-            status_message += "- Cursor progress:\n"
-            for stream_name in cursor_progress_streams:
-                cursor_field = self.stream_cursor_fields.get(stream_name)
-                field_str = f" [`{cursor_field}`]" if cursor_field else ""
+        if per_stream_names:
+            header = (
+                f"- Streams ({len(self.stream_read_counts)}"
+                + (f" of {self.num_streams_expected} expected" if self.num_streams_expected else "")
+                + "):\n"
+            )
+            lines: list[str] = []
+            for stream_name in per_stream_names:
+                done_marker = "✓ " if stream_name in self.stream_read_end_times else ""
+                records = self.stream_read_counts.get(stream_name, 0)
+                baseline = self.stream_baseline_cursors.get(stream_name)
                 latest = self.stream_latest_cursors.get(stream_name)
-                latest_str = f": `{latest}`" if latest else ""
-                pct = progress_pcts.get(stream_name)
-                pct_str = f" ({pct * 100:.1f}%)" if pct is not None else ""
-                done_str = " ✓" if stream_name in self.stream_read_end_times else ""
                 committed = self.stream_committed_cursors.get(stream_name)
-                committed_str = f" (committed: `{committed}`)" if committed else ""
-                status_message += (
-                    f"  - `{stream_name}`{field_str}{latest_str}"
-                    f"{pct_str}{done_str}{committed_str}\n"
-                )
-            status_message += "\n"
+                read_pct = read_progress_pcts.get(stream_name)
+                write_pct = write_progress_pcts.get(stream_name)
+
+                if read_pct is not None and baseline and latest:
+                    read_frag = f"Read Progress: {read_pct * 100:.1f}%" f" (`{baseline}->{latest}`)"
+                elif stream_name in self.stream_read_end_times:
+                    read_frag = "Read Progress: 100.0% ✓"
+                else:
+                    read_frag = "Progress: n/a"
+
+                segments = [f"{records:,} records", read_frag]
+                if write_pct is not None and baseline and committed:
+                    segments.append(
+                        f"Write Progress: {write_pct * 100:.1f}%" f" (`{baseline}->{committed}`)"
+                    )
+                lines.append(f"  - `{stream_name}`: {done_marker}" + " | ".join(segments))
+            status_message += header + "\n".join(lines) + "\n\n"
 
         # Source cache writes
         if self.total_records_written > 0:
