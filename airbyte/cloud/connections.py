@@ -16,7 +16,7 @@ from airbyte.cloud._connection_state import (
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.constants import JobStatusEnum
-from airbyte.cloud.sync_results import SyncResult
+from airbyte.cloud.sync_results import SyncResult, _extract_stream_stats
 from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
 
 
@@ -287,8 +287,15 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         # This gives us the baseline (denominator) for progress calculation,
         # since the state API only exposes the latest advancing cursor.
         pre_sync_state: dict[str, Any] | None = None
+        pre_sync_stream_stats: dict[str, dict[str, int]] | None = None
         if with_rich_status_updates:
             pre_sync_state = self.dump_raw_state()
+            # Fetch the previous completed sync's per-stream records/bytes
+            # stats so we can use them as a rough denominator for the
+            # mid-sync records-based progress signal.  Best-effort — a
+            # missing previous sync just means the Records % column will
+            # render as `--` during the new sync.
+            pre_sync_stream_stats = self._fetch_latest_sync_stream_stats()
 
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
@@ -303,6 +310,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             connection=self,
             job_id=connection_response.job_id,
             _pre_sync_state=pre_sync_state,
+            _pre_sync_stream_stats=pre_sync_stream_stats,
         )
 
         if wait:
@@ -446,6 +454,34 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             if isinstance(state, dict):
                 return state
 
+        return None
+
+    def _fetch_latest_sync_stream_stats(self) -> dict[str, dict[str, int]] | None:
+        """Fetch per-stream records/bytes stats from the most recent completed sync.
+
+        Used as a rough denominator for the mid-sync records-based
+        progress signal (Records % column).  Walks recent job history to
+        find the latest `SUCCEEDED` sync and pulls its `streamStats` via
+        the Config API's `jobs/get_debug_info` endpoint.
+
+        Returns a mapping from stream name to a dict of integer stats
+        (`records_emitted`, `bytes_emitted`), or `None` if no suitable
+        previous sync is found.
+        """
+        previous_jobs = self.get_previous_sync_logs(limit=5)
+        for job in previous_jobs:
+            if job.get_job_status() != JobStatusEnum.SUCCEEDED:
+                continue
+            debug_info = api_util.get_job_debug_info(
+                job_id=job.job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            stats = _extract_stream_stats(debug_info)
+            if stats:
+                return stats
         return None
 
     # Artifacts

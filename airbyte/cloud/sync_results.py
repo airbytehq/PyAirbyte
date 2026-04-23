@@ -130,7 +130,11 @@ from airbyte.cloud._sync_progress import (
 )
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES, JobStatusEnum
 from airbyte.datasets import CachedDataset
-from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
+from airbyte.exceptions import (
+    AirbyteConnectionSyncError,
+    AirbyteConnectionSyncTimeoutError,
+    AirbyteError,
+)
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
@@ -185,7 +189,39 @@ def _format_bytes(num_bytes: int) -> str:
     return f"{num_bytes / 1_000_000_000:,.2f} GB"
 
 
-def _build_rich_table(
+def _extract_stream_stats(debug_info: dict[str, Any]) -> dict[str, dict[str, int]]:
+    """Extract per-stream `recordsEmitted` / `bytesEmitted` from a debug-info payload.
+
+    The Config API's `jobs/get_debug_info` endpoint returns an `attempts`
+    list; the latest attempt's `streamStats` updates in real-time during
+    a running sync and is our primary mid-sync proof-of-life signal.
+
+    Returns a mapping from stream name to a dict of integer stats
+    (`records_emitted`, `bytes_emitted`).  Missing or malformed payloads
+    yield an empty dict.
+    """
+    attempts = debug_info.get("attempts") or []
+    if not attempts:
+        return {}
+
+    latest_attempt = attempts[-1]
+    attempt_inner = latest_attempt.get("attempt") or latest_attempt
+    stream_stats_list = attempt_inner.get("streamStats") or []
+
+    result: dict[str, dict[str, int]] = {}
+    for entry in stream_stats_list:
+        stream_name = entry.get("streamName") or entry.get("stream_name")
+        if not stream_name:
+            continue
+        stats = entry.get("stats") or {}
+        result[stream_name] = {
+            "records_emitted": int(stats.get("recordsEmitted") or 0),
+            "bytes_emitted": int(stats.get("bytesEmitted") or 0),
+        }
+    return result
+
+
+def _build_rich_table(  # noqa: PLR0913, PLR0914, PLR0915, PLR0917
     stream_progress: list[dict[str, Any]],
     job_status: str,
     elapsed_secs: float,
@@ -193,9 +229,20 @@ def _build_rich_table(
     total_selected_streams: int | None = None,
     records_synced: int = 0,
     bytes_synced: int = 0,
+    stream_stats: dict[str, dict[str, int]] | None = None,
+    previous_stream_stats: dict[str, dict[str, int]] | None = None,
 ) -> Table:
-    """Build a Rich `Table` showing per-stream sync progress."""
+    """Build a Rich `Table` showing per-stream sync progress.
+
+    `stream_stats` is the current mid-sync per-stream `recordsEmitted` /
+    `bytesEmitted` map (from the Config API's `jobs/get_debug_info`
+    endpoint).  `previous_stream_stats` is the same map from the previous
+    completed sync, used as a rough denominator for the records-based
+    progress signal.
+    """
     elapsed_str = _format_elapsed(elapsed_secs)
+    stream_stats = stream_stats or {}
+    previous_stream_stats = previous_stream_stats or {}
 
     streams_with_pct = sum(1 for s in stream_progress if s.get("progress_pct") is not None)
     # Use the catalog stream count as the denominator when available;
@@ -235,17 +282,57 @@ def _build_rich_table(
 
     table = Table(title=title, caption=caption, show_lines=False, expand=True)
     table.add_column("Stream", style="cyan", no_wrap=True)
-    table.add_column("Progress", justify="right", style="green")
-    table.add_column("Status / Reason", style="dim")
+    table.add_column("Records", justify="right", style="magenta")
+    table.add_column("Bytes", justify="right", style="magenta")
+    table.add_column("Records %", justify="right", style="yellow")
+    table.add_column("Cursor %", justify="right", style="green")
+    table.add_column("Stream Status", style="bold")
+    table.add_column("Reason", style="dim")
 
-    for entry in stream_progress:
+    # Union of stream names from cursor-based progress and records-based stats
+    # so proof-of-life shows up even when cursor progress can't compute a pct.
+    progress_by_name: dict[str, dict[str, Any]] = {
+        e.get("stream_name", "?"): e for e in stream_progress
+    }
+    all_names: list[str] = list(progress_by_name.keys())
+    all_names.extend(name for name in stream_stats if name not in progress_by_name)
+
+    for name in all_names:
+        entry = progress_by_name.get(name, {})
         pct = entry.get("progress_pct")
-        pct_str = f"{pct:.1%}" if pct is not None else "--"
+        cursor_pct_str = f"{pct:.1%}" if pct is not None else "--"
         reason = entry.get("reason") or ""
 
+        stats = stream_stats.get(name) or {}
+        recs = stats.get("records_emitted", 0)
+        byts = stats.get("bytes_emitted", 0)
+        recs_str = f"{recs:,}" if recs else "0"
+        bytes_str = _format_bytes(byts) if byts else "0 B"
+
+        prev_stats = previous_stream_stats.get(name) or {}
+        prev_recs = prev_stats.get("records_emitted", 0)
+        if prev_recs > 0:
+            records_pct = min(recs / prev_recs, 1.0)
+            records_pct_str = f"{records_pct:.1%}"
+        else:
+            records_pct_str = "--"
+
+        if recs > 0:
+            stream_status = (
+                "running"
+                if job_status.lower() not in {"succeeded", "failed"}
+                else ("complete" if job_status.lower() == "succeeded" else "failed")
+            )
+        else:
+            stream_status = "pending"
+
         table.add_row(
-            entry.get("stream_name", "?"),
-            pct_str,
+            name,
+            recs_str,
+            bytes_str,
+            records_pct_str,
+            cursor_pct_str,
+            stream_status,
             reason,
         )
 
@@ -401,6 +488,7 @@ class SyncResult:
     _cache: CacheBase | None = None
     _job_with_attempts_info: dict[str, Any] | None = None
     _pre_sync_state: dict[str, Any] | None = None
+    _pre_sync_stream_stats: dict[str, dict[str, int]] | None = None
 
     @property
     def job_url(self) -> str:
@@ -646,7 +734,7 @@ class SyncResult:
 
             time.sleep(poll_interval)
 
-    def _poll_until_complete_with_rich(
+    def _poll_until_complete_with_rich(  # noqa: PLR0912, PLR0914, PLR0915
         self,
         *,
         live: RichLive,
@@ -659,6 +747,7 @@ class SyncResult:
     ) -> JobStatusEnum:
         """Polling loop with Rich Live table showing per-stream progress."""
         previous_state: dict[str, Any] | None = self._pre_sync_state
+        previous_stream_stats: dict[str, dict[str, int]] = self._pre_sync_stream_stats or {}
         catalog_data: dict[str, Any] | None = None
         catalog_fetched = False
 
@@ -735,6 +824,26 @@ class SyncResult:
                     if entry.get("progress_pct") is not None:
                         entry["progress_pct"] = 1.0
 
+            # Fetch live per-stream records/bytes from the Config API's
+            # `jobs/get_debug_info` endpoint.  These counters update
+            # mid-sync and serve as the primary proof-of-life signal when
+            # cursor-based progress can't compute a percentage.
+            current_stream_stats: dict[str, dict[str, int]] = {}
+            try:
+                debug_info = api_util.get_job_debug_info(
+                    job_id=self.job_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
+            except AirbyteError:
+                # Progress signal is best-effort; swallow API errors and
+                # render `--` rather than failing the sync polling loop.
+                debug_info = {}
+            if debug_info:
+                current_stream_stats = _extract_stream_stats(debug_info)
+
             elapsed = time.time() - start_time
             job_info = self._latest_job_info
             table = _build_rich_table(
@@ -745,27 +854,48 @@ class SyncResult:
                 total_selected_streams=catalog_stream_count,
                 records_synced=(job_info.rows_synced or 0) if job_info else 0,
                 bytes_synced=(job_info.bytes_synced or 0) if job_info else 0,
+                stream_stats=current_stream_stats,
+                previous_stream_stats=previous_stream_stats,
             )
             live.update(table, refresh=True)
 
             # Write JSONL progress log entry when a log path is configured.
             if progress_log_path is not None:
+                log_streams: list[dict[str, Any]] = []
+                progress_names = {e.get("stream_name"): e for e in stream_progress}
+                all_names = list(progress_names.keys())
+                all_names.extend(
+                    name for name in current_stream_stats if name not in progress_names
+                )
+
+                for name in all_names:
+                    entry = progress_names.get(name, {"stream_name": name})
+                    stats = current_stream_stats.get(name) or {}
+                    prev_stats = previous_stream_stats.get(name) or {}
+                    prev_recs = prev_stats.get("records_emitted", 0)
+                    recs = stats.get("records_emitted", 0)
+                    records_progress = min(recs / prev_recs, 1.0) if prev_recs > 0 else None
+                    log_streams.append(
+                        {
+                            "stream_name": entry.get("stream_name", name),
+                            "progress_pct": entry.get("progress_pct"),
+                            "cursor_value": entry.get("cursor_value"),
+                            "previous_cursor_value": entry.get("previous_cursor_value"),
+                            "reason": entry.get("reason"),
+                            "records_emitted": recs,
+                            "bytes_emitted": stats.get("bytes_emitted", 0),
+                            "records_progress": records_progress,
+                            "previous_records_emitted": prev_recs,
+                        }
+                    )
+
                 log_entry = {
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "elapsed_secs": round(elapsed, 1),
                     "job_status": str(latest_status),
                     "records_synced": (job_info.rows_synced or 0) if job_info else 0,
                     "bytes_synced": (job_info.bytes_synced or 0) if job_info else 0,
-                    "streams": [
-                        {
-                            "stream_name": e.get("stream_name"),
-                            "progress_pct": e.get("progress_pct"),
-                            "cursor_value": e.get("cursor_value"),
-                            "previous_cursor_value": e.get("previous_cursor_value"),
-                            "reason": e.get("reason"),
-                        }
-                        for e in stream_progress
-                    ],
+                    "streams": log_streams,
                 }
                 with progress_log_path.open("a") as f:
                     f.write(json.dumps(log_entry) + "\n")
