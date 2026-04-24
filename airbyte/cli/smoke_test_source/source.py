@@ -119,7 +119,10 @@ def _parse_start_date(value: Any) -> datetime | None:  # noqa: ANN401
             parsed = datetime.fromisoformat(text)
         except ValueError as exc:
             if len(text) == _ISO_DATE_LENGTH:
-                parsed_date = date.fromisoformat(text)
+                try:
+                    parsed_date = date.fromisoformat(text)
+                except ValueError as date_exc:
+                    raise ValueError(f"Invalid `start_date`: {value!r}") from date_exc
                 parsed = datetime(
                     parsed_date.year,
                     parsed_date.month,
@@ -497,7 +500,7 @@ class SourceSmokeTest(Source):
         return None
 
     @staticmethod
-    def _validate_incremental_config(
+    def _validate_incremental_config(  # noqa: PLR0911
         config: Mapping[str, Any],
     ) -> str | None:
         """Validate `start_date`, `batch_size`, `batch_count`, `partition_by`, `cursor_step`."""
@@ -518,6 +521,9 @@ class SourceSmokeTest(Source):
                 return f"`{key}` must be a positive integer."
             if value < 1:
                 return f"`{key}` must be >= 1."
+
+        if config.get("batch_count") is not None and config.get("batch_size") is None:
+            return "`batch_count` requires `batch_size` to also be set."
 
         partition_by = config.get("partition_by")
         if partition_by is not None and partition_by not in _VALID_PARTITION_GRAINS:
@@ -706,6 +712,11 @@ class SourceSmokeTest(Source):
         Total record count still honors `batch_size * batch_count` when both are
         set; otherwise it falls back to the scenario's `record_count` or the
         generator's default cap. Only STATE emission is suppressed in this mode.
+
+        Note: when `start_date` is not configured, the cursor origin defaults
+        to Jan 1 of the current UTC year, so `updated_at` values shift across
+        year boundaries even though record `id` / `category` / `value` remain
+        deterministic.
         """
         cursor_start = start_date or _default_cursor_start()
         count = 0

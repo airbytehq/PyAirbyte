@@ -442,6 +442,8 @@ def test_check_accepts_valid_configs(config):
         pytest.param({"cursor_step": "PTbadS"}, id="bad_cursor_step"),
         pytest.param({"batch_size": True}, id="batch_size_bool_true"),
         pytest.param({"batch_count": True}, id="batch_count_bool_true"),
+        pytest.param({"batch_count": 5}, id="batch_count_without_batch_size"),
+        pytest.param({"start_date": "2024-13-45"}, id="invalid_10char_date"),
     ],
 )
 def test_check_rejects_invalid_configs(config):
