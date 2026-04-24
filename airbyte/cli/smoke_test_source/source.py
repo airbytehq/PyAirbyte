@@ -338,12 +338,12 @@ class SourceSmokeTest(Source):
                     "start_date": {
                         "type": ["string", "null"],
                         "title": "Start Date",
-                        "format": "date-time",
                         "description": (
                             "Lower bound for incremental streams' cursor. "
-                            "Accepts an ISO-8601 date or date-time. When "
-                            "omitted and no state is provided, the cursor "
-                            "starts at Jan 1 (00:00:00 UTC) of the current year."
+                            "Accepts an ISO-8601 date (`YYYY-MM-DD`) or a "
+                            "date-time (`YYYY-MM-DDTHH:MM:SSZ`). When omitted "
+                            "and no state is provided, the cursor starts at "
+                            "Jan 1 (00:00:00 UTC) of the current year."
                         ),
                         "default": None,
                     },

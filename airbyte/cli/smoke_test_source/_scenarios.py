@@ -42,6 +42,14 @@ PartitionGrain = Literal["day", "week", "month"]
 
 _INCREMENTAL_CURSOR_FIELD: list[str] = ["updated_at"]
 
+_INCREMENTAL_ID_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+"""Fixed origin used to derive stable `id` values for `incremental_batch_stream`.
+
+Using a fixed epoch (rather than `cursor_start`) ensures the same cursor
+timestamp always maps to the same `id` across runs, so resuming from state
+does not re-emit colliding primary keys.
+"""
+
 PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "basic_types",
@@ -902,11 +910,17 @@ def iter_incremental_scenario_events(
     for i in range(1, total + 1):
         ts = start_utc + cursor_step * i
         cursor_iso = ts.isoformat().replace("+00:00", "Z")
+        # Derive `id` from the cursor timestamp so values are stable across
+        # runs: two syncs that produce a record at the same `updated_at` will
+        # always assign it the same `id`, even if one run resumes from state
+        # while the other starts from scratch. This keeps the primary key
+        # unique on resume.
+        stable_id = (ts - _INCREMENTAL_ID_EPOCH) // cursor_step
         record = {
-            "id": i,
+            "id": stable_id,
             "updated_at": cursor_iso,
             "category": categories[(i - 1) % len(categories)],
-            "value": float(i) * 1.1,
+            "value": round(float(stable_id) * 1.1, 6),
         }
         yield {"kind": "record", "data": record, "cursor": cursor_iso}
         last_cursor_iso = cursor_iso
