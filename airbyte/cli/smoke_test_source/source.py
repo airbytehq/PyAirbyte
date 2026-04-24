@@ -714,9 +714,12 @@ class SourceSmokeTest(Source):
         generator's default cap. Only STATE emission is suppressed in this mode.
 
         Note: when `start_date` is not configured, the cursor origin defaults
-        to Jan 1 of the current UTC year, so `updated_at` values shift across
-        year boundaries even though record `id` / `category` / `value` remain
-        deterministic.
+        to Jan 1 of the current UTC year. `updated_at` values shift across year
+        boundaries. Record `id` is derived from the cursor timestamp against a
+        fixed epoch (`stable_id = (ts - _INCREMENTAL_ID_EPOCH) // cursor_step`),
+        and `value` is derived from `id`, so both are stable per `updated_at`
+        (resume-safe) but shift when the origin shifts. Only `category`, which
+        is indexed by the within-run counter, is independent of `start_date`.
         """
         cursor_start = start_date or _default_cursor_start()
         count = 0

@@ -56,7 +56,9 @@ def _configured_catalog(
     stream_name: str = _STREAM,
 ) -> ConfiguredAirbyteCatalog:
     src = _source()
-    catalog = src.discover(_LOGGER, {})
+    # `incremental_batch_stream` is `high_volume: True`, so opt into the
+    # slow-stream set explicitly when building the test catalog.
+    catalog = src.discover(_LOGGER, {"all_slow_streams": True})
     stream = next(s for s in catalog.streams if s.name == stream_name)
     return ConfiguredAirbyteCatalog(
         streams=[
@@ -114,7 +116,7 @@ def test_spec_includes_incremental_config_fields():
 
 
 def test_discover_marks_incremental_stream_correctly():
-    catalog = _source().discover(_LOGGER, {})
+    catalog = _source().discover(_LOGGER, {"all_slow_streams": True})
     incr = next(s for s in catalog.streams if s.name == _STREAM)
     assert SyncMode.incremental in incr.supported_sync_modes
     assert SyncMode.full_refresh in incr.supported_sync_modes

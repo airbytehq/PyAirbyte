@@ -50,6 +50,9 @@ timestamp always maps to the same `id` across runs, so resuming from state
 does not re-emit colliding primary keys.
 """
 
+_CATEGORIES: list[str] = ["cat_a", "cat_b", "cat_c", "cat_d", "cat_e"]
+"""Shared `category` rotation used by the batch-oriented record generators."""
+
 PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
     {
         "name": "basic_types",
@@ -761,7 +764,7 @@ PREDEFINED_SCENARIOS: list[dict[str, Any]] = [
         "incremental": True,
         "cursor_field": list(_INCREMENTAL_CURSOR_FIELD),
         "record_generator": "incremental_batch",
-        "high_volume": False,
+        "high_volume": True,
     },
 ]
 
@@ -771,13 +774,12 @@ def generate_large_batch_records(
 ) -> list[dict[str, Any]]:
     """Generate records for the large_batch_stream scenario."""
     count = scenario.get("record_count", _DEFAULT_LARGE_BATCH_COUNT)
-    categories = ["cat_a", "cat_b", "cat_c", "cat_d", "cat_e"]
     return [
         {
             "id": i,
             "name": f"record_{i:06d}",
             "value": float(i) * 1.1,
-            "category": categories[i % len(categories)],
+            "category": _CATEGORIES[i % len(_CATEGORIES)],
         }
         for i in range(1, count + 1)
     ]
@@ -868,8 +870,9 @@ def iter_incremental_scenario_events(
     STATE events are interleaved:
 
     - after every `batch_size` records when `batch_size` is set;
-    - whenever the next record's partition bucket differs from the
-      current record's bucket, when `partition_by` is set;
+    - whenever the just-yielded record's partition bucket differs
+      from the previous record's bucket, when `partition_by` is set
+      (the emitted cursor is the first record of the new bucket);
     - once at the end of the stream (deduped if a trigger already fired
       at the final record).
 
@@ -900,7 +903,6 @@ def iter_incremental_scenario_events(
     if total <= 0:
         return
 
-    categories = ["cat_a", "cat_b", "cat_c", "cat_d", "cat_e"]
     start_utc = cursor_start.astimezone(timezone.utc)
 
     last_state_emitted_at: str | None = None
@@ -919,7 +921,7 @@ def iter_incremental_scenario_events(
         record = {
             "id": stable_id,
             "updated_at": cursor_iso,
-            "category": categories[(i - 1) % len(categories)],
+            "category": _CATEGORIES[(i - 1) % len(_CATEGORIES)],
             "value": round(float(stable_id) * 1.1, 6),
         }
         yield {"kind": "record", "data": record, "cursor": cursor_iso}
