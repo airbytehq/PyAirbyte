@@ -36,6 +36,7 @@ is set; prevents accidental unbounded emission.
 
 HIGH_VOLUME_SCENARIO_NAMES: set[str] = {
     "large_batch_stream",
+    "incremental_batch_stream",
 }
 
 PartitionGrain = Literal["day", "week", "month"]
