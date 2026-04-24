@@ -221,6 +221,63 @@ def _extract_stream_stats(debug_info: dict[str, Any]) -> dict[str, dict[str, int
     return result
 
 
+def _append_progress_log_entry(
+    log_path: Path,
+    elapsed_secs: float,
+    job_status: str,
+    records_synced: int,
+    bytes_synced: int,
+    stream_progress: list[dict[str, Any]],
+    current_stream_stats: dict[str, dict[str, int]],
+    previous_stream_stats: dict[str, dict[str, int]],
+) -> None:
+    """Append a single JSONL entry describing per-stream sync progress.
+
+    Factored into a module-level helper so the write happens in a scope
+    that does not reference any credential attributes (`client_secret`,
+    `bearer_token`). The values passed in are all non-sensitive progress
+    metrics: stream names, cursor positions, record counts, and timestamps.
+    """
+    log_streams: list[dict[str, Any]] = []
+    progress_names: dict[str, dict[str, Any]] = {
+        str(e.get("stream_name", "")): e for e in stream_progress
+    }
+    all_names: list[str] = list(progress_names.keys())
+    all_names.extend(name for name in current_stream_stats if name not in progress_names)
+
+    for name in all_names:
+        entry = progress_names.get(name, {"stream_name": name})
+        stats = current_stream_stats.get(name, {})
+        prev_stats = previous_stream_stats.get(name, {})
+        prev_recs = prev_stats.get("records_emitted", 0)
+        recs = stats.get("records_emitted", 0)
+        records_progress = min(recs / prev_recs, 1.0) if prev_recs > 0 else None
+        log_streams.append(
+            {
+                "stream_name": entry.get("stream_name", name),
+                "progress_pct": entry.get("progress_pct"),
+                "cursor_value": entry.get("cursor_value"),
+                "previous_cursor_value": entry.get("previous_cursor_value"),
+                "reason": entry.get("reason"),
+                "records_emitted": recs,
+                "bytes_emitted": stats.get("bytes_emitted", 0),
+                "records_progress": records_progress,
+                "previous_records_emitted": prev_recs,
+            }
+        )
+
+    log_entry = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "elapsed_secs": round(elapsed_secs, 1),
+        "job_status": job_status,
+        "records_synced": records_synced,
+        "bytes_synced": bytes_synced,
+        "streams": log_streams,
+    }
+    with log_path.open("a") as f:
+        f.write(json.dumps(log_entry) + "\n")
+
+
 def _build_rich_table(  # noqa: PLR0913, PLR0914, PLR0915, PLR0917
     stream_progress: list[dict[str, Any]],
     job_status: str,
@@ -734,7 +791,7 @@ class SyncResult:
 
             time.sleep(poll_interval)
 
-    def _poll_until_complete_with_rich(  # noqa: PLR0912, PLR0914, PLR0915
+    def _poll_until_complete_with_rich(  # noqa: PLR0912, PLR0914
         self,
         *,
         live: RichLive,
@@ -861,46 +918,16 @@ class SyncResult:
 
             # Write JSONL progress log entry when a log path is configured.
             if progress_log_path is not None:
-                log_streams: list[dict[str, Any]] = []
-                progress_names: dict[str, dict[str, Any]] = {
-                    str(e.get("stream_name", "")): e for e in stream_progress
-                }
-                all_names: list[str] = list(progress_names.keys())
-                all_names.extend(
-                    name for name in current_stream_stats if name not in progress_names
+                _append_progress_log_entry(
+                    log_path=progress_log_path,
+                    elapsed_secs=elapsed,
+                    job_status=str(latest_status),
+                    records_synced=(job_info.rows_synced or 0) if job_info else 0,
+                    bytes_synced=(job_info.bytes_synced or 0) if job_info else 0,
+                    stream_progress=stream_progress,
+                    current_stream_stats=current_stream_stats,
+                    previous_stream_stats=previous_stream_stats,
                 )
-
-                for name in all_names:
-                    entry = progress_names.get(name, {"stream_name": name})
-                    stats = current_stream_stats.get(name, {})
-                    prev_stats = previous_stream_stats.get(name, {})
-                    prev_recs = prev_stats.get("records_emitted", 0)
-                    recs = stats.get("records_emitted", 0)
-                    records_progress = min(recs / prev_recs, 1.0) if prev_recs > 0 else None
-                    log_streams.append(
-                        {
-                            "stream_name": entry.get("stream_name", name),
-                            "progress_pct": entry.get("progress_pct"),
-                            "cursor_value": entry.get("cursor_value"),
-                            "previous_cursor_value": entry.get("previous_cursor_value"),
-                            "reason": entry.get("reason"),
-                            "records_emitted": recs,
-                            "bytes_emitted": stats.get("bytes_emitted", 0),
-                            "records_progress": records_progress,
-                            "previous_records_emitted": prev_recs,
-                        }
-                    )
-
-                log_entry = {
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                    "elapsed_secs": round(elapsed, 1),
-                    "job_status": str(latest_status),
-                    "records_synced": (job_info.rows_synced or 0) if job_info else 0,
-                    "bytes_synced": (job_info.bytes_synced or 0) if job_info else 0,
-                    "streams": log_streams,
-                }
-                with progress_log_path.open("a") as f:
-                    f.write(json.dumps(log_entry) + "\n")
 
             if latest_status in FINAL_STATUSES:
                 if raise_failure:
