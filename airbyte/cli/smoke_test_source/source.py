@@ -152,7 +152,7 @@ def _parse_cursor_step(value: Any) -> timedelta:  # noqa: ANN401
         text = value.strip()
         if text.startswith("P"):
             match = _ISO_DURATION_RE.match(text)
-            if not match or match.group(0) == "P":
+            if not match or match.group(0) == "P" or not any(match.groups()):
                 raise ValueError(f"Invalid ISO-8601 duration for `cursor_step`: {value!r}")
             days = int(match.group(1) or 0)
             hours = int(match.group(2) or 0)
@@ -201,7 +201,7 @@ def _state_cursor_for_stream(
         descriptor = getattr(stream_state, "stream_descriptor", None)
         if descriptor is None or descriptor.name != stream_name:
             continue
-        if namespace is not None and getattr(descriptor, "namespace", None) != namespace:
+        if getattr(descriptor, "namespace", None) != namespace:
             continue
         blob = getattr(stream_state, "stream_state", None)
         if blob is None:
@@ -369,7 +369,7 @@ class SourceSmokeTest(Source):
                     "partition_by": {
                         "type": ["string", "null"],
                         "title": "Partition By",
-                        "enum": ["day", "week", "month", None],
+                        "enum": ["day", "week", "month"],
                         "description": (
                             "Emit a STATE message at each partition boundary "
                             "(UTC) of the cursor for incremental streams."
@@ -701,7 +701,12 @@ class SourceSmokeTest(Source):
         now_ms: int,
         logger: logging.Logger,
     ) -> Iterable[AirbyteMessage]:
-        """Emit RECORDs (no STATE) for an incremental scenario read in full-refresh mode."""
+        """Emit RECORDs (no STATE) for an incremental scenario read in full-refresh mode.
+
+        Total record count still honors `batch_size * batch_count` when both are
+        set; otherwise it falls back to the scenario's `record_count` or the
+        generator's default cap. Only STATE emission is suppressed in this mode.
+        """
         cursor_start = start_date or _default_cursor_start()
         count = 0
         for event in iter_incremental_scenario_events(

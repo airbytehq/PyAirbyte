@@ -826,6 +826,9 @@ def _partition_bucket(
     if grain == "day":
         return (ts_utc.year, ts_utc.month, ts_utc.day)
     if grain == "week":
+        # Use `iso.year` (not `ts_utc.year`): an ISO week can straddle a
+        # calendar year boundary (e.g. Jan 1 may fall in ISO week 52/53 of
+        # the previous year), so `(iso.year, iso.week)` is the correct bucket.
         iso = ts_utc.isocalendar()
         return (iso.year, iso.week)
     if grain == "month":

@@ -92,7 +92,7 @@ def _records_and_states(messages: list) -> tuple[list, list]:
 
 
 def _state_cursor(msg) -> str:
-    return msg.state.stream.stream_state.__dict__["updated_at"]
+    return getattr(msg.state.stream.stream_state, "updated_at")
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +201,14 @@ def test_parse_cursor_step_rejects_bool_as_type_error():
 
 
 def test_default_cursor_start_is_jan_1_current_utc_year():
+    # Sample the SUT first so a Dec 31 23:59:59 -> Jan 1 boundary can't make
+    # `now.year` disagree with the year the SUT observed.
+    result = _default_cursor_start()
     now = datetime.now(tz=timezone.utc)
-    assert _default_cursor_start() == datetime(now.year, 1, 1, tzinfo=timezone.utc)
+    assert result in {
+        datetime(now.year, 1, 1, tzinfo=timezone.utc),
+        datetime(now.year - 1, 1, 1, tzinfo=timezone.utc),
+    }
 
 
 def test_state_cursor_returns_none_when_no_state():
@@ -382,8 +388,12 @@ def test_read_incremental_defaults_to_jan_1_current_utc_year():
         "cursor_step": 3600,
     }
     records, _ = _records_and_states(list(src.read(_LOGGER, config, catalog)))
-    expected_year = datetime.now(tz=timezone.utc).year
-    assert records[0].record.data["updated_at"] == f"{expected_year}-01-01T01:00:00Z"
+    now_year = datetime.now(tz=timezone.utc).year
+    # Tolerate a Dec 31 -> Jan 1 flip between the SUT call and this sample.
+    assert records[0].record.data["updated_at"] in {
+        f"{now_year}-01-01T01:00:00Z",
+        f"{now_year - 1}-01-01T01:00:00Z",
+    }
 
 
 def test_read_full_refresh_scenario_unchanged_by_incremental_config():
@@ -430,6 +440,8 @@ def test_check_accepts_valid_configs(config):
         pytest.param({"batch_count": -1}, id="negative_batch_count"),
         pytest.param({"partition_by": "year"}, id="bad_partition_grain"),
         pytest.param({"cursor_step": "PTbadS"}, id="bad_cursor_step"),
+        pytest.param({"batch_size": True}, id="batch_size_bool_true"),
+        pytest.param({"batch_count": True}, id="batch_count_bool_true"),
     ],
 )
 def test_check_rejects_invalid_configs(config):
