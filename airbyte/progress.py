@@ -128,6 +128,21 @@ def _to_time_str(timestamp: float) -> str:
     return datetime_obj.strftime("%H:%M:%S")
 
 
+def _cursor_date_str(cursor_value: str | None) -> str | None:
+    """Format a cursor value as a concise `yyyy-mm-dd` date string.
+
+    Returns `None` if `cursor_value` is falsy or cannot be parsed as a
+    datetime. ISO-8601 timestamps are truncated to their date portion.
+    """
+    if not cursor_value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(cursor_value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    return parsed.strftime("%Y-%m-%d")
+
+
 def _get_elapsed_time_str(seconds: float) -> str:
     """Return duration as a string.
 
@@ -1129,17 +1144,25 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 read_pct = read_progress_pcts.get(stream_name)
                 write_pct = write_progress_pcts.get(stream_name)
 
-                if read_pct is not None and baseline and latest:
-                    read_frag = f"Read Progress: {read_pct * 100:.1f}%" f" (`{baseline}->{latest}`)"
+                baseline_date = _cursor_date_str(baseline)
+                latest_date = _cursor_date_str(latest)
+                committed_date = _cursor_date_str(committed)
+
+                if read_pct is not None and baseline_date and latest_date:
+                    read_frag = (
+                        f"Read Progress: {read_pct * 100:.1f}% "
+                        f"(dates: `{baseline_date}`-`{latest_date}`)"
+                    )
                 elif stream_name in self.stream_read_end_times:
                     read_frag = "Read Progress: 100.0% ✓"
                 else:
                     read_frag = "Progress: n/a"
 
                 segments = [f"{records:,} records", read_frag]
-                if write_pct is not None and baseline and committed:
+                if write_pct is not None and baseline_date and committed_date:
                     segments.append(
-                        f"Write Progress: {write_pct * 100:.1f}%" f" (`{baseline}->{committed}`)"
+                        f"Write Progress: {write_pct * 100:.1f}% "
+                        f"(dates: `{baseline_date}`-`{committed_date}`)"
                     )
                 lines.append(f"  - `{stream_name}`: {done_marker}" + " | ".join(segments))
             status_message += header + "\n".join(lines) + "\n\n"
