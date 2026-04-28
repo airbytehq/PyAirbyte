@@ -107,6 +107,142 @@ class ConnectionStateResponse(BaseModel):
         )
 
 
+def _normalize_state_to_protocol(
+    raw_state: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Convert a raw Config API state blob to Airbyte protocol state messages.
+
+    Transforms the camelCase API format into a list of `AirbyteStateMessage` dicts
+    with snake_case keys, suitable for passing to a connector's `--state` flag.
+
+    Args:
+        raw_state: Full state dict from the Config API, including `stateType`.
+
+    Returns:
+        List of protocol-format state message dicts. Empty list if state is `not_set`.
+    """
+    parsed = ConnectionStateResponse(**raw_state)
+
+    if parsed.state_type == "not_set":
+        return []
+
+    if parsed.state_type == "legacy":
+        return [{"type": "LEGACY", "data": parsed.state or {}}]
+
+    if parsed.state_type == "global" and parsed.global_state:
+        return [
+            {
+                "type": "GLOBAL",
+                "global": parsed.global_state.model_dump(by_alias=False),
+            }
+        ]
+
+    # state_type == "stream"
+    if not parsed.stream_state:
+        return []
+
+    return [
+        {
+            "type": "STREAM",
+            "stream": entry.model_dump(by_alias=False),
+        }
+        for entry in parsed.stream_state
+    ]
+
+
+def _denormalize_protocol_state_to_api(
+    protocol_messages: list[dict[str, Any]],
+    connection_id: str,
+) -> dict[str, Any]:
+    """Convert Airbyte protocol state messages back to Config API format.
+
+    Reverses `_normalize_state_to_protocol`, producing a dict suitable for
+    `import_raw_state()` / the Config API `create_or_update_safe` endpoint.
+
+    Args:
+        protocol_messages: List of protocol-format `AirbyteStateMessage` dicts.
+        connection_id: Connection ID to embed in the result.
+
+    Returns:
+        A Config API state dict with camelCase keys and `stateType`.
+    """
+    if not protocol_messages:
+        return {
+            "stateType": "not_set",
+            "connectionId": connection_id,
+        }
+
+    first = protocol_messages[0]
+    msg_type = first.get("type", "").upper()
+
+    if msg_type == "LEGACY":
+        return {
+            "stateType": "legacy",
+            "connectionId": connection_id,
+            "state": first.get("data", {}),
+        }
+
+    if msg_type == "GLOBAL":
+        global_body = first.get("global", {})
+        shared = global_body.get("shared_state", {})
+        streams = global_body.get("stream_states", [])
+        return {
+            "stateType": "global",
+            "connectionId": connection_id,
+            "globalState": {
+                "sharedState": shared,
+                "streamStates": [
+                    {
+                        "streamDescriptor": {
+                            "name": s.get("stream_descriptor", {}).get("name", ""),
+                            **(
+                                {"namespace": ns}
+                                if (ns := s.get("stream_descriptor", {}).get("namespace"))
+                                else {}
+                            ),
+                        },
+                        "streamState": s.get("stream_state", {}),
+                    }
+                    for s in streams
+                ],
+            },
+        }
+
+    # STREAM type
+    return {
+        "stateType": "stream",
+        "connectionId": connection_id,
+        "streamState": [
+            {
+                "streamDescriptor": {
+                    "name": s.get("stream", {}).get("stream_descriptor", {}).get("name", ""),
+                    **(
+                        {"namespace": ns}
+                        if (ns := s.get("stream", {}).get("stream_descriptor", {}).get("namespace"))
+                        else {}
+                    ),
+                },
+                "streamState": s.get("stream", {}).get("stream_state", {}),
+            }
+            for s in protocol_messages
+        ],
+    }
+
+
+def _is_protocol_state_format(
+    state_input: dict[str, Any] | list[dict[str, Any]],
+) -> bool:
+    """Detect whether the input is in Airbyte protocol format (list of state messages).
+
+    Returns `True` for protocol format (a list of dicts with `type` keys),
+    `False` for Config API format (a dict with `stateType`).
+    """
+    if isinstance(state_input, list):
+        return True
+    # A dict with snake_case 'type' at top-level is a single protocol message
+    return "type" in state_input and "stateType" not in state_input
+
+
 def _match_stream(
     stream: StreamState,
     stream_name: str,

@@ -2632,13 +2632,13 @@ def get_connection_artifact(
     connection = workspace.get_connection(connection_id=connection_id)
 
     if artifact_type == "state":
-        result = connection.dump_raw_state()
+        result = connection.dump_raw_state(normalize=False)
         if result.get("stateType") == "not_set":
             return {"ERROR": "No state is set for this connection (stateType: not_set)"}
         return result
 
     # artifact_type == "catalog"
-    result = connection.dump_raw_catalog()
+    result = connection.dump_raw_catalog(normalize=False)
     if result is None:
         return {"ERROR": "No catalog found for this connection"}
     return result

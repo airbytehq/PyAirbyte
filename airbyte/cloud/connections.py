@@ -9,10 +9,18 @@ from typing import TYPE_CHECKING, Any
 from typing_extensions import deprecated
 
 from airbyte._util import api_util
+from airbyte.cloud._connection_catalog import (
+    _denormalize_catalog_to_api,
+    _is_protocol_catalog_format,
+    _normalize_catalog_to_protocol,
+)
 from airbyte.cloud._connection_state import (
     ConnectionStateResponse,
+    _denormalize_protocol_state_to_api,
     _get_stream_list,
+    _is_protocol_state_format,
     _match_stream,
+    _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
 from airbyte.cloud.sync_results import SyncResult
@@ -392,31 +400,44 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return None
         return state_response.get("streamState", [])
 
-    def dump_raw_state(self) -> dict[str, Any]:
-        """Dump the full raw state for this connection.
+    def dump_raw_state(
+        self,
+        *,
+        normalize: bool = True,
+    ) -> dict[str, Any] | list[dict[str, Any]]:
+        """Dump the state for this connection.
 
-        Returns the connection's sync state as a raw dictionary from the API.
-        The result includes stateType, connectionId, and all state data.
+        By default, returns a list of Airbyte protocol `AirbyteStateMessage` dicts
+        with snake_case keys, suitable for passing to a connector's `--state` flag.
 
-        The output of this method can be passed directly to `import_raw_state()`
-        on the same or a different connection (connectionId is overridden on import).
+        When `normalize` is `False`, returns the raw Config API dict (camelCase keys,
+        includes `stateType` and `connectionId`). This raw format can be passed
+        directly to `import_raw_state()` for backup/restore workflows.
+
+        Args:
+            normalize: If `True` (default), convert to Airbyte protocol format.
+                If `False`, return the raw Config API response.
 
         Returns:
-            The full connection state as a dictionary.
+            Normalized: list of protocol-format state message dicts (empty list if
+            no state). Raw: the full Config API state dict.
         """
-        return api_util.get_connection_state(
+        raw = api_util.get_connection_state(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
+        if normalize:
+            return _normalize_state_to_protocol(raw)
+        return raw
 
     def import_raw_state(
         self,
-        connection_state_dict: dict[str, Any],
+        connection_state: dict[str, Any] | list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Import (restore) the full raw state for this connection.
+        """Import (restore) the full state for this connection.
 
         > ⚠️ **WARNING:** Modifying the state directly is not recommended and
         > could result in broken connections, and/or incorrect sync behavior.
@@ -428,10 +449,14 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         The `connectionId` in the blob is always overridden with this connection's
         ID, making state blobs portable across connections.
 
+        Accepts either format:
+
+        - **Config API format** (dict with `stateType`): passed through directly.
+        - **Airbyte protocol format** (list of `AirbyteStateMessage` dicts): automatically
+          converted to Config API format before sending.
+
         Args:
-            connection_state_dict: The full connection state dict to import. Must include:
-                - stateType: "global", "stream", or "legacy"
-                - One of: state (legacy), streamState (stream), globalState (global)
+            connection_state: Connection state in either Config API or Airbyte protocol format.
 
         Returns:
             The updated connection state as a dictionary.
@@ -440,9 +465,18 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
         """
+        if _is_protocol_state_format(connection_state):
+            messages = (
+                connection_state if isinstance(connection_state, list) else [connection_state]
+            )
+            connection_state = _denormalize_protocol_state_to_api(
+                protocol_messages=messages,
+                connection_id=self.connection_id,
+            )
+
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
-            connection_state_dict=connection_state_dict,
+            connection_state_dict=connection_state,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
@@ -473,7 +507,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Returns:
             The stream's state blob as a dictionary, or None if the stream is not found.
         """
-        state_data = self.dump_raw_state()
+        state_data = self.dump_raw_state(normalize=False)
         result = ConnectionStateResponse(**state_data)
 
         streams = _get_stream_list(result)
@@ -524,7 +558,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
         """
-        state_data = self.dump_raw_state()
+        state_data = self.dump_raw_state(normalize=False)
         current = ConnectionStateResponse(**state_data)
 
         if current.state_type == "not_set":
@@ -603,17 +637,27 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         """
         return self.dump_raw_catalog()
 
-    def dump_raw_catalog(self) -> dict[str, Any] | None:
-        """Dump the full configured catalog (syncCatalog) for this connection.
+    def dump_raw_catalog(
+        self,
+        *,
+        normalize: bool = True,
+    ) -> dict[str, Any] | None:
+        """Dump the configured catalog for this connection.
 
-        Returns the raw catalog dict as returned by the API, including stream
-        schemas, sync modes, cursor fields, and primary keys.
+        By default, returns the catalog in Airbyte protocol format
+        (`ConfiguredAirbyteCatalog` with snake_case keys), suitable for passing
+        to a connector's `--catalog` flag.
 
-        The returned dict can be passed to `import_raw_catalog()` on this or
-        another connection to restore or clone the catalog configuration.
+        When `normalize` is `False`, returns the raw `syncCatalog` dict from the
+        Config API (camelCase keys, nested `config` block). This raw format can be
+        passed directly to `import_raw_catalog()` for backup/restore workflows.
+
+        Args:
+            normalize: If `True` (default), convert to Airbyte protocol format.
+                If `False`, return the raw Config API catalog.
 
         Returns:
-            Dictionary containing the configured catalog, or `None` if not found.
+            The configured catalog dict, or `None` if not found.
         """
         connection_response = api_util.get_connection_catalog(
             connection_id=self.connection_id,
@@ -622,7 +666,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        return connection_response.get("syncCatalog")
+        raw = connection_response.get("syncCatalog")
+        if raw is None:
+            return None
+        if normalize:
+            return _normalize_catalog_to_protocol(raw)
+        return raw
 
     def import_raw_catalog(self, catalog: dict[str, Any]) -> None:
         """Replace the configured catalog for this connection.
@@ -633,12 +682,19 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Accepts a configured catalog dict and replaces the connection's entire
         catalog with it. All other connection settings remain unchanged.
 
-        The catalog shape should match the output of `dump_raw_catalog()`:
-        `{"streams": [{"stream": {...}, "config": {...}}, ...]}`.
+        Accepts either format:
+
+        - **Config API format** (`syncCatalog` with camelCase keys and nested `config`):
+          passed through directly.
+        - **Airbyte protocol format** (`ConfiguredAirbyteCatalog` with snake_case keys):
+          automatically converted to Config API format before sending.
 
         Args:
-            catalog: The configured catalog dict to set.
+            catalog: The configured catalog dict in either format.
         """
+        if _is_protocol_catalog_format(catalog):
+            catalog = _denormalize_catalog_to_api(catalog)
+
         api_util.replace_connection_catalog(
             connection_id=self.connection_id,
             configured_catalog_dict=catalog,
