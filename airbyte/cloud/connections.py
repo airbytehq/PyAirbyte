@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 from typing_extensions import deprecated
 
@@ -400,6 +400,12 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             return None
         return state_response.get("streamState", [])
 
+    @overload
+    def dump_raw_state(self, *, normalize: Literal[True] = True) -> list[dict[str, Any]]: ...
+
+    @overload
+    def dump_raw_state(self, *, normalize: Literal[False]) -> dict[str, Any]: ...
+
     def dump_raw_state(
         self,
         *,
@@ -465,18 +471,24 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
         """
+        api_state: dict[str, Any]
         if _is_protocol_state_format(connection_state):
             messages = (
                 connection_state if isinstance(connection_state, list) else [connection_state]
             )
-            connection_state = _denormalize_protocol_state_to_api(
+            api_state = _denormalize_protocol_state_to_api(
                 protocol_messages=messages,
                 connection_id=self.connection_id,
             )
+        elif isinstance(connection_state, dict):
+            api_state = connection_state
+        else:
+            msg = f"Expected a dict or list, got {type(connection_state)}"
+            raise TypeError(msg)
 
         return api_util.replace_connection_state(
             connection_id=self.connection_id,
-            connection_state_dict=connection_state,
+            connection_state_dict=api_state,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
