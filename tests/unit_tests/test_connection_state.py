@@ -417,6 +417,12 @@ def test_state_round_trip(raw_state: dict[str, Any]) -> None:
     )
     assert restored["stateType"] == raw_state["stateType"]
     assert restored["connectionId"] == raw_state["connectionId"]
+    if raw_state["stateType"] == "stream":
+        assert restored["streamState"] == raw_state["streamState"]
+    elif raw_state["stateType"] == "global":
+        assert restored["globalState"] == raw_state["globalState"]
+    elif raw_state["stateType"] == "legacy":
+        assert restored["state"] == raw_state["state"]
 
 
 # --- Tests for _is_protocol_state_format ---
@@ -431,6 +437,16 @@ def test_state_round_trip(raw_state: dict[str, Any]) -> None:
             {"stateType": "stream", "connectionId": "x"}, False, id="api_format"
         ),
         pytest.param([], True, id="empty_list"),
+        pytest.param(
+            [{"streamDescriptor": {"name": "x"}, "streamState": {}}],
+            False,
+            id="raw_stream_state_list",
+        ),
+        pytest.param(
+            [{"type": "STREAM", "stream": {}}, {"no_type": True}],
+            False,
+            id="mixed_list_invalid",
+        ),
     ],
 )
 def test_is_protocol_state_format(

@@ -472,16 +472,26 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 connection (HTTP 423). Wait for the sync to complete before retrying.
         """
         api_state: dict[str, Any]
-        if _is_protocol_state_format(connection_state):
-            messages = (
-                connection_state if isinstance(connection_state, list) else [connection_state]
-            )
+        if isinstance(connection_state, list):
+            if not _is_protocol_state_format(connection_state):
+                msg = (
+                    "Expected connection_state list to contain Airbyte protocol state "
+                    "message dicts (each with a top-level `type` of STREAM, GLOBAL, "
+                    "or LEGACY). Got a list that does not match protocol format."
+                )
+                raise ValueError(msg)
             api_state = _denormalize_protocol_state_to_api(
-                protocol_messages=messages,
+                protocol_messages=connection_state,
                 connection_id=self.connection_id,
             )
         elif isinstance(connection_state, dict):
-            api_state = connection_state
+            if _is_protocol_state_format(connection_state):
+                api_state = _denormalize_protocol_state_to_api(
+                    protocol_messages=[connection_state],
+                    connection_id=self.connection_id,
+                )
+            else:
+                api_state = connection_state
         else:
             msg = f"Expected a dict or list, got {type(connection_state)}"
             raise TypeError(msg)

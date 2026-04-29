@@ -232,13 +232,25 @@ def _denormalize_protocol_state_to_api(
 def _is_protocol_state_format(
     state_input: dict[str, Any] | list[dict[str, Any]],
 ) -> bool:
-    """Detect whether the input is in Airbyte protocol format (list of state messages).
+    """Detect whether the input is in Airbyte protocol format.
 
-    Returns `True` for protocol format (a list of dicts with `type` keys),
-    `False` for Config API format (a dict with `stateType`).
+    Returns `True` for protocol format:
+    - an empty list (representing no protocol state), or
+    - a non-empty list where every item is a dict with a known `type`, or
+    - a single dict with top-level snake_case `type` and no `stateType`.
+
+    Returns `False` for Config API format (for example, a dict with `stateType`
+    or a raw `streamState` list from the Config API).
     """
+    protocol_message_types = {"STREAM", "GLOBAL", "LEGACY"}
+
     if isinstance(state_input, list):
-        return True
+        if not state_input:
+            return True
+        return all(
+            isinstance(message, dict) and message.get("type") in protocol_message_types
+            for message in state_input
+        )
     # A dict with snake_case 'type' at top-level is a single protocol message
     return "type" in state_input and "stateType" not in state_input
 
