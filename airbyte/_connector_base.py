@@ -440,6 +440,7 @@ class ConnectorBase(abc.ABC):
         stdin: IO[str] | AirbyteMessageIterator | None = None,
         *,
         progress_tracker: ProgressTracker | None = None,
+        log_file: IO[str] | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Execute the connector with the given arguments.
 
@@ -448,6 +449,13 @@ class ConnectorBase(abc.ABC):
         * Spawn a subprocess with .venv-<connector_name>/bin/<connector-name> <args>
         * Read the output line by line of the subprocess and serialize them AirbyteMessage objects.
           Drop if not valid.
+
+        If `log_file` is provided, the connector subprocess's stderr will be redirected to
+        that writable text-mode file object. This is useful in MCP-server mode where the
+        parent process's stderr is not visible to the caller. When a `progress_tracker`
+        is set, stderr is normally suppressed to avoid mixing with the progress display,
+        but providing a `log_file` overrides that and captures stderr to the file
+        instead.
 
         Raises:
             AirbyteConnectorFailedError: If the process returns a failure status (non-zero).
@@ -473,8 +481,16 @@ class ConnectorBase(abc.ABC):
         )
 
         try:
-            suppress_stderr = progress_tracker is not None
-            for line in self.executor.execute(args, stdin=stdin, suppress_stderr=suppress_stderr):
+            # Suppress stderr by default when a progress tracker is active to avoid
+            # mixing connector stderr with the progress display. If a log_file is
+            # explicitly provided, capture stderr to the file instead of suppressing it.
+            suppress_stderr = progress_tracker is not None and log_file is None
+            for line in self.executor.execute(
+                args,
+                stdin=stdin,
+                suppress_stderr=suppress_stderr,
+                log_file=log_file,
+            ):
                 try:
                     message: AirbyteMessage = AirbyteMessage.model_validate_json(json_data=line)
                     if progress_tracker and message.record:

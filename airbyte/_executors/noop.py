@@ -66,12 +66,13 @@ class NoOpExecutor(Executor):
         *,
         stdin: IO[str] | AirbyteMessageIterator | None = None,
         suppress_stderr: bool = False,
+        log_file: IO[str] | None = None,
     ) -> Iterator[str]:
         """Execute a command and return an iterator of STDOUT lines.
 
         Only the 'spec' command is supported. Other commands will raise an error.
         """
-        _ = stdin, suppress_stderr  # Unused
+        _ = stdin, suppress_stderr, log_file  # Unused (no subprocess)
 
         if args == ["spec"]:
             if self._cached_spec is None:

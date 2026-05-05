@@ -10,11 +10,14 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+import contextlib
+import os
 import sys
+import tempfile
 import traceback
 from itertools import islice
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Literal
+from typing import IO, TYPE_CHECKING, Annotated, Any, Literal
 
 from fastmcp import FastMCP
 from fastmcp_extensions import mcp_tool, register_mcp_tools
@@ -63,6 +66,139 @@ specify a local YAML manifest file instead of using the registry
 version. This is useful for testing custom or locally-developed
 connector manifests.
 """
+
+
+_LOG_CAPTURE_HELP = """
+You can optionally capture the connector subprocess's stderr (LOG / TRACE
+output and any non-JSON-protocol writes) by setting `log_file_path` to a
+filesystem path. The file will be opened in text-mode write and overwritten
+if it already exists. The directory will be created if it does not exist.
+
+For short repros, you can also set `include_logs_in_response=True` to embed
+the captured logs in the response payload alongside the records. When set,
+the return shape becomes a structured object containing both the records
+and the logs. If `include_logs_in_response=True` is set without a
+`log_file_path`, a temporary file is used internally and discarded after
+its contents are read back into the response.
+"""
+
+
+class StreamRecordsResponse(BaseModel):
+    """Structured response for `read_source_stream_records` when logs are requested.
+
+    Returned when `include_logs_in_response=True`. Contains the records read from
+    the stream, the captured connector stderr, and an optional error message if
+    reading failed.
+    """
+
+    records: list[dict[str, Any]] = Field(default_factory=list)
+    """The records read from the stream. Empty if reading failed."""
+    logs: str = ""
+    """The captured stderr output from the connector subprocess."""
+    error: str | None = None
+    """The error message (with traceback) if reading failed; `None` on success."""
+
+
+class StreamPreviewsResponse(BaseModel):
+    """Structured response for `get_stream_previews` when logs are requested.
+
+    Returned when `include_logs_in_response=True`. Contains the per-stream sample
+    records and the captured connector stderr.
+    """
+
+    previews: dict[str, list[dict[str, Any]] | str] = Field(default_factory=dict)
+    """Mapping of stream name to sample records, or per-stream error message."""
+    logs: str = ""
+    """The captured stderr output from the connector subprocess."""
+    error: str | None = None
+    """A top-level error message if previewing failed before any per-stream attempt."""
+
+
+class SyncResultResponse(BaseModel):
+    """Structured response for `sync_source_to_cache` when logs are requested.
+
+    Returned when `include_logs_in_response=True`. Contains the sync summary
+    message and the captured connector stderr.
+    """
+
+    summary: str = ""
+    """The sync summary message."""
+    logs: str = ""
+    """The captured stderr output from the connector subprocess."""
+
+
+class _LogCapture:
+    """Context manager for connector stderr capture in MCP tools.
+
+    Behavior:
+
+    * If `log_file_path` is provided, the connector subprocess's stderr is
+      written to that path (parent directory created if needed). The file is
+      kept after the context exits.
+    * If `log_file_path` is `None` and `include_in_response` is `True`, a
+      temporary file is used and removed after the context exits.
+    * If both are unset, no capture occurs and `file` is `None`.
+
+    Use `read_logs()` after the subprocess has finished (still inside the
+    `with` block) to read back the captured contents. The file is closed
+    on first read so that all data is flushed to disk.
+    """
+
+    def __init__(
+        self,
+        log_file_path: str | Path | None,
+        *,
+        include_in_response: bool,
+    ) -> None:
+        self.include_in_response: bool = include_in_response
+        self._is_temp: bool = log_file_path is None and include_in_response
+        self._path: Path | None = None
+        self._file: IO[str] | None = None
+
+        if self._is_temp:
+            fd, name = tempfile.mkstemp(suffix=".log", prefix="pyairbyte-mcp-stderr-")
+            os.close(fd)
+            self._path = Path(name)
+        elif log_file_path is not None:
+            self._path = Path(log_file_path)
+            self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def __enter__(self) -> "_LogCapture":
+        if self._path is not None:
+            self._file = self._path.open("w", encoding="utf-8")
+        return self
+
+    def __exit__(
+        self,
+        exc_type: object,
+        exc_val: object,
+        exc_tb: object,
+    ) -> None:
+        if self._file is not None and not self._file.closed:
+            self._file.close()
+        if self._is_temp and self._path is not None and self._path.exists():
+            # Best-effort cleanup; don't mask any in-flight exception.
+            with contextlib.suppress(OSError):
+                self._path.unlink()
+
+    @property
+    def file(self) -> IO[str] | None:
+        """The writable text-mode file for connector stderr, or `None` if no capture."""
+        return self._file
+
+    def read_logs(self) -> str:
+        """Read the captured logs.
+
+        Returns the log file contents, or an empty string if no capture was
+        configured. Closes the file (if still open) so that buffered writes
+        are flushed to disk before reading.
+        """
+        if self._path is None:
+            return ""
+        if self._file is not None and not self._file.closed:
+            self._file.flush()
+            self._file.close()
+        return self._path.read_text(encoding="utf-8")
 
 
 def _get_mcp_source(
@@ -381,9 +517,9 @@ def get_source_stream_json_schema(
 
 @mcp_tool(
     read_only=True,
-    extra_help_text=_CONFIG_HELP,
+    extra_help_text=_CONFIG_HELP + _LOG_CAPTURE_HELP,
 )
-def read_source_stream_records(
+def read_source_stream_records(  # noqa: PLR0913
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -436,44 +572,79 @@ def read_source_stream_records(
             default=None,
         ),
     ],
-) -> list[dict[str, Any]] | str:
+    log_file_path: Annotated[
+        str | Path | None,
+        Field(
+            description="Optional path to a file where the connector subprocess's stderr "
+            "(LOG / TRACE messages) will be written. The file is opened in text mode and "
+            "overwritten if it already exists. Parent directories are created as needed.",
+            default=None,
+        ),
+    ],
+    include_logs_in_response: Annotated[
+        bool,
+        Field(
+            description="If True, the captured connector stderr is read back and embedded "
+            "in the response payload. The return shape becomes a `StreamRecordsResponse` "
+            "object with `records`, `logs`, and `error` fields. If `log_file_path` is not "
+            "set, a temporary file is used internally.",
+            default=False,
+        ),
+    ],
+) -> list[dict[str, Any]] | str | StreamRecordsResponse:
     """Get records from a source connector."""
-    try:
-        source: Source = _get_mcp_source(
-            connector_name=source_connector_name,
-            override_execution_mode=override_execution_mode,
-            manifest_path=manifest_path,
-        )
-        config_dict = resolve_connector_config(
-            config=config,
-            config_file=config_file,
-            config_secret_name=config_secret_name,
-            config_spec_jsonschema=source.config_spec,
-        )
-        source.set_config(config_dict)
-        # First we get a generator for the records in the specified stream.
-        record_generator = source.get_records(stream_name)
-        # Next we load a limited number of records from the generator into our list.
-        records: list[dict[str, Any]] = list(islice(record_generator, max_records))
+    with _LogCapture(
+        log_file_path,
+        include_in_response=include_logs_in_response,
+    ) as log_capture:
+        try:
+            source: Source = _get_mcp_source(
+                connector_name=source_connector_name,
+                override_execution_mode=override_execution_mode,
+                manifest_path=manifest_path,
+            )
+            config_dict = resolve_connector_config(
+                config=config,
+                config_file=config_file,
+                config_secret_name=config_secret_name,
+                config_spec_jsonschema=source.config_spec,
+            )
+            source.set_config(config_dict)
+            # First we get a generator for the records in the specified stream.
+            record_generator = source.get_records(stream_name, log_file=log_capture.file)
+            # Next we load a limited number of records from the generator into our list.
+            records: list[dict[str, Any]] = list(islice(record_generator, max_records))
 
-        print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
+            print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
 
-    except Exception as ex:
-        tb_str = traceback.format_exc()
-        # If any error occurs, we print the error message to stderr and return an empty list.
-        return (
-            f"Error reading records from source '{source_connector_name}': {ex!r}, {ex!s}\n{tb_str}"
-        )
+        except Exception as ex:
+            tb_str = traceback.format_exc()
+            error_msg = (
+                f"Error reading records from source '{source_connector_name}': "
+                f"{ex!r}, {ex!s}\n{tb_str}"
+            )
+            if include_logs_in_response:
+                return StreamRecordsResponse(
+                    records=[],
+                    logs=log_capture.read_logs(),
+                    error=error_msg,
+                )
+            return error_msg
 
-    else:
+        if include_logs_in_response:
+            return StreamRecordsResponse(
+                records=records,
+                logs=log_capture.read_logs(),
+                error=None,
+            )
         return records
 
 
 @mcp_tool(
     read_only=True,
-    extra_help_text=_CONFIG_HELP,
+    extra_help_text=_CONFIG_HELP + _LOG_CAPTURE_HELP,
 )
-def get_stream_previews(
+def get_stream_previews(  # noqa: PLR0913, PLR0917
     source_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -531,61 +702,101 @@ def get_stream_previews(
             default=None,
         ),
     ],
-) -> dict[str, list[dict[str, Any]] | str]:
+    log_file_path: Annotated[
+        str | Path | None,
+        Field(
+            description="Optional path to a file where the connector subprocess's stderr "
+            "(LOG / TRACE messages) will be written, accumulating across all per-stream "
+            "preview calls. The file is opened in text mode and overwritten if it already "
+            "exists. Parent directories are created as needed.",
+            default=None,
+        ),
+    ],
+    include_logs_in_response: Annotated[
+        bool,
+        Field(
+            description="If True, the captured connector stderr is read back and embedded "
+            "in the response payload. The return shape becomes a `StreamPreviewsResponse` "
+            "object with `previews`, `logs`, and `error` fields. If `log_file_path` is not "
+            "set, a temporary file is used internally.",
+            default=False,
+        ),
+    ],
+) -> dict[str, list[dict[str, Any]] | str] | StreamPreviewsResponse:
     """Get sample records (previews) from streams in a source connector.
 
     This operation requires a valid configuration, including any required secrets.
     Returns a dictionary mapping stream names to lists of sample records, or an error
     message string if an error occurred for that stream.
     """
-    source: Source = _get_mcp_source(
-        connector_name=source_name,
-        override_execution_mode=override_execution_mode,
-        manifest_path=manifest_path,
-    )
-
-    config_dict = resolve_connector_config(
-        config=config,
-        config_file=config_file,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=source.config_spec,
-    )
-    source.set_config(config_dict)
-
-    streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(
-        streams
-    )  # pyrefly: ignore[no-matching-overload]
-    if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
-        streams_param = "*"
-
-    try:
-        samples_result = source.get_samples(
-            streams=streams_param,
-            limit=limit,
-            on_error="ignore",
+    with _LogCapture(
+        log_file_path,
+        include_in_response=include_logs_in_response,
+    ) as log_capture:
+        source: Source = _get_mcp_source(
+            connector_name=source_name,
+            override_execution_mode=override_execution_mode,
+            manifest_path=manifest_path,
         )
-    except Exception as ex:
-        tb_str = traceback.format_exc()
-        return {
-            "ERROR": f"Error getting stream previews from source '{source_name}': "
-            f"{ex!r}, {ex!s}\n{tb_str}"
-        }
 
-    result: dict[str, list[dict[str, Any]] | str] = {}
-    for stream_name, dataset in samples_result.items():
-        if dataset is None:
-            result[stream_name] = f"Could not retrieve stream samples for stream '{stream_name}'"
-        else:
-            result[stream_name] = list(dataset)
+        config_dict = resolve_connector_config(
+            config=config,
+            config_file=config_file,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=source.config_spec,
+        )
+        source.set_config(config_dict)
 
-    return result
+        streams_param: list[str] | Literal["*"] | None = resolve_list_of_strings(
+            streams
+        )  # pyrefly: ignore[no-matching-overload]
+        if streams_param and len(streams_param) == 1 and streams_param[0] == "*":
+            streams_param = "*"
+
+        try:
+            samples_result = source.get_samples(
+                streams=streams_param,
+                limit=limit,
+                on_error="ignore",
+                log_file=log_capture.file,
+            )
+        except Exception as ex:
+            tb_str = traceback.format_exc()
+            error_msg = (
+                f"Error getting stream previews from source '{source_name}': "
+                f"{ex!r}, {ex!s}\n{tb_str}"
+            )
+            if include_logs_in_response:
+                return StreamPreviewsResponse(
+                    previews={},
+                    logs=log_capture.read_logs(),
+                    error=error_msg,
+                )
+            return {"ERROR": error_msg}
+
+        result: dict[str, list[dict[str, Any]] | str] = {}
+        for stream_name, dataset in samples_result.items():
+            if dataset is None:
+                result[stream_name] = (
+                    f"Could not retrieve stream samples for stream '{stream_name}'"
+                )
+            else:
+                result[stream_name] = list(dataset)
+
+        if include_logs_in_response:
+            return StreamPreviewsResponse(
+                previews=result,
+                logs=log_capture.read_logs(),
+                error=None,
+            )
+        return result
 
 
 @mcp_tool(
     destructive=False,
-    extra_help_text=_CONFIG_HELP,
+    extra_help_text=_CONFIG_HELP + _LOG_CAPTURE_HELP,
 )
-def sync_source_to_cache(
+def sync_source_to_cache(  # noqa: PLR0913, PLR0917
     source_connector_name: Annotated[
         str,
         Field(description="The name of the source connector."),
@@ -633,51 +844,82 @@ def sync_source_to_cache(
             default=None,
         ),
     ],
-) -> str:
+    log_file_path: Annotated[
+        str | Path | None,
+        Field(
+            description="Optional path to a file where the connector subprocess's stderr "
+            "(LOG / TRACE messages) will be written for the duration of the sync. The "
+            "file is opened in text mode and overwritten if it already exists. Parent "
+            "directories are created as needed.",
+            default=None,
+        ),
+    ],
+    include_logs_in_response: Annotated[
+        bool,
+        Field(
+            description="If True, the captured connector stderr is read back and embedded "
+            "in the response payload. The return shape becomes a `SyncResultResponse` "
+            "object with `summary` and `logs` fields. If `log_file_path` is not set, a "
+            "temporary file is used internally.",
+            default=False,
+        ),
+    ],
+) -> str | SyncResultResponse:
     """Run a sync from a source connector to the default DuckDB cache."""
-    source: Source = _get_mcp_source(
-        connector_name=source_connector_name,
-        override_execution_mode=override_execution_mode,
-        manifest_path=manifest_path,
-    )
-    config_dict = resolve_connector_config(
-        config=config,
-        config_file=config_file,
-        config_secret_name=config_secret_name,
-        config_spec_jsonschema=source.config_spec,
-    )
-    source.set_config(config_dict)
-    cache = get_default_cache()
+    with _LogCapture(
+        log_file_path,
+        include_in_response=include_logs_in_response,
+    ) as log_capture:
+        source: Source = _get_mcp_source(
+            connector_name=source_connector_name,
+            override_execution_mode=override_execution_mode,
+            manifest_path=manifest_path,
+        )
+        config_dict = resolve_connector_config(
+            config=config,
+            config_file=config_file,
+            config_secret_name=config_secret_name,
+            config_spec_jsonschema=source.config_spec,
+        )
+        source.set_config(config_dict)
+        cache = get_default_cache()
 
-    streams = resolve_list_of_strings(streams)
-    if streams and len(streams) == 1 and streams[0] in {"*", "suggested"}:
-        # Float '*' and 'suggested' to the top-level for special processing:
-        streams = streams[0]
+        streams = resolve_list_of_strings(streams)
+        if streams and len(streams) == 1 and streams[0] in {"*", "suggested"}:
+            # Float '*' and 'suggested' to the top-level for special processing:
+            streams = streams[0]
 
-    if isinstance(streams, str) and streams == "suggested":
-        streams = "*"  # Default to all streams if 'suggested' is not otherwise specified.
-        try:
-            metadata = get_connector_metadata(
-                source_connector_name,
+        if isinstance(streams, str) and streams == "suggested":
+            streams = "*"  # Default to all streams if 'suggested' is not otherwise specified.
+            try:
+                metadata = get_connector_metadata(
+                    source_connector_name,
+                )
+            except Exception:
+                streams = "*"  # Fallback to all streams if suggested streams fail.
+            else:
+                if metadata is not None:
+                    streams = metadata.suggested_streams or "*"
+
+        if isinstance(streams, str) and streams != "*":
+            streams = [streams]  # Ensure streams is a list
+
+        source.read(
+            cache=cache,
+            streams=streams,
+            log_file=log_capture.file,
+        )
+        del cache  # Ensure the cache is closed properly
+
+        summary: str = f"Sync completed for '{source_connector_name}'!\n\n"
+        summary += "Data written to default DuckDB cache\n"
+
+        if include_logs_in_response:
+            return SyncResultResponse(
+                summary=summary,
+                logs=log_capture.read_logs(),
             )
-        except Exception:
-            streams = "*"  # Fallback to all streams if suggested streams fail.
-        else:
-            if metadata is not None:
-                streams = metadata.suggested_streams or "*"
-
-    if isinstance(streams, str) and streams != "*":
-        streams = [streams]  # Ensure streams is a list
-
-    source.read(
-        cache=cache,
-        streams=streams,
-    )
-    del cache  # Ensure the cache is closed properly
-
-    summary: str = f"Sync completed for '{source_connector_name}'!\n\n"
-    summary += "Data written to default DuckDB cache\n"
-    return summary
+        return summary
 
 
 class CachedDatasetInfo(BaseModel):

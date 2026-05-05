@@ -8,7 +8,7 @@ import threading
 import time
 import warnings
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Literal
+from typing import IO, TYPE_CHECKING, Any, Literal
 
 import yaml
 from rich import print  # noqa: A004  # Allow shadowing the built-in
@@ -518,6 +518,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         stop_event: threading.Event | None = None,
         normalize_field_names: bool = False,
         prune_undeclared_fields: bool = True,
+        log_file: IO[str] | None = None,
     ) -> LazyDataset:
         """Read a stream from the connector.
 
@@ -533,6 +534,10 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 which generally matches the behavior of PyAirbyte caches and most Airbyte
                 destinations, specifically when you expect the catalog may be stale. You can disable
                 this to keep all fields in the records.
+            log_file: Optional writable text-mode file object. When provided, the connector
+                subprocess's stderr will be redirected to this file instead of inherited from
+                the parent process. The file must remain open for the duration of record
+                iteration since records are pulled lazily.
 
         This involves the following steps:
         * Call discover to get the catalog
@@ -583,6 +588,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 catalog=configured_catalog,
                 progress_tracker=progress_tracker,
                 stop_event=stop_event,
+                log_file=log_file,
             )
             if record.record
         )
@@ -627,8 +633,14 @@ class Source(ConnectorBase):  # noqa: PLR0904
         *,
         limit: int = 5,
         on_error: Literal["raise", "ignore", "log"] = "raise",
+        log_file: IO[str] | None = None,
     ) -> dict[str, InMemoryDataset | None]:
-        """Get a sample of records from the given streams."""
+        """Get a sample of records from the given streams.
+
+        If `log_file` is provided, each per-stream connector subprocess's stderr will be
+        redirected to that writable text-mode file object. The file must remain open for
+        the duration of this call.
+        """
         if streams == "*":
             streams = self.get_available_streams()
         elif streams is None:
@@ -642,6 +654,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     stream,
                     limit=limit,
                     stop_event=stop_event,
+                    log_file=log_file,
                 ).fetch_all()
                 stop_event.set()
             except Exception as ex:
@@ -762,6 +775,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         *,
         state: StateProviderBase | None = None,
         stop_event: threading.Event | None = None,
+        log_file: IO[str] | None = None,
     ) -> Generator[AirbyteMessage, None, None]:
         """Call read on the connector.
 
@@ -771,6 +785,9 @@ class Source(ConnectorBase):  # noqa: PLR0904
         * Listen to the messages and return the AirbyteRecordMessages that come along.
         * Send out telemetry on the performed sync (with information about which source was used and
           the type of the cache)
+
+        If `log_file` is provided, the connector subprocess's stderr will be redirected to
+        that writable text-mode file object.
         """
         with as_temp_files(
             [
@@ -794,6 +811,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     state_file,
                 ],
                 progress_tracker=progress_tracker,
+                log_file=log_file,
             )
             for message in progress_tracker.tally_records_read(message_generator):
                 if stop_event and stop_event.is_set():
@@ -843,6 +861,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         write_strategy: str | WriteStrategy = WriteStrategy.AUTO,
         force_full_refresh: bool = False,
         skip_validation: bool = False,
+        log_file: IO[str] | None = None,
     ) -> ReadResult:
         """Read from the connector and write to the cache.
 
@@ -861,6 +880,11 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 running the connector. This can be helpful in debugging, when you want to send
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
+            log_file: Optional writable text-mode file object. When provided, the connector
+                subprocess's stderr will be redirected to this file. Stderr capture takes
+                precedence over the default progress-tracker stderr suppression, so the
+                file will contain the connector's full stderr output for the duration of
+                the sync.
         """
         cache = cache or get_default_cache()
         progress_tracker = ProgressTracker(
@@ -901,6 +925,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 force_full_refresh=force_full_refresh,
                 skip_validation=skip_validation,
                 progress_tracker=progress_tracker,
+                log_file=log_file,
             )
         except exc.PyAirbyteInternalError as ex:
             progress_tracker.log_failure(exception=ex)
@@ -927,8 +952,13 @@ class Source(ConnectorBase):  # noqa: PLR0904
         force_full_refresh: bool = False,
         skip_validation: bool = False,
         progress_tracker: ProgressTracker,
+        log_file: IO[str] | None = None,
     ) -> ReadResult:
-        """Internal read method."""
+        """Internal read method.
+
+        If `log_file` is provided, the connector subprocess's stderr will be redirected
+        to that writable text-mode file object.
+        """
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(
                 message=(
@@ -976,6 +1006,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 catalog=catalog_provider.configured_catalog,
                 state=state_provider,
                 progress_tracker=progress_tracker,
+                log_file=log_file,
             )
         )
         cache._write_airbyte_message_stream(  # noqa: SLF001  # Non-public API

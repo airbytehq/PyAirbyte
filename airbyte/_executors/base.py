@@ -221,17 +221,24 @@ class Executor(ABC):
         *,
         stdin: IO[str] | AirbyteMessageIterator | None = None,
         suppress_stderr: bool = False,
+        log_file: IO[str] | None = None,
     ) -> Iterator[str]:
         """Execute a command and return an iterator of STDOUT lines.
 
-        If stdin is provided, it will be passed to the subprocess as STDIN.
-        If suppress_stderr is True, stderr output will be suppressed to reduce noise.
+        If `stdin` is provided, it will be passed to the subprocess as STDIN.
+
+        If `suppress_stderr` is `True`, stderr output will be suppressed to reduce noise.
+
+        If `log_file` is provided (and `suppress_stderr` is `False`), the connector
+        subprocess's stderr will be redirected to that writable text-mode file object.
+        Otherwise stderr is inherited from the parent process.
         """
         mapped_args = self.map_cli_args(args)
         with _stream_from_subprocess(
             [*self._cli, *mapped_args],
             stdin=stdin,
             suppress_stderr=suppress_stderr,
+            log_file=log_file,
         ) as stream_lines:
             yield from stream_lines
 
