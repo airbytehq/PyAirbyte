@@ -74,8 +74,9 @@ _CONNECTOR_NAME_HELP = (
 _DOCKER_IMAGE_HELP = (
     "Optional docker image override for the connector "
     "(e.g. `airbyte/source-mssql:4.4.2`). When set, docker execution is used "
-    "regardless of `override_execution_mode`. Mutually exclusive with a "
-    "`:tag` already embedded in the image and an explicit `version`."
+    "regardless of `override_execution_mode`. If the image already includes a "
+    "`:tag` or `@digest`, any explicitly provided `version` is ignored. Cannot "
+    "be combined with `manifest_path`."
 )
 _VERSION_HELP = (
     "Optional connector version to pin (e.g. `4.4.2`). Applied to registry "
@@ -141,11 +142,22 @@ def _get_mcp_source(
     `version` pins the registry version when staying on the registry-name path
     and (for docker) sets the image tag if the resolved docker image does not
     already include one.
+
+    Raises `ValueError` if both a docker image (via `connector_name` or
+    `docker_image`) and a `manifest_path` are supplied, since those select
+    different execution modes.
     """
     name, resolved_docker_image = _resolve_docker_image_and_name(
         connector_name=connector_name,
         docker_image=docker_image,
     )
+
+    if resolved_docker_image is not None and manifest_path:
+        raise ValueError(
+            "Cannot combine a docker image with `manifest_path`: "
+            f"got docker_image={resolved_docker_image!r} and "
+            f"manifest_path={manifest_path!r}. Pass only one."
+        )
 
     if resolved_docker_image is not None:
         override_execution_mode = "docker"
