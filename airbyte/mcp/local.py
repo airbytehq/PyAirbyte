@@ -64,6 +64,53 @@ version. This is useful for testing custom or locally-developed
 connector manifests.
 """
 
+_CONNECTOR_NAME_HELP = (
+    "Either a registered connector name (e.g. `source-mssql`) or a docker "
+    "image identifier containing a `/` "
+    "(e.g. `airbyte/source-mssql`, `airbyte/source-mssql:4.4.2`, or a "
+    "locally-built `airbyte/source-mssql:dev`). Image-shaped values bypass "
+    "registry lookup for the executable and force docker execution."
+)
+_DOCKER_IMAGE_HELP = (
+    "Optional docker image override for the connector "
+    "(e.g. `airbyte/source-mssql:4.4.2`). When set, docker execution is used "
+    "regardless of `override_execution_mode`. Mutually exclusive with a "
+    "`:tag` already embedded in the image and an explicit `version`."
+)
+_VERSION_HELP = (
+    "Optional connector version to pin (e.g. `4.4.2`). Applied to registry "
+    "lookups and to docker image tags when the image does not already "
+    "include a `:tag`."
+)
+
+
+def _resolve_docker_image_and_name(
+    connector_name: str,
+    docker_image: str | None,
+) -> tuple[str, str | None]:
+    """Resolve a connector registry name and docker image override.
+
+    If `connector_name` looks like a docker image identifier (i.e. contains a `/`),
+    it is treated as a docker image reference and parsed into:
+
+    - `name`: the last path segment, with any `:tag` suffix stripped (e.g.
+      `airbyte/source-mssql:4.4.2` becomes `source-mssql`).
+    - `docker_image`: the original `connector_name` string (full image reference).
+
+    Otherwise, `connector_name` is returned unchanged as `name`, and `docker_image`
+    is returned as passed in.
+
+    If the caller passes both an image-shaped `connector_name` and an explicit
+    non-`None` `docker_image`, the explicit `docker_image` wins; the registry
+    name extracted from `connector_name` is still used as `name`.
+    """
+    if "/" not in connector_name:
+        return connector_name, docker_image
+
+    last_segment = connector_name.rsplit("/", 1)[-1]
+    name = last_segment.split(":", 1)[0]
+    return name, docker_image if docker_image is not None else connector_name
+
 
 def _get_mcp_source(
     connector_name: str,
@@ -71,40 +118,79 @@ def _get_mcp_source(
     *,
     install_if_missing: bool = True,
     manifest_path: str | Path | None,
+    docker_image: str | None = None,
+    version: str | None = None,
 ) -> Source:
-    """Get the MCP source for a connector."""
+    """Get the MCP source for a connector.
+
+    `connector_name` accepts either a registered connector name (e.g.
+    `source-mssql`, resolved against the connector registry) or a docker image
+    identifier containing a `/` (e.g. `airbyte/source-mssql`,
+    `airbyte/source-mssql:4.4.2`, or a locally-built `airbyte/source-mssql:dev`).
+    Image-shaped values bypass registry lookup for the executable and force
+    `override_execution_mode="docker"`.
+
+    `docker_image` is an explicit override; when set, `override_execution_mode`
+    is forced to `"docker"` regardless of `connector_name`.
+
+    `version` pins the registry version when staying on the registry-name path
+    and (for docker) sets the image tag if the resolved docker image does not
+    already include one.
+    """
+    name, resolved_docker_image = _resolve_docker_image_and_name(
+        connector_name=connector_name,
+        docker_image=docker_image,
+    )
+
+    if resolved_docker_image is not None:
+        override_execution_mode = "docker"
+
     if manifest_path:
         override_execution_mode = "yaml"
     elif override_execution_mode == "auto" and is_docker_installed():
         override_execution_mode = "docker"
 
+    docker_image_arg: bool | str = (
+        resolved_docker_image if resolved_docker_image is not None else True
+    )
+
+    # `get_source` raises if `version` is set and the docker image already has
+    # a `:tag`. Drop the version in that case so the explicit tag wins.
+    docker_version = version
+    if isinstance(docker_image_arg, str) and ":" in docker_image_arg:
+        docker_version = None
+
     source: Source
     if override_execution_mode == "auto":
         # Use defaults with no overrides
         source = get_source(
-            connector_name,
+            name,
             install_if_missing=False,
             source_manifest=manifest_path or None,
+            version=version,
         )
     elif override_execution_mode == "python":
         source = get_source(
-            connector_name,
+            name,
             use_python=True,
             install_if_missing=False,
             source_manifest=manifest_path or None,
+            version=version,
         )
     elif override_execution_mode == "docker":
         source = get_source(
-            connector_name,
-            docker_image=True,
+            name,
+            docker_image=docker_image_arg,
             install_if_missing=False,
             source_manifest=manifest_path or None,
+            version=docker_version,
         )
     elif override_execution_mode == "yaml":
         source = get_source(
-            connector_name,
+            name,
             source_manifest=manifest_path or True,
             install_if_missing=False,
+            version=version,
         )
     else:
         raise ValueError(
@@ -127,7 +213,7 @@ def _get_mcp_source(
 def validate_connector_config(
     connector_name: Annotated[
         str,
-        Field(description="The name of the connector to validate."),
+        Field(description="The name of the connector to validate. " + _CONNECTOR_NAME_HELP),
     ],
     config: Annotated[
         dict | str | None,
@@ -165,6 +251,14 @@ def validate_connector_config(
             default=None,
         ),
     ],
+    docker_image: Annotated[
+        str | None,
+        Field(description=_DOCKER_IMAGE_HELP, default=None),
+    ],
+    version: Annotated[
+        str | None,
+        Field(description=_VERSION_HELP, default=None),
+    ],
 ) -> tuple[bool, str]:
     """Validate a connector configuration.
 
@@ -175,6 +269,8 @@ def validate_connector_config(
             connector_name,
             override_execution_mode=override_execution_mode,
             manifest_path=manifest_path,
+            docker_image=docker_image,
+            version=version,
         )
     except Exception as ex:
         return False, f"Failed to get connector '{connector_name}': {ex}"
@@ -254,7 +350,7 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
 def list_source_streams(
     source_connector_name: Annotated[
         str,
-        Field(description="The name of the source connector."),
+        Field(description="The name of the source connector. " + _CONNECTOR_NAME_HELP),
     ],
     config: Annotated[
         dict | str | None,
@@ -292,6 +388,14 @@ def list_source_streams(
             default=None,
         ),
     ],
+    docker_image: Annotated[
+        str | None,
+        Field(description=_DOCKER_IMAGE_HELP, default=None),
+    ],
+    version: Annotated[
+        str | None,
+        Field(description=_VERSION_HELP, default=None),
+    ],
 ) -> list[str]:
     """List all streams available in a source connector.
 
@@ -301,6 +405,8 @@ def list_source_streams(
         connector_name=source_connector_name,
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
+        docker_image=docker_image,
+        version=version,
     )
     config_dict = resolve_connector_config(
         config=config,
@@ -317,10 +423,10 @@ def list_source_streams(
     idempotent=True,
     extra_help_text=_CONFIG_HELP,
 )
-def get_source_stream_json_schema(
+def get_source_stream_json_schema(  # noqa: PLR0913, PLR0917
     source_connector_name: Annotated[
         str,
-        Field(description="The name of the source connector."),
+        Field(description="The name of the source connector. " + _CONNECTOR_NAME_HELP),
     ],
     stream_name: Annotated[
         str,
@@ -362,12 +468,22 @@ def get_source_stream_json_schema(
             default=None,
         ),
     ],
+    docker_image: Annotated[
+        str | None,
+        Field(description=_DOCKER_IMAGE_HELP, default=None),
+    ],
+    version: Annotated[
+        str | None,
+        Field(description=_VERSION_HELP, default=None),
+    ],
 ) -> dict[str, Any]:
     """List all properties for a specific stream in a source connector."""
     source: Source = _get_mcp_source(
         connector_name=source_connector_name,
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
+        docker_image=docker_image,
+        version=version,
     )
     config_dict = resolve_connector_config(
         config=config,
@@ -383,10 +499,10 @@ def get_source_stream_json_schema(
     read_only=True,
     extra_help_text=_CONFIG_HELP,
 )
-def read_source_stream_records(
+def read_source_stream_records(  # noqa: PLR0913
     source_connector_name: Annotated[
         str,
-        Field(description="The name of the source connector."),
+        Field(description="The name of the source connector. " + _CONNECTOR_NAME_HELP),
     ],
     config: Annotated[
         dict | str | None,
@@ -436,6 +552,14 @@ def read_source_stream_records(
             default=None,
         ),
     ],
+    docker_image: Annotated[
+        str | None,
+        Field(description=_DOCKER_IMAGE_HELP, default=None),
+    ],
+    version: Annotated[
+        str | None,
+        Field(description=_VERSION_HELP, default=None),
+    ],
 ) -> list[dict[str, Any]] | str:
     """Get records from a source connector."""
     try:
@@ -443,6 +567,8 @@ def read_source_stream_records(
             connector_name=source_connector_name,
             override_execution_mode=override_execution_mode,
             manifest_path=manifest_path,
+            docker_image=docker_image,
+            version=version,
         )
         config_dict = resolve_connector_config(
             config=config,
@@ -473,10 +599,10 @@ def read_source_stream_records(
     read_only=True,
     extra_help_text=_CONFIG_HELP,
 )
-def get_stream_previews(
+def get_stream_previews(  # noqa: PLR0913, PLR0917
     source_name: Annotated[
         str,
-        Field(description="The name of the source connector."),
+        Field(description="The name of the source connector. " + _CONNECTOR_NAME_HELP),
     ],
     config: Annotated[
         dict | str | None,
@@ -531,6 +657,14 @@ def get_stream_previews(
             default=None,
         ),
     ],
+    docker_image: Annotated[
+        str | None,
+        Field(description=_DOCKER_IMAGE_HELP, default=None),
+    ],
+    version: Annotated[
+        str | None,
+        Field(description=_VERSION_HELP, default=None),
+    ],
 ) -> dict[str, list[dict[str, Any]] | str]:
     """Get sample records (previews) from streams in a source connector.
 
@@ -542,6 +676,8 @@ def get_stream_previews(
         connector_name=source_name,
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
+        docker_image=docker_image,
+        version=version,
     )
 
     config_dict = resolve_connector_config(
@@ -585,10 +721,10 @@ def get_stream_previews(
     destructive=False,
     extra_help_text=_CONFIG_HELP,
 )
-def sync_source_to_cache(
+def sync_source_to_cache(  # noqa: PLR0913, PLR0917
     source_connector_name: Annotated[
         str,
-        Field(description="The name of the source connector."),
+        Field(description="The name of the source connector. " + _CONNECTOR_NAME_HELP),
     ],
     config: Annotated[
         dict | str | None,
@@ -633,12 +769,22 @@ def sync_source_to_cache(
             default=None,
         ),
     ],
+    docker_image: Annotated[
+        str | None,
+        Field(description=_DOCKER_IMAGE_HELP, default=None),
+    ],
+    version: Annotated[
+        str | None,
+        Field(description=_VERSION_HELP, default=None),
+    ],
 ) -> str:
     """Run a sync from a source connector to the default DuckDB cache."""
     source: Source = _get_mcp_source(
         connector_name=source_connector_name,
         override_execution_mode=override_execution_mode,
         manifest_path=manifest_path,
+        docker_image=docker_image,
+        version=version,
     )
     config_dict = resolve_connector_config(
         config=config,
