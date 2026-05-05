@@ -93,9 +93,13 @@ def _resolve_docker_image_and_name(
     If `connector_name` looks like a docker image identifier (i.e. contains a `/`),
     it is treated as a docker image reference and parsed into:
 
-    - `name`: the last path segment, with any `:tag` suffix stripped (e.g.
-      `airbyte/source-mssql:4.4.2` becomes `source-mssql`).
+    - `name`: the last path segment, with any `@sha256:...` digest and `:tag`
+      suffix stripped (e.g. `airbyte/source-mssql:4.4.2` becomes `source-mssql`,
+      and `ghcr.io/airbytehq/source-mssql@sha256:abc` becomes `source-mssql`).
     - `docker_image`: the original `connector_name` string (full image reference).
+
+    Registry-port prefixes (e.g. `localhost:5000/airbyte/source-mssql`) are
+    handled correctly because parsing only inspects the last `/`-segment.
 
     Otherwise, `connector_name` is returned unchanged as `name`, and `docker_image`
     is returned as passed in.
@@ -108,7 +112,8 @@ def _resolve_docker_image_and_name(
         return connector_name, docker_image
 
     last_segment = connector_name.rsplit("/", 1)[-1]
-    name = last_segment.split(":", 1)[0]
+    image_base = last_segment.split("@", 1)[0]
+    name = image_base.split(":", 1)[0]
     return name, docker_image if docker_image is not None else connector_name
 
 
@@ -155,10 +160,14 @@ def _get_mcp_source(
     )
 
     # `get_source` raises if `version` is set and the docker image already has
-    # a `:tag`. Drop the version in that case so the explicit tag wins.
+    # a `:tag` or `@digest`. Drop the version in that case so the explicit ref
+    # wins. Inspect only the last path segment so registry-port prefixes like
+    # `localhost:5000/airbyte/source-mssql` (no tag) are not misread as tagged.
     docker_version = version
-    if isinstance(docker_image_arg, str) and ":" in docker_image_arg:
-        docker_version = None
+    if isinstance(docker_image_arg, str):
+        image_tail = docker_image_arg.rsplit("/", 1)[-1]
+        if "@" in image_tail or ":" in image_tail:
+            docker_version = None
 
     source: Source
     if override_execution_mode == "auto":
@@ -803,9 +812,7 @@ def sync_source_to_cache(  # noqa: PLR0913, PLR0917
     if isinstance(streams, str) and streams == "suggested":
         streams = "*"  # Default to all streams if 'suggested' is not otherwise specified.
         try:
-            metadata = get_connector_metadata(
-                source_connector_name,
-            )
+            metadata = get_connector_metadata(source.name)
         except Exception:
             streams = "*"  # Fallback to all streams if suggested streams fail.
         else:

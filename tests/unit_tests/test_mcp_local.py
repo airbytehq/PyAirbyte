@@ -60,6 +60,27 @@ from airbyte.mcp.local import _resolve_docker_image_and_name
             "airbyte/source-mssql:dev",
             id="image_id_plus_explicit_image_override_wins",
         ),
+        pytest.param(
+            "ghcr.io/airbytehq/source-mssql@sha256:abc123",
+            None,
+            "source-mssql",
+            "ghcr.io/airbytehq/source-mssql@sha256:abc123",
+            id="image_id_with_digest",
+        ),
+        pytest.param(
+            "localhost:5000/airbyte/source-mssql",
+            None,
+            "source-mssql",
+            "localhost:5000/airbyte/source-mssql",
+            id="image_id_with_registry_port_no_tag",
+        ),
+        pytest.param(
+            "localhost:5000/airbyte/source-mssql:4.4.2",
+            None,
+            "source-mssql",
+            "localhost:5000/airbyte/source-mssql:4.4.2",
+            id="image_id_with_registry_port_and_tag",
+        ),
     ],
 )
 def test_resolve_docker_image_and_name(
