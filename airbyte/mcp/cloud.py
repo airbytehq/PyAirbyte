@@ -2619,29 +2619,32 @@ def get_connection_artifact(
             default=None,
         ),
     ],
-) -> dict[str, Any]:
+) -> dict[str, Any] | list[dict[str, Any]]:
     """Get a connection artifact (state or catalog) from Airbyte Cloud.
 
+    By default, returns artifacts in Airbyte protocol format (snake_case,
+    suitable for passing to connector CLI flags like `--state` or `--catalog`).
+
     Retrieves the specified artifact for a connection:
-    - 'state': Returns the full raw connection state including stateType and all
-      state data, or {"ERROR": "..."} if no state is set.
-    - 'catalog': Returns the configured catalog (syncCatalog) as a dict,
-      or {"ERROR": "..."} if not found.
+    - `state`: Returns a list of protocol-format `AirbyteStateMessage` dicts,
+      or `{"ERROR": "..."}` if no state is set.
+    - `catalog`: Returns the protocol-format `ConfiguredAirbyteCatalog` dict,
+      or `{"ERROR": "..."}` if not found.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
 
     if artifact_type == "state":
-        result = connection.dump_raw_state()
-        if result.get("stateType") == "not_set":
+        state = connection.dump_raw_state()
+        if not state:
             return {"ERROR": "No state is set for this connection (stateType: not_set)"}
-        return result
+        return state
 
     # artifact_type == "catalog"
-    result = connection.dump_raw_catalog()
-    if result is None:
+    catalog = connection.dump_raw_catalog()
+    if catalog is None:
         return {"ERROR": "No catalog found for this connection"}
-    return result
+    return catalog
 
 
 def _add_defaults_for_exclude_args(

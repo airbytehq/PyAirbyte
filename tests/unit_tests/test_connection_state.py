@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from airbyte.cloud._connection_state import (
@@ -10,8 +12,11 @@ from airbyte.cloud._connection_state import (
     GlobalState,
     StreamDescriptor,
     StreamState,
+    _denormalize_protocol_state_to_api,
     _get_stream_list,
+    _is_protocol_state_format,
     _match_stream,
+    _normalize_state_to_protocol,
 )
 
 
@@ -167,3 +172,285 @@ def test_connection_state_response_global_from_camel_case() -> None:
     assert state.global_state.shared_state == {"cdc_offset": "12345"}
     assert len(state.global_state.stream_states) == 1
     assert state.global_state.stream_states[0].stream_descriptor.name == "users"
+
+
+# --- Tests for _normalize_state_to_protocol ---
+
+
+@pytest.mark.parametrize(
+    "raw_state,expected",
+    [
+        pytest.param(
+            {
+                "stateType": "stream",
+                "connectionId": "conn-1",
+                "streamState": [
+                    {
+                        "streamDescriptor": {"name": "users", "namespace": "public"},
+                        "streamState": {"cursor": "2024-01-01"},
+                    },
+                    {
+                        "streamDescriptor": {"name": "orders"},
+                        "streamState": {"cursor": "2024-06-01"},
+                    },
+                ],
+            },
+            [
+                {
+                    "type": "STREAM",
+                    "stream": {
+                        "stream_descriptor": {"name": "users", "namespace": "public"},
+                        "stream_state": {"cursor": "2024-01-01"},
+                    },
+                },
+                {
+                    "type": "STREAM",
+                    "stream": {
+                        "stream_descriptor": {"name": "orders", "namespace": None},
+                        "stream_state": {"cursor": "2024-06-01"},
+                    },
+                },
+            ],
+            id="stream_type",
+        ),
+        pytest.param(
+            {
+                "stateType": "global",
+                "connectionId": "conn-2",
+                "globalState": {
+                    "sharedState": {"cdc_offset": "12345"},
+                    "streamStates": [
+                        {
+                            "streamDescriptor": {"name": "users"},
+                            "streamState": {"cursor": "2024-01-01"},
+                        },
+                    ],
+                },
+            },
+            [
+                {
+                    "type": "GLOBAL",
+                    "global": {
+                        "shared_state": {"cdc_offset": "12345"},
+                        "stream_states": [
+                            {
+                                "stream_descriptor": {
+                                    "name": "users",
+                                    "namespace": None,
+                                },
+                                "stream_state": {"cursor": "2024-01-01"},
+                            },
+                        ],
+                    },
+                },
+            ],
+            id="global_type",
+        ),
+        pytest.param(
+            {
+                "stateType": "legacy",
+                "connectionId": "conn-3",
+                "state": {"some_key": "some_value"},
+            },
+            [{"type": "LEGACY", "data": {"some_key": "some_value"}}],
+            id="legacy_type",
+        ),
+        pytest.param(
+            {"stateType": "not_set", "connectionId": "conn-4"},
+            [],
+            id="not_set_type",
+        ),
+    ],
+)
+def test_normalize_state_to_protocol(
+    raw_state: dict[str, Any],
+    expected: list[dict[str, Any]],
+) -> None:
+    assert _normalize_state_to_protocol(raw_state) == expected
+
+
+# --- Tests for _denormalize_protocol_state_to_api ---
+
+
+@pytest.mark.parametrize(
+    "protocol_messages,connection_id,expected",
+    [
+        pytest.param(
+            [
+                {
+                    "type": "STREAM",
+                    "stream": {
+                        "stream_descriptor": {"name": "users", "namespace": "public"},
+                        "stream_state": {"cursor": "2024-01-01"},
+                    },
+                },
+            ],
+            "conn-1",
+            {
+                "stateType": "stream",
+                "connectionId": "conn-1",
+                "streamState": [
+                    {
+                        "streamDescriptor": {"name": "users", "namespace": "public"},
+                        "streamState": {"cursor": "2024-01-01"},
+                    },
+                ],
+            },
+            id="stream_type",
+        ),
+        pytest.param(
+            [
+                {
+                    "type": "GLOBAL",
+                    "global": {
+                        "shared_state": {"cdc_offset": "12345"},
+                        "stream_states": [
+                            {
+                                "stream_descriptor": {"name": "users"},
+                                "stream_state": {"cursor": "2024-01-01"},
+                            },
+                        ],
+                    },
+                },
+            ],
+            "conn-2",
+            {
+                "stateType": "global",
+                "connectionId": "conn-2",
+                "globalState": {
+                    "sharedState": {"cdc_offset": "12345"},
+                    "streamStates": [
+                        {
+                            "streamDescriptor": {"name": "users"},
+                            "streamState": {"cursor": "2024-01-01"},
+                        },
+                    ],
+                },
+            },
+            id="global_type",
+        ),
+        pytest.param(
+            [{"type": "LEGACY", "data": {"some_key": "some_value"}}],
+            "conn-3",
+            {
+                "stateType": "legacy",
+                "connectionId": "conn-3",
+                "state": {"some_key": "some_value"},
+            },
+            id="legacy_type",
+        ),
+        pytest.param(
+            [],
+            "conn-4",
+            {"stateType": "not_set", "connectionId": "conn-4"},
+            id="empty_list",
+        ),
+    ],
+)
+def test_denormalize_protocol_state_to_api(
+    protocol_messages: list[dict[str, Any]],
+    connection_id: str,
+    expected: dict[str, Any],
+) -> None:
+    assert (
+        _denormalize_protocol_state_to_api(protocol_messages, connection_id) == expected
+    )
+
+
+# --- Tests for round-trip (normalize → denormalize) ---
+
+
+@pytest.mark.parametrize(
+    "raw_state",
+    [
+        pytest.param(
+            {
+                "stateType": "stream",
+                "connectionId": "conn-rt",
+                "streamState": [
+                    {
+                        "streamDescriptor": {"name": "users", "namespace": "public"},
+                        "streamState": {"cursor": "2024-01-01"},
+                    },
+                    {
+                        "streamDescriptor": {"name": "orders"},
+                        "streamState": {"cursor": "2024-06-01"},
+                    },
+                ],
+            },
+            id="stream_round_trip",
+        ),
+        pytest.param(
+            {
+                "stateType": "global",
+                "connectionId": "conn-rt-g",
+                "globalState": {
+                    "sharedState": {"cdc": True},
+                    "streamStates": [
+                        {
+                            "streamDescriptor": {
+                                "name": "users",
+                                "namespace": "public",
+                            },
+                            "streamState": {"cursor": "2024-01-01"},
+                        },
+                    ],
+                },
+            },
+            id="global_round_trip",
+        ),
+        pytest.param(
+            {
+                "stateType": "legacy",
+                "connectionId": "conn-rt-l",
+                "state": {"opaque": "blob"},
+            },
+            id="legacy_round_trip",
+        ),
+    ],
+)
+def test_state_round_trip(raw_state: dict[str, Any]) -> None:
+    """Normalize to protocol, then denormalize back — stateType and data must survive."""
+    protocol = _normalize_state_to_protocol(raw_state)
+    restored = _denormalize_protocol_state_to_api(
+        protocol, connection_id=raw_state["connectionId"]
+    )
+    assert restored["stateType"] == raw_state["stateType"]
+    assert restored["connectionId"] == raw_state["connectionId"]
+    if raw_state["stateType"] == "stream":
+        assert restored["streamState"] == raw_state["streamState"]
+    elif raw_state["stateType"] == "global":
+        assert restored["globalState"] == raw_state["globalState"]
+    elif raw_state["stateType"] == "legacy":
+        assert restored["state"] == raw_state["state"]
+
+
+# --- Tests for _is_protocol_state_format ---
+
+
+@pytest.mark.parametrize(
+    "state_input,expected",
+    [
+        pytest.param([{"type": "STREAM", "stream": {}}], True, id="list_of_messages"),
+        pytest.param({"type": "STREAM", "stream": {}}, True, id="single_message_dict"),
+        pytest.param(
+            {"stateType": "stream", "connectionId": "x"}, False, id="api_format"
+        ),
+        pytest.param([], True, id="empty_list"),
+        pytest.param(
+            [{"streamDescriptor": {"name": "x"}, "streamState": {}}],
+            False,
+            id="raw_stream_state_list",
+        ),
+        pytest.param(
+            [{"type": "STREAM", "stream": {}}, {"no_type": True}],
+            False,
+            id="mixed_list_invalid",
+        ),
+    ],
+)
+def test_is_protocol_state_format(
+    state_input: dict[str, Any] | list[dict[str, Any]],
+    expected: bool,
+) -> None:
+    assert _is_protocol_state_format(state_input) is expected
