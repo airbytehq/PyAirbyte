@@ -9,7 +9,6 @@ shorter `pyab` alias.
 These are equivalent:
 
 ```bash
-python -m airbyte.cli --help
 pyairbyte --help
 pyab --help
 ```
@@ -61,6 +60,7 @@ pyab validate --connector=source-hardcoded-records --config='{count: 400_000}'
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -69,6 +69,7 @@ from typing import TYPE_CHECKING, Any
 import click
 import yaml
 
+from airbyte._util.destination_smoke_tests import run_destination_smoke_test
 from airbyte.destinations.util import get_destination, get_noop_destination
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.util import get_secret
@@ -170,7 +171,7 @@ def _is_executable_path(connector_str: str) -> bool:
 
 def _get_connector_name(connector: str) -> str:
     if _is_docker_image(connector):
-        return connector.split(":")[0].split("/")[-1]
+        return connector.split(":", maxsplit=1)[0].rsplit("/", maxsplit=1)[-1]
 
     return connector
 
@@ -632,6 +633,165 @@ def sync(
     )
 
 
+@click.command(name="destination-smoke-test")
+@click.option(
+    "--destination",
+    type=str,
+    required=True,
+    help=(
+        "The destination connector to test. Can be a connector name "
+        "(e.g. 'destination-snowflake'), a Docker image with tag "
+        "(e.g. 'airbyte/destination-snowflake:3.14.0'), or a path to a local executable."
+    ),
+)
+@click.option(
+    "--config",
+    type=str,
+    help="The destination configuration. " + CONFIG_HELP,
+)
+@click.option(
+    "--pip-url",
+    type=str,
+    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
+)
+@click.option(
+    "--use-python",
+    type=str,
+    help=(
+        "Python interpreter specification. Use 'true' for current Python, "
+        "'false' for Docker, a path for specific interpreter, or a version "
+        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
+    ),
+)
+@click.option(
+    "--scenarios",
+    type=str,
+    default="fast",
+    help=(
+        "Which smoke test scenarios to run. "
+        "Use 'fast' (default) for all fast predefined scenarios "
+        "(excludes large_batch_stream), 'all' for every predefined scenario "
+        "including large batch, or provide a comma-separated list of scenario names. "
+        "Available scenarios: basic_types, timestamp_types, "
+        "large_decimals_and_numbers, nested_json_objects, null_handling, "
+        "column_naming_edge_cases, table_naming_edge_cases, "
+        "CamelCaseStreamName, wide_table_50_columns, empty_stream, "
+        "single_record_stream, unicode_and_special_strings, "
+        "schema_with_no_primary_key, long_column_names, large_batch_stream."
+    ),
+)
+@click.option(
+    "--custom-scenarios",
+    type=str,
+    default=None,
+    help=(
+        "Path to a JSON or YAML file containing additional custom test scenarios. "
+        "Each scenario should define 'name', 'json_schema', and optionally 'records' "
+        "and 'primary_key'. These are unioned with the predefined scenarios."
+    ),
+)
+@click.option(
+    "--namespace-suffix",
+    type=str,
+    default=None,
+    help=(
+        "Optional suffix appended to the auto-generated namespace. "
+        "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
+        "Use this to distinguish concurrent runs."
+    ),
+)
+@click.option(
+    "--reuse-namespace",
+    type=str,
+    default=None,
+    help=(
+        "Exact namespace to reuse from a previous run. "
+        "When set, no new namespace is generated. "
+        "Useful for running a second test against an already-populated namespace."
+    ),
+)
+@click.option(
+    "--skip-preflight",
+    is_flag=True,
+    default=False,
+    help=(
+        "Skip the automatic preflight check that runs basic_types before "
+        "the requested scenarios. Use when you expect basic_types itself to fail "
+        "or want to save time on repeated runs."
+    ),
+)
+def destination_smoke_test(  # noqa: PLR0913
+    *,
+    destination: str,
+    config: str | None = None,
+    pip_url: str | None = None,
+    use_python: str | None = None,
+    scenarios: str = "fast",
+    custom_scenarios: str | None = None,
+    namespace_suffix: str | None = None,
+    reuse_namespace: str | None = None,
+    skip_preflight: bool = False,
+) -> None:
+    """Run smoke tests against a destination connector.
+
+    Sends synthetic test data from the smoke test source to the specified
+    destination and reports success or failure. The smoke test source
+    generates data across predefined scenarios covering common destination
+    failure patterns: type variations, null handling, naming edge cases,
+    schema variations, and batch sizes.
+
+    When the destination has a compatible cache implementation (DuckDB,
+    Postgres, Snowflake, BigQuery, MotherDuck), readback introspection
+    is automatically performed after a successful write. The readback
+    produces stats on the written data: table row counts, column
+    names/types, and per-column null/non-null counts.
+
+    Usage examples:
+
+    `pyab destination-smoke-test --destination=destination-dev-null`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json`
+
+    `pyab destination-smoke-test --destination=destination-motherduck
+    --scenarios=basic_types,null_handling`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json --scenarios=all`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json --namespace-suffix=run2`
+
+    `pyab destination-smoke-test --destination=destination-snowflake
+    --config=./secrets/snowflake.json
+    --reuse-namespace=zz_deleteme_20260318_2256`
+    """
+    click.echo("Resolving destination...", file=sys.stderr)
+    destination_obj = _resolve_destination_job(
+        destination=destination,
+        config=config,
+        pip_url=pip_url,
+        use_python=use_python,
+    )
+
+    click.echo("Running destination smoke test...", file=sys.stderr)
+    result = run_destination_smoke_test(
+        destination=destination_obj,
+        scenarios=scenarios,
+        namespace_suffix=namespace_suffix,
+        reuse_namespace=reuse_namespace,
+        custom_scenarios_file=custom_scenarios,
+        skip_preflight=skip_preflight,
+    )
+
+    click.echo(json.dumps(result.model_dump(), indent=2))
+
+    if not result.success:
+        if result.error:
+            click.echo(f"Smoke test FAILED: {result.error}", file=sys.stderr)
+        sys.exit(1)
+
+
 @click.group()
 def cli() -> None:
     """@private PyAirbyte CLI."""
@@ -641,6 +801,7 @@ def cli() -> None:
 cli.add_command(validate)
 cli.add_command(benchmark)
 cli.add_command(sync)
+cli.add_command(destination_smoke_test)
 
 if __name__ == "__main__":
     cli()

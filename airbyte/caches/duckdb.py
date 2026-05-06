@@ -23,8 +23,8 @@ from airbyte_api.models import DestinationDuckdb
 from duckdb_engine import DuckDBEngineWarning
 
 from airbyte._processors.sql.duckdb import DuckDBConfig, DuckDBSqlProcessor
+from airbyte.caches._utils._cache_to_dest import duckdb_cache_to_destination_configuration
 from airbyte.caches.base import CacheBase
-from airbyte.destinations._translate_cache_to_dest import duckdb_cache_to_destination_configuration
 
 
 if TYPE_CHECKING:

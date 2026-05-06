@@ -1,0 +1,609 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+"""Shared implementation for destination smoke tests.
+
+This module provides the core logic for running smoke tests against destination
+connectors. It is used by both the CLI (`pyab destination-smoke-test`) and the
+MCP tool (`destination_smoke_test`).
+
+Smoke tests send synthetic data from the built-in smoke test source to a
+destination connector and report whether the destination accepted the data
+without errors.
+
+When the destination has a compatible cache implementation, readback
+introspection is automatically performed to produce stats on the written
+data: table row counts, column names/types, and per-column null/non-null
+counts.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import yaml
+from pydantic import BaseModel
+
+from airbyte import get_source
+from airbyte.exceptions import PyAirbyteInputError
+from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
+
+
+logger = logging.getLogger(__name__)
+
+
+NAMESPACE_PREFIX = "zz_deleteme"
+"""Prefix for auto-generated smoke test namespaces.
+
+The `zz_` prefix sorts last alphabetically; `deleteme` signals the
+namespace is safe for automated cleanup.
+"""
+
+DEFAULT_NAMESPACE_SUFFIX = "smoke_test"
+"""Default suffix appended when no explicit suffix is provided."""
+
+
+if TYPE_CHECKING:
+    from airbyte.destinations.base import Destination
+    from airbyte.sources.base import Source
+
+
+def generate_namespace(
+    *,
+    namespace_suffix: str | None = None,
+) -> str:
+    """Generate a smoke-test namespace.
+
+    Format: `zz_deleteme_yyyymmdd_hhmm_<suffix>`.
+    The `zz_` prefix sorts last alphabetically and the `deleteme`
+    token acts as a guard for automated cleanup scripts.
+
+    If `namespace_suffix` is not provided, `smoke_test` is used as the
+    default suffix.
+    """
+    suffix = namespace_suffix or DEFAULT_NAMESPACE_SUFFIX
+    now = datetime.now(tz=timezone.utc)
+    ts = now.strftime("%Y%m%d_%H%M")
+    return f"{NAMESPACE_PREFIX}_{ts}_{suffix}"
+
+
+# ---------------------------------------------------------------------------
+# Smoke test result model
+# ---------------------------------------------------------------------------
+
+
+class DestinationSmokeTestResult(BaseModel):
+    """Result of a destination smoke test run."""
+
+    success: bool
+    """Whether the smoke test passed (destination accepted all data without errors)."""
+
+    destination: str
+    """The destination connector name."""
+
+    namespace: str
+    """The namespace used for this smoke test run."""
+
+    records_delivered: int
+    """Total number of records delivered to the destination."""
+
+    scenarios_requested: str
+    """Which scenarios were requested ('all' or a comma-separated list)."""
+
+    elapsed_seconds: float
+    """Time taken for the smoke test in seconds."""
+
+    error: str | None = None
+    """Error message if the smoke test failed."""
+
+    preflight_passed: bool | None = None
+    """Whether the preflight `basic_types` check passed.
+
+    `True` if the preflight check succeeded, `False` if it failed,
+    `None` if the preflight check was skipped.
+    """
+
+    table_statistics: dict[str, TableStatistics] | None = None
+    """Map of stream name to table statistics (row counts, columns, stats).
+
+    Populated when the destination has a compatible cache, regardless of
+    write success (to support partial-success inspection). `None` when
+    the destination does not have a compatible cache.
+    """
+
+    tables_not_found: dict[str, str] | None = None
+    """Stream names whose expected tables were not found in the destination.
+
+    Maps stream name to the expected (normalized) table name that was
+    looked up but not found. Populated alongside `table_statistics`.
+    `None` when readback was not performed.
+    """
+
+    warnings: list[str] | None = None
+    """Non-fatal warnings encountered during the smoke test.
+
+    Includes readback errors (e.g. cache connection failures) that
+    prevented `table_statistics` from being populated, as well as
+    any other non-fatal issues worth surfacing to the caller.
+    """
+
+
+def get_smoke_test_source(
+    *,
+    scenarios: str | list[str] = "fast",
+    namespace: str | None = None,
+    custom_scenarios: list[dict[str, Any]] | None = None,
+    custom_scenarios_file: str | None = None,
+) -> Source:
+    """Create a smoke test source with the given configuration.
+
+    The smoke test source generates synthetic data across predefined scenarios
+    that cover common destination failure patterns.
+
+    `scenarios` controls which scenarios to run:
+
+    - `'fast'` (default): runs all fast (non-high-volume) predefined scenarios,
+      excluding `large_batch_stream`.
+    - `'all'`: runs every predefined scenario including `large_batch_stream`.
+    - A comma-separated string or list of specific scenario names.
+
+    `custom_scenarios` is an optional list of scenario dicts to inject directly.
+
+    `namespace` is an optional namespace to set on all streams. When provided,
+    the destination will write data into this namespace (schema, database, etc.).
+
+    `custom_scenarios_file` is an optional path to a JSON or YAML file containing
+    additional scenario definitions. Each scenario should have `name`, `json_schema`,
+    and optionally `records` and `primary_key`.
+    """
+    # Normalize empty list to "fast" (default)
+    if isinstance(scenarios, list) and not scenarios:
+        scenarios = "fast"
+
+    scenarios_str = ",".join(scenarios) if isinstance(scenarios, list) else scenarios
+    keyword = scenarios_str.strip().lower()
+    is_all = keyword == "all"
+    is_fast = keyword == "fast"
+
+    if is_all:
+        source_config: dict[str, Any] = {
+            "all_fast_streams": True,
+            "all_slow_streams": True,
+        }
+    elif is_fast:
+        source_config: dict[str, Any] = {
+            "all_fast_streams": True,
+            "all_slow_streams": False,
+        }
+    else:
+        source_config: dict[str, Any] = {
+            "all_fast_streams": False,
+            "all_slow_streams": False,
+        }
+        if isinstance(scenarios, list):
+            source_config["scenario_filter"] = [s.strip() for s in scenarios if s.strip()]
+        else:
+            source_config["scenario_filter"] = [
+                s.strip() for s in scenarios.split(",") if s.strip()
+            ]
+
+    # Handle custom scenarios passed as a list of dicts (MCP path)
+    if custom_scenarios:
+        source_config["custom_scenarios"] = custom_scenarios
+
+    # Handle custom scenarios from a file path (CLI path)
+    if custom_scenarios_file:
+        custom_path = Path(custom_scenarios_file)
+        if not custom_path.exists():
+            raise PyAirbyteInputError(
+                message="Custom scenarios file not found.",
+                input_value=str(custom_path),
+            )
+        loaded = yaml.safe_load(custom_path.read_text(encoding="utf-8"))
+        if isinstance(loaded, list):
+            file_scenarios = loaded
+        elif isinstance(loaded, dict) and "custom_scenarios" in loaded:
+            file_scenarios = loaded["custom_scenarios"]
+        else:
+            raise PyAirbyteInputError(
+                message=(
+                    "Custom scenarios file must contain a list of scenarios "
+                    "or a dict with a 'custom_scenarios' key."
+                ),
+                input_value=str(custom_path),
+            )
+        # Merge with any directly-provided custom scenarios
+        existing = source_config.get("custom_scenarios", [])
+        source_config["custom_scenarios"] = existing + file_scenarios
+
+    if namespace:
+        source_config["namespace"] = namespace
+
+    return get_source(
+        name="source-smoke-test",
+        config=source_config,
+        streams="*",
+        local_executable="source-smoke-test",
+    )
+
+
+def _prepare_destination_config(
+    destination: Destination,
+) -> None:
+    """Prepare the destination config for smoke testing.
+
+    The catalog namespace (set on each stream by the source) is the primary
+    mechanism that directs destinations to write into the test schema.
+    Modern destinations respect the catalog namespace without needing a
+    config-level schema override.
+
+    This function applies config-level tweaks that are *not* handled by
+    the catalog namespace:
+
+    - **Typing/deduplication enabled** — forces `disable_type_dedupe`
+      to `False` so the destination creates final typed tables (not just
+      raw staging). Readback introspection requires final tables.
+
+    Note: This mutates the destination's config in place.
+    """
+    config = dict(destination.get_config())
+    changed = False
+
+    # Ensure typing and deduplication are enabled so that final tables
+    # (not just raw staging) are created for readback inspection.
+    if config.get("disable_type_dedupe"):
+        logger.info(
+            "Forcing 'disable_type_dedupe' to False so final tables are created.",
+        )
+        config["disable_type_dedupe"] = False
+        changed = True
+
+    if changed:
+        destination.set_config(config, validate=False)
+
+
+def _extract_trace_error_from_log(ex: Exception) -> str | None:
+    """Search the connector log file for a TRACE ERROR `internal_message`.
+
+    Many Java-based connectors emit a generic user-facing `message` in
+    their TRACE ERROR output (e.g. "Something went wrong in the connector")
+    while the actionable detail lives in the `internal_message` field.
+    PyAirbyte only captures the `message` in the exception chain, so this
+    helper reads the connector's log file to recover the `internal_message`.
+
+    Returns the `internal_message` string if found, or `None`.
+    """
+    # Walk the exception chain looking for a log_file path
+    log_file: Path | None = None
+    current: Exception | None = ex
+    while current is not None:
+        if hasattr(current, "log_file") and current.log_file is not None:
+            log_file = current.log_file
+            break
+        current = getattr(current, "original_exception", None)
+
+    if log_file is None or not log_file.exists():
+        return None
+
+    # Scan the log file in reverse for the last TRACE ERROR with an
+    # internal_message.  We only need the last one (the fatal error).
+    try:
+        lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return None
+
+    for line in reversed(lines):
+        # TRACE messages are logged as JSON-serialised Airbyte messages.
+        # They may be prefixed by a timestamp; look for the JSON payload.
+        json_start = line.find('{"type":"TRACE"')
+        if json_start == -1:
+            continue
+        try:
+            payload = json.loads(line[json_start:])
+            internal = payload.get("trace", {}).get("error", {}).get("internal_message")
+            if internal:
+                return str(internal)
+        except (json.JSONDecodeError, AttributeError):
+            continue
+
+    return None
+
+
+def _sanitize_error(ex: Exception) -> str:
+    """Extract an actionable error message from an exception without leaking secrets.
+
+    Resolution order (first match wins):
+
+    1. **Connector log file** - The TRACE ERROR `internal_message` from the
+       connector's log is typically the most specific error available (e.g.
+       `password authentication failed for user "bob"`).  Many Java-based
+       connectors emit a generic user-facing `message` while the real
+       detail lives only in `internal_message`.
+    2. **Exception chain** - Walks `original_exception` to find the deepest
+       exception with a message more specific than the top-level wrapper.
+    3. **Top-level exception** - Falls back to `get_message()` or `str()`.
+
+    Uses `get_message()` when available (PyAirbyte exceptions) to avoid
+    including full config/context in the error string.
+    """
+    # 1. Try the connector log file first — it has the most detail.
+    trace_msg = _extract_trace_error_from_log(ex)
+    if trace_msg:
+        return f"{type(ex).__name__}: {trace_msg}"
+
+    # 2. Walk original_exception chain to find the deepest specific message.
+    deepest = ex
+    while hasattr(deepest, "original_exception") and deepest.original_exception is not None:
+        deepest = deepest.original_exception
+
+    if deepest is not ex:
+        deep_msg = (
+            deepest.get_message()
+            if hasattr(deepest, "get_message")
+            else str(deepest)  # Standard exceptions (ConnectionError, ValueError, etc.)
+        )
+        # Only use the deep message if it's more specific than the wrapper
+        wrapper_msg = ex.get_message() if hasattr(ex, "get_message") else str(ex)
+        if deep_msg and deep_msg != wrapper_msg:
+            return f"{type(ex).__name__}: {deep_msg}"
+
+    # 3. Fall back to the top-level exception message.
+    if hasattr(ex, "get_message"):
+        return f"{type(ex).__name__}: {ex.get_message()}"
+    return f"{type(ex).__name__}: {ex}"
+
+
+PREFLIGHT_SCENARIO = "basic_types"
+"""The predefined scenario whose schema/records are reused for the preflight check."""
+
+PREFLIGHT_STREAM_NAME = "_preflight_basic_types"
+"""Stream name used by the preflight write.
+
+This is deliberately different from the predefined `basic_types` stream
+so that the preflight data lands in its own table and never collides with
+the main smoke-test run."""
+
+
+def _build_preflight_scenario() -> dict[str, Any]:
+    """Build the preflight custom scenario.
+
+    Returns a scenario dict that mirrors the predefined `basic_types`
+    scenario but with the stream name set to `PREFLIGHT_STREAM_NAME`
+    so the preflight data lands in its own table.
+
+    The schema and records are defined inline to avoid a circular import
+    from `airbyte.cli.smoke_test_source._scenarios`.
+    """
+    return {
+        "name": PREFLIGHT_STREAM_NAME,
+        "description": f"Preflight check (based on '{PREFLIGHT_SCENARIO}').",
+        "json_schema": {
+            "$schema": "http://json-schema.org/draft-07/schema#",
+            "type": "object",
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+                "amount": {"type": "number"},
+                "is_active": {"type": "boolean"},
+            },
+        },
+        "primary_key": [["id"]],
+        "records": [
+            {"id": 1, "name": "Alice", "amount": 100.50, "is_active": True},
+            {"id": 2, "name": "Bob", "amount": 0.0, "is_active": False},
+            {"id": 3, "name": "", "amount": -99.99, "is_active": True},
+        ],
+    }
+
+
+def _run_preflight(
+    *,
+    destination: Destination,
+    namespace: str,
+) -> tuple[bool, str | None]:
+    """Run the preflight connectivity check.
+
+    Writes a small dataset (based on the `basic_types` scenario) using a
+    dedicated stream name (`PREFLIGHT_STREAM_NAME`) so the preflight
+    data never collides with the main smoke-test run.
+
+    Returns a tuple of `(passed, error_message)`.
+
+    *  `(True, None)` when the preflight write succeeded.
+    *  `(False, '<sanitized error>')` when the write failed.
+
+    Failures are logged but not raised so the caller can return a
+    structured result that includes the actionable connector error.
+    """
+    logger.info(
+        "Running preflight check ('%s') for destination '%s'...",
+        PREFLIGHT_STREAM_NAME,
+        destination.name,
+    )
+    preflight_scenario = _build_preflight_scenario()
+    preflight_source = get_smoke_test_source(
+        scenarios="",  # No predefined scenarios
+        namespace=namespace,
+        custom_scenarios=[preflight_scenario],
+    )
+    try:
+        destination.write(
+            source_data=preflight_source,
+            cache=False,
+            state_cache=False,
+        )
+    except Exception as ex:
+        sanitized = _sanitize_error(ex)
+        logger.warning(
+            "Preflight check failed for destination '%s': %s",
+            destination.name,
+            sanitized,
+        )
+        return False, sanitized
+
+    logger.info(
+        "Preflight check passed for destination '%s'.",
+        destination.name,
+    )
+    return True, None
+
+
+def run_destination_smoke_test(  # noqa: PLR0914
+    *,
+    destination: Destination,
+    scenarios: str | list[str] = "fast",
+    namespace_suffix: str | None = None,
+    reuse_namespace: str | None = None,
+    custom_scenarios: list[dict[str, Any]] | None = None,
+    custom_scenarios_file: str | None = None,
+    skip_preflight: bool = False,
+) -> DestinationSmokeTestResult:
+    """Run a smoke test against a destination connector.
+
+    Sends synthetic test data from the smoke test source to the specified
+    destination and returns a structured result.
+
+    When the destination has a compatible cache implementation, readback
+    introspection is automatically performed (even on write failure, to
+    support partial-success inspection).
+    The readback produces stats on the written data (table row counts,
+    column names/types, and per-column null/non-null counts) and is
+    included in the result as `table_statistics` and `tables_not_found`.
+
+    `destination` is a resolved `Destination` object ready for writing.
+
+    `scenarios` controls which predefined scenarios to run:
+
+    - `'fast'` (default): runs all fast (non-high-volume) predefined scenarios.
+    - `'all'`: runs every scenario including `large_batch_stream`.
+    - A comma-separated string or list of specific scenario names.
+
+    `namespace_suffix` is an optional suffix appended to the auto-generated
+    namespace. Defaults to `smoke_test` when not provided
+    (e.g. `zz_deleteme_20260318_2256_smoke_test`).
+
+    `reuse_namespace` is an exact namespace string to reuse from a previous
+    run. When set, no new namespace is generated.
+
+    `custom_scenarios` is an optional list of scenario dicts to inject.
+
+    `custom_scenarios_file` is an optional path to a JSON/YAML file with
+    additional scenario definitions.
+
+    `skip_preflight` disables the automatic `basic_types` preflight check.
+    """
+    # Determine namespace
+    namespace = reuse_namespace or generate_namespace(
+        namespace_suffix=namespace_suffix,
+    )
+
+    # Prepare the destination config for smoke testing (e.g. ensure
+    # disable_type_dedupe is off so final tables are created for readback).
+    _prepare_destination_config(destination)
+
+    # --- Preflight check ---------------------------------------------------
+    preflight_passed: bool | None = None
+    if not skip_preflight:
+        preflight_passed, preflight_error = _run_preflight(
+            destination=destination,
+            namespace=namespace,
+        )
+        if not preflight_passed:
+            return DestinationSmokeTestResult(
+                success=False,
+                destination=destination.name,
+                namespace=namespace,
+                records_delivered=0,
+                scenarios_requested=(
+                    ",".join(scenarios) if isinstance(scenarios, list) else scenarios
+                ),
+                elapsed_seconds=0.0,
+                error=(
+                    f"Preflight check failed for '{PREFLIGHT_STREAM_NAME}': "
+                    f"{preflight_error or 'unknown error'}"
+                ),
+                preflight_passed=False,
+            )
+
+    source_obj = get_smoke_test_source(
+        scenarios=scenarios,
+        namespace=namespace,
+        custom_scenarios=custom_scenarios,
+        custom_scenarios_file=custom_scenarios_file,
+    )
+
+    # Capture stream names for readback before the write consumes the source
+    stream_names = source_obj.get_selected_streams()
+
+    # Normalize scenarios to a display string
+    if isinstance(scenarios, list):
+        scenarios_str = ",".join(scenarios) if scenarios else "fast"
+    else:
+        scenarios_str = scenarios
+
+    start_time = time.monotonic()
+    success = False
+    error_message: str | None = None
+    records_delivered = 0
+    try:
+        write_result = destination.write(
+            source_data=source_obj,
+            cache=False,
+            state_cache=False,
+        )
+        records_delivered = write_result.processed_records
+        success = True
+    except Exception as ex:
+        error_message = _sanitize_error(ex)
+
+    elapsed = time.monotonic() - start_time
+
+    # Perform readback introspection (runs even on write failure for partial-success support)
+    table_statistics: dict[str, TableStatistics] | None = None
+    tables_not_found: dict[str, str] | None = None
+    readback_warnings: list[str] = []
+    if destination.is_cache_supported:
+        try:
+            cache = destination.get_sql_cache(schema_name=namespace)
+            table_statistics = cache.fetch_table_statistics(stream_names)
+            tables_not_found = {
+                name: cache.processor.get_sql_table_name(name)
+                for name in stream_names
+                if name not in table_statistics
+            }
+        except Exception as readback_ex:
+            sanitized_readback = _sanitize_error(readback_ex)
+            readback_msg = (
+                f"Readback failed for destination '{destination.name}': {sanitized_readback}"
+            )
+            readback_warnings.append(readback_msg)
+            logger.warning(
+                "Readback failed for destination '%s': %s",
+                destination.name,
+                sanitized_readback,
+                exc_info=True,
+            )
+    else:
+        logger.info(
+            "Skipping table and column statistics retrieval for "
+            "destination '%s' because no SQL interface mapping has been "
+            "defined.",
+            destination.name,
+        )
+
+    return DestinationSmokeTestResult(
+        success=success,
+        destination=destination.name,
+        namespace=namespace,
+        records_delivered=records_delivered,
+        scenarios_requested=scenarios_str,
+        elapsed_seconds=round(elapsed, 2),
+        error=error_message,
+        preflight_passed=preflight_passed,
+        table_statistics=table_statistics,
+        tables_not_found=tables_not_found,
+        warnings=readback_warnings or None,
+    )

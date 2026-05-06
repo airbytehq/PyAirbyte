@@ -22,13 +22,13 @@ from typing import TYPE_CHECKING, ClassVar, NoReturn
 from airbyte_api.models import DestinationBigquery
 
 from airbyte._processors.sql.bigquery import BigQueryConfig, BigQuerySqlProcessor
+from airbyte.caches._utils._cache_to_dest import (
+    bigquery_cache_to_destination_configuration,
+)
 from airbyte.caches.base import (
     CacheBase,
 )
 from airbyte.constants import DEFAULT_ARROW_MAX_CHUNK_SIZE
-from airbyte.destinations._translate_cache_to_dest import (
-    bigquery_cache_to_destination_configuration,
-)
 
 
 if TYPE_CHECKING:

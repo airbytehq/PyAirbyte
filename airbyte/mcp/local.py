@@ -1,5 +1,14 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Local MCP operations."""
+"""Local MCP operations.
+
+.. include:: ../../docs/mcp-generated/local.md
+"""
+
+# No public Python API — MCP primitives are registered via decorators and
+# documented via the generated Markdown include above. Setting `__all__` to an
+# empty list tells pdoc (and other doc tools) not to surface the individual
+# tool / helper definitions as a redundant "API Documentation" list.
+__all__: list[str] = []
 
 import sys
 import traceback
@@ -12,8 +21,13 @@ from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import get_source
+from airbyte._util.destination_smoke_tests import (
+    DestinationSmokeTestResult,
+    run_destination_smoke_test,
+)
 from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
+from airbyte.destinations.util import get_destination
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
@@ -802,6 +816,161 @@ def run_sql_query(
         ]
     finally:
         del cache  # Ensure the cache is closed properly
+
+
+@mcp_tool(
+    destructive=True,
+)
+def destination_smoke_test(  # noqa: PLR0913, PLR0917
+    destination_connector_name: Annotated[
+        str,
+        Field(
+            description=(
+                "The name of the destination connector to test "
+                "(e.g. 'destination-snowflake', 'destination-motherduck')."
+            ),
+        ),
+    ],
+    config: Annotated[
+        dict | str | None,
+        Field(
+            description=(
+                "The destination configuration as a dict object or JSON string. "
+                "Must not contain hardcoded secrets; use secret_reference::ENV_VAR_NAME instead."
+            ),
+            default=None,
+        ),
+    ],
+    config_file: Annotated[
+        str | Path | None,
+        Field(
+            description="Path to a YAML or JSON file containing the destination configuration.",
+            default=None,
+        ),
+    ],
+    config_secret_name: Annotated[
+        str | None,
+        Field(
+            description="The name of the secret containing the destination configuration.",
+            default=None,
+        ),
+    ],
+    scenarios: Annotated[
+        list[str] | str,
+        Field(
+            description=(
+                "Which scenarios to run. Use 'fast' (default) for all fast predefined "
+                "scenarios (excludes large_batch_stream), 'all' for every predefined "
+                "scenario including large batch, or provide a list of scenario names "
+                "or a comma-separated string."
+            ),
+            default="fast",
+        ),
+    ],
+    custom_scenarios: Annotated[
+        list[dict[str, Any]] | None,
+        Field(
+            description=(
+                "Additional custom test scenarios to inject. Each scenario should define "
+                "'name', 'json_schema', and optionally 'records' and 'primary_key'. "
+                "These are unioned with the predefined scenarios."
+            ),
+            default=None,
+        ),
+    ],
+    docker_image: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional Docker image override for the destination connector "
+                "(e.g. 'airbyte/destination-snowflake:3.14.0')."
+            ),
+            default=None,
+        ),
+    ],
+    namespace_suffix: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Optional suffix appended to the auto-generated namespace. "
+                "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
+                "Use this to distinguish concurrent runs."
+            ),
+            default=None,
+        ),
+    ],
+    reuse_namespace: Annotated[
+        str | None,
+        Field(
+            description=(
+                "Exact namespace to reuse from a previous run. "
+                "When set, no new namespace is generated. "
+                "Useful for running a second test against an already-populated namespace."
+            ),
+            default=None,
+        ),
+    ],
+    skip_preflight: Annotated[
+        bool,
+        Field(
+            description=(
+                "Skip the automatic preflight check that runs basic_types before "
+                "the requested scenarios. Set to true when you expect basic_types "
+                "itself to fail or want to save time on repeated runs."
+            ),
+            default=False,
+        ),
+    ],
+) -> DestinationSmokeTestResult:
+    """Run smoke tests against a destination connector.
+
+    Sends synthetic test data from the smoke test source to the specified
+    destination and reports success or failure. The smoke test source generates
+    data across predefined scenarios covering common destination failure patterns:
+    type variations, null handling, naming edge cases, schema variations, and
+    batch sizes.
+
+    When the destination has a compatible cache implementation (DuckDB,
+    Postgres, Snowflake, BigQuery, MotherDuck), readback introspection is
+    automatically performed after a successful write. The readback produces
+    stats on the written data: table row counts, column names/types, and
+    per-column null/non-null counts. Results are included in the response
+    as `table_statistics` and `tables_not_found`.
+    """
+    # Resolve destination config
+    config_dict = resolve_connector_config(
+        config=config,
+        config_file=config_file,
+        config_secret_name=config_secret_name,
+    )
+
+    # Set up destination
+    destination_kwargs: dict[str, Any] = {
+        "name": destination_connector_name,
+        "config": config_dict,
+    }
+    if docker_image:
+        destination_kwargs["docker_image"] = docker_image
+    elif is_docker_installed():
+        destination_kwargs["docker_image"] = True
+
+    destination_obj = get_destination(**destination_kwargs)
+
+    # Resolve scenarios for the shared helper
+    resolved_scenarios: str | list[str]
+    if isinstance(scenarios, str):
+        resolved_scenarios = scenarios
+    else:
+        resolved_scenarios = resolve_list_of_strings(scenarios) or "fast"
+
+    return run_destination_smoke_test(
+        destination=destination_obj,
+        scenarios=resolved_scenarios,
+        namespace_suffix=namespace_suffix,
+        reuse_namespace=reuse_namespace,
+        custom_scenarios=custom_scenarios,
+        skip_preflight=skip_preflight,
+    )
 
 
 def register_local_tools(app: FastMCP) -> None:

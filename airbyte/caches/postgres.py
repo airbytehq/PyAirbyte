@@ -24,10 +24,10 @@ from typing import TYPE_CHECKING, ClassVar
 from airbyte_api.models import DestinationPostgres
 
 from airbyte._processors.sql.postgres import PostgresConfig, PostgresSqlProcessor
-from airbyte.caches.base import CacheBase
-from airbyte.destinations._translate_cache_to_dest import (
+from airbyte.caches._utils._cache_to_dest import (
     postgres_cache_to_destination_configuration,
 )
+from airbyte.caches.base import CacheBase
 
 
 if TYPE_CHECKING:
@@ -42,7 +42,7 @@ class PostgresCache(PostgresConfig, CacheBase):
 
     _sql_processor_class: ClassVar[type[SqlProcessorBase]] = PostgresSqlProcessor
 
-    paired_destination_name: ClassVar[str | None] = "destination-bigquery"
+    paired_destination_name: ClassVar[str | None] = "destination-postgres"
     paired_destination_config_class: ClassVar[type | None] = DestinationPostgres
 
     @property
