@@ -15,6 +15,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from airbyte.cloud._case_conversion import snake_to_camel_keys
+
 
 class StreamDescriptor(BaseModel):
     """Descriptor for a single stream within a connection state."""
@@ -150,6 +152,21 @@ def _normalize_state_to_protocol(
     ]
 
 
+def _stream_entry_to_api(stream_entry: dict[str, Any]) -> dict[str, Any]:
+    """Convert a single protocol-format stream entry to Config API format.
+
+    Converts `stream_descriptor` keys to camelCase (via generic helper) and
+    preserves the opaque `stream_state` blob as-is. Strips `None` values from
+    the descriptor (the API omits null fields like `namespace`).
+    """
+    descriptor = stream_entry.get("stream_descriptor", {})
+    api_descriptor = {k: v for k, v in snake_to_camel_keys(descriptor).items() if v is not None}
+    return {
+        "streamDescriptor": api_descriptor,
+        "streamState": stream_entry.get("stream_state"),
+    }
+
+
 def _denormalize_protocol_state_to_api(
     protocol_messages: list[dict[str, Any]],
     connection_id: str,
@@ -158,6 +175,8 @@ def _denormalize_protocol_state_to_api(
 
     Reverses `_normalize_state_to_protocol`, producing a dict suitable for
     `import_raw_state()` / the Config API `create_or_update_safe` endpoint.
+    Uses generic snake_case → camelCase key conversion for stream entries;
+    the opaque state blobs are preserved as-is.
 
     Args:
         protocol_messages: List of protocol-format `AirbyteStateMessage` dicts.
@@ -184,26 +203,13 @@ def _denormalize_protocol_state_to_api(
 
     if msg_type == "GLOBAL":
         global_body = first.get("global", {})
-        shared = global_body.get("shared_state", {})
-        streams = global_body.get("stream_states", [])
         return {
             "stateType": "global",
             "connectionId": connection_id,
             "globalState": {
-                "sharedState": shared,
+                "sharedState": global_body.get("shared_state"),
                 "streamStates": [
-                    {
-                        "streamDescriptor": {
-                            "name": s.get("stream_descriptor", {}).get("name", ""),
-                            **(
-                                {"namespace": ns}
-                                if (ns := s.get("stream_descriptor", {}).get("namespace"))
-                                else {}
-                            ),
-                        },
-                        "streamState": s.get("stream_state", {}),
-                    }
-                    for s in streams
+                    _stream_entry_to_api(s) for s in global_body.get("stream_states", [])
                 ],
             },
         }
@@ -212,20 +218,7 @@ def _denormalize_protocol_state_to_api(
     return {
         "stateType": "stream",
         "connectionId": connection_id,
-        "streamState": [
-            {
-                "streamDescriptor": {
-                    "name": s.get("stream", {}).get("stream_descriptor", {}).get("name", ""),
-                    **(
-                        {"namespace": ns}
-                        if (ns := s.get("stream", {}).get("stream_descriptor", {}).get("namespace"))
-                        else {}
-                    ),
-                },
-                "streamState": s.get("stream", {}).get("stream_state", {}),
-            }
-            for s in protocol_messages
-        ],
+        "streamState": [_stream_entry_to_api(s.get("stream", {})) for s in protocol_messages],
     }
 
 

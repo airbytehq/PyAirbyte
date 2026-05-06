@@ -3,34 +3,18 @@
 
 The Config API returns catalogs using camelCase keys (`syncCatalog` format).
 The Airbyte protocol uses snake_case keys (`ConfiguredAirbyteCatalog` format).
-These helpers convert between the two representations.
+These helpers convert between the two representations using generic
+camelCase ↔ snake_case key converters rather than hard-coded field maps.
+
+Structural differences (flattening/nesting the `config` block) are handled
+by thin wrappers around the generic converters.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-
-# Mapping of camelCase stream-level keys to their snake_case protocol equivalents.
-_STREAM_KEY_MAP: dict[str, str] = {
-    "jsonSchema": "json_schema",
-    "supportedSyncModes": "supported_sync_modes",
-    "sourceDefinedCursor": "source_defined_cursor",
-    "defaultCursorField": "default_cursor_field",
-    "sourceDefinedPrimaryKey": "source_defined_primary_key",
-}
-
-# Mapping of camelCase config-level keys to their snake_case protocol equivalents.
-_CONFIG_KEY_MAP: dict[str, str] = {
-    "syncMode": "sync_mode",
-    "destinationSyncMode": "destination_sync_mode",
-    "cursorField": "cursor_field",
-    "primaryKey": "primary_key",
-}
-
-# Reverse mappings for denormalization (protocol → API).
-_STREAM_KEY_MAP_REVERSE: dict[str, str] = {v: k for k, v in _STREAM_KEY_MAP.items()}
-_CONFIG_KEY_MAP_REVERSE: dict[str, str] = {v: k for k, v in _CONFIG_KEY_MAP.items()}
+from airbyte.cloud._case_conversion import camel_to_snake_keys, snake_to_camel_keys
 
 
 def _normalize_catalog_to_protocol(
@@ -53,22 +37,13 @@ def _normalize_catalog_to_protocol(
         stream_info = stream_config.get("stream", {})
         config_info = stream_config.get("config", {})
 
-        # Convert stream properties from camelCase to snake_case
-        normalized_stream: dict[str, Any] = {"name": stream_info.get("name", "")}
-        for camel_key, snake_key in _STREAM_KEY_MAP.items():
-            if camel_key in stream_info:
-                normalized_stream[snake_key] = stream_info[camel_key]
+        # Convert stream-level keys from camelCase → snake_case (shallow).
+        # Opaque values like jsonSchema content are preserved as-is.
+        normalized_stream = camel_to_snake_keys(stream_info)
 
-        # Preserve any keys that are already snake_case
-        normalized_stream.update(
-            {k: v for k, v in stream_info.items() if k not in _STREAM_KEY_MAP and k != "name"}
-        )
-
-        # Build the configured stream entry with flattened config
+        # Build the configured stream entry with flattened config keys.
         configured_entry: dict[str, Any] = {"stream": normalized_stream}
-        for camel_key, snake_key in _CONFIG_KEY_MAP.items():
-            if camel_key in config_info:
-                configured_entry[snake_key] = config_info[camel_key]
+        configured_entry.update(camel_to_snake_keys(config_info))
 
         configured_streams.append(configured_entry)
 
@@ -94,26 +69,11 @@ def _denormalize_catalog_to_api(
     for entry in configured_catalog.get("streams", []):
         stream_info = entry.get("stream", {})
 
-        # Convert stream properties from snake_case back to camelCase
-        api_stream: dict[str, Any] = {"name": stream_info.get("name", "")}
-        for snake_key, camel_key in _STREAM_KEY_MAP_REVERSE.items():
-            if snake_key in stream_info:
-                api_stream[camel_key] = stream_info[snake_key]
+        # Convert stream-level keys from snake_case → camelCase (shallow).
+        api_stream = snake_to_camel_keys(stream_info)
 
-        # Preserve any extra keys not in the mapping
-        api_stream.update(
-            {
-                k: v
-                for k, v in stream_info.items()
-                if k not in _STREAM_KEY_MAP_REVERSE and k != "name"
-            }
-        )
-
-        # Extract config fields from the flat entry back into nested config
-        config: dict[str, Any] = {}
-        for snake_key, camel_key in _CONFIG_KEY_MAP_REVERSE.items():
-            if snake_key in entry:
-                config[camel_key] = entry[snake_key]
+        # Everything except "stream" is a config field — nest back under "config".
+        config = snake_to_camel_keys({k: v for k, v in entry.items() if k != "stream"})
 
         api_streams.append({"stream": api_stream, "config": config})
 
