@@ -32,13 +32,14 @@ The `docs-generate` Poe task is mapped to the `run()` function of `docs/generate
 
 Documentation pages will be generated in the `docs/generated` folder. The `test_docs.py` test in pytest will automatically update generated content. This updates must be manually committed before docs tests will pass.
 
-### Generating Markdown docs for the `airbyte` CLI
+### Generating Markdown docs for the `airbyte cloud` CLI
 
 The repo ships a small script (`docs/generate_cli.py`) that renders the
-`airbyte` Cloud CLI command tree as Markdown under `docs/generated/`. The
-`airbyte.cli.cloud_cli` module pulls the combined CLI reference in via pdoc's
-`.. include::` directive, and the `airbyte.cli.{workspaces,sources,destinations,connections,jobs}`
-modules pull in per-command-group references.
+`airbyte cloud` CLI command tree as Markdown under `docs/generated/`. The
+`airbyte.cli.cloud` module pulls the combined CLI reference in via pdoc's
+`.. include::` directive, and the
+`airbyte.cli.cloud.{workspaces,sources,destinations,connections,jobs}` modules
+pull in per-command-group references.
 
 You normally don't need to run this script directly because `poe docs-generate`
 regenerates CLI docs before pdoc renders HTML. To only regenerate the Markdown
@@ -48,7 +49,7 @@ CLI reference, run:
 uv run python -m docs.generate_cli
 ```
 
-Regenerate after any change to `airbyte` CLI command groups, command names,
+Regenerate after any change to `airbyte cloud` command groups, command names,
 options, or help text.
 
 ## Release

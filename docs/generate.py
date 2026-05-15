@@ -25,7 +25,7 @@ from docs.generate_cli import (
 
 
 GENERATED_DIR = pathlib.Path("docs/generated")
-CLI_REFERENCE_PATH = GENERATED_DIR / "cli-reference.md"
+CLI_REFERENCE_PATH = GENERATED_DIR / "cli" / "cloud-reference.md"
 
 
 def _regenerate_mcp_markdown() -> None:
@@ -75,7 +75,7 @@ def _regenerate_mcp_markdown() -> None:
 
 def run() -> None:
     """Generate docs for public modules and CLI references in PyAirbyte."""
-    public_modules = ["airbyte", "airbyte/cli/pyab.py"]
+    public_modules = ["airbyte"]
 
     # Regenerate MCP Markdown first so the `.. include::` directives in the
     # MCP module docstrings resolve on a clean checkout (docs/mcp-generated/

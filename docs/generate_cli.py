@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Generate Markdown CLI reference(s) for the `airbyte` CLI.
+"""Generate Markdown CLI reference(s) for the `airbyte cloud` CLI.
 
 This mirrors the `airbyte-ops-mcp` CLI docs generation pattern: command
 metadata is rendered to Markdown first, then pdoc grafts that Markdown into
@@ -21,15 +21,15 @@ from typing import TYPE_CHECKING
 
 import click
 
-from airbyte.cli.cloud_cli import cli
+from airbyte.cli.cloud._cli import cloud as cli_reference_root  # noqa: PLC2701
 
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
 
-DEFAULT_OUTPUT_PATH = pathlib.Path("docs/generated/cli-reference.md")
-DEFAULT_SUBMODULE_OUTPUT_DIR = pathlib.Path("docs/generated/cli")
+DEFAULT_OUTPUT_PATH = pathlib.Path("docs/generated/cli/cloud-reference.md")
+DEFAULT_SUBMODULE_OUTPUT_DIR = pathlib.Path("docs/generated/cli/cloud")
 
 
 @dataclass(frozen=True)
@@ -128,11 +128,11 @@ def generate_cli_reference(
     *,
     heading_level: int = 1,
 ) -> pathlib.Path:
-    """Render the combined `airbyte` CLI reference as Markdown."""
-    ctx = click.Context(cli, info_name="airbyte")
+    """Render the combined `airbyte cloud` CLI reference as Markdown."""
+    ctx = click.Context(cli_reference_root, info_name="cloud")
     markdown = _render_markdown(
-        _command_docs(cli, "airbyte", ctx),
-        command_chain=["airbyte"],
+        _command_docs(cli_reference_root, "cloud", ctx),
+        command_chain=["airbyte", "cloud"],
         heading_level=heading_level,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -144,21 +144,22 @@ def generate_cli_submodule_references(
     output_dir: pathlib.Path | None = None,
     *,
     heading_level: int = 2,
-    root_command: str = "airbyte",
+    root_command: str = "airbyte cloud",
 ) -> list[pathlib.Path]:
-    """Render one Markdown file per top-level CLI command group."""
+    """Render one Markdown file per `airbyte cloud` command group."""
     output_dir = output_dir or DEFAULT_SUBMODULE_OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
-    root_ctx = click.Context(cli, info_name=root_command)
+    root_ctx = click.Context(cli_reference_root, info_name="cloud")
     written: list[pathlib.Path] = []
-    for name in cli.list_commands(root_ctx):
-        group = cli.get_command(root_ctx, name)
+    for name in cli_reference_root.list_commands(root_ctx):
+        group = cli_reference_root.get_command(root_ctx, name)
         if group is None:
             continue
         group_ctx = click.Context(group, info_name=name, parent=root_ctx)
+        command_chain = [*root_command.split(), name]
         markdown = _render_markdown(
             _command_docs(group, name, group_ctx),
-            command_chain=[root_command, name],
+            command_chain=command_chain,
             heading_level=heading_level,
         )
         output_path = output_dir / f"{name}.md"
@@ -172,7 +173,7 @@ def _main(argv: list[str] | None = None) -> None:
     output = pathlib.Path(args[0]) if args else DEFAULT_OUTPUT_PATH
     combined_path = generate_cli_reference(output)
     print(f"Wrote combined CLI reference to {combined_path}")
-    submodule_dir = output.parent / "cli"
+    submodule_dir = output.parent / "cloud"
     for path in generate_cli_submodule_references(submodule_dir):
         print(f"Wrote CLI group reference to {path}")
 
