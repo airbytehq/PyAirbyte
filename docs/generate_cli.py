@@ -79,7 +79,7 @@ def _render_command(
     command_name = " ".join(chain)
     help_text = doc.command.help or doc.command.short_help or ""
 
-    lines.extend((f"{heading} `{command_name}`", ""))
+    lines.extend((f"{heading} {command_name}", ""))
     if help_text:
         lines.extend((help_text, ""))
 
