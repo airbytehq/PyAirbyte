@@ -7,7 +7,7 @@ Invokable as:
 uvx --from airbyte airbyte cloud --help
 airbyte cloud workspaces list
 airbyte cloud sources list --workspace-id <id>
-airbyte cloud connections sync --workspace-id <id> --json '{"connection_id": "..."}'
+airbyte cloud connections sync --workspace-id <id> <connection-id>
 ```
 
 Pass `--format json` before a command path for machine-readable parameter

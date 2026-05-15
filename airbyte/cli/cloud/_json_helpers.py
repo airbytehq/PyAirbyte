@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import json
 import sys
+from pathlib import Path
 from typing import Any, NoReturn
 
 import click
+import yaml
 
 
 COMMAND_SCHEMAS: dict[str, dict[str, Any]] = {}
@@ -25,14 +27,69 @@ def error_json(message: str, **extra: object) -> NoReturn:
     sys.exit(1)
 
 
-def parse_json_option(raw: str | None) -> dict[str, Any]:
-    """Parse a `--json` option value into a dict."""
+def parse_json_option(raw: str | None, *, option_name: str) -> dict[str, Any]:
+    """Parse a JSON option value into a dict."""
     if not raw:
         return {}
     parsed = json.loads(raw)
     if not isinstance(parsed, dict):
-        error_json("--json value must be a JSON object (dict).")
+        error_json(f"{option_name} value must be a JSON object (dict).")
     return parsed
+
+
+def parse_config_options(
+    config_json: str | None,
+    config_file: str | None,
+    *,
+    config_type_key: str | None = None,
+    config_type_value: str | None = None,
+) -> dict[str, Any]:
+    """Parse connector config from `--config-json` or `--config-file`."""
+    if config_json and config_file:
+        error_json("Provide only one of --config-json or --config-file.", type="InvalidParameter")
+
+    config = parse_json_option(config_json, option_name="--config-json")
+    if config_file:
+        parsed: Any | None = None
+        try:
+            parsed = yaml.safe_load(Path(config_file).expanduser().read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError) as exc:
+            error_json(str(exc), type=exc.__class__.__name__)
+        if parsed is None:
+            config = {}
+        elif isinstance(parsed, dict):
+            config = parsed
+        else:
+            error_json("--config-file must contain a JSON or YAML object.", type="InvalidParameter")
+
+    if config_type_key and config_type_value:
+        existing = config.get(config_type_key)
+        if existing and existing != config_type_value:
+            error_json(
+                f"{config_type_key} conflicts with the explicit connector type option.",
+                type="InvalidParameter",
+            )
+        config[config_type_key] = config_type_value
+    return config
+
+
+def resolve_entity_id(
+    positional_id: str | None,
+    option_id: str | None,
+    *,
+    option_name: str,
+) -> str:
+    """Resolve an entity ID accepted as either positional arg or named option."""
+    if positional_id and option_id and positional_id != option_id:
+        error_json(
+            f"{option_name} conflicts with the positional ID argument.",
+            type="InvalidParameter",
+        )
+    resolved_id = positional_id or option_id
+    if not resolved_id:
+        error_json(f"{option_name} is required.", type="MissingParameter")
+    assert resolved_id
+    return resolved_id
 
 
 def register_schema(

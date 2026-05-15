@@ -5,15 +5,16 @@ from __future__ import annotations
 
 import json
 import sys
+from typing import NoReturn
 
 import click
 
 from airbyte.cli.cloud._cli import cloud
 from airbyte.cli.local._cli import local
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 
 
-def _error_json(message: str, **extra: object) -> None:
+def _error_json(message: str, **extra: object) -> NoReturn:
     """Print an error object to stderr and exit."""
     payload: dict[str, object] = {"error": message, **extra}
     click.echo(json.dumps(payload, indent=2, default=str), err=True)
@@ -44,6 +45,8 @@ def main() -> None:
         _error_json(str(exc), type="JSONDecodeError")
     except PyAirbyteInputError as exc:
         _error_json(str(exc), type="PyAirbyteInputError")
+    except AirbyteError as exc:
+        _error_json(str(exc), type=exc.__class__.__name__)
 
 
 if __name__ == "__main__":

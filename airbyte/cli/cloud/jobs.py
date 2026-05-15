@@ -20,6 +20,7 @@ from airbyte.cli.cloud._json_helpers import (
     error_json,
     json_output,
     register_schema,
+    resolve_entity_id,
 )
 
 
@@ -66,18 +67,23 @@ def jobs_list(ctx: click.Context, connection_id: str | None, limit: int) -> None
 register_schema(
     "jobs_get",
     description="Get details of a specific job by ID.",
-    required_params={"job_id": "The job ID to retrieve."},
+    required_params={"job_id": "The job ID to retrieve, as an argument or --job-id."},
 )
 
 
 @jobs.command("get", cls=JsonHelpCommand)
+@click.argument("job_id_arg", required=False, type=int)
 @click.option("--job-id", default=None, type=int, help="The job ID to retrieve.")
 @click.pass_context
-def jobs_get(ctx: click.Context, job_id: int | None) -> None:
+def jobs_get(ctx: click.Context, job_id_arg: int | None, job_id: int | None) -> None:
     """Get details of a specific job."""
-    if job_id is None:
-        error_json("--job-id is required.", type="MissingParameter")
-    assert job_id is not None
+    job_id = int(
+        resolve_entity_id(
+            str(job_id_arg) if job_id_arg is not None else None,
+            str(job_id) if job_id is not None else None,
+            option_name="--job-id",
+        )
+    )
     api_url, client_id, client_secret = get_auth_no_workspace(ctx)
     result = api_util.get_job_info(
         job_id=job_id,
@@ -85,6 +91,47 @@ def jobs_get(ctx: click.Context, job_id: int | None) -> None:
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=None,
+    )
+    json_output(job_to_dict(result))
+
+
+register_schema(
+    "jobs_wait",
+    description="Wait for a job to reach a terminal status.",
+    required_params={"job_id": "The job ID to wait for, as an argument or --job-id."},
+    optional_params={"wait_timeout": "Maximum seconds to wait for job completion."},
+)
+
+
+@jobs.command("wait", cls=JsonHelpCommand)
+@click.argument("job_id_arg", required=False, type=int)
+@click.option("--job-id", default=None, type=int, help="The job ID to wait for.")
+@click.option(
+    "--wait-timeout",
+    default=api_util.JOB_WAIT_TIMEOUT_SECS_DEFAULT,
+    type=int,
+    help="Maximum seconds to wait for job completion.",
+)
+@click.pass_context
+def jobs_wait(
+    ctx: click.Context, job_id_arg: int | None, job_id: int | None, wait_timeout: int
+) -> None:
+    """Wait for a job to complete."""
+    job_id = int(
+        resolve_entity_id(
+            str(job_id_arg) if job_id_arg is not None else None,
+            str(job_id) if job_id is not None else None,
+            option_name="--job-id",
+        )
+    )
+    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
+    result = api_util.wait_for_job(
+        job_id=job_id,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+        timeout_secs=wait_timeout,
     )
     json_output(job_to_dict(result))
 

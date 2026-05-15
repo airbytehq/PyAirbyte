@@ -23,8 +23,9 @@ from airbyte.cli.cloud._json_helpers import (
     JsonHelpGroup,
     error_json,
     json_output,
-    parse_json_option,
+    parse_config_options,
     register_schema,
+    resolve_entity_id,
 )
 
 
@@ -60,18 +61,27 @@ def destinations_list(ctx: click.Context) -> None:
 register_schema(
     "destinations_get",
     description="Get details of a specific destination.",
-    required_params={"destination_id": "The destination ID to retrieve."},
+    required_params={
+        "destination_id": "The destination ID to retrieve, as an argument or --destination-id.",
+    },
 )
 
 
 @destinations.command("get", cls=JsonHelpCommand)
+@click.argument("destination_id_arg", required=False)
 @click.option("--destination-id", default=None, help="The destination ID to retrieve.")
 @click.pass_context
-def destinations_get(ctx: click.Context, destination_id: str | None) -> None:
+def destinations_get(
+    ctx: click.Context,
+    destination_id_arg: str | None,
+    destination_id: str | None,
+) -> None:
     """Get details of a specific destination."""
-    if not destination_id:
-        error_json("--destination-id is required.", type="MissingParameter")
-    assert destination_id is not None
+    destination_id = resolve_entity_id(
+        destination_id_arg,
+        destination_id,
+        option_name="--destination-id",
+    )
     api_url, client_id, client_secret = get_auth_no_workspace(ctx)
     result = api_util.get_destination(
         destination_id=destination_id,
@@ -89,32 +99,125 @@ register_schema(
     required_params={
         "workspace_id": "The workspace ID.",
         "name": "Display name for the destination.",
-        "destinationType": "The destination connector type (e.g. 'bigquery').",
+        "destination_type": "The destination connector type (e.g. 'bigquery').",
     },
-    optional_params={"...": "Additional connector-specific configuration fields."},
+    optional_params={
+        "config_file": "JSON or YAML file containing connector-specific configuration.",
+        "config_json": "Inline JSON object containing connector-specific configuration.",
+    },
 )
 
 
 @destinations.command("create", cls=JsonHelpCommand)
-@click.option(
-    "--json",
-    "json_str",
-    default=None,
-    help='JSON config: {"name": "...", "destinationType": "...", ...}',
-)
+@click.option("--name", required=True, help="Display name for the destination.")
+@click.option("--destination-type", required=True, help="The destination connector type.")
+@click.option("--config-file", default=None, help="JSON or YAML connector config file.")
+@click.option("--config-json", default=None, help="Inline JSON connector config object.")
 @click.pass_context
-def destinations_create(ctx: click.Context, json_str: str | None) -> None:
+def destinations_create(
+    ctx: click.Context,
+    name: str,
+    destination_type: str,
+    config_file: str | None,
+    config_json: str | None,
+) -> None:
     """Create a new destination in the workspace."""
-    if not json_str:
-        error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    config = parse_json_option(json_str)
-    name = config.pop("name", None)
-    if not name:
-        error_json("'name' is required in --json config.")
+    config = parse_config_options(
+        config_json,
+        config_file,
+        config_type_key="destinationType",
+        config_type_value=destination_type,
+    )
     result = api_util.create_destination(
         name=name,
         workspace_id=workspace_id,
+        config=config,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
+    json_output(destination_to_dict(result))
+
+
+register_schema(
+    "destinations_rename",
+    description="Rename a destination by ID.",
+    required_params={
+        "destination_id": "The destination ID to rename, as an argument or --destination-id.",
+        "name": "New display name for the destination.",
+    },
+)
+
+
+@destinations.command("rename", cls=JsonHelpCommand)
+@click.argument("destination_id_arg", required=False)
+@click.option("--destination-id", default=None, help="The destination ID to rename.")
+@click.option("--name", required=True, help="New display name for the destination.")
+@click.pass_context
+def destinations_rename(
+    ctx: click.Context,
+    destination_id_arg: str | None,
+    destination_id: str | None,
+    name: str,
+) -> None:
+    """Rename a destination."""
+    destination_id = resolve_entity_id(
+        destination_id_arg,
+        destination_id,
+        option_name="--destination-id",
+    )
+    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
+    result = api_util.patch_destination(
+        destination_id=destination_id,
+        name=name,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
+    json_output(destination_to_dict(result))
+
+
+register_schema(
+    "destinations_update",
+    description="Update destination connector configuration by ID.",
+    required_params={
+        "destination_id": "The destination ID to update, as an argument or --destination-id.",
+    },
+    optional_params={
+        "config_file": "JSON or YAML file containing connector-specific configuration.",
+        "config_json": "Inline JSON object containing connector-specific configuration.",
+    },
+)
+
+
+@destinations.command("update", cls=JsonHelpCommand)
+@click.argument("destination_id_arg", required=False)
+@click.option("--destination-id", default=None, help="The destination ID to update.")
+@click.option("--config-file", default=None, help="JSON or YAML connector config file.")
+@click.option("--config-json", default=None, help="Inline JSON connector config object.")
+@click.pass_context
+def destinations_update(
+    ctx: click.Context,
+    destination_id_arg: str | None,
+    destination_id: str | None,
+    config_file: str | None,
+    config_json: str | None,
+) -> None:
+    """Update a destination configuration."""
+    destination_id = resolve_entity_id(
+        destination_id_arg,
+        destination_id,
+        option_name="--destination-id",
+    )
+    if not config_file and not config_json:
+        error_json("Provide --config-file or --config-json.", type="MissingParameter")
+    config = parse_config_options(config_json, config_file)
+    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
+    result = api_util.patch_destination(
+        destination_id=destination_id,
         config=config,
         api_root=api_url,
         client_id=client_id,
@@ -129,25 +232,29 @@ register_schema(
     description="Delete a destination by ID.",
     required_params={
         "workspace_id": "The workspace ID.",
-        "destination_id": "The destination ID to delete.",
+        "destination_id": "The destination ID to delete, as an argument or --destination-id.",
     },
     optional_params={"force": "Skip delete safety checks (default: false)."},
 )
 
 
 @destinations.command("delete", cls=JsonHelpCommand)
+@click.argument("destination_id_arg", required=False)
 @click.option("--destination-id", default=None, help="The destination ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.pass_context
 def destinations_delete(
     ctx: click.Context,
+    destination_id_arg: str | None,
     destination_id: str | None,
     force: bool,  # noqa: FBT001
 ) -> None:
     """Delete a destination."""
-    if not destination_id:
-        error_json("--destination-id is required.", type="MissingParameter")
-    assert destination_id is not None
+    destination_id = resolve_entity_id(
+        destination_id_arg,
+        destination_id,
+        option_name="--destination-id",
+    )
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     api_util.delete_destination(
         destination_id=destination_id,

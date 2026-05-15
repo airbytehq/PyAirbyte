@@ -19,8 +19,9 @@ from airbyte.cli.cloud._json_helpers import (
     JsonHelpGroup,
     error_json,
     json_output,
-    parse_json_option,
+    parse_config_options,
     register_schema,
+    resolve_entity_id,
 )
 
 
@@ -56,18 +57,17 @@ def sources_list(ctx: click.Context) -> None:
 register_schema(
     "sources_get",
     description="Get details of a specific source.",
-    required_params={"source_id": "The source ID to retrieve."},
+    required_params={"source_id": "The source ID to retrieve, as an argument or --source-id."},
 )
 
 
 @sources.command("get", cls=JsonHelpCommand)
+@click.argument("source_id_arg", required=False)
 @click.option("--source-id", default=None, help="The source ID to retrieve.")
 @click.pass_context
-def sources_get(ctx: click.Context, source_id: str | None) -> None:
+def sources_get(ctx: click.Context, source_id_arg: str | None, source_id: str | None) -> None:
     """Get details of a specific source."""
-    if not source_id:
-        error_json("--source-id is required.", type="MissingParameter")
-    assert source_id is not None
+    source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
     api_url, client_id, client_secret = get_auth_no_workspace(ctx)
     result = api_util.get_source(
         source_id=source_id,
@@ -85,32 +85,117 @@ register_schema(
     required_params={
         "workspace_id": "The workspace ID.",
         "name": "Display name for the source.",
-        "sourceType": "The source connector type (e.g. 'postgres').",
+        "source_type": "The source connector type (e.g. 'postgres').",
     },
-    optional_params={"...": "Additional connector-specific configuration fields."},
+    optional_params={
+        "config_file": "JSON or YAML file containing connector-specific configuration.",
+        "config_json": "Inline JSON object containing connector-specific configuration.",
+    },
 )
 
 
 @sources.command("create", cls=JsonHelpCommand)
-@click.option(
-    "--json",
-    "json_str",
-    default=None,
-    help='JSON config: {"name": "...", "sourceType": "...", ...}',
-)
+@click.option("--name", required=True, help="Display name for the source.")
+@click.option("--source-type", required=True, help="The source connector type.")
+@click.option("--config-file", default=None, help="JSON or YAML connector config file.")
+@click.option("--config-json", default=None, help="Inline JSON connector config object.")
 @click.pass_context
-def sources_create(ctx: click.Context, json_str: str | None) -> None:
+def sources_create(
+    ctx: click.Context,
+    name: str,
+    source_type: str,
+    config_file: str | None,
+    config_json: str | None,
+) -> None:
     """Create a new source in the workspace."""
-    if not json_str:
-        error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    config = parse_json_option(json_str)
-    name = config.pop("name", None)
-    if not name:
-        error_json("'name' is required in --json config.")
+    config = parse_config_options(
+        config_json,
+        config_file,
+        config_type_key="sourceType",
+        config_type_value=source_type,
+    )
     result = api_util.create_source(
         name=name,
         workspace_id=workspace_id,
+        config=config,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
+    json_output(source_to_dict(result))
+
+
+register_schema(
+    "sources_rename",
+    description="Rename a source by ID.",
+    required_params={
+        "source_id": "The source ID to rename, as an argument or --source-id.",
+        "name": "New display name for the source.",
+    },
+)
+
+
+@sources.command("rename", cls=JsonHelpCommand)
+@click.argument("source_id_arg", required=False)
+@click.option("--source-id", default=None, help="The source ID to rename.")
+@click.option("--name", required=True, help="New display name for the source.")
+@click.pass_context
+def sources_rename(
+    ctx: click.Context,
+    source_id_arg: str | None,
+    source_id: str | None,
+    name: str,
+) -> None:
+    """Rename a source."""
+    source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
+    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
+    result = api_util.patch_source(
+        source_id=source_id,
+        name=name,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
+    json_output(source_to_dict(result))
+
+
+register_schema(
+    "sources_update",
+    description="Update source connector configuration by ID.",
+    required_params={
+        "source_id": "The source ID to update, as an argument or --source-id.",
+    },
+    optional_params={
+        "config_file": "JSON or YAML file containing connector-specific configuration.",
+        "config_json": "Inline JSON object containing connector-specific configuration.",
+    },
+)
+
+
+@sources.command("update", cls=JsonHelpCommand)
+@click.argument("source_id_arg", required=False)
+@click.option("--source-id", default=None, help="The source ID to update.")
+@click.option("--config-file", default=None, help="JSON or YAML connector config file.")
+@click.option("--config-json", default=None, help="Inline JSON connector config object.")
+@click.pass_context
+def sources_update(
+    ctx: click.Context,
+    source_id_arg: str | None,
+    source_id: str | None,
+    config_file: str | None,
+    config_json: str | None,
+) -> None:
+    """Update a source configuration."""
+    source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
+    if not config_file and not config_json:
+        error_json("Provide --config-file or --config-json.", type="MissingParameter")
+    config = parse_config_options(config_json, config_file)
+    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
+    result = api_util.patch_source(
+        source_id=source_id,
         config=config,
         api_root=api_url,
         client_id=client_id,
@@ -125,21 +210,25 @@ register_schema(
     description="Delete a source by ID.",
     required_params={
         "workspace_id": "The workspace ID.",
-        "source_id": "The source ID to delete.",
+        "source_id": "The source ID to delete, as an argument or --source-id.",
     },
     optional_params={"force": "Skip delete safety checks (default: false)."},
 )
 
 
 @sources.command("delete", cls=JsonHelpCommand)
+@click.argument("source_id_arg", required=False)
 @click.option("--source-id", default=None, help="The source ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.pass_context
-def sources_delete(ctx: click.Context, source_id: str | None, force: bool) -> None:  # noqa: FBT001
+def sources_delete(
+    ctx: click.Context,
+    source_id_arg: str | None,
+    source_id: str | None,
+    force: bool,  # noqa: FBT001
+) -> None:
     """Delete a source."""
-    if not source_id:
-        error_json("--source-id is required.", type="MissingParameter")
-    assert source_id is not None
+    source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     api_util.delete_source(
         source_id=source_id,

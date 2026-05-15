@@ -19,8 +19,8 @@ from airbyte.cli.cloud._json_helpers import (
     JsonHelpGroup,
     error_json,
     json_output,
-    parse_json_option,
     register_schema,
+    resolve_entity_id,
 )
 
 
@@ -58,19 +58,26 @@ register_schema(
     description="Get details of a specific connection.",
     required_params={
         "workspace_id": "The workspace ID.",
-        "connection_id": "The connection ID to retrieve.",
+        "connection_id": "The connection ID to retrieve, as an argument or --connection-id.",
     },
 )
 
 
 @connections.command("get", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
 @click.option("--connection-id", default=None, help="The connection ID to retrieve.")
 @click.pass_context
-def connections_get(ctx: click.Context, connection_id: str | None) -> None:
+def connections_get(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+) -> None:
     """Get details of a specific connection."""
-    if not connection_id:
-        error_json("--connection-id is required.", type="MissingParameter")
-    assert connection_id is not None
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     result = api_util.get_connection(
         workspace_id=workspace_id,
@@ -93,40 +100,141 @@ register_schema(
         "destination_id": "The destination ID.",
     },
     optional_params={
-        "selected_stream_names": "List of stream names to sync.",
+        "selected_stream_name": "Stream name to sync. Repeat for multiple streams.",
         "prefix": "Optional table prefix for destination.",
     },
 )
 
 
 @connections.command("create", cls=JsonHelpCommand)
-@click.option(
-    "--json",
-    "json_str",
-    default=None,
-    help='JSON config: {"name": "...", "source_id": "...", "destination_id": "...", ...}',
-)
+@click.option("--name", required=True, help="Display name for the connection.")
+@click.option("--source-id", required=True, help="The source ID.")
+@click.option("--destination-id", required=True, help="The destination ID.")
+@click.option("--selected-stream-name", multiple=True, help="Stream name to sync.")
+@click.option("--prefix", default="", help="Optional table prefix for destination.")
 @click.pass_context
-def connections_create(ctx: click.Context, json_str: str | None) -> None:
+def connections_create(
+    ctx: click.Context,
+    name: str,
+    source_id: str,
+    destination_id: str,
+    selected_stream_name: tuple[str, ...],
+    prefix: str,
+) -> None:
     """Create a new connection."""
-    if not json_str:
-        error_json("--json is required.", type="MissingParameter")
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    config = parse_json_option(json_str)
-    name = config.get("name")
-    source_id = config.get("source_id")
-    destination_id = config.get("destination_id")
-    if not name or not source_id or not destination_id:
-        error_json("'name', 'source_id', and 'destination_id' are required in --json config.")
-    selected_streams: list[str] = config.get("selected_stream_names", [])
-    prefix: str = config.get("prefix", "")
     result = api_util.create_connection(
-        name=str(name),
-        source_id=str(source_id),
-        destination_id=str(destination_id),
+        name=name,
+        source_id=source_id,
+        destination_id=destination_id,
         workspace_id=workspace_id,
         prefix=prefix,
-        selected_stream_names=selected_streams,
+        selected_stream_names=list(selected_stream_name),
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
+    json_output(connection_to_dict(result))
+
+
+register_schema(
+    "connections_rename",
+    description="Rename a connection by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to rename, as an argument or --connection-id.",
+        "name": "New display name for the connection.",
+    },
+)
+
+
+@connections.command("rename", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
+@click.option("--connection-id", default=None, help="The connection ID to rename.")
+@click.option("--name", required=True, help="New display name for the connection.")
+@click.pass_context
+def connections_rename(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+    name: str,
+) -> None:
+    """Rename a connection."""
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
+    api_url, client_id, client_secret, _ = get_auth_context(ctx)
+    result = api_util.patch_connection(
+        connection_id=connection_id,
+        name=name,
+        api_root=api_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=None,
+    )
+    json_output(connection_to_dict(result))
+
+
+register_schema(
+    "connections_update",
+    description="Update connection settings by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to update, as an argument or --connection-id.",
+    },
+    optional_params={
+        "prefix": "Optional table prefix for destination.",
+        "selected_stream_name": "Stream name to sync. Repeat for multiple streams.",
+        "status": "Connection status: active, inactive, or deprecated.",
+    },
+)
+
+
+@connections.command("update", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
+@click.option("--connection-id", default=None, help="The connection ID to update.")
+@click.option("--prefix", default=None, help="Optional table prefix for destination.")
+@click.option("--selected-stream-name", multiple=True, help="Stream name to sync.")
+@click.option(
+    "--status",
+    type=click.Choice(["active", "inactive", "deprecated"], case_sensitive=False),
+    default=None,
+    help="Connection status.",
+)
+@click.pass_context
+def connections_update(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+    prefix: str | None,
+    selected_stream_name: tuple[str, ...],
+    status: str | None,
+) -> None:
+    """Update a connection."""
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
+    if prefix is None and not selected_stream_name and status is None:
+        error_json(
+            "Provide at least one update option.",
+            type="MissingParameter",
+        )
+    configurations = (
+        api_util.build_stream_configurations(list(selected_stream_name))
+        if selected_stream_name
+        else None
+    )
+    api_url, client_id, client_secret, _ = get_auth_context(ctx)
+    result = api_util.patch_connection(
+        connection_id=connection_id,
+        configurations=configurations,
+        prefix=prefix,
+        status=status,
         api_root=api_url,
         client_id=client_id,
         client_secret=client_secret,
@@ -140,25 +248,29 @@ register_schema(
     description="Delete a connection by ID.",
     required_params={
         "workspace_id": "The workspace ID.",
-        "connection_id": "The connection ID to delete.",
+        "connection_id": "The connection ID to delete, as an argument or --connection-id.",
     },
     optional_params={"force": "Skip delete safety checks (default: false)."},
 )
 
 
 @connections.command("delete", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
 @click.option("--connection-id", default=None, help="The connection ID to delete.")
 @click.option("--force", is_flag=True, default=False, help="Skip delete safety checks.")
 @click.pass_context
 def connections_delete(
     ctx: click.Context,
+    connection_id_arg: str | None,
     connection_id: str | None,
     force: bool,  # noqa: FBT001
 ) -> None:
     """Delete a connection."""
-    if not connection_id:
-        error_json("--connection-id is required.", type="MissingParameter")
-    assert connection_id is not None
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     api_util.delete_connection(
         connection_id,
@@ -177,19 +289,39 @@ register_schema(
     description="Trigger a sync job for a connection.",
     required_params={
         "workspace_id": "The workspace ID.",
-        "connection_id": "The connection ID to sync.",
+        "connection_id": "The connection ID to sync, as an argument or --connection-id.",
+    },
+    optional_params={
+        "wait": "Wait for the triggered job to complete.",
+        "wait_timeout": "Maximum seconds to wait for job completion.",
     },
 )
 
 
 @connections.command("sync", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
 @click.option("--connection-id", default=None, help="The connection ID to sync.")
+@click.option("--wait/--no-wait", default=False, help="Wait for the triggered job to complete.")
+@click.option(
+    "--wait-timeout",
+    default=api_util.JOB_WAIT_TIMEOUT_SECS_DEFAULT,
+    type=int,
+    help="Maximum seconds to wait for job completion.",
+)
 @click.pass_context
-def connections_sync(ctx: click.Context, connection_id: str | None) -> None:
+def connections_sync(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+    wait: bool,  # noqa: FBT001
+    wait_timeout: int,
+) -> None:
     """Trigger a sync for a connection."""
-    if not connection_id:
-        error_json("--connection-id is required.", type="MissingParameter")
-    assert connection_id is not None
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
     api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     result = api_util.run_connection(
         workspace_id,
@@ -199,6 +331,15 @@ def connections_sync(ctx: click.Context, connection_id: str | None) -> None:
         client_secret=client_secret,
         bearer_token=None,
     )
+    if wait:
+        result = api_util.wait_for_job(
+            job_id=result.job_id,
+            api_root=api_url,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=None,
+            timeout_secs=wait_timeout,
+        )
     json_output(job_to_dict(result))
 
 
