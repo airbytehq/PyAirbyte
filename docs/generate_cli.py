@@ -60,7 +60,7 @@ def _usage(command: click.Command, command_chain: Iterable[str]) -> str:
     return f"{' '.join(chain)} {pieces}".strip()
 
 
-def _format_option(param: click.Parameter) -> str:
+def _format_option(param: click.Option) -> str:
     opts = ", ".join(param.opts)
     secondary_opts = ", ".join(param.secondary_opts)
     names = ", ".join(part for part in (opts, secondary_opts) if part)
@@ -94,7 +94,9 @@ def _render_command(
         )
     )
 
-    options = [_format_option(param) for param in doc.command.params if param.opts]
+    options = [
+        _format_option(param) for param in doc.command.params if isinstance(param, click.Option)
+    ]
     if options:
         lines.extend(("**Options**", ""))
         lines.extend(options)
@@ -139,12 +141,13 @@ def generate_cli_reference(
 
 
 def generate_cli_submodule_references(
-    output_dir: pathlib.Path = DEFAULT_SUBMODULE_OUTPUT_DIR,
+    output_dir: pathlib.Path | None = None,
     *,
     heading_level: int = 2,
     root_command: str = "airbyte",
 ) -> list[pathlib.Path]:
     """Render one Markdown file per top-level CLI command group."""
+    output_dir = output_dir or DEFAULT_SUBMODULE_OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     root_ctx = click.Context(cli, info_name=root_command)
     written: list[pathlib.Path] = []
@@ -169,7 +172,8 @@ def _main(argv: list[str] | None = None) -> None:
     output = pathlib.Path(args[0]) if args else DEFAULT_OUTPUT_PATH
     combined_path = generate_cli_reference(output)
     print(f"Wrote combined CLI reference to {combined_path}")
-    for path in generate_cli_submodule_references():
+    submodule_dir = output.parent / "cli"
+    for path in generate_cli_submodule_references(submodule_dir):
         print(f"Wrote CLI group reference to {path}")
 
 
