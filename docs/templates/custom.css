@@ -174,6 +174,22 @@ nav a:hover {
   color: var(--link-hover) !important;
 }
 
+/*
+ * Progressively indent nested TOC levels in the sidebar.
+ *
+ * pdoc's default layout.css indents *all* non-top-level nav items by a single
+ * (pad + indent) step, which makes H2 and H3 entries render at the same visual
+ * depth. When the generated MCP Markdown uses H3 headings per-tool nested
+ * under an H2 "Tools" heading, we want the tool names to appear visibly
+ * nested under the section heading in the left nav.
+ */
+nav.pdoc > div > ul > li > ul > li > ul > li > a {
+  padding-left: calc(var(--pad) + (var(--indent) * 2)) !important;
+}
+nav.pdoc > div > ul > li > ul > li > ul > li > ul > li > a {
+  padding-left: calc(var(--pad) + (var(--indent) * 3)) !important;
+}
+
 /* Style badges and labels */
 .badge {
   background-color: var(--color-green-40);
