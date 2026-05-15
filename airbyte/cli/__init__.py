@@ -20,21 +20,26 @@ uv tool install airbyte
 
 ```bash
 uvx --from airbyte airbyte cloud --help
+uvx --from airbyte airbyte local --help
 uvx --from airbyte pyab --help
 ```
 
 ## CLI reference
 
 The `airbyte cloud` command is documented in `airbyte.cli.cloud`.
-The `pyab` and `pyairbyte` commands are documented in `airbyte.cli.pyab`.
+The `airbyte local` command is documented in `airbyte.cli.local`.
+The `pyab` and `pyairbyte` commands are backward-compatible aliases documented
+in `airbyte.cli.pyab`.
 
-Each `airbyte cloud` command group is documented in its own submodule page below.
+Each `airbyte cloud` and `airbyte local` command group is documented in its own
+submodule page below.
 The reference content is regenerated locally via `poe docs-generate`; see
 `docs/generate_cli.py`.
 """
 
 from airbyte.cli import (
     cloud,
+    local,
     pyab,
 )
 from airbyte.cli.pyab import cli
@@ -42,6 +47,7 @@ from airbyte.cli.pyab import cli
 
 __all__ = [
     "cloud",
+    "local",
     "pyab",
     "cli",
 ]

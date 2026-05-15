@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Smoke tests for the `airbyte cloud` CLI reference generator."""
+"""Smoke tests for the `airbyte` CLI reference generator."""
 
 from __future__ import annotations
 
@@ -7,7 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from docs.generate_cli import generate_cli_reference, generate_cli_submodule_references
+from docs.generate_cli import (
+    generate_cli_reference,
+    generate_cli_submodule_references,
+    generate_local_cli_reference,
+    generate_local_cli_submodule_references,
+)
 
 
 @pytest.mark.filterwarnings("ignore")
@@ -29,6 +34,24 @@ def test_generate_cli_reference_writes_markdown(tmp_path: Path) -> None:
 
 
 @pytest.mark.filterwarnings("ignore")
+def test_generate_local_cli_reference_writes_markdown(tmp_path: Path) -> None:
+    """`generate_local_cli_reference` writes a non-empty Markdown file."""
+    output_path = tmp_path / "local-reference.md"
+
+    returned_path = generate_local_cli_reference(output_path)
+
+    assert returned_path == output_path
+    assert output_path.exists()
+
+    content = output_path.read_text()
+    assert content.strip(), "Generated CLI reference is empty"
+    assert "airbyte local" in content, (
+        "Generated CLI reference is missing the command name"
+    )
+    assert "connectors" in content, "Generated CLI reference is missing command groups"
+
+
+@pytest.mark.filterwarnings("ignore")
 def test_generate_cli_submodule_references_writes_group_markdown(
     tmp_path: Path,
 ) -> None:
@@ -44,3 +67,19 @@ def test_generate_cli_submodule_references_writes_group_markdown(
     }
     assert all(path.read_text().strip() for path in written)
     assert all("airbyte cloud" in path.read_text() for path in written)
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_generate_local_cli_submodule_references_writes_group_markdown(
+    tmp_path: Path,
+) -> None:
+    """`generate_local_cli_submodule_references` writes local command group Markdown."""
+    written = generate_local_cli_submodule_references(tmp_path)
+
+    assert {path.name for path in written} == {
+        "connectors.md",
+        "debug.md",
+        "sync.md",
+    }
+    assert all(path.read_text().strip() for path in written)
+    assert all("airbyte local" in path.read_text() for path in written)

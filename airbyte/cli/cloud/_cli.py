@@ -1,10 +1,10 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Internal Click implementation for Airbyte Cloud CLI commands.
+"""Internal Click implementation for `airbyte cloud` commands.
 
 Invokable as:
 
 ```bash
-uvx airbyte cloud --help
+uvx --from airbyte airbyte cloud --help
 airbyte cloud workspaces list
 airbyte cloud sources list --workspace-id <id>
 airbyte cloud connections sync --workspace-id <id> --json '{"connection_id": "..."}'
@@ -36,7 +36,6 @@ from airbyte.cli._cli_auth import (
     resolve_client_secret,
     resolve_workspace_id,
 )
-from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
@@ -256,13 +255,7 @@ class _JsonHelpCommand(click.Command):
         return super().get_help(ctx)
 
 
-@click.group(name="airbyte")
-def cli() -> None:
-    """Airbyte CLI."""
-    pass
-
-
-@cli.group(cls=_JsonHelpGroup)
+@click.group(name="cloud", cls=_JsonHelpGroup)
 @click.option("--client-id", envvar="AIRBYTE_CLIENT_ID", default=None, help="Airbyte client ID.")
 @click.option(
     "--client-secret", envvar="AIRBYTE_CLIENT_SECRET", default=None, help="Airbyte client secret."
@@ -887,33 +880,3 @@ def jobs_get(ctx: click.Context, job_id: int | None) -> None:
         bearer_token=None,
     )
     _json_output(_job_to_dict(result))
-
-
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-
-def main() -> None:
-    """Entry point for the `airbyte` command.
-
-    Wraps the CLI invocation to catch known failure modes and emit
-    structured JSON on stderr. Unknown exceptions propagate naturally
-    so they surface with a full traceback for debugging.
-    """
-    try:
-        cli(standalone_mode=False)
-    except SystemExit:
-        raise
-    except (KeyboardInterrupt, click.Abort):
-        _error_json("Operation cancelled.")
-    except click.ClickException as exc:
-        _error_json(exc.format_message(), type=exc.__class__.__name__)
-    except json.JSONDecodeError as exc:
-        _error_json(str(exc), type="JSONDecodeError")
-    except PyAirbyteInputError as exc:
-        _error_json(str(exc), type="PyAirbyteInputError")
-
-
-if __name__ == "__main__":
-    main()

@@ -21,11 +21,14 @@ import pdoc.render_helpers
 from docs.generate_cli import (
     generate_cli_reference,
     generate_cli_submodule_references,
+    generate_local_cli_reference,
+    generate_local_cli_submodule_references,
 )
 
 
 GENERATED_DIR = pathlib.Path("docs/generated")
 CLI_REFERENCE_PATH = GENERATED_DIR / "cli" / "cloud-reference.md"
+LOCAL_CLI_REFERENCE_PATH = GENERATED_DIR / "cli" / "local-reference.md"
 
 
 def _regenerate_mcp_markdown() -> None:
@@ -88,6 +91,8 @@ def run() -> None:
 
     generate_cli_reference(CLI_REFERENCE_PATH)
     generate_cli_submodule_references()
+    generate_local_cli_reference(LOCAL_CLI_REFERENCE_PATH)
+    generate_local_cli_submodule_references()
 
     # pdoc's default sidebar TOC depth is 2 (H1 + H2 only), which hides the
     # per-tool H3 anchors produced by our MCP Markdown generator. Bump to 3 so
