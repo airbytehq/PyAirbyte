@@ -4,7 +4,7 @@
 """Generate docs for all public modules in PyAirbyte and save them to docs/generated.
 
 Usage:
-    poetry run python docs/generate.py
+    uv run python -m docs.generate run
 
 """
 
@@ -17,6 +17,15 @@ import sys
 
 import pdoc
 import pdoc.render_helpers
+
+from docs.generate_cli import (
+    generate_cli_reference,
+    generate_cli_submodule_references,
+)
+
+
+GENERATED_DIR = pathlib.Path("docs/generated")
+CLI_REFERENCE_PATH = GENERATED_DIR / "cli-reference.md"
 
 
 def _regenerate_mcp_markdown() -> None:
@@ -65,7 +74,7 @@ def _regenerate_mcp_markdown() -> None:
 
 
 def run() -> None:
-    """Generate docs for all public modules in PyAirbyte and save them to docs/generated."""
+    """Generate docs for public modules and CLI references in PyAirbyte."""
     public_modules = ["airbyte", "airbyte/cli/pyab.py"]
 
     # Regenerate MCP Markdown first so the `.. include::` directives in the
@@ -74,8 +83,11 @@ def run() -> None:
     _regenerate_mcp_markdown()
 
     # recursively delete the docs/generated folder if it exists
-    if pathlib.Path("docs/generated").exists():
-        shutil.rmtree("docs/generated")
+    if GENERATED_DIR.exists():
+        shutil.rmtree(GENERATED_DIR)
+
+    generate_cli_reference(CLI_REFERENCE_PATH)
+    generate_cli_submodule_references()
 
     # pdoc's default sidebar TOC depth is 2 (H1 + H2 only), which hides the
     # per-tool H3 anchors produced by our MCP Markdown generator. Bump to 3 so
@@ -96,7 +108,7 @@ def run() -> None:
     )
     pdoc.pdoc(
         *public_modules,
-        output_directory=pathlib.Path("docs/generated"),
+        output_directory=GENERATED_DIR,
     )
 
 
