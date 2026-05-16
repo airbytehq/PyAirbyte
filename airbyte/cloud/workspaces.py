@@ -783,7 +783,24 @@ class CloudWorkspace:
                 safe_mode=safe_mode,
             )
 
-    # List sources, destinations, and connections
+    # List workspaces, sources, destinations, and connections
+
+    def list_workspaces(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+    ) -> list[WorkspaceResponse]:
+        """List workspaces available to the current credentials."""
+        return api_util.list_workspaces(
+            api_root=self.api_root,
+            workspace_id=self.workspace_id,
+            name=name,
+            name_filter=name_filter,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
 
     def list_connections(
         self,

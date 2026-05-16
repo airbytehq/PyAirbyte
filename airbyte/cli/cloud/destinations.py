@@ -11,23 +11,22 @@ see `docs/generate_cli.py`.
 from __future__ import annotations
 
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from cyclopts import Parameter
 
-
-if TYPE_CHECKING:
-    from airbyte.cloud import CloudWorkspace
-
 from airbyte.cli._base import _create_app
-from airbyte.cli._output import json_output
-from airbyte.cli.cloud._api_helpers import (
-    destination_to_dict,
-    get_cloud_workspace,
-    parse_config_options,
-    resolve_entity_id,
+from airbyte.cli._cli_auth import (
+    resolve_api_url,
+    resolve_client_id,
+    resolve_client_secret,
+    resolve_workspace_id,
 )
+from airbyte.cli._input import parse_config_options, resolve_entity_id
+from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
+from airbyte.cloud import CloudWorkspace
+from airbyte.secrets.base import SecretString
 
 
 destinations_app = _create_app(name="destinations", help_text="Manage Airbyte Cloud destinations.")
@@ -59,17 +58,6 @@ DestinationId = Annotated[
 ]
 
 
-def _workspace(
-    workspace_id: str | None, client_id: str | None, client_secret: str | None, api_url: str | None
-) -> CloudWorkspace:
-    return get_cloud_workspace(
-        workspace_id=workspace_id,
-        client_id=client_id,
-        client_secret=client_secret,
-        api_url=api_url,
-    )
-
-
 @destinations_app.command(name="list")
 def list_(
     *,
@@ -79,8 +67,13 @@ def list_(
     api_url: ApiUrl = None,
 ) -> None:
     """List destinations in the workspace."""
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output([destination_to_dict(destination) for destination in workspace.list_destinations()])
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output([destination.get_info() for destination in workspace.list_destinations()])
 
 
 @destinations_app.command
@@ -98,8 +91,13 @@ def get(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(destination_to_dict(workspace.get_destination(resolved_destination_id)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.get_destination(resolved_destination_id).get_info())
 
 
 @destinations_app.command
@@ -121,8 +119,13 @@ def create(
     """Create a new destination in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
     config["destinationType"] = destination_type
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(destination_to_dict(workspace.deploy_destination(name=name, destination=config)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.deploy_destination(name=name, destination=config).get_info())
 
 
 @destinations_app.command
@@ -141,10 +144,13 @@ def rename(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(
-        destination_to_dict(workspace.get_destination(resolved_destination_id).rename(name))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
     )
+    json_output(workspace.get_destination(resolved_destination_id).rename(name).get_info())
 
 
 @destinations_app.command
@@ -169,12 +175,13 @@ def update(
         option_name="--destination-id",
     )
     config = parse_config_options(config_json=config_json, config_file=config_file)
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(
-        destination_to_dict(
-            workspace.get_destination(resolved_destination_id).update_config(config)
-        )
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
     )
+    json_output(workspace.get_destination(resolved_destination_id).update_config(config).get_info())
 
 
 @destinations_app.command
@@ -193,7 +200,12 @@ def delete(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
     workspace.permanently_delete_destination(
         destination=workspace.get_destination(resolved_destination_id),
         safe_mode=not force,

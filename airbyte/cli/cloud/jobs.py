@@ -10,19 +10,23 @@ see `docs/generate_cli.py`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from cyclopts import Parameter
 
-
-if TYPE_CHECKING:
-    from airbyte.cloud import CloudWorkspace
-
 from airbyte.cli._base import _create_app
+from airbyte.cli._cli_auth import (
+    resolve_api_url,
+    resolve_client_id,
+    resolve_client_secret,
+    resolve_workspace_id,
+)
+from airbyte.cli._input import resolve_entity_id
 from airbyte.cli._output import json_output
-from airbyte.cli.cloud._api_helpers import get_cloud_workspace, job_to_dict, resolve_entity_id
 from airbyte.cli.cloud._cli import cloud_app
+from airbyte.cloud import CloudWorkspace
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.secrets.base import SecretString
 
 
 jobs_app = _create_app(name="jobs", help_text="View Airbyte sync jobs.")
@@ -52,17 +56,6 @@ ApiUrl = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
 JobId = Annotated[int | None, Parameter(name="--job-id", help="The job ID.")]
 
 
-def _workspace(
-    workspace_id: str | None, client_id: str | None, client_secret: str | None, api_url: str | None
-) -> CloudWorkspace:
-    return get_cloud_workspace(
-        workspace_id=workspace_id,
-        client_id=client_id,
-        client_secret=client_secret,
-        api_url=api_url,
-    )
-
-
 def _resolve_job_id(args: tuple[str, ...], job_id: int | None) -> int:
     return int(
         resolve_entity_id(
@@ -84,9 +77,14 @@ def list_(
     api_url: ApiUrl = None,
 ) -> None:
     """List recent jobs for a connection."""
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
     results = workspace.get_connection(connection_id).get_previous_sync_logs(limit=limit)
-    json_output([job_to_dict(job) for job in results])
+    json_output([job.get_info() for job in results])
 
 
 @jobs_app.command
@@ -100,8 +98,13 @@ def get(
 ) -> None:
     """Get details of a specific job."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(job_to_dict(workspace.get_job_info(resolved_job_id)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.get_job_info(resolved_job_id))
 
 
 @jobs_app.command
@@ -118,13 +121,18 @@ def wait(
 ) -> None:
     """Wait for a job to complete."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
     job = workspace.get_job_info(resolved_job_id)
     result = workspace.get_connection(job.connection_id).get_sync_result(resolved_job_id)
     if result is None:
         raise PyAirbyteInputError(message="Sync result is not available.")
     result.wait_for_completion(wait_timeout=wait_timeout)
-    json_output(job_to_dict(result))
+    json_output(result.get_info())
 
 
 __all__ = ["jobs_app"]

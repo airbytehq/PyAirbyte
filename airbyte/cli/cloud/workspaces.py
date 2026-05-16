@@ -15,9 +15,16 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from airbyte.cli._base import _create_app
+from airbyte.cli._cli_auth import (
+    resolve_api_url,
+    resolve_client_id,
+    resolve_client_secret,
+    resolve_workspace_id,
+)
 from airbyte.cli._output import json_output
-from airbyte.cli.cloud._api_helpers import get_cloud_workspace, workspace_to_dict
 from airbyte.cli.cloud._cli import cloud_app
+from airbyte.cloud import CloudWorkspace
+from airbyte.secrets.base import SecretString
 
 
 workspaces_app = _create_app(name="workspaces", help_text="Manage Airbyte Cloud workspaces.")
@@ -43,14 +50,13 @@ def list_(
     api_url: Annotated[str | None, Parameter(help="Airbyte API URL override.")] = None,
 ) -> None:
     """List workspaces."""
-    workspace = get_cloud_workspace(
+    workspace = CloudWorkspace(
         workspace_id="00000000-0000-0000-0000-000000000000",
-        client_id=client_id,
-        client_secret=client_secret,
-        api_url=api_url,
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
     )
-    workspaces = workspace.list_workspaces()  # pyrefly: ignore[missing-attribute]
-    json_output([workspace_to_dict(ws) for ws in workspaces])
+    json_output(workspace.list_workspaces())
 
 
 @workspaces_app.command
@@ -80,13 +86,13 @@ def get(
     api_url: Annotated[str | None, Parameter(help="Airbyte API URL override.")] = None,
 ) -> None:
     """Get workspace details."""
-    workspace = get_cloud_workspace(
-        workspace_id=workspace_id,
-        client_id=client_id,
-        client_secret=client_secret,
-        api_url=api_url,
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
     )
-    json_output(workspace_to_dict(workspace.get_info()))
+    json_output(workspace.get_info())
 
 
 __all__ = ["workspaces_app"]

@@ -265,7 +265,6 @@ def list_connections(
 
     name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
 
-    _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -338,9 +337,7 @@ def list_workspaces(
     while has_more:
         try:
             response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-                api.ListWorkspacesRequest(
-                    workspace_ids=[workspace_id], offset=offset, limit=page_size
-                ),
+                api.ListWorkspacesRequest(offset=offset, limit=page_size),
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e

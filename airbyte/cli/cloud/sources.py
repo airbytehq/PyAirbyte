@@ -11,23 +11,22 @@ see `docs/generate_cli.py`.
 from __future__ import annotations
 
 from pathlib import Path  # noqa: TC003
-from typing import TYPE_CHECKING, Annotated
+from typing import Annotated
 
 from cyclopts import Parameter
 
-
-if TYPE_CHECKING:
-    from airbyte.cloud import CloudWorkspace
-
 from airbyte.cli._base import _create_app
-from airbyte.cli._output import json_output
-from airbyte.cli.cloud._api_helpers import (
-    get_cloud_workspace,
-    parse_config_options,
-    resolve_entity_id,
-    source_to_dict,
+from airbyte.cli._cli_auth import (
+    resolve_api_url,
+    resolve_client_id,
+    resolve_client_secret,
+    resolve_workspace_id,
 )
+from airbyte.cli._input import parse_config_options, resolve_entity_id
+from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
+from airbyte.cloud import CloudWorkspace
+from airbyte.secrets.base import SecretString
 
 
 sources_app = _create_app(name="sources", help_text="Manage Airbyte Cloud sources.")
@@ -57,17 +56,6 @@ ApiUrl = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
 SourceId = Annotated[str | None, Parameter(name="--source-id", help="The source ID.")]
 
 
-def _workspace(
-    workspace_id: str | None, client_id: str | None, client_secret: str | None, api_url: str | None
-) -> CloudWorkspace:
-    return get_cloud_workspace(
-        workspace_id=workspace_id,
-        client_id=client_id,
-        client_secret=client_secret,
-        api_url=api_url,
-    )
-
-
 @sources_app.command(name="list")
 def list_(
     *,
@@ -77,8 +65,13 @@ def list_(
     api_url: ApiUrl = None,
 ) -> None:
     """List sources in the workspace."""
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output([source_to_dict(source) for source in workspace.list_sources()])
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output([source.get_info() for source in workspace.list_sources()])
 
 
 @sources_app.command
@@ -92,8 +85,13 @@ def get(
 ) -> None:
     """Get details of a specific source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(source_to_dict(workspace.get_source(resolved_source_id)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.get_source(resolved_source_id).get_info())
 
 
 @sources_app.command
@@ -115,8 +113,13 @@ def create(
     """Create a new source in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
     config["sourceType"] = source_type
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(source_to_dict(workspace.deploy_source(name=name, config=config)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.deploy_source(name=name, config=config).get_info())
 
 
 @sources_app.command
@@ -131,8 +134,13 @@ def rename(
 ) -> None:
     """Rename a source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(source_to_dict(workspace.get_source(resolved_source_id).rename(name)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.get_source(resolved_source_id).rename(name).get_info())
 
 
 @sources_app.command
@@ -153,8 +161,13 @@ def update(
     """Update a source configuration."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
     config = parse_config_options(config_json=config_json, config_file=config_file)
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
-    json_output(source_to_dict(workspace.get_source(resolved_source_id).update_config(config)))
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
+    json_output(workspace.get_source(resolved_source_id).update_config(config).get_info())
 
 
 @sources_app.command
@@ -169,7 +182,12 @@ def delete(
 ) -> None:
     """Delete a source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
-    workspace = _workspace(workspace_id, client_id, client_secret, api_url)
+    workspace = CloudWorkspace(
+        workspace_id=resolve_workspace_id(workspace_id),
+        api_root=resolve_api_url(api_url),
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+    )
     workspace.permanently_delete_source(
         source=workspace.get_source(resolved_source_id),
         safe_mode=not force,
