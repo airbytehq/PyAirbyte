@@ -39,6 +39,3 @@ def _json_default(value: object) -> object:
 def json_output(value: JsonOutputValue) -> None:
     """Print a JSON response to stdout."""
     print(orjson.dumps(value, default=_json_default, option=orjson.OPT_INDENT_2).decode())
-
-
-__all__ = ["json_output"]
