@@ -19,8 +19,8 @@ uv tool install airbyte
 **Run without installing**:
 
 ```bash
-uvx --from airbyte airbyte cloud --help
-uvx --from airbyte airbyte local --help
+uvx airbyte cloud --help
+uvx airbyte local --help
 uvx --from airbyte pyab --help
 ```
 

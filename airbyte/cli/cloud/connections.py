@@ -28,6 +28,13 @@ from airbyte.cli.cloud._json_helpers import (
 )
 
 
+def _parse_csv(value: str | None) -> list[str]:
+    """Parse a comma-separated CLI option value."""
+    if not value:
+        return []
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 @click.group(cls=JsonHelpGroup)
 @click.pass_context
 def connections(ctx: click.Context) -> None:
@@ -91,7 +98,7 @@ register_schema(
         "destination_id": "The destination ID.",
     },
     optional_params={
-        "selected_stream_name": "Stream name to sync. Repeat for multiple streams.",
+        "selected_streams": "Comma-separated stream names to sync.",
         "prefix": "Optional table prefix for destination.",
     },
 )
@@ -101,7 +108,7 @@ register_schema(
 @click.option("--name", required=True, help="Display name for the connection.")
 @click.option("--source-id", required=True, help="The source ID.")
 @click.option("--destination-id", required=True, help="The destination ID.")
-@click.option("--selected-stream-name", multiple=True, help="Stream name to sync.")
+@click.option("--selected-streams", default=None, help="Comma-separated stream names to sync.")
 @click.option("--prefix", default="", help="Optional table prefix for destination.")
 @click.pass_context
 def connections_create(
@@ -109,7 +116,7 @@ def connections_create(
     name: str,
     source_id: str,
     destination_id: str,
-    selected_stream_name: tuple[str, ...],
+    selected_streams: str | None,
     prefix: str,
 ) -> None:
     """Create a new connection."""
@@ -119,7 +126,7 @@ def connections_create(
         source=workspace.get_source(source_id),
         destination=workspace.get_destination(destination_id),
         table_prefix=prefix,
-        selected_streams=list(selected_stream_name),
+        selected_streams=_parse_csv(selected_streams),
     )
     json_output(connection_to_dict(result))
 
@@ -166,8 +173,7 @@ register_schema(
     },
     optional_params={
         "prefix": "Optional table prefix for destination.",
-        "selected_stream_name": "Stream name to sync. Repeat for multiple streams.",
-        "status": "Connection status: active, inactive, or deprecated.",
+        "selected_streams": "Comma-separated stream names to sync.",
     },
 )
 
@@ -176,21 +182,14 @@ register_schema(
 @click.argument("connection_id_arg", required=False)
 @click.option("--connection-id", default=None, help="The connection ID to update.")
 @click.option("--prefix", default=None, help="Optional table prefix for destination.")
-@click.option("--selected-stream-name", multiple=True, help="Stream name to sync.")
-@click.option(
-    "--status",
-    type=click.Choice(["active", "inactive", "deprecated"], case_sensitive=False),
-    default=None,
-    help="Connection status.",
-)
+@click.option("--selected-streams", default=None, help="Comma-separated stream names to sync.")
 @click.pass_context
 def connections_update(
     ctx: click.Context,
     connection_id_arg: str | None,
     connection_id: str | None,
     prefix: str | None,
-    selected_stream_name: tuple[str, ...],
-    status: str | None,
+    selected_streams: str | None,
 ) -> None:
     """Update a connection."""
     connection_id = resolve_entity_id(
@@ -198,7 +197,8 @@ def connections_update(
         connection_id,
         option_name="--connection-id",
     )
-    if prefix is None and not selected_stream_name and status is None:
+    selected_stream_names = _parse_csv(selected_streams)
+    if prefix is None and selected_streams is None:
         error_json(
             "Provide at least one update option.",
             type="MissingParameter",
@@ -207,10 +207,138 @@ def connections_update(
     connection = workspace.get_connection(connection_id)
     if prefix is not None:
         connection.set_table_prefix(prefix)
-    if selected_stream_name:
-        connection.set_selected_streams(list(selected_stream_name))
-    if status is not None:
-        connection.set_status(status)
+    if selected_streams is not None:
+        connection.set_selected_streams(selected_stream_names)
+    json_output(connection_to_dict(connection))
+
+
+register_schema(
+    "connections_enable",
+    description="Enable a connection by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to enable, as an argument or --connection-id.",
+    },
+)
+
+
+@connections.command("enable", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
+@click.option("--connection-id", default=None, help="The connection ID to enable.")
+@click.pass_context
+def connections_enable(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+) -> None:
+    """Enable a connection."""
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
+    connection = get_cloud_workspace(ctx).get_connection(connection_id)
+    connection.set_enabled(enabled=True)
+    json_output(connection_to_dict(connection))
+
+
+register_schema(
+    "connections_disable",
+    description="Disable a connection by ID.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to disable, as an argument or --connection-id.",
+    },
+)
+
+
+@connections.command("disable", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
+@click.option("--connection-id", default=None, help="The connection ID to disable.")
+@click.pass_context
+def connections_disable(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+) -> None:
+    """Disable a connection."""
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
+    connection = get_cloud_workspace(ctx).get_connection(connection_id)
+    connection.set_enabled(enabled=False)
+    json_output(connection_to_dict(connection))
+
+
+@connections.group("schedule", cls=JsonHelpGroup)
+@click.pass_context
+def connections_schedule(ctx: click.Context) -> None:
+    """Manage connection schedules."""
+    pass
+
+
+register_schema(
+    "connections_schedule_set",
+    description="Set a cron schedule for a connection.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to schedule, as an argument or --connection-id.",
+        "cron_expression": "Cron expression for automatic syncs.",
+    },
+)
+
+
+@connections_schedule.command("set", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
+@click.option("--connection-id", default=None, help="The connection ID to schedule.")
+@click.option("--cron-expression", required=True, help="Cron expression for automatic syncs.")
+@click.pass_context
+def connections_schedule_set(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+    cron_expression: str,
+) -> None:
+    """Set a cron schedule for a connection."""
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
+    connection = get_cloud_workspace(ctx).get_connection(connection_id)
+    connection.set_schedule(cron_expression)
+    json_output(connection_to_dict(connection))
+
+
+register_schema(
+    "connections_schedule_manual",
+    description="Set a connection to manual scheduling.",
+    required_params={
+        "workspace_id": "The workspace ID.",
+        "connection_id": "The connection ID to schedule, as an argument or --connection-id.",
+    },
+)
+
+
+@connections_schedule.command("manual", cls=JsonHelpCommand)
+@click.argument("connection_id_arg", required=False)
+@click.option("--connection-id", default=None, help="The connection ID to schedule.")
+@click.pass_context
+def connections_schedule_manual(
+    ctx: click.Context,
+    connection_id_arg: str | None,
+    connection_id: str | None,
+) -> None:
+    """Set a connection to manual scheduling."""
+    connection_id = resolve_entity_id(
+        connection_id_arg,
+        connection_id,
+        option_name="--connection-id",
+    )
+    connection = get_cloud_workspace(ctx).get_connection(connection_id)
+    connection.set_manual_schedule()
     json_output(connection_to_dict(connection))
 
 

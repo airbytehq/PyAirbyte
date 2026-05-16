@@ -866,27 +866,6 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         )
         self._connection_info = updated_response
 
-    def set_status(
-        self,
-        status: api_util.models.ConnectionStatusEnum | str,
-    ) -> CloudConnection:
-        """Set the connection status."""
-        status_enum = (
-            status
-            if isinstance(status, api_util.models.ConnectionStatusEnum)
-            else api_util.models.ConnectionStatusEnum(status)
-        )
-        updated_response = api_util.patch_connection(
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-            status=status_enum,
-        )
-        self._connection_info = updated_response
-        return self
-
     # Scheduling
 
     def set_schedule(

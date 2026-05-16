@@ -4,7 +4,7 @@
 Invokable as:
 
 ```bash
-uvx --from airbyte airbyte cloud --help
+uvx airbyte cloud --help
 airbyte cloud workspaces list
 airbyte cloud sources list --workspace-id <id>
 airbyte cloud connections sync --workspace-id <id> <connection-id>
