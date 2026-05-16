@@ -67,6 +67,7 @@ from airbyte.secrets.base import SecretString
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte._util.api_imports import JobResponse, WorkspaceResponse
     from airbyte.sources.base import Source
 
 
@@ -206,7 +207,7 @@ class CloudOrganization:
         return api_util.is_account_locked(self.payment_status, self.subscription_status)
 
 
-@dataclass
+@dataclass  # noqa: PLR0904  # Core cloud API facade.
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
@@ -332,6 +333,16 @@ class CloudWorkspace:
     def workspace_url(self) -> str | None:
         """The web URL of the workspace."""
         return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
+
+    def get_info(self) -> WorkspaceResponse:
+        """Return API metadata for the workspace."""
+        return api_util.get_workspace(
+            api_root=self.api_root,
+            workspace_id=self.workspace_id,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
 
     @cached_property
     def _organization_info(self) -> dict[str, Any]:
@@ -485,8 +496,9 @@ class CloudWorkspace:
     def deploy_source(
         self,
         name: str,
-        source: Source,
+        source: Source | dict[str, Any] | None = None,
         *,
+        config: dict[str, Any] | None = None,
         unique: bool = True,
         random_name_suffix: bool = False,
     ) -> CloudSource:
@@ -496,13 +508,28 @@ class CloudWorkspace:
 
         Args:
             name: The name to use when deploying.
-            source: The source object to deploy.
+            source: The source object or configuration dictionary to deploy.
+            config: The source configuration dictionary to deploy.
             unique: Whether to require a unique name. If `True`, duplicate names
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
         """
-        source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
-        source_config_dict["sourceType"] = source.name.replace("source-", "")
+        if source is not None and config is not None:
+            raise exc.PyAirbyteInputError(
+                message="Provide either `source` or `config`, not both.",
+            )
+        if isinstance(source, dict):
+            config = source
+            source = None
+        if source:
+            source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
+            source_config_dict["sourceType"] = source.name.replace("source-", "")
+        else:
+            source_config_dict = (config or {}).copy()
+            if "sourceType" not in source_config_dict:
+                raise exc.PyAirbyteInputError(
+                    message="Missing `sourceType` in configuration dictionary.",
+                )
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"
@@ -841,6 +868,16 @@ class CloudWorkspace:
             for destination in destinations
             if name is None or destination.name == name
         ]
+
+    def get_job_info(self, job_id: int) -> JobResponse:
+        """Get a job by ID."""
+        return api_util.get_job_info(
+            job_id=job_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
 
     def publish_custom_source_definition(
         self,

@@ -125,6 +125,13 @@ class CloudConnector(abc.ABC):
         """Populate the connector with data from the API."""
         ...
 
+    def get_info(self) -> api_models.SourceResponse | api_models.DestinationResponse:
+        """Return API metadata for the connector."""
+        if not self._connector_info:
+            self._connector_info = self._fetch_connector_info()
+
+        return self._connector_info
+
     @property
     def connector_url(self) -> str:
         """Get the web URL of the source connector."""

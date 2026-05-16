@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import click
 
-from airbyte._util import api_util
-from airbyte.cli.cloud._api_helpers import get_auth_context, get_auth_no_workspace, source_to_dict
+from airbyte.cli.cloud._api_helpers import get_cloud_workspace, source_to_dict
 from airbyte.cli.cloud._json_helpers import (
     JsonHelpCommand,
     JsonHelpGroup,
@@ -43,14 +42,8 @@ register_schema(
 @click.pass_context
 def sources_list(ctx: click.Context) -> None:
     """List sources in the workspace."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    results = api_util.list_sources(
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    results = workspace.list_sources()
     json_output([source_to_dict(s) for s in results])
 
 
@@ -68,14 +61,8 @@ register_schema(
 def sources_get(ctx: click.Context, source_id_arg: str | None, source_id: str | None) -> None:
     """Get details of a specific source."""
     source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.get_source(
-        source_id=source_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_source(source_id)
     json_output(source_to_dict(result))
 
 
@@ -108,21 +95,16 @@ def sources_create(
     config_json: str | None,
 ) -> None:
     """Create a new source in the workspace."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     config = parse_config_options(
         config_json,
         config_file,
         config_type_key="sourceType",
         config_type_value=source_type,
     )
-    result = api_util.create_source(
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.deploy_source(
         name=name,
-        workspace_id=workspace_id,
         config=config,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
     )
     json_output(source_to_dict(result))
 
@@ -150,15 +132,8 @@ def sources_rename(
 ) -> None:
     """Rename a source."""
     source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.patch_source(
-        source_id=source_id,
-        name=name,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_source(source_id).rename(name)
     json_output(source_to_dict(result))
 
 
@@ -193,15 +168,8 @@ def sources_update(
     if not config_file and not config_json:
         error_json("Provide --config-file or --config-json.", type="MissingParameter")
     config = parse_config_options(config_json, config_file)
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.patch_source(
-        source_id=source_id,
-        config=config,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_source(source_id).update_config(config)
     json_output(source_to_dict(result))
 
 
@@ -229,14 +197,9 @@ def sources_delete(
 ) -> None:
     """Delete a source."""
     source_id = resolve_entity_id(source_id_arg, source_id, option_name="--source-id")
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    api_util.delete_source(
-        source_id=source_id,
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
+    workspace = get_cloud_workspace(ctx)
+    workspace.permanently_delete_source(
+        source=workspace.get_source(source_id),
         safe_mode=not force,
     )
     json_output({"deleted": True, "source_id": source_id})

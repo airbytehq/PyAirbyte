@@ -12,13 +12,8 @@ from __future__ import annotations
 
 import click
 
-from airbyte._util import api_util
 from airbyte.cli._cli_auth import resolve_workspace_id
-from airbyte.cli.cloud._api_helpers import (
-    get_auth_context,
-    get_auth_no_workspace,
-    workspace_to_dict,
-)
+from airbyte.cli.cloud._api_helpers import get_cloud_workspace, workspace_to_dict
 from airbyte.cli.cloud._json_helpers import (
     JsonHelpCommand,
     JsonHelpGroup,
@@ -45,15 +40,8 @@ register_schema(
 @click.pass_context
 def workspaces_list(ctx: click.Context) -> None:
     """List workspaces accessible with the current credentials."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    results = api_util.list_workspaces(
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
-    json_output([workspace_to_dict(w) for w in results])
+    workspace = get_cloud_workspace(ctx)
+    json_output([workspace_to_dict(workspace.get_info())])
 
 
 register_schema(
@@ -68,16 +56,9 @@ register_schema(
 @click.pass_context
 def workspaces_get(ctx: click.Context, cmd_workspace_id: str | None) -> None:
     """Get details of a specific workspace."""
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
     workspace_id = resolve_workspace_id(cmd_workspace_id or ctx.obj["_raw_workspace_id"])
-    result = api_util.get_workspace(
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
-    json_output(workspace_to_dict(result))
+    workspace = get_cloud_workspace(ctx, workspace_id=workspace_id)
+    json_output(workspace_to_dict(workspace.get_info()))
 
 
 __all__ = ["workspaces"]

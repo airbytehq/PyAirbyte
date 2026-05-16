@@ -12,11 +12,9 @@ from __future__ import annotations
 
 import click
 
-from airbyte._util import api_util
 from airbyte.cli.cloud._api_helpers import (
     destination_to_dict,
-    get_auth_context,
-    get_auth_no_workspace,
+    get_cloud_workspace,
 )
 from airbyte.cli.cloud._json_helpers import (
     JsonHelpCommand,
@@ -47,14 +45,8 @@ register_schema(
 @click.pass_context
 def destinations_list(ctx: click.Context) -> None:
     """List destinations in the workspace."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    results = api_util.list_destinations(
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    results = workspace.list_destinations()
     json_output([destination_to_dict(d) for d in results])
 
 
@@ -82,14 +74,8 @@ def destinations_get(
         destination_id,
         option_name="--destination-id",
     )
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.get_destination(
-        destination_id=destination_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_destination(destination_id)
     json_output(destination_to_dict(result))
 
 
@@ -122,21 +108,16 @@ def destinations_create(
     config_json: str | None,
 ) -> None:
     """Create a new destination in the workspace."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
     config = parse_config_options(
         config_json,
         config_file,
         config_type_key="destinationType",
         config_type_value=destination_type,
     )
-    result = api_util.create_destination(
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.deploy_destination(
         name=name,
-        workspace_id=workspace_id,
-        config=config,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
+        destination=config,
     )
     json_output(destination_to_dict(result))
 
@@ -168,15 +149,8 @@ def destinations_rename(
         destination_id,
         option_name="--destination-id",
     )
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.patch_destination(
-        destination_id=destination_id,
-        name=name,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_destination(destination_id).rename(name)
     json_output(destination_to_dict(result))
 
 
@@ -215,15 +189,8 @@ def destinations_update(
     if not config_file and not config_json:
         error_json("Provide --config-file or --config-json.", type="MissingParameter")
     config = parse_config_options(config_json, config_file)
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.patch_destination(
-        destination_id=destination_id,
-        config=config,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_destination(destination_id).update_config(config)
     json_output(destination_to_dict(result))
 
 
@@ -255,14 +222,9 @@ def destinations_delete(
         destination_id,
         option_name="--destination-id",
     )
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    api_util.delete_destination(
-        destination_id=destination_id,
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
+    workspace = get_cloud_workspace(ctx)
+    workspace.permanently_delete_destination(
+        destination=workspace.get_destination(destination_id),
         safe_mode=not force,
     )
     json_output({"deleted": True, "destination_id": destination_id})

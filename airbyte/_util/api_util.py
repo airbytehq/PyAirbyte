@@ -14,7 +14,6 @@ directly. This will ensure a single source of truth when mapping between the `ai
 from __future__ import annotations
 
 import json
-import time
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -49,7 +48,6 @@ if TYPE_CHECKING:
 
 
 JOB_WAIT_INTERVAL_SECS = 2.0
-JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -672,40 +670,6 @@ def get_job_info(
             "status_code": response.status_code,
         },
     )
-
-
-def wait_for_job(
-    job_id: int,
-    *,
-    api_root: str,
-    client_id: SecretString | None,
-    client_secret: SecretString | None,
-    bearer_token: SecretString | None,
-    timeout_secs: int = JOB_WAIT_TIMEOUT_SECS_DEFAULT,
-) -> models.JobResponse:
-    """Wait for a job to reach a terminal status."""
-    deadline = time.monotonic() + timeout_secs
-    while True:
-        job = get_job_info(
-            job_id=job_id,
-            api_root=api_root,
-            client_id=client_id,
-            client_secret=client_secret,
-            bearer_token=bearer_token,
-        )
-        if job.status in {
-            models.JobStatusEnum.INCOMPLETE,
-            models.JobStatusEnum.FAILED,
-            models.JobStatusEnum.SUCCEEDED,
-            models.JobStatusEnum.CANCELLED,
-        }:
-            return job
-        if time.monotonic() >= deadline:
-            raise AirbyteError(
-                message="Job did not complete before the timeout.",
-                context={"job_id": job_id, "timeout_secs": timeout_secs},
-            )
-        time.sleep(JOB_WAIT_INTERVAL_SECS)
 
 
 # Create, get, and delete sources

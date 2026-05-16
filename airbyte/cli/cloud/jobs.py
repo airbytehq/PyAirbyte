@@ -12,8 +12,7 @@ from __future__ import annotations
 
 import click
 
-from airbyte._util import api_util
-from airbyte.cli.cloud._api_helpers import get_auth_context, get_auth_no_workspace, job_to_dict
+from airbyte.cli.cloud._api_helpers import get_cloud_workspace, job_to_dict
 from airbyte.cli.cloud._json_helpers import (
     JsonHelpCommand,
     JsonHelpGroup,
@@ -51,16 +50,8 @@ def jobs_list(ctx: click.Context, connection_id: str | None, limit: int) -> None
     if not connection_id:
         error_json("--connection-id is required.", type="MissingParameter")
     assert connection_id is not None
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    results = api_util.get_job_logs(
-        workspace_id,
-        connection_id,
-        limit,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    results = workspace.get_connection(connection_id).get_previous_sync_logs(limit=limit)
     json_output([job_to_dict(j) for j in results])
 
 
@@ -84,14 +75,8 @@ def jobs_get(ctx: click.Context, job_id_arg: int | None, job_id: int | None) -> 
             option_name="--job-id",
         )
     )
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.get_job_info(
-        job_id=job_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_job_info(job_id)
     json_output(job_to_dict(result))
 
 
@@ -108,7 +93,7 @@ register_schema(
 @click.option("--job-id", default=None, type=int, help="The job ID to wait for.")
 @click.option(
     "--wait-timeout",
-    default=api_util.JOB_WAIT_TIMEOUT_SECS_DEFAULT,
+    default=300,
     type=int,
     help="Maximum seconds to wait for job completion.",
 )
@@ -124,15 +109,12 @@ def jobs_wait(
             option_name="--job-id",
         )
     )
-    api_url, client_id, client_secret = get_auth_no_workspace(ctx)
-    result = api_util.wait_for_job(
-        job_id=job_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-        timeout_secs=wait_timeout,
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_connection(workspace.get_job_info(job_id).connection_id).get_sync_result(
+        job_id
     )
+    assert result is not None
+    result.wait_for_completion(wait_timeout=wait_timeout)
     json_output(job_to_dict(result))
 
 

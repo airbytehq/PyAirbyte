@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import click
 
-from airbyte._util import api_util
-from airbyte.cli.cloud._api_helpers import connection_to_dict, get_auth_context, job_to_dict
+from airbyte.cli.cloud._api_helpers import (
+    connection_to_dict,
+    get_cloud_workspace,
+    job_to_dict,
+    sync_result_to_dict,
+)
 from airbyte.cli.cloud._json_helpers import (
     JsonHelpCommand,
     JsonHelpGroup,
@@ -42,14 +46,8 @@ register_schema(
 @click.pass_context
 def connections_list(ctx: click.Context) -> None:
     """List connections in the workspace."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    results = api_util.list_connections(
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    results = workspace.list_connections()
     json_output([connection_to_dict(c) for c in results])
 
 
@@ -78,15 +76,8 @@ def connections_get(
         connection_id,
         option_name="--connection-id",
     )
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    result = api_util.get_connection(
-        workspace_id=workspace_id,
-        connection_id=connection_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_connection(connection_id)
     json_output(connection_to_dict(result))
 
 
@@ -122,18 +113,13 @@ def connections_create(
     prefix: str,
 ) -> None:
     """Create a new connection."""
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    result = api_util.create_connection(
-        name=name,
-        source_id=source_id,
-        destination_id=destination_id,
-        workspace_id=workspace_id,
-        prefix=prefix,
-        selected_stream_names=list(selected_stream_name),
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.deploy_connection(
+        connection_name=name,
+        source=workspace.get_source(source_id),
+        destination=workspace.get_destination(destination_id),
+        table_prefix=prefix,
+        selected_streams=list(selected_stream_name),
     )
     json_output(connection_to_dict(result))
 
@@ -166,15 +152,8 @@ def connections_rename(
         connection_id,
         option_name="--connection-id",
     )
-    api_url, client_id, client_secret, _ = get_auth_context(ctx)
-    result = api_util.patch_connection(
-        connection_id=connection_id,
-        name=name,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_connection(connection_id).rename(name)
     json_output(connection_to_dict(result))
 
 
@@ -224,23 +203,15 @@ def connections_update(
             "Provide at least one update option.",
             type="MissingParameter",
         )
-    configurations = (
-        api_util.build_stream_configurations(list(selected_stream_name))
-        if selected_stream_name
-        else None
-    )
-    api_url, client_id, client_secret, _ = get_auth_context(ctx)
-    result = api_util.patch_connection(
-        connection_id=connection_id,
-        configurations=configurations,
-        prefix=prefix,
-        status=status,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
-    )
-    json_output(connection_to_dict(result))
+    workspace = get_cloud_workspace(ctx)
+    connection = workspace.get_connection(connection_id)
+    if prefix is not None:
+        connection.set_table_prefix(prefix)
+    if selected_stream_name:
+        connection.set_selected_streams(list(selected_stream_name))
+    if status is not None:
+        connection.set_status(status)
+    json_output(connection_to_dict(connection))
 
 
 register_schema(
@@ -271,14 +242,9 @@ def connections_delete(
         connection_id,
         option_name="--connection-id",
     )
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    api_util.delete_connection(
-        connection_id,
-        workspace_id=workspace_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
+    workspace = get_cloud_workspace(ctx)
+    workspace.permanently_delete_connection(
+        connection=workspace.get_connection(connection_id),
         safe_mode=not force,
     )
     json_output({"deleted": True, "connection_id": connection_id})
@@ -304,7 +270,7 @@ register_schema(
 @click.option("--wait/--no-wait", default=False, help="Wait for the triggered job to complete.")
 @click.option(
     "--wait-timeout",
-    default=api_util.JOB_WAIT_TIMEOUT_SECS_DEFAULT,
+    default=300,
     type=int,
     help="Maximum seconds to wait for job completion.",
 )
@@ -322,25 +288,15 @@ def connections_sync(
         connection_id,
         option_name="--connection-id",
     )
-    api_url, client_id, client_secret, workspace_id = get_auth_context(ctx)
-    result = api_util.run_connection(
-        workspace_id,
-        connection_id,
-        api_root=api_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=None,
+    workspace = get_cloud_workspace(ctx)
+    result = workspace.get_connection(connection_id).run_sync(
+        wait=wait,
+        wait_timeout=wait_timeout,
     )
     if wait:
-        result = api_util.wait_for_job(
-            job_id=result.job_id,
-            api_root=api_url,
-            client_id=client_id,
-            client_secret=client_secret,
-            bearer_token=None,
-            timeout_secs=wait_timeout,
-        )
-    json_output(job_to_dict(result))
+        json_output(job_to_dict(result))
+    else:
+        json_output(sync_result_to_dict(result))
 
 
 __all__ = ["connections"]
