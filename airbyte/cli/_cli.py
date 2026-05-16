@@ -7,7 +7,6 @@ import sys
 
 from cyclopts.exceptions import CycloptsError
 
-from airbyte.cli import cloud, local  # noqa: F401
 from airbyte.cli._base import app
 from airbyte.exceptions import PyAirbyteError
 
