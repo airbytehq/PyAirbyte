@@ -13,7 +13,7 @@ import orjson
 class _SupportsToDict(Protocol):
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-serializable mapping."""
-        ...
+        raise NotImplementedError
 
 
 def _json_default(value: object) -> object:
