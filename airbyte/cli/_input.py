@@ -4,15 +4,48 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import yaml
+from cyclopts import Parameter
 
 from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+WorkspaceIdArg = Annotated[
+    str | None,
+    Parameter(
+        name="--workspace-id",
+        env_var=["AIRBYTE_WORKSPACE_ID", "AIRBYTE_CLOUD_WORKSPACE_ID"],
+        help="The workspace ID.",
+    ),
+]
+ClientIdArg = Annotated[
+    str | None,
+    Parameter(env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."),
+]
+ClientSecretArg = Annotated[
+    str | None,
+    Parameter(
+        env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
+        help="Airbyte client secret.",
+    ),
+]
+ApiUrlArg = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
+ConnectionIdArg = Annotated[
+    str | None, Parameter(name="--connection-id", help="The connection ID.")
+]
+SourceIdArg = Annotated[str | None, Parameter(name="--source-id", help="The source ID.")]
+DestinationIdArg = Annotated[
+    str | None,
+    Parameter(name="--destination-id", help="The destination ID."),
+]
+JobIdArg = Annotated[int | None, Parameter(name="--job-id", help="The job ID.")]
+PositionalIdArg = Annotated[str, Parameter(show=False, consume_multiple=True)]
 
 
 def parse_config_options(
@@ -74,4 +107,17 @@ def resolve_entity_id(
     return entity_id
 
 
-__all__ = ["parse_config_options", "parse_csv", "resolve_entity_id"]
+__all__ = [
+    "ApiUrlArg",
+    "ClientIdArg",
+    "ClientSecretArg",
+    "ConnectionIdArg",
+    "DestinationIdArg",
+    "JobIdArg",
+    "PositionalIdArg",
+    "SourceIdArg",
+    "WorkspaceIdArg",
+    "parse_config_options",
+    "parse_csv",
+    "resolve_entity_id",
+]

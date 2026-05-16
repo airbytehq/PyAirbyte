@@ -10,16 +10,18 @@ see `docs/generate_cli.py`.
 
 from __future__ import annotations
 
-from typing import Annotated
-
-from cyclopts import Parameter
-
 from airbyte.cli._base import _create_app
 from airbyte.cli._cli_auth import (
     resolve_api_url,
     resolve_client_id,
     resolve_client_secret,
     resolve_workspace_id,
+)
+from airbyte.cli._input import (  # noqa: TC001
+    ApiUrlArg,
+    ClientIdArg,
+    ClientSecretArg,
+    WorkspaceIdArg,
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
@@ -34,20 +36,9 @@ cloud_app.command(workspaces_app)
 @workspaces_app.command(name="list")
 def list_(
     *,
-    client_id: Annotated[
-        str | None,
-        Parameter(
-            env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."
-        ),
-    ] = None,
-    client_secret: Annotated[
-        str | None,
-        Parameter(
-            env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
-            help="Airbyte client secret.",
-        ),
-    ] = None,
-    api_url: Annotated[str | None, Parameter(help="Airbyte API URL override.")] = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """List workspaces."""
     workspace = CloudWorkspace(
@@ -61,29 +52,11 @@ def list_(
 
 @workspaces_app.command
 def get(
-    workspace_id: Annotated[
-        str | None,
-        Parameter(
-            name="--workspace-id",
-            env_var=["AIRBYTE_WORKSPACE_ID", "AIRBYTE_CLOUD_WORKSPACE_ID"],
-            help="The workspace ID.",
-        ),
-    ] = None,
+    workspace_id: WorkspaceIdArg = None,
     *,
-    client_id: Annotated[
-        str | None,
-        Parameter(
-            env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."
-        ),
-    ] = None,
-    client_secret: Annotated[
-        str | None,
-        Parameter(
-            env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
-            help="Airbyte client secret.",
-        ),
-    ] = None,
-    api_url: Annotated[str | None, Parameter(help="Airbyte API URL override.")] = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Get workspace details."""
     workspace = CloudWorkspace(

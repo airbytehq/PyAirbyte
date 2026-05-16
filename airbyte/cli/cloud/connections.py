@@ -21,7 +21,16 @@ from airbyte.cli._cli_auth import (
     resolve_client_secret,
     resolve_workspace_id,
 )
-from airbyte.cli._input import parse_csv, resolve_entity_id
+from airbyte.cli._input import (
+    ApiUrlArg,
+    ClientIdArg,
+    ClientSecretArg,
+    ConnectionIdArg,
+    PositionalIdArg,
+    WorkspaceIdArg,
+    parse_csv,
+    resolve_entity_id,
+)
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
 from airbyte.cloud import CloudWorkspace
@@ -35,36 +44,13 @@ cloud_app.command(connections_app)
 connections_app.command(schedule_app)
 
 
-WorkspaceId = Annotated[
-    str | None,
-    Parameter(
-        name="--workspace-id",
-        env_var=["AIRBYTE_WORKSPACE_ID", "AIRBYTE_CLOUD_WORKSPACE_ID"],
-        help="The workspace ID.",
-    ),
-]
-ClientId = Annotated[
-    str | None,
-    Parameter(env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."),
-]
-ClientSecret = Annotated[
-    str | None,
-    Parameter(
-        env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
-        help="Airbyte client secret.",
-    ),
-]
-ApiUrl = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
-ConnectionId = Annotated[str | None, Parameter(name="--connection-id", help="The connection ID.")]
-
-
 @connections_app.command(name="list")
 def list_(
     *,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """List connections in the workspace."""
     workspace = CloudWorkspace(
@@ -78,12 +64,12 @@ def list_(
 
 @connections_app.command
 def get(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Get details of a specific connection."""
     resolved_connection_id = resolve_entity_id(
@@ -110,10 +96,10 @@ def create(  # noqa: PLR0913
         str | None, Parameter(help="Comma-separated stream names to sync.")
     ] = None,
     prefix: Annotated[str, Parameter(help="Optional table prefix for destination.")] = "",
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Create a new connection."""
     workspace = CloudWorkspace(
@@ -134,13 +120,13 @@ def create(  # noqa: PLR0913
 
 @connections_app.command
 def rename(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
+    *connection_id_args: PositionalIdArg,
     name: Annotated[str, Parameter(help="New display name for the connection.")],
-    connection_id: ConnectionId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    connection_id: ConnectionIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Rename a connection."""
     resolved_connection_id = resolve_entity_id(
@@ -159,16 +145,16 @@ def rename(
 
 @connections_app.command
 def update(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
     prefix: Annotated[str | None, Parameter(help="Optional table prefix for destination.")] = None,
     selected_streams: Annotated[
         str | None, Parameter(help="Comma-separated stream names to sync.")
     ] = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Update a connection."""
     resolved_connection_id = resolve_entity_id(
@@ -194,12 +180,12 @@ def update(
 
 @connections_app.command
 def enable(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Enable a connection."""
     resolved_connection_id = resolve_entity_id(
@@ -219,12 +205,12 @@ def enable(
 
 @connections_app.command
 def disable(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Disable a connection."""
     resolved_connection_id = resolve_entity_id(
@@ -244,13 +230,13 @@ def disable(
 
 @schedule_app.command(name="set")
 def set_(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
+    *connection_id_args: PositionalIdArg,
     cron_expression: Annotated[str, Parameter(help="Cron expression for automatic syncs.")],
-    connection_id: ConnectionId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    connection_id: ConnectionIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Set a cron schedule for a connection."""
     resolved_connection_id = resolve_entity_id(
@@ -270,12 +256,12 @@ def set_(
 
 @schedule_app.command
 def manual(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Set a connection to manual scheduling."""
     resolved_connection_id = resolve_entity_id(
@@ -295,13 +281,13 @@ def manual(
 
 @connections_app.command
 def delete(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
     force: Annotated[bool, Parameter(help="Skip delete safety checks.")] = False,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Delete a connection."""
     resolved_connection_id = resolve_entity_id(
@@ -324,18 +310,18 @@ def delete(
 
 @connections_app.command
 def sync(
-    *connection_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    connection_id: ConnectionId = None,
+    *connection_id_args: PositionalIdArg,
+    connection_id: ConnectionIdArg = None,
     wait: Annotated[
         bool, Parameter(negative="--no-wait", help="Wait for the triggered job to complete.")
     ] = False,
     wait_timeout: Annotated[
         int, Parameter(help="Maximum seconds to wait for job completion.")
     ] = 300,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Trigger a sync for a connection."""
     resolved_connection_id = resolve_entity_id(

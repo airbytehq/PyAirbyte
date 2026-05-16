@@ -22,7 +22,16 @@ from airbyte.cli._cli_auth import (
     resolve_client_secret,
     resolve_workspace_id,
 )
-from airbyte.cli._input import parse_config_options, resolve_entity_id
+from airbyte.cli._input import (
+    ApiUrlArg,
+    ClientIdArg,
+    ClientSecretArg,
+    DestinationIdArg,
+    PositionalIdArg,
+    WorkspaceIdArg,
+    parse_config_options,
+    resolve_entity_id,
+)
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
 from airbyte.cloud import CloudWorkspace
@@ -33,38 +42,13 @@ destinations_app = _create_app(name="destinations", help_text="Manage Airbyte Cl
 cloud_app.command(destinations_app)
 
 
-WorkspaceId = Annotated[
-    str | None,
-    Parameter(
-        name="--workspace-id",
-        env_var=["AIRBYTE_WORKSPACE_ID", "AIRBYTE_CLOUD_WORKSPACE_ID"],
-        help="The workspace ID.",
-    ),
-]
-ClientId = Annotated[
-    str | None,
-    Parameter(env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."),
-]
-ClientSecret = Annotated[
-    str | None,
-    Parameter(
-        env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
-        help="Airbyte client secret.",
-    ),
-]
-ApiUrl = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
-DestinationId = Annotated[
-    str | None, Parameter(name="--destination-id", help="The destination ID.")
-]
-
-
 @destinations_app.command(name="list")
 def list_(
     *,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """List destinations in the workspace."""
     workspace = CloudWorkspace(
@@ -78,12 +62,12 @@ def list_(
 
 @destinations_app.command
 def get(
-    *destination_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    destination_id: DestinationId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *destination_id_args: PositionalIdArg,
+    destination_id: DestinationIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Get details of a specific destination."""
     resolved_destination_id = resolve_entity_id(
@@ -111,10 +95,10 @@ def create(
     config_json: Annotated[
         str | None, Parameter(help="Inline JSON connector config object.")
     ] = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Create a new destination in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
@@ -130,13 +114,13 @@ def create(
 
 @destinations_app.command
 def rename(
-    *destination_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
+    *destination_id_args: PositionalIdArg,
     name: Annotated[str, Parameter(help="New display name for the destination.")],
-    destination_id: DestinationId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    destination_id: DestinationIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Rename a destination."""
     resolved_destination_id = resolve_entity_id(
@@ -155,18 +139,18 @@ def rename(
 
 @destinations_app.command
 def update(
-    *destination_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    destination_id: DestinationId = None,
+    *destination_id_args: PositionalIdArg,
+    destination_id: DestinationIdArg = None,
     config_file: Annotated[
         Path | None, Parameter(help="JSON or YAML connector config file.")
     ] = None,
     config_json: Annotated[
         str | None, Parameter(help="Inline JSON connector config object.")
     ] = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Update a destination configuration."""
     resolved_destination_id = resolve_entity_id(
@@ -186,13 +170,13 @@ def update(
 
 @destinations_app.command
 def delete(
-    *destination_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    destination_id: DestinationId = None,
+    *destination_id_args: PositionalIdArg,
+    destination_id: DestinationIdArg = None,
     force: Annotated[bool, Parameter(help="Skip delete safety checks.")] = False,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Delete a destination."""
     resolved_destination_id = resolve_entity_id(

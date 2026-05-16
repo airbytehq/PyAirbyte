@@ -22,7 +22,16 @@ from airbyte.cli._cli_auth import (
     resolve_client_secret,
     resolve_workspace_id,
 )
-from airbyte.cli._input import parse_config_options, resolve_entity_id
+from airbyte.cli._input import (
+    ApiUrlArg,
+    ClientIdArg,
+    ClientSecretArg,
+    PositionalIdArg,
+    SourceIdArg,
+    WorkspaceIdArg,
+    parse_config_options,
+    resolve_entity_id,
+)
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
 from airbyte.cloud import CloudWorkspace
@@ -33,36 +42,13 @@ sources_app = _create_app(name="sources", help_text="Manage Airbyte Cloud source
 cloud_app.command(sources_app)
 
 
-WorkspaceId = Annotated[
-    str | None,
-    Parameter(
-        name="--workspace-id",
-        env_var=["AIRBYTE_WORKSPACE_ID", "AIRBYTE_CLOUD_WORKSPACE_ID"],
-        help="The workspace ID.",
-    ),
-]
-ClientId = Annotated[
-    str | None,
-    Parameter(env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."),
-]
-ClientSecret = Annotated[
-    str | None,
-    Parameter(
-        env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
-        help="Airbyte client secret.",
-    ),
-]
-ApiUrl = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
-SourceId = Annotated[str | None, Parameter(name="--source-id", help="The source ID.")]
-
-
 @sources_app.command(name="list")
 def list_(
     *,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """List sources in the workspace."""
     workspace = CloudWorkspace(
@@ -76,12 +62,12 @@ def list_(
 
 @sources_app.command
 def get(
-    *source_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    source_id: SourceId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *source_id_args: PositionalIdArg,
+    source_id: SourceIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Get details of a specific source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
@@ -105,10 +91,10 @@ def create(
     config_json: Annotated[
         str | None, Parameter(help="Inline JSON connector config object.")
     ] = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Create a new source in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
@@ -124,13 +110,13 @@ def create(
 
 @sources_app.command
 def rename(
-    *source_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
+    *source_id_args: PositionalIdArg,
     name: Annotated[str, Parameter(help="New display name for the source.")],
-    source_id: SourceId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    source_id: SourceIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Rename a source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
@@ -145,18 +131,18 @@ def rename(
 
 @sources_app.command
 def update(
-    *source_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    source_id: SourceId = None,
+    *source_id_args: PositionalIdArg,
+    source_id: SourceIdArg = None,
     config_file: Annotated[
         Path | None, Parameter(help="JSON or YAML connector config file.")
     ] = None,
     config_json: Annotated[
         str | None, Parameter(help="Inline JSON connector config object.")
     ] = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Update a source configuration."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
@@ -172,13 +158,13 @@ def update(
 
 @sources_app.command
 def delete(
-    *source_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    source_id: SourceId = None,
+    *source_id_args: PositionalIdArg,
+    source_id: SourceIdArg = None,
     force: Annotated[bool, Parameter(help="Skip delete safety checks.")] = False,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Delete a source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")

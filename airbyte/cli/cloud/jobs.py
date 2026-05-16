@@ -21,7 +21,15 @@ from airbyte.cli._cli_auth import (
     resolve_client_secret,
     resolve_workspace_id,
 )
-from airbyte.cli._input import resolve_entity_id
+from airbyte.cli._input import (
+    ApiUrlArg,
+    ClientIdArg,
+    ClientSecretArg,
+    JobIdArg,
+    PositionalIdArg,
+    WorkspaceIdArg,
+    resolve_entity_id,
+)
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
 from airbyte.cloud import CloudWorkspace
@@ -31,29 +39,6 @@ from airbyte.secrets.base import SecretString
 
 jobs_app = _create_app(name="jobs", help_text="View Airbyte sync jobs.")
 cloud_app.command(jobs_app)
-
-
-WorkspaceId = Annotated[
-    str | None,
-    Parameter(
-        name="--workspace-id",
-        env_var=["AIRBYTE_WORKSPACE_ID", "AIRBYTE_CLOUD_WORKSPACE_ID"],
-        help="The workspace ID.",
-    ),
-]
-ClientId = Annotated[
-    str | None,
-    Parameter(env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."),
-]
-ClientSecret = Annotated[
-    str | None,
-    Parameter(
-        env_var=["AIRBYTE_CLIENT_SECRET", "AIRBYTE_CLOUD_CLIENT_SECRET"],
-        help="Airbyte client secret.",
-    ),
-]
-ApiUrl = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
-JobId = Annotated[int | None, Parameter(name="--job-id", help="The job ID.")]
 
 
 def _resolve_job_id(args: tuple[str, ...], job_id: int | None) -> int:
@@ -71,10 +56,10 @@ def list_(
     *,
     connection_id: Annotated[str, Parameter(help="The connection ID to list jobs for.")],
     limit: Annotated[int, Parameter(help="Maximum number of jobs to return.")] = 20,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """List recent jobs for a connection."""
     workspace = CloudWorkspace(
@@ -89,12 +74,12 @@ def list_(
 
 @jobs_app.command
 def get(
-    *job_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    job_id: JobId = None,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    *job_id_args: PositionalIdArg,
+    job_id: JobIdArg = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Get details of a specific job."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
@@ -109,15 +94,15 @@ def get(
 
 @jobs_app.command
 def wait(
-    *job_id_args: Annotated[str, Parameter(show=False, consume_multiple=True)],
-    job_id: JobId = None,
+    *job_id_args: PositionalIdArg,
+    job_id: JobIdArg = None,
     wait_timeout: Annotated[
         int, Parameter(help="Maximum seconds to wait for job completion.")
     ] = 300,
-    workspace_id: WorkspaceId = None,
-    client_id: ClientId = None,
-    client_secret: ClientSecret = None,
-    api_url: ApiUrl = None,
+    workspace_id: WorkspaceIdArg = None,
+    client_id: ClientIdArg = None,
+    client_secret: ClientSecretArg = None,
+    api_url: ApiUrlArg = None,
 ) -> None:
     """Wait for a job to complete."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
