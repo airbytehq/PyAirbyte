@@ -10,7 +10,7 @@ see `docs/generate_cli.py`.
 
 from __future__ import annotations
 
-from airbyte.cli.cloud import connections, destinations, jobs, sources, workspaces
+from airbyte.cli.cloud import connections, destinations, jobs, login, sources, workspaces
 from airbyte.cli.cloud._cli import cloud_app
 
 
@@ -19,6 +19,7 @@ __all__ = [
     "connections",
     "destinations",
     "jobs",
+    "login",
     "sources",
     "workspaces",
 ]

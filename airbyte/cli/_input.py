@@ -35,6 +35,22 @@ ClientSecretArg = Annotated[
         help="Airbyte client secret.",
     ),
 ]
+AirbyteApiRootArg = Annotated[
+    str | None,
+    Parameter(
+        name="--airbyte-api-root",
+        env_var=["AIRBYTE_API_ROOT", "AIRBYTE_CLOUD_API_URL"],
+        help="Airbyte API root URL for token exchange and public API calls.",
+    ),
+]
+ConfigApiRootArg = Annotated[
+    str | None,
+    Parameter(
+        name="--config-api-root",
+        env_var=["AIRBYTE_CONFIG_API_ROOT", "AIRBYTE_CLOUD_CONFIG_API_URL"],
+        help="Airbyte Config API root URL for self-managed instances.",
+    ),
+]
 ApiUrlArg = Annotated[str | None, Parameter(help="Airbyte API URL override.")]
 ConnectionIdArg = Annotated[
     str | None, Parameter(name="--connection-id", help="The connection ID.")

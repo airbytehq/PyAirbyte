@@ -12,18 +12,20 @@ Resolution order:
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
 
-import yaml
-
+from airbyte.cloud.credentials import CREDENTIALS_FILE_PATH, read_credentials_file
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     CLOUD_API_ROOT,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
 )
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.secrets.base import SecretString
 
 
 # Short-form env var names (preferred for CLI usage)
@@ -31,33 +33,13 @@ CLI_CLIENT_ID_ENV_VAR = "AIRBYTE_CLIENT_ID"
 CLI_CLIENT_SECRET_ENV_VAR = "AIRBYTE_CLIENT_SECRET"
 CLI_WORKSPACE_ID_ENV_VAR = "AIRBYTE_WORKSPACE_ID"
 CLI_API_URL_ENV_VAR = "AIRBYTE_API_URL"
+CLI_BEARER_TOKEN_ENV_VAR = "AIRBYTE_BEARER_TOKEN"
+CLI_CONFIG_API_ROOT_ENV_VAR = "AIRBYTE_CONFIG_API_ROOT"
 
-CREDENTIALS_FILE_PATH = Path("~/.airbyte/credentials").expanduser()
 
-
-def _read_credentials_file() -> dict[str, Any]:
-    """Read credentials from `~/.airbyte/credentials` if the file exists.
-
-    The file is expected to be YAML with `client_id` and `client_secret` keys.
-
-    Returns an empty dict if the file does not exist or cannot be parsed.
-    """
-    if not CREDENTIALS_FILE_PATH.exists():
-        return {}
-
-    try:
-        content = CREDENTIALS_FILE_PATH.read_text(encoding="utf-8").strip()
-        parsed = yaml.safe_load(content) if content else {}
-    except (OSError, yaml.YAMLError):
-        return {}
-
-    if not content:
-        return {}
-
-    if not isinstance(parsed, dict):
-        return {}
-
-    return parsed
+def _read_credentials_file() -> dict[str, str]:
+    """Read credentials from `~/.airbyte/credentials` if the file exists."""
+    return read_credentials_file(CREDENTIALS_FILE_PATH)
 
 
 def resolve_client_id(explicit: str | None = None) -> str:
@@ -170,8 +152,75 @@ def resolve_api_url(explicit: str | None = None) -> str:
         return from_long_env
 
     creds = _read_credentials_file()
-    from_file = creds.get("api_url")
+    from_file = creds.get("airbyte_api_root") or creds.get("api_url")
     if from_file:
         return str(from_file)
 
     return CLOUD_API_ROOT
+
+
+def resolve_config_api_root(explicit: str | None = None) -> str:
+    """Resolve the Airbyte Config API root URL."""
+    if explicit:
+        return explicit
+
+    from_short_env = os.environ.get(CLI_CONFIG_API_ROOT_ENV_VAR)
+    if from_short_env:
+        return from_short_env
+
+    from_long_env = os.environ.get(CLOUD_CONFIG_API_ROOT_ENV_VAR)
+    if from_long_env:
+        return from_long_env
+
+    creds = _read_credentials_file()
+    from_file = creds.get("config_api_root")
+    if from_file:
+        return str(from_file)
+
+    return CLOUD_CONFIG_API_ROOT
+
+
+def resolve_bearer_token(explicit: str | None = None) -> str | None:
+    """Resolve an Airbyte bearer token if one is available."""
+    if explicit:
+        return explicit
+
+    from_short_env = os.environ.get(CLI_BEARER_TOKEN_ENV_VAR)
+    if from_short_env:
+        return from_short_env
+
+    from_long_env = os.environ.get(CLOUD_BEARER_TOKEN_ENV_VAR)
+    if from_long_env:
+        return from_long_env
+
+    creds = _read_credentials_file()
+    from_file = creds.get("bearer_token")
+    if from_file:
+        return str(from_file)
+
+    return None
+
+
+def create_cloud_workspace(
+    *,
+    workspace_id: str,
+    client_id: str | None = None,
+    client_secret: str | None = None,
+    api_url: str | None = None,
+) -> CloudWorkspace:
+    """Create a `CloudWorkspace` from CLI authentication inputs."""
+    bearer_token = resolve_bearer_token()
+    resolved_api_url = resolve_api_url(api_url)
+    if bearer_token and not client_id and not client_secret:
+        return CloudWorkspace(
+            workspace_id=workspace_id,
+            bearer_token=SecretString(bearer_token),
+            api_root=resolved_api_url,
+        )
+
+    return CloudWorkspace(
+        workspace_id=workspace_id,
+        client_id=SecretString(resolve_client_id(client_id)),
+        client_secret=SecretString(resolve_client_secret(client_secret)),
+        api_root=resolved_api_url,
+    )

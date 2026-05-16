@@ -15,12 +15,7 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from airbyte.cli._base import _create_app
-from airbyte.cli._cli_auth import (
-    resolve_api_url,
-    resolve_client_id,
-    resolve_client_secret,
-    resolve_workspace_id,
-)
+from airbyte.cli._cli_auth import create_cloud_workspace, resolve_workspace_id
 from airbyte.cli._input import (
     ApiUrlArg,
     ClientIdArg,
@@ -32,9 +27,7 @@ from airbyte.cli._input import (
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud import CloudWorkspace
 from airbyte.exceptions import PyAirbyteInputError
-from airbyte.secrets.base import SecretString
 
 
 jobs_app = _create_app(name="jobs", help_text="View Airbyte sync jobs.")
@@ -62,11 +55,11 @@ def list_(
     api_url: ApiUrlArg = None,
 ) -> None:
     """List recent jobs for a connection."""
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     results = workspace.get_connection(connection_id).get_previous_sync_logs(limit=limit)
     json_output([job.get_info() for job in results])
@@ -83,11 +76,11 @@ def get(
 ) -> None:
     """Get details of a specific job."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.get_job_info(resolved_job_id))
 
@@ -106,11 +99,11 @@ def wait(
 ) -> None:
     """Wait for a job to complete."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     job = workspace.get_job_info(resolved_job_id)
     result = workspace.get_connection(job.connection_id).get_sync_result(resolved_job_id)

@@ -16,12 +16,7 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from airbyte.cli._base import _create_app
-from airbyte.cli._cli_auth import (
-    resolve_api_url,
-    resolve_client_id,
-    resolve_client_secret,
-    resolve_workspace_id,
-)
+from airbyte.cli._cli_auth import create_cloud_workspace, resolve_workspace_id
 from airbyte.cli._input import (
     ApiUrlArg,
     ClientIdArg,
@@ -34,8 +29,6 @@ from airbyte.cli._input import (
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud import CloudWorkspace
-from airbyte.secrets.base import SecretString
 
 
 destinations_app = _create_app(name="destinations", help_text="Manage Airbyte Cloud destinations.")
@@ -51,11 +44,11 @@ def list_(
     api_url: ApiUrlArg = None,
 ) -> None:
     """List destinations in the workspace."""
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output([destination.get_info() for destination in workspace.list_destinations()])
 
@@ -75,11 +68,11 @@ def get(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.get_destination(resolved_destination_id).get_info())
 
@@ -103,11 +96,11 @@ def create(
     """Create a new destination in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
     config["destinationType"] = destination_type
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.deploy_destination(name=name, destination=config).get_info())
 
@@ -128,11 +121,11 @@ def rename(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.get_destination(resolved_destination_id).rename(name).get_info())
 
@@ -159,11 +152,11 @@ def update(
         option_name="--destination-id",
     )
     config = parse_config_options(config_json=config_json, config_file=config_file)
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.get_destination(resolved_destination_id).update_config(config).get_info())
 
@@ -184,11 +177,11 @@ def delete(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     workspace.permanently_delete_destination(
         destination=workspace.get_destination(resolved_destination_id),

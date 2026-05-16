@@ -15,12 +15,7 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from airbyte.cli._base import _create_app
-from airbyte.cli._cli_auth import (
-    resolve_api_url,
-    resolve_client_id,
-    resolve_client_secret,
-    resolve_workspace_id,
-)
+from airbyte.cli._cli_auth import create_cloud_workspace, resolve_workspace_id
 from airbyte.cli._input import (
     ApiUrlArg,
     ClientIdArg,
@@ -33,9 +28,7 @@ from airbyte.cli._input import (
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud import CloudWorkspace
 from airbyte.exceptions import PyAirbyteInputError
-from airbyte.secrets.base import SecretString
 
 
 connections_app = _create_app(name="connections", help_text="Manage Airbyte Cloud connections.")
@@ -53,11 +46,11 @@ def list_(
     api_url: ApiUrlArg = None,
 ) -> None:
     """List connections in the workspace."""
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output([connection.get_info() for connection in workspace.list_connections()])
 
@@ -77,11 +70,11 @@ def get(
         connection_id,
         option_name="--connection-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.get_connection(resolved_connection_id).get_info())
 
@@ -102,11 +95,11 @@ def create(  # noqa: PLR0913
     api_url: ApiUrlArg = None,
 ) -> None:
     """Create a new connection."""
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     result = workspace.deploy_connection(
         connection_name=name,
@@ -134,11 +127,11 @@ def rename(
         connection_id,
         option_name="--connection-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     json_output(workspace.get_connection(resolved_connection_id).rename(name).get_info())
 
@@ -164,11 +157,11 @@ def update(
     )
     if prefix is None and selected_streams is None:
         raise PyAirbyteInputError(message="At least one update option is required.")
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     connection = workspace.get_connection(resolved_connection_id)
     if prefix is not None:
@@ -193,11 +186,11 @@ def enable(
         connection_id,
         option_name="--connection-id",
     )
-    connection = CloudWorkspace(
+    connection = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     ).get_connection(resolved_connection_id)
     connection.set_enabled(enabled=True)
     json_output(connection.get_info())
@@ -218,11 +211,11 @@ def disable(
         connection_id,
         option_name="--connection-id",
     )
-    connection = CloudWorkspace(
+    connection = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     ).get_connection(resolved_connection_id)
     connection.set_enabled(enabled=False)
     json_output(connection.get_info())
@@ -244,11 +237,11 @@ def set_(
         connection_id,
         option_name="--connection-id",
     )
-    connection = CloudWorkspace(
+    connection = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     ).get_connection(resolved_connection_id)
     connection.set_schedule(cron_expression)
     json_output(connection.get_info())
@@ -269,11 +262,11 @@ def manual(
         connection_id,
         option_name="--connection-id",
     )
-    connection = CloudWorkspace(
+    connection = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     ).get_connection(resolved_connection_id)
     connection.set_manual_schedule()
     json_output(connection.get_info())
@@ -295,11 +288,11 @@ def delete(
         connection_id,
         option_name="--connection-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     workspace.permanently_delete_connection(
         connection=workspace.get_connection(resolved_connection_id),
@@ -329,11 +322,11 @@ def sync(
         connection_id,
         option_name="--connection-id",
     )
-    workspace = CloudWorkspace(
+    workspace = create_cloud_workspace(
         workspace_id=resolve_workspace_id(workspace_id),
-        api_root=resolve_api_url(api_url),
-        client_id=SecretString(resolve_client_id(client_id)),
-        client_secret=SecretString(resolve_client_secret(client_secret)),
+        client_id=client_id,
+        client_secret=client_secret,
+        api_url=api_url,
     )
     result = workspace.get_connection(resolved_connection_id).run_sync(
         wait=wait,
