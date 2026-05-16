@@ -1,52 +1,27 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Internal Click implementation for the `airbyte` command."""
+"""Entrypoint for the `airbyte` CLI."""
 
 from __future__ import annotations
 
-import json
 import sys
-from typing import NoReturn
 
-import click
+from cyclopts.exceptions import CycloptsError
 
-from airbyte.cli.cloud._cli import cloud
-from airbyte.cli.local._cli import local
-from airbyte.exceptions import AirbyteError, PyAirbyteInputError
-
-
-def _error_json(message: str, **extra: object) -> NoReturn:
-    """Print an error object to stderr and exit."""
-    payload: dict[str, object] = {"error": message, **extra}
-    click.echo(json.dumps(payload, indent=2, default=str), err=True)
-    sys.exit(1)
-
-
-@click.group(name="airbyte")
-def cli() -> None:
-    """Airbyte CLI."""
-    pass
-
-
-cli.add_command(cloud)
-cli.add_command(local)
+from airbyte.cli import cloud, local  # noqa: F401
+from airbyte.cli._base import app
+from airbyte.exceptions import PyAirbyteError
 
 
 def main() -> None:
-    """Entry point for the `airbyte` command."""
+    """Main entry point for the `airbyte` CLI."""
     try:
-        cli(standalone_mode=False)
-    except SystemExit:
-        raise
-    except (KeyboardInterrupt, click.Abort):
-        _error_json("Operation cancelled.")
-    except click.ClickException as exc:
-        _error_json(exc.format_message(), type=exc.__class__.__name__)
-    except json.JSONDecodeError as exc:
-        _error_json(str(exc), type="JSONDecodeError")
-    except PyAirbyteInputError as exc:
-        _error_json(str(exc), type="PyAirbyteInputError")
-    except AirbyteError as exc:
-        _error_json(str(exc), type=exc.__class__.__name__)
+        app()
+    except (CycloptsError, PyAirbyteError) as exc:
+        print(exc, file=sys.stderr)
+        raise SystemExit(1) from exc
+
+
+__all__ = ["app", "main"]
 
 
 if __name__ == "__main__":

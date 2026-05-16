@@ -10,7 +10,7 @@ package manager):
 brew install uv
 ```
 
-**Install the CLIs** as persistent tools:
+**Install the CLI** as a persistent tool:
 
 ```bash
 uv tool install airbyte
@@ -21,15 +21,12 @@ uv tool install airbyte
 ```bash
 uvx airbyte cloud --help
 uvx airbyte local --help
-uvx --from airbyte pyab --help
 ```
 
 ## CLI reference
 
 The `airbyte cloud` command is documented in `airbyte.cli.cloud`.
 The `airbyte local` command is documented in `airbyte.cli.local`.
-The `pyab` and `pyairbyte` commands are backward-compatible aliases documented
-in `airbyte.cli.pyab`.
 
 Each `airbyte cloud` and `airbyte local` command group is documented in its own
 submodule page below.
@@ -37,17 +34,13 @@ The reference content is regenerated locally via `poe docs-generate`; see
 `docs/generate_cli.py`.
 """
 
-from airbyte.cli import (
-    cloud,
-    local,
-    pyab,
-)
-from airbyte.cli.pyab import cli
+from airbyte.cli import cloud, local
+from airbyte.cli._cli import app, main
 
 
 __all__ = [
+    "app",
     "cloud",
     "local",
-    "pyab",
-    "cli",
+    "main",
 ]

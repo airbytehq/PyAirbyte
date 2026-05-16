@@ -1,61 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""CLI for PyAirbyte.
+"""Local PyAirbyte connector workflow helpers.
 
-The PyAirbyte CLI provides a command-line interface for testing connectors and running benchmarks.
-
-After installing PyAirbyte, the CLI can be invoked with the `pyairbyte` CLI executable, or the
-shorter `pyab` alias.
-
-These are equivalent:
-
-```bash
-pyairbyte --help
-pyab --help
-```
-
-You can also use `pipx` or the fast and powerful `uv` tool to run the PyAirbyte CLI
-without pre-installing:
-
-```bash
-# Install `uv` if you haven't already:
-brew install uv
-
-# Run the PyAirbyte CLI using `uvx`:
-uvx --from=airbyte pyab --help
-```
-
-Example `benchmark` Usage:
-
-```bash
-# PyAirbyte System Benchmark (no-op):
-pyab benchmark --num-records=2.4e6
-
-# Source Benchmark:
-pyab benchmark --source=source-hardcoded-records --config='{count: 400000}'
-pyab benchmark --source=source-hardcoded-records --config='{count: 400000}' --streams='*'
-pyab benchmark --source=source-hardcoded-records --config='{count: 4000}' --streams=dummy_fields
-
-# Source Benchmark from Docker Image:
-pyab benchmark --source=airbyte/source-hardcoded-records:latest --config='{count: 400_000}'
-pyab benchmark --source=airbyte/source-hardcoded-records:dev --config='{count: 400_000}'
-
-# Destination Benchmark:
-pyab benchmark --destination=destination-dev-null --config=/path/to/config.json
-
-# Benchmark a Local Python Source (source-s3):
-pyab benchmark --source=$(poetry run which source-s3) --config=./secrets/config.json
-# Equivalent to:
-LOCAL_EXECUTABLE=$(poetry run which source-s3)
-CONFIG_PATH=$(realpath ./secrets/config.json)
-pyab benchmark --source=$LOCAL_EXECUTABLE --config=$CONFIG_PATH
-```
-
-Example `validate` Usage:
-
-```bash
-pyab validate --connector=source-hardcoded-records
-pyab validate --connector=source-hardcoded-records --config='{count: 400_000}'
-```
+These functions back `airbyte local ...` commands.
 """
 
 from __future__ import annotations
@@ -66,7 +12,6 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import click
 import yaml
 
 from airbyte._util.destination_smoke_tests import run_destination_smoke_test
@@ -353,42 +298,6 @@ def _resolve_destination_job(
     )
 
 
-@click.command(
-    help=(
-        "Validate the connector has a valid CLI and is able to run `spec`. "
-        "If 'config' is provided, we will also run a `check` on the connector "
-        "with the provided config.\n\n" + CLI_GUIDANCE
-    ),
-)
-@click.option(
-    "--connector",
-    type=str,
-    help="The connector name or a path to the local executable.",
-)
-@click.option(
-    "--pip-url",
-    type=str,
-    help=(
-        "Optional. The location from which to install the connector. "
-        "This can be a anything pip accepts, including: a PyPI package name, a local path, "
-        "a git repository, a git branch ref, etc."
-    ),
-)
-@click.option(
-    "--config",
-    type=str,
-    required=False,
-    help=CONFIG_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
 def validate(
     connector: str | None = None,
     config: str | None = None,
@@ -428,58 +337,6 @@ def validate(
         connector_obj.check()
 
 
-@click.command()
-@click.option(
-    "--source",
-    type=str,
-    help=(
-        "The source name, with an optional version declaration. "
-        "If the name contains a colon (':'), it will be interpreted as a docker image and tag. "
-    ),
-)
-@click.option(
-    "--streams",
-    type=str,
-    default="*",
-    help=(
-        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
-        "will be selected. Defaults to '*'."
-    ),
-)
-@click.option(
-    "--num-records",
-    type=str,
-    default="5e5",
-    help=(
-        "The number of records to generate for the benchmark. Ignored if a source is provided. "
-        "You can specify the number of records to generate using scientific notation. "
-        "For example, `5e6` will generate 5 million records. By default, 500,000 records will "
-        "be generated (`5e5` records). If underscores are providing within a numeric a string, "
-        "they will be ignored."
-    ),
-)
-@click.option(
-    "--destination",
-    type=str,
-    help=(
-        "The destination name, with an optional version declaration. "
-        "If a path is provided, it will be interpreted as a path to the local executable. "
-    ),
-)
-@click.option(
-    "--config",
-    type=str,
-    help=CONFIG_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
 def benchmark(
     source: str | None = None,
     streams: str = "*",
@@ -526,7 +383,7 @@ def benchmark(
         else get_noop_destination()
     )
 
-    click.echo("Running benchmarks...", sys.stderr)
+    print("Running benchmarks...", file=sys.stderr)
     destination_obj.write(
         source_data=source_obj,
         cache=False,
@@ -534,64 +391,6 @@ def benchmark(
     )
 
 
-@click.command()
-@click.option(
-    "--source",
-    type=str,
-    help=(
-        "The source name, with an optional version declaration. "
-        "If the name contains a colon (':'), it will be interpreted as a docker image and tag. "
-    ),
-)
-@click.option(
-    "--destination",
-    type=str,
-    help=(
-        "The destination name, with an optional version declaration. "
-        "If a path is provided, it will be interpreted as a path to the local executable. "
-    ),
-)
-@click.option(
-    "--streams",
-    type=str,
-    help=(
-        "A comma-separated list of stream names to select for reading. If set to '*', all streams "
-        "will be selected. Defaults to '*'."
-    ),
-)
-@click.option(
-    "--Sconfig",
-    "source_config",
-    type=str,
-    help="The source config. " + CONFIG_HELP,
-)
-@click.option(
-    "--Dconfig",
-    "destination_config",
-    type=str,
-    help="The destination config. " + CONFIG_HELP,
-)
-@click.option(
-    "--Spip-url",
-    "source_pip_url",
-    type=str,
-    help="Optional pip URL for the source (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--Dpip-url",
-    "destination_pip_url",
-    type=str,
-    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
 def sync(
     *,
     source: str,
@@ -625,7 +424,7 @@ def sync(
         use_python=use_python,
     )
 
-    click.echo("Running sync...")
+    print("Running sync...")
     destination_obj.write(
         source_data=source_obj,
         cache=False,
@@ -633,93 +432,6 @@ def sync(
     )
 
 
-@click.command(name="destination-smoke-test")
-@click.option(
-    "--destination",
-    type=str,
-    required=True,
-    help=(
-        "The destination connector to test. Can be a connector name "
-        "(e.g. 'destination-snowflake'), a Docker image with tag "
-        "(e.g. 'airbyte/destination-snowflake:3.14.0'), or a path to a local executable."
-    ),
-)
-@click.option(
-    "--config",
-    type=str,
-    help="The destination configuration. " + CONFIG_HELP,
-)
-@click.option(
-    "--pip-url",
-    type=str,
-    help="Optional pip URL for the destination (Python connectors only). " + PIP_URL_HELP,
-)
-@click.option(
-    "--use-python",
-    type=str,
-    help=(
-        "Python interpreter specification. Use 'true' for current Python, "
-        "'false' for Docker, a path for specific interpreter, or a version "
-        "string for uv-managed Python (e.g., '3.11', 'python3.12')."
-    ),
-)
-@click.option(
-    "--scenarios",
-    type=str,
-    default="fast",
-    help=(
-        "Which smoke test scenarios to run. "
-        "Use 'fast' (default) for all fast predefined scenarios "
-        "(excludes large_batch_stream), 'all' for every predefined scenario "
-        "including large batch, or provide a comma-separated list of scenario names. "
-        "Available scenarios: basic_types, timestamp_types, "
-        "large_decimals_and_numbers, nested_json_objects, null_handling, "
-        "column_naming_edge_cases, table_naming_edge_cases, "
-        "CamelCaseStreamName, wide_table_50_columns, empty_stream, "
-        "single_record_stream, unicode_and_special_strings, "
-        "schema_with_no_primary_key, long_column_names, large_batch_stream."
-    ),
-)
-@click.option(
-    "--custom-scenarios",
-    type=str,
-    default=None,
-    help=(
-        "Path to a JSON or YAML file containing additional custom test scenarios. "
-        "Each scenario should define 'name', 'json_schema', and optionally 'records' "
-        "and 'primary_key'. These are unioned with the predefined scenarios."
-    ),
-)
-@click.option(
-    "--namespace-suffix",
-    type=str,
-    default=None,
-    help=(
-        "Optional suffix appended to the auto-generated namespace. "
-        "Defaults to 'smoke_test' (format: 'zz_deleteme_yyyymmdd_hhmm_{suffix}'). "
-        "Use this to distinguish concurrent runs."
-    ),
-)
-@click.option(
-    "--reuse-namespace",
-    type=str,
-    default=None,
-    help=(
-        "Exact namespace to reuse from a previous run. "
-        "When set, no new namespace is generated. "
-        "Useful for running a second test against an already-populated namespace."
-    ),
-)
-@click.option(
-    "--skip-preflight",
-    is_flag=True,
-    default=False,
-    help=(
-        "Skip the automatic preflight check that runs basic_types before "
-        "the requested scenarios. Use when you expect basic_types itself to fail "
-        "or want to save time on repeated runs."
-    ),
-)
 def destination_smoke_test(  # noqa: PLR0913
     *,
     destination: str,
@@ -748,25 +460,25 @@ def destination_smoke_test(  # noqa: PLR0913
 
     Usage examples:
 
-    `pyab destination-smoke-test --destination=destination-dev-null`
+    `airbyte local debug destinations smoke-test --destination=destination-dev-null`
 
-    `pyab destination-smoke-test --destination=destination-snowflake
+    `airbyte local debug destinations smoke-test --destination=destination-snowflake
     --config=./secrets/snowflake.json`
 
-    `pyab destination-smoke-test --destination=destination-motherduck
+    `airbyte local debug destinations smoke-test --destination=destination-motherduck
     --scenarios=basic_types,null_handling`
 
-    `pyab destination-smoke-test --destination=destination-snowflake
+    `airbyte local debug destinations smoke-test --destination=destination-snowflake
     --config=./secrets/snowflake.json --scenarios=all`
 
-    `pyab destination-smoke-test --destination=destination-snowflake
+    `airbyte local debug destinations smoke-test --destination=destination-snowflake
     --config=./secrets/snowflake.json --namespace-suffix=run2`
 
-    `pyab destination-smoke-test --destination=destination-snowflake
+    `airbyte local debug destinations smoke-test --destination=destination-snowflake
     --config=./secrets/snowflake.json
     --reuse-namespace=zz_deleteme_20260318_2256`
     """
-    click.echo("Resolving destination...", file=sys.stderr)
+    print("Resolving destination...", file=sys.stderr)
     destination_obj = _resolve_destination_job(
         destination=destination,
         config=config,
@@ -774,7 +486,7 @@ def destination_smoke_test(  # noqa: PLR0913
         use_python=use_python,
     )
 
-    click.echo("Running destination smoke test...", file=sys.stderr)
+    print("Running destination smoke test...", file=sys.stderr)
     result = run_destination_smoke_test(
         destination=destination_obj,
         scenarios=scenarios,
@@ -784,24 +496,11 @@ def destination_smoke_test(  # noqa: PLR0913
         skip_preflight=skip_preflight,
     )
 
-    click.echo(json.dumps(result.model_dump(), indent=2))
+    print(json.dumps(result.model_dump(), indent=2))
 
     if not result.success:
         if result.error:
-            click.echo(f"Smoke test FAILED: {result.error}", file=sys.stderr)
+            print(f"Smoke test FAILED: {result.error}", file=sys.stderr)
         sys.exit(1)
 
-
-@click.group()
-def cli() -> None:
-    """@private PyAirbyte CLI."""
     pass
-
-
-cli.add_command(validate)
-cli.add_command(benchmark)
-cli.add_command(sync)
-cli.add_command(destination_smoke_test)
-
-if __name__ == "__main__":
-    cli()
