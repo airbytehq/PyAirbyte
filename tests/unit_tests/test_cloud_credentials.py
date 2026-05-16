@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sys
 
 import pytest
 import yaml
@@ -49,7 +50,8 @@ def test_login_with_client_credentials_writes_bearer_token(
         "bearer_token": "test-bearer-token",
         "config_api_root": "https://config.example.com/api/v1",
     }
-    assert credentials_file_path.stat().st_mode & 0o777 == 0o600
+    if sys.platform != "win32":
+        assert credentials_file_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_login_without_client_credentials_raises_interactive_flow_error() -> None:
