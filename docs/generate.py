@@ -18,7 +18,7 @@ import sys
 import pdoc
 import pdoc.render_helpers
 
-from docs.generate_cli import (
+from docs.generate_cli_docs import (
     generate_cli_reference,
     generate_cli_submodule_references,
     generate_local_cli_reference,

@@ -31,7 +31,7 @@ The `airbyte local` command is documented in `airbyte.cli.local`.
 Each `airbyte cloud` and `airbyte local` command group is documented in its own
 submodule page below.
 The reference content is regenerated locally via `poe docs-generate`; see
-`docs/generate_cli.py`.
+`docs/generate_cli_docs.py`.
 """
 
 from airbyte.cli import cloud, local

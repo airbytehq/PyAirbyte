@@ -6,7 +6,7 @@ command metadata is rendered to Markdown first, then pdoc grafts that Markdown
 into the `airbyte.cli` API pages via `.. include::` directives.
 
 Usage:
-    uv run python -m docs.generate_cli [OUTPUT_PATH]
+    uv run python -m docs.generate_cli_docs [OUTPUT_PATH]
 
 Or as part of the combined docs pipeline:
     poe docs-generate

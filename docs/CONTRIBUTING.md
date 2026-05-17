@@ -34,7 +34,7 @@ Documentation pages will be generated in the `docs/generated` folder. The `test_
 
 ### Generating Markdown docs for the `airbyte` CLI
 
-The repo ships a small script (`docs/generate_cli.py`) that renders the
+The repo ships a small script (`docs/generate_cli_docs.py`) that renders the
 `airbyte cloud` and `airbyte local` CLI command trees as Markdown under
 `docs/generated/`. The `airbyte.cli.cloud` and `airbyte.cli.local` modules pull
 the combined CLI references in via pdoc's `.. include::` directive, and their
@@ -45,7 +45,7 @@ regenerates CLI docs before pdoc renders HTML. To only regenerate the Markdown
 CLI reference, run:
 
 ```console
-uv run python -m docs.generate_cli
+uv run python -m docs.generate_cli_docs
 ```
 
 Regenerate after any change to `airbyte` command groups, command names, options,
