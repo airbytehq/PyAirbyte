@@ -28,6 +28,7 @@ from airbyte.constants import (
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_WORKSPACE_ID,
 )
 from airbyte.destinations.util import get_noop_destination
@@ -269,6 +270,7 @@ def _get_cloud_workspace(
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
+    config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
 
     return CloudWorkspace(
         workspace_id=resolved_workspace_id,
@@ -276,6 +278,7 @@ def _get_cloud_workspace(
         client_secret=SecretString(client_secret) if client_secret else None,
         bearer_token=SecretString(bearer_token) if bearer_token else None,
         api_root=api_url,
+        config_api_root=config_api_url,
     )
 
 
@@ -1308,6 +1311,7 @@ def _resolve_organization(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None = None,
+    config_api_root: str | None = None,
 ) -> CloudOrganization:
     """Resolve organization from either ID or exact name match.
 
@@ -1318,6 +1322,7 @@ def _resolve_organization(
         client_id: OAuth client ID (optional if bearer_token is provided)
         client_secret: OAuth client secret (optional if bearer_token is provided)
         bearer_token: Bearer token for authentication (optional if client credentials provided)
+        config_api_root: Optional Config API root URL.
 
     Returns:
         A CloudOrganization object with credentials for lazy loading of billing info.
@@ -1387,6 +1392,7 @@ def _resolve_organization(
         organization_name=org_response.organization_name,
         email=org_response.email,
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -1401,6 +1407,7 @@ def _resolve_organization_id(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None = None,
+    config_api_root: str | None = None,
 ) -> str:
     """Resolve organization ID from either ID or exact name match.
 
@@ -1413,6 +1420,7 @@ def _resolve_organization_id(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+        config_api_root=config_api_root,
     )
     return org.organization_id
 
@@ -1467,6 +1475,7 @@ def list_cloud_workspaces(
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
+    config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
 
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
@@ -1475,6 +1484,7 @@ def list_cloud_workspaces(
         client_id=SecretString(client_id) if client_id else None,
         client_secret=SecretString(client_secret) if client_secret else None,
         bearer_token=SecretString(bearer_token) if bearer_token else None,
+        config_api_root=config_api_url,
     )
 
     workspaces = api_util.list_workspaces_in_organization(
@@ -1483,6 +1493,7 @@ def list_cloud_workspaces(
         client_id=SecretString(client_id) if client_id else None,
         client_secret=SecretString(client_secret) if client_secret else None,
         bearer_token=SecretString(bearer_token) if bearer_token else None,
+        config_api_root=config_api_url,
         name_contains=name_contains,
         max_items_limit=max_items_limit,
     )
@@ -1532,6 +1543,7 @@ def describe_cloud_organization(
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
+    config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
 
     org = _resolve_organization(
         organization_id=organization_id,
@@ -1540,6 +1552,7 @@ def describe_cloud_organization(
         client_id=SecretString(client_id) if client_id else None,
         client_secret=SecretString(client_secret) if client_secret else None,
         bearer_token=SecretString(bearer_token) if bearer_token else None,
+        config_api_root=config_api_url,
     )
 
     # CloudOrganization has lazy loading of billing properties

@@ -316,6 +316,7 @@ class SyncResult:
             if "Invalid isoformat string" in str(e):
                 job_info_raw = api_util._make_config_api_request(  # noqa: SLF001
                     api_root=self.workspace.api_root,
+                    config_api_root=self.workspace.config_api_root,
                     path="/jobs/get",
                     json={"id": self.job_id},
                     client_id=self.workspace.client_id,
@@ -334,6 +335,7 @@ class SyncResult:
 
         self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
             api_root=self.workspace.api_root,
+            config_api_root=self.workspace.config_api_root,
             path="/jobs/get",
             json={
                 "id": self.job_id,
