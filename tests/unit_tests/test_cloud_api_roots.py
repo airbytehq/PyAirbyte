@@ -6,6 +6,8 @@ from __future__ import annotations
 import pytest
 
 from airbyte._util import api_util
+from airbyte.cloud import CloudWorkspace
+from airbyte.secrets.base import SecretString
 
 
 @pytest.mark.parametrize(
@@ -80,3 +82,14 @@ def test_get_config_api_root_unresolved(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(NotImplementedError):
         api_util.get_config_api_root("https://example.airbyte.com/custom/public")
+
+
+def test_cloud_workspace_constructor_requires_keyword_arguments() -> None:
+    with pytest.raises(TypeError, match="positional"):
+        CloudWorkspace("workspace-id", bearer_token=SecretString("token"))  # type: ignore[misc]
+
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id", bearer_token=SecretString("token")
+    )
+
+    assert workspace.workspace_id == "workspace-id"

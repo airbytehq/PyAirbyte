@@ -211,7 +211,7 @@ class CloudOrganization:
         return api_util.is_account_locked(self.payment_status, self.subscription_status)
 
 
-@dataclass
+@dataclass(kw_only=True)
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
