@@ -764,16 +764,14 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-        offset: int | None = None,
     ) -> list[CloudConnection]:
-        """List connections by name in the workspace, with optional pagination."""
+        """List connections by name in the workspace, with an optional limit."""
         connections = api_util.list_connections(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
             limit=limit,
-            offset=offset,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -792,16 +790,14 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-        offset: int | None = None,
     ) -> list[CloudSource]:
-        """List all sources in the workspace, with optional pagination."""
+        """List all sources in the workspace, with an optional limit."""
         sources = api_util.list_sources(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
             limit=limit,
-            offset=offset,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -820,16 +816,14 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-        offset: int | None = None,
     ) -> list[CloudDestination]:
-        """List all destinations in the workspace, with optional pagination."""
+        """List all destinations in the workspace, with an optional limit."""
         destinations = api_util.list_destinations(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
             limit=limit,
-            offset=offset,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,

@@ -60,20 +60,10 @@ def status_ok(status_code: int) -> bool:
 def _validate_pagination_params(
     *,
     limit: int | None,
-    offset: int | None,
 ) -> None:
     """Validate common pagination parameters."""
     if limit is not None and limit <= 0:
         raise PyAirbyteInputError(message="`limit` must be greater than 0.")
-    if offset is not None and offset < 0:
-        raise PyAirbyteInputError(message="`offset` must be greater than or equal to 0.")
-
-
-def _get_initial_offset(offset: int | None) -> int:
-    """Get an API offset from an optional user-provided offset."""
-    if offset is None:
-        return 0
-    return offset
 
 
 def _get_page_limit(remaining: int | None) -> int:
@@ -273,7 +263,7 @@ def get_workspace(
 # List resources
 
 
-def list_connections(  # noqa: PLR0913  # API auth requires multiple credential options.
+def list_connections(
     workspace_id: str,
     *,
     api_root: str,
@@ -283,12 +273,11 @@ def list_connections(  # noqa: PLR0913  # API auth requires multiple credential 
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
-    offset: int | None = None,
 ) -> list[models.ConnectionResponse]:
     """List connections."""
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
-    _validate_pagination_params(limit=limit, offset=offset)
+    _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -299,7 +288,7 @@ def list_connections(  # noqa: PLR0913  # API auth requires multiple credential 
         api_root=api_root,
     )
     result: list[models.ConnectionResponse] = []
-    current_offset = _get_initial_offset(offset)
+    current_offset = 0
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
@@ -344,7 +333,7 @@ def list_connections(  # noqa: PLR0913  # API auth requires multiple credential 
     return result
 
 
-def list_workspaces(  # noqa: PLR0913  # API auth requires multiple credential options.
+def list_workspaces(
     workspace_id: str,
     *,
     api_root: str,
@@ -354,12 +343,11 @@ def list_workspaces(  # noqa: PLR0913  # API auth requires multiple credential o
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
-    offset: int | None = None,
 ) -> list[models.WorkspaceResponse]:
     """List workspaces."""
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
-    _validate_pagination_params(limit=limit, offset=offset)
+    _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -370,7 +358,7 @@ def list_workspaces(  # noqa: PLR0913  # API auth requires multiple credential o
         api_root=api_root,
     )
     result: list[models.WorkspaceResponse] = []
-    current_offset = _get_initial_offset(offset)
+    current_offset = 0
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
@@ -413,7 +401,7 @@ def list_workspaces(  # noqa: PLR0913  # API auth requires multiple credential o
     return result
 
 
-def list_sources(  # noqa: PLR0913  # API auth requires multiple credential options.
+def list_sources(
     workspace_id: str,
     *,
     api_root: str,
@@ -423,12 +411,11 @@ def list_sources(  # noqa: PLR0913  # API auth requires multiple credential opti
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
-    offset: int | None = None,
 ) -> list[models.SourceResponse]:
     """List sources."""
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
-    _validate_pagination_params(limit=limit, offset=offset)
+    _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -439,7 +426,7 @@ def list_sources(  # noqa: PLR0913  # API auth requires multiple credential opti
         api_root=api_root,
     )
     result: list[models.SourceResponse] = []
-    current_offset = _get_initial_offset(offset)
+    current_offset = 0
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
@@ -481,7 +468,7 @@ def list_sources(  # noqa: PLR0913  # API auth requires multiple credential opti
     return result
 
 
-def list_destinations(  # noqa: PLR0913  # API auth requires multiple credential options.
+def list_destinations(
     workspace_id: str,
     *,
     api_root: str,
@@ -491,12 +478,11 @@ def list_destinations(  # noqa: PLR0913  # API auth requires multiple credential
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
-    offset: int | None = None,
 ) -> list[models.DestinationResponse]:
     """List destinations."""
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
-    _validate_pagination_params(limit=limit, offset=offset)
+    _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -507,7 +493,7 @@ def list_destinations(  # noqa: PLR0913  # API auth requires multiple credential
         api_root=api_root,
     )
     result: list[models.DestinationResponse] = []
-    current_offset = _get_initial_offset(offset)
+    current_offset = 0
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
@@ -655,7 +641,6 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    offset: int | None = None,
     order_by: str | None = None,
     job_type: models.JobTypeEnum | None = None,
 ) -> list[models.JobResponse]:
@@ -672,7 +657,6 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         client_id: The client ID for authentication.
         client_secret: The client secret for authentication.
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        offset: Number of jobs to skip from the beginning. Defaults to None (0).
         order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
         job_type: Filter by job type (e.g., JobTypeEnum.SYNC, JobTypeEnum.REFRESH).
             If not specified, defaults to sync and reset jobs only (API default behavior).
@@ -680,7 +664,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
     Returns:
         A list of JobResponse objects.
     """
-    _validate_pagination_params(limit=limit, offset=offset)
+    _validate_pagination_params(limit=limit)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -688,7 +672,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         api_root=api_root,
     )
     result: list[models.JobResponse] = []
-    current_offset = _get_initial_offset(offset)
+    current_offset = 0
     remaining = limit
     base_context = {
         "workspace_id": workspace_id,
@@ -2117,7 +2101,7 @@ def list_workspaces_in_organization(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     name_contains: str | None = None,
-    max_items_limit: int | None = None,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """List workspaces within a specific organization.
 
@@ -2130,11 +2114,12 @@ def list_workspaces_in_organization(
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
         name_contains: Optional substring filter for workspace names (server-side)
-        max_items_limit: Optional maximum number of workspaces to return
+        limit: Optional maximum number of workspaces to return
 
     Returns:
         List of workspace dictionaries containing workspaceId, organizationId, name, slug, etc.
     """
+    _validate_pagination_params(limit=limit)
     result: list[dict[str, Any]] = []
     page_size = 100
 
@@ -2169,8 +2154,8 @@ def list_workspaces_in_organization(
         result.extend(workspaces)
 
         # Check if we've reached the limit
-        if max_items_limit is not None and len(result) >= max_items_limit:
-            return result[:max_items_limit]
+        if limit is not None and len(result) >= limit:
+            return result[:limit]
 
         # If we got fewer results than page_size, this was the last page
         if len(workspaces) < page_size:

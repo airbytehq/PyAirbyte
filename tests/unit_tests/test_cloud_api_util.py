@@ -82,21 +82,6 @@ def _list_connections_response(
     "kwargs,pages,expected_names,expected_requests",
     [
         pytest.param(
-            {"limit": 2, "offset": 5},
-            [
-                _list_connections_response(
-                    [
-                        _connection_response("first", 1),
-                        _connection_response("second", 2),
-                    ],
-                    next_page=None,
-                ),
-            ],
-            ["first", "second"],
-            [(100, 5)],
-            id="non_zero_offset_uses_full_page",
-        ),
-        pytest.param(
             {"limit": 1, "name_filter": lambda name: name == "target"},
             [
                 _list_connections_response(

@@ -232,14 +232,12 @@ class SyncJobResult(BaseModel):
 
 
 class SyncJobListResult(BaseModel):
-    """Result of listing sync jobs with pagination support."""
+    """Result of listing sync jobs with limit support."""
 
     jobs: list[SyncJobResult]
     """List of sync jobs."""
     jobs_count: int
     """Number of jobs returned in this response."""
-    jobs_offset: int
-    """Offset used for this request (0 if not specified)."""
     from_tail: bool
     """Whether jobs are ordered newest-first (True) or oldest-first (False)."""
 
@@ -731,18 +729,7 @@ def list_cloud_sync_jobs(
             description=(
                 "When True, jobs are ordered newest-first (createdAt DESC). "
                 "When False, jobs are ordered oldest-first (createdAt ASC). "
-                "Defaults to True if `jobs_offset` is not specified. "
-                "Cannot combine `from_tail=True` with `jobs_offset`."
-            ),
-            default=None,
-        ),
-    ],
-    jobs_offset: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Number of jobs to skip from the beginning. "
-                "Cannot be combined with `from_tail=True`."
+                "Defaults to True."
             ),
             default=None,
         ),
@@ -759,24 +746,14 @@ def list_cloud_sync_jobs(
         ),
     ],
 ) -> SyncJobListResult:
-    """List sync jobs for a connection with pagination support.
+    """List sync jobs for a connection with limit support.
 
     This tool allows you to retrieve a list of sync jobs for a connection,
-    with control over ordering and pagination. By default, jobs are returned
-    newest-first (from_tail=True).
+    with control over ordering and result limit. By default, jobs are returned
+    newest-first (`from_tail=True`).
     """
-    # Validate that jobs_offset and from_tail are not both set
-    if jobs_offset is not None and from_tail is True:
-        raise PyAirbyteInputError(
-            message="Cannot specify both 'jobs_offset' and 'from_tail=True' parameters.",
-            context={"jobs_offset": jobs_offset, "from_tail": from_tail},
-        )
-
-    # Default to from_tail=True if neither is specified
-    if from_tail is None and jobs_offset is None:
+    if from_tail is None:
         from_tail = True
-    elif from_tail is None:
-        from_tail = False
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
@@ -786,7 +763,6 @@ def list_cloud_sync_jobs(
 
     sync_results = connection.get_previous_sync_logs(
         limit=effective_limit,
-        offset=jobs_offset,
         from_tail=from_tail,
         job_type=job_type,
     )
@@ -806,7 +782,6 @@ def list_cloud_sync_jobs(
     return SyncJobListResult(
         jobs=jobs,
         jobs_count=len(jobs),
-        jobs_offset=jobs_offset or 0,
         from_tail=from_tail,
     )
 
@@ -834,7 +809,7 @@ def list_deployed_cloud_source_connectors(
             default=None,
         ),
     ],
-    max_items_limit: Annotated[
+    limit: Annotated[
         int | None,
         Field(
             description="Optional maximum number of items to return (default: no limit)",
@@ -844,16 +819,12 @@ def list_deployed_cloud_source_connectors(
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    sources = workspace.list_sources()
+    sources = workspace.list_sources(limit=limit)
 
     # Filter by name if requested
     if name_contains:
         needle = name_contains.lower()
         sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
-
-    # Apply limit if requested
-    if max_items_limit is not None:
-        sources = sources[:max_items_limit]
 
     # Note: name and url are guaranteed non-null from list API responses
     return [
@@ -889,7 +860,7 @@ def list_deployed_cloud_destination_connectors(
             default=None,
         ),
     ],
-    max_items_limit: Annotated[
+    limit: Annotated[
         int | None,
         Field(
             description="Optional maximum number of items to return (default: no limit)",
@@ -899,16 +870,12 @@ def list_deployed_cloud_destination_connectors(
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destinations = workspace.list_destinations()
+    destinations = workspace.list_destinations(limit=limit)
 
     # Filter by name if requested
     if name_contains:
         needle = name_contains.lower()
         destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
-
-    # Apply limit if requested
-    if max_items_limit is not None:
-        destinations = destinations[:max_items_limit]
 
     # Note: name and url are guaranteed non-null from list API responses
     return [
@@ -1202,7 +1169,7 @@ def list_deployed_cloud_connections(
             default=None,
         ),
     ],
-    max_items_limit: Annotated[
+    limit: Annotated[
         int | None,
         Field(
             description="Optional maximum number of items to return (default: no limit)",
@@ -1235,7 +1202,7 @@ def list_deployed_cloud_connections(
     This implicitly enables with_connection_status.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    connections = workspace.list_connections()
+    connections = workspace.list_connections(limit=limit)
 
     # Filter by name if requested
     if name_contains:
@@ -1294,7 +1261,7 @@ def list_deployed_cloud_connections(
             )
         )
 
-        if max_items_limit is not None and len(results) >= max_items_limit:
+        if limit is not None and len(results) >= limit:
             break
 
     return results
@@ -1449,7 +1416,7 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
-    max_items_limit: Annotated[
+    limit: Annotated[
         int | None,
         Field(
             description="Optional maximum number of items to return (default: no limit)",
@@ -1484,7 +1451,7 @@ def list_cloud_workspaces(
         client_secret=SecretString(client_secret) if client_secret else None,
         bearer_token=SecretString(bearer_token) if bearer_token else None,
         name_contains=name_contains,
-        max_items_limit=max_items_limit,
+        limit=limit,
     )
 
     return [
