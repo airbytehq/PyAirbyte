@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 import requests
 from airbyte._util import api_util
+from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
 
@@ -80,13 +81,6 @@ def _list_connections_response(
 @pytest.mark.parametrize(
     "kwargs,pages,expected_names,expected_requests",
     [
-        pytest.param(
-            {"limit": 0},
-            [],
-            [],
-            [],
-            id="limit_zero_short_circuits",
-        ),
         pytest.param(
             {"limit": 2, "offset": 5},
             [
@@ -208,6 +202,20 @@ def test_list_connections_paginates_resources(
     assert [
         (request.limit, request.offset) for request in captured_requests
     ] == expected_requests
+
+
+@pytest.mark.parametrize("limit", [0, -1])
+def test_list_connections_rejects_invalid_limits(limit: int) -> None:
+    """Verify connection list pagination rejects non-positive limits."""
+    with pytest.raises(PyAirbyteInputError, match="`limit` must be greater than 0."):
+        api_util.list_connections(
+            workspace_id="workspace-id",
+            api_root="https://api.airbyte.com/v1/",
+            client_id=SecretString("client-id"),
+            client_secret=SecretString("client-secret"),
+            bearer_token=None,
+            limit=limit,
+        )
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -63,8 +63,8 @@ def _validate_pagination_params(
     offset: int | None,
 ) -> None:
     """Validate common pagination parameters."""
-    if limit is not None and limit < 0:
-        raise PyAirbyteInputError(message="`limit` must be greater than or equal to 0.")
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
     if offset is not None and offset < 0:
         raise PyAirbyteInputError(message="`offset` must be greater than or equal to 0.")
 
@@ -273,7 +273,7 @@ def get_workspace(
 # List resources
 
 
-def list_connections(  # noqa: PLR0913
+def list_connections(  # noqa: PLR0913  # API auth requires multiple credential options.
     workspace_id: str,
     *,
     api_root: str,
@@ -289,9 +289,6 @@ def list_connections(  # noqa: PLR0913
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
-    if limit == 0:
-        return []
-
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -347,7 +344,7 @@ def list_connections(  # noqa: PLR0913
     return result
 
 
-def list_workspaces(  # noqa: PLR0913
+def list_workspaces(  # noqa: PLR0913  # API auth requires multiple credential options.
     workspace_id: str,
     *,
     api_root: str,
@@ -363,9 +360,6 @@ def list_workspaces(  # noqa: PLR0913
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
-    if limit == 0:
-        return []
-
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -419,7 +413,7 @@ def list_workspaces(  # noqa: PLR0913
     return result
 
 
-def list_sources(  # noqa: PLR0913
+def list_sources(  # noqa: PLR0913  # API auth requires multiple credential options.
     workspace_id: str,
     *,
     api_root: str,
@@ -435,9 +429,6 @@ def list_sources(  # noqa: PLR0913
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
-    if limit == 0:
-        return []
-
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -490,7 +481,7 @@ def list_sources(  # noqa: PLR0913
     return result
 
 
-def list_destinations(  # noqa: PLR0913
+def list_destinations(  # noqa: PLR0913  # API auth requires multiple credential options.
     workspace_id: str,
     *,
     api_root: str,
@@ -506,9 +497,6 @@ def list_destinations(  # noqa: PLR0913
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
-    if limit == 0:
-        return []
-
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
@@ -693,9 +681,6 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         A list of JobResponse objects.
     """
     _validate_pagination_params(limit=limit, offset=offset)
-    if limit == 0:
-        return []
-
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
