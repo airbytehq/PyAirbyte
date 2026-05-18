@@ -13,6 +13,7 @@ from airbyte_api import api, models
 
 
 def _job_response(job_id: int) -> models.JobResponse:
+    """Create a minimal job response for pagination tests."""
     return models.JobResponse(
         connection_id="connection-id",
         job_id=job_id,
@@ -27,6 +28,7 @@ def _list_jobs_response(
     *,
     next_page: str | None,
 ) -> api.ListJobsResponse:
+    """Create a paginated jobs API response."""
     raw_response = requests.Response()
     raw_response.url = "https://api.airbyte.com/v1/jobs"
     return api.ListJobsResponse(
@@ -41,6 +43,7 @@ def _list_jobs_response(
 
 
 def _connection_response(name: str, index: int) -> models.ConnectionResponse:
+    """Create a minimal connection response for pagination tests."""
     return models.ConnectionResponse(
         configurations={},
         connection_id=f"connection-{index}",
@@ -60,6 +63,7 @@ def _list_connections_response(
     *,
     next_page: str | None,
 ) -> api.ListConnectionsResponse:
+    """Create a paginated connections API response."""
     raw_response = requests.Response()
     raw_response.url = "https://api.airbyte.com/v1/connections"
     return api.ListConnectionsResponse(
@@ -172,11 +176,13 @@ def test_list_connections_paginates_resources(
     expected_names: list[str],
     expected_requests: list[tuple[int | None, int | None]],
 ) -> None:
+    """Verify resource list pagination, filtering, and request sizing."""
     captured_requests: list[api.ListConnectionsRequest] = []
 
     def list_connections(
         request: api.ListConnectionsRequest,
     ) -> api.ListConnectionsResponse:
+        """Capture connection list requests and return queued pages."""
         captured_requests.append(request)
         return pages.pop(0)
 
@@ -205,6 +211,7 @@ def test_list_connections_paginates_resources(
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify job log pagination stops after collecting the requested limit."""
     captured_requests: list[api.ListJobsRequest] = []
     pages = [
         _list_jobs_response(
@@ -218,6 +225,7 @@ def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> 
     ]
 
     def list_jobs(request: api.ListJobsRequest) -> api.ListJobsResponse:
+        """Capture job list requests and return queued pages."""
         captured_requests.append(request)
         return pages.pop(0)
 
