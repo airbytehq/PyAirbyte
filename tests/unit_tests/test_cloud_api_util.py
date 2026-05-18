@@ -271,6 +271,50 @@ def test_list_workspaces_does_not_filter_by_workspace_id(
     ]
 
 
+def test_list_workspaces_caps_unfiltered_api_page_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify unfiltered workspace listing uses requested limit as API page size."""
+    captured_requests: list[api.ListWorkspacesRequest] = []
+    pages = [
+        _list_workspaces_response(
+            [_workspace_response("first", 1)],
+            next_page="next",
+        ),
+    ]
+
+    def list_workspaces(
+        request: api.ListWorkspacesRequest,
+    ) -> api.ListWorkspacesResponse:
+        """Capture workspace list requests and return queued pages."""
+        captured_requests.append(request)
+        return pages.pop(0)
+
+    airbyte_instance = SimpleNamespace(
+        workspaces=SimpleNamespace(list_workspaces=list_workspaces),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    result = api_util.list_workspaces(
+        workspace_id="context-workspace-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+        limit=1,
+    )
+
+    assert [workspace.workspace_id for workspace in result] == ["workspace-1"]
+    assert [
+        (request.workspace_ids, request.limit, request.offset)
+        for request in captured_requests
+    ] == [(None, 1, 0)]
+
+
 @pytest.mark.parametrize("limit", [0, -1])
 def test_list_connections_rejects_invalid_limits(limit: int) -> None:
     """Verify connection list pagination rejects non-positive limits."""
@@ -325,4 +369,50 @@ def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> 
     assert [(request.limit, request.offset) for request in captured_requests] == [
         (100, 0),
         (50, 100),
+    ]
+
+
+def test_get_job_logs_uses_offset_and_allows_unbounded_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify job log pagination preserves offset and treats `None` as unbounded."""
+    captured_requests: list[api.ListJobsRequest] = []
+    pages = [
+        _list_jobs_response(
+            [_job_response(job_id) for job_id in range(100)],
+            next_page="next",
+        ),
+        _list_jobs_response(
+            [_job_response(job_id) for job_id in range(100, 125)],
+            next_page=None,
+        ),
+    ]
+
+    def list_jobs(request: api.ListJobsRequest) -> api.ListJobsResponse:
+        """Capture job list requests and return queued pages."""
+        captured_requests.append(request)
+        return pages.pop(0)
+
+    airbyte_instance = SimpleNamespace(jobs=SimpleNamespace(list_jobs=list_jobs))
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    result = api_util.get_job_logs(
+        workspace_id="workspace-id",
+        connection_id="connection-id",
+        limit=None,
+        offset=10,
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+    )
+
+    assert [job.job_id for job in result] == list(range(125))
+    assert [(request.limit, request.offset) for request in captured_requests] == [
+        (100, 10),
+        (100, 110),
     ]

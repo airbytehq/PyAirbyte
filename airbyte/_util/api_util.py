@@ -347,6 +347,7 @@ def list_workspaces(
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
+    has_name_filter = name is not None or name_filter is not None
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
@@ -360,11 +361,12 @@ def list_workspaces(
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
+        page_limit = PAGE_SIZE if has_name_filter else _get_page_limit(remaining)
         try:
             response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
                 api.ListWorkspacesRequest(
                     offset=current_offset,
-                    limit=PAGE_SIZE,
+                    limit=page_limit,
                 ),
             )
         except SDKError as e:
@@ -632,7 +634,8 @@ def run_connection(
 def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexibility
     workspace_id: str,
     connection_id: str,
-    limit: int = 100,
+    limit: int | None = 100,
+    offset: int | None = None,
     *,
     api_root: str,
     client_id: SecretString | None,
@@ -650,6 +653,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         workspace_id: The workspace ID.
         connection_id: The connection ID.
         limit: Maximum number of jobs to return. Defaults to 100.
+        offset: Number of jobs to skip from the beginning. Defaults to None (0).
         api_root: The API root URL.
         client_id: The client ID for authentication.
         client_secret: The client secret for authentication.
@@ -669,14 +673,14 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         api_root=api_root,
     )
     result: list[models.JobResponse] = []
-    current_offset = 0
+    current_offset = offset or 0
     remaining = limit
     base_context = {
         "workspace_id": workspace_id,
         "connection_id": connection_id,
         "api_root": api_root,
     }
-    while remaining is not None and remaining > 0:
+    while remaining is None or remaining > 0:
         page_limit = _get_page_limit(remaining)
         try:
             response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
@@ -728,13 +732,14 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
             break
 
         result += page_data
-        remaining -= len(page_data)
+        if remaining is not None:
+            remaining -= len(page_data)
         current_offset += len(page_data)
 
-        if not response.jobs_response.next:
+        if not response.jobs_response.next or len(page_data) < page_limit:
             break
 
-    return result[:limit]
+    return result if limit is None else result[:limit]
 
 
 def get_job_info(

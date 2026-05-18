@@ -308,6 +308,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         self,
         *,
         limit: int = 20,
+        offset: int | None = None,
         from_tail: bool = True,
         job_type: JobTypeEnum | None = None,
     ) -> list[SyncResult]:
@@ -319,6 +320,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         Args:
             limit: Maximum number of jobs to return. Defaults to 20.
+            offset: Number of jobs to skip from the beginning. Defaults to None (0).
             from_tail: If True, returns jobs ordered newest-first (createdAt DESC).
                 If False, returns jobs ordered oldest-first (createdAt ASC).
                 Defaults to True.
@@ -338,6 +340,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
             limit=limit,
+            offset=offset,
             order_by=order_by,
             job_type=job_type,
             client_id=self.workspace.client_id,

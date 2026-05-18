@@ -10,6 +10,11 @@ from typing import Callable, cast
 import pytest
 from airbyte._util.api_imports import JobStatusEnum
 from airbyte.mcp import cloud as cloud_mcp
+from airbyte.mcp.cloud import (
+    CloudConnectionResult,
+    CloudDestinationResult,
+    CloudSourceResult,
+)
 from fastmcp import Context
 
 
@@ -200,7 +205,12 @@ def test_mcp_cloud_list_tools_pass_limit_to_workspace(
 )
 def test_mcp_cloud_list_tools_apply_limit_after_name_filter(
     monkeypatch: pytest.MonkeyPatch,
-    tool: Callable[..., list[object]],
+    tool: Callable[
+        ...,
+        list[CloudSourceResult]
+        | list[CloudDestinationResult]
+        | list[CloudConnectionResult],
+    ],
     limit_key: str,
     extra_kwargs: dict[str, object],
 ) -> None:
@@ -222,6 +232,7 @@ def test_mcp_cloud_list_tools_apply_limit_after_name_filter(
 
     assert workspace.limits[limit_key] is None
     assert len(results) == 1
+    assert results[0].name == "target"
 
 
 def test_mcp_cloud_connections_apply_limit_after_status_filter(
