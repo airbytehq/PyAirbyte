@@ -2004,7 +2004,6 @@ def list_organizations_for_user(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         List of OrganizationResponse objects containing organization_id, organization_name, email
