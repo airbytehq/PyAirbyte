@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
+PAGE_SIZE = 100
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -77,10 +78,9 @@ def _get_initial_offset(offset: int | None) -> int:
 
 def _get_page_limit(remaining: int | None) -> int:
     """Get the next API page limit from the remaining item count."""
-    page_size = 100
     if remaining is None:
-        return page_size
-    return min(remaining, page_size)
+        return PAGE_SIZE
+    return min(remaining, PAGE_SIZE)
 
 
 def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
@@ -286,13 +286,13 @@ def list_connections(  # noqa: PLR0913
     offset: int | None = None,
 ) -> list[models.ConnectionResponse]:
     """List connections."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
     if limit == 0:
         return []
 
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
@@ -306,13 +306,12 @@ def list_connections(  # noqa: PLR0913
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        page_limit = _get_page_limit(remaining)
         try:
             response = airbyte_instance.connections.list_connections(
                 api.ListConnectionsRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
-                    limit=page_limit,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
@@ -358,13 +357,13 @@ def list_workspaces(  # noqa: PLR0913
     offset: int | None = None,
 ) -> list[models.WorkspaceResponse]:
     """List workspaces."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
     if limit == 0:
         return []
 
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
@@ -378,13 +377,12 @@ def list_workspaces(  # noqa: PLR0913
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        page_limit = _get_page_limit(remaining)
         try:
             response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
                 api.ListWorkspacesRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
-                    limit=page_limit,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
@@ -430,13 +428,13 @@ def list_sources(  # noqa: PLR0913
     offset: int | None = None,
 ) -> list[models.SourceResponse]:
     """List sources."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
     if limit == 0:
         return []
 
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
@@ -450,13 +448,12 @@ def list_sources(  # noqa: PLR0913
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        page_limit = _get_page_limit(remaining)
         try:
             response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
                 api.ListSourcesRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
-                    limit=page_limit,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
@@ -501,13 +498,13 @@ def list_destinations(  # noqa: PLR0913
     offset: int | None = None,
 ) -> list[models.DestinationResponse]:
     """List destinations."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit, offset=offset)
     if limit == 0:
         return []
 
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
@@ -521,13 +518,12 @@ def list_destinations(  # noqa: PLR0913
     remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
-        page_limit = _get_page_limit(remaining)
         try:
             response = airbyte_instance.destinations.list_destinations(
                 api.ListDestinationsRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
-                    limit=page_limit,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
