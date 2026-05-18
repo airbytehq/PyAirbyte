@@ -819,12 +819,14 @@ def list_deployed_cloud_source_connectors(
 ) -> list[CloudSourceResult]:
     """List all deployed source connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    sources = workspace.list_sources(limit=limit)
+    sources = workspace.list_sources(limit=None if name_contains else limit)
 
     # Filter by name if requested
     if name_contains:
         needle = name_contains.lower()
         sources = [s for s in sources if s.name is not None and needle in s.name.lower()]
+    if limit is not None:
+        sources = sources[:limit]
 
     # Note: name and url are guaranteed non-null from list API responses
     return [
@@ -870,12 +872,14 @@ def list_deployed_cloud_destination_connectors(
 ) -> list[CloudDestinationResult]:
     """List all deployed destination connectors in the Airbyte Cloud workspace."""
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    destinations = workspace.list_destinations(limit=limit)
+    destinations = workspace.list_destinations(limit=None if name_contains else limit)
 
     # Filter by name if requested
     if name_contains:
         needle = name_contains.lower()
         destinations = [d for d in destinations if d.name is not None and needle in d.name.lower()]
+    if limit is not None:
+        destinations = destinations[:limit]
 
     # Note: name and url are guaranteed non-null from list API responses
     return [
@@ -1202,7 +1206,9 @@ def list_deployed_cloud_connections(
     This implicitly enables with_connection_status.
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
-    connections = workspace.list_connections(limit=limit)
+    connections = workspace.list_connections(
+        limit=None if name_contains or failing_connections_only else limit
+    )
 
     # Filter by name if requested
     if name_contains:

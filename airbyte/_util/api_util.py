@@ -280,7 +280,6 @@ def list_connections(
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -350,7 +349,6 @@ def list_workspaces(
     _validate_pagination_params(limit=limit)
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    _ = workspace_id  # Not used (yet)
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -365,7 +363,6 @@ def list_workspaces(
         try:
             response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
                 api.ListWorkspacesRequest(
-                    workspace_ids=[workspace_id],
                     offset=current_offset,
                     limit=PAGE_SIZE,
                 ),

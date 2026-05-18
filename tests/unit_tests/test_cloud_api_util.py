@@ -59,6 +59,16 @@ def _connection_response(name: str, index: int) -> models.ConnectionResponse:
     )
 
 
+def _workspace_response(name: str, index: int) -> models.WorkspaceResponse:
+    """Create a minimal workspace response for pagination tests."""
+    return models.WorkspaceResponse(
+        data_residency="auto",
+        name=name,
+        notifications=models.NotificationsConfig(),
+        workspace_id=f"workspace-{index}",
+    )
+
+
 def _list_connections_response(
     data: list[models.ConnectionResponse],
     *,
@@ -72,6 +82,25 @@ def _list_connections_response(
         status_code=200,
         raw_response=raw_response,
         connections_response=models.ConnectionsResponse(
+            data=data,
+            next=next_page,
+        ),
+    )
+
+
+def _list_workspaces_response(
+    data: list[models.WorkspaceResponse],
+    *,
+    next_page: str | None,
+) -> api.ListWorkspacesResponse:
+    """Create a paginated workspaces API response."""
+    raw_response = requests.Response()
+    raw_response.url = "https://api.airbyte.com/v1/workspaces"
+    return api.ListWorkspacesResponse(
+        content_type="application/json",
+        status_code=200,
+        raw_response=raw_response,
+        workspaces_response=models.WorkspacesResponse(
             data=data,
             next=next_page,
         ),
@@ -187,6 +216,59 @@ def test_list_connections_paginates_resources(
     assert [
         (request.limit, request.offset) for request in captured_requests
     ] == expected_requests
+
+
+def test_list_workspaces_does_not_filter_by_workspace_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify workspace listing fetches accessible workspaces across pages."""
+    captured_requests: list[api.ListWorkspacesRequest] = []
+    pages = [
+        _list_workspaces_response(
+            [_workspace_response("first", 1)],
+            next_page="next",
+        ),
+        _list_workspaces_response(
+            [_workspace_response("second", 2)],
+            next_page=None,
+        ),
+    ]
+
+    def list_workspaces(
+        request: api.ListWorkspacesRequest,
+    ) -> api.ListWorkspacesResponse:
+        """Capture workspace list requests and return queued pages."""
+        captured_requests.append(request)
+        return pages.pop(0)
+
+    airbyte_instance = SimpleNamespace(
+        workspaces=SimpleNamespace(list_workspaces=list_workspaces),
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    result = api_util.list_workspaces(
+        workspace_id="context-workspace-id",
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+    )
+
+    assert [workspace.workspace_id for workspace in result] == [
+        "workspace-1",
+        "workspace-2",
+    ]
+    assert [
+        (request.workspace_ids, request.limit, request.offset)
+        for request in captured_requests
+    ] == [
+        (None, 100, 0),
+        (None, 100, 1),
+    ]
 
 
 @pytest.mark.parametrize("limit", [0, -1])
