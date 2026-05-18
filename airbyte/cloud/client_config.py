@@ -33,7 +33,8 @@ Example using environment variables:
     from airbyte.cloud.client_config import CloudClientConfig
 
     # Resolves from AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET,
-    # AIRBYTE_CLOUD_BEARER_TOKEN, and AIRBYTE_CLOUD_API_URL environment variables
+    # AIRBYTE_CLOUD_BEARER_TOKEN, AIRBYTE_CLOUD_API_URL, and
+    # AIRBYTE_CLOUD_CONFIG_API_URL environment variables
     config = CloudClientConfig.from_env()
     ```
 """
@@ -48,6 +49,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_bearer_token,
     resolve_cloud_client_id,
     resolve_cloud_client_secret,
+    resolve_cloud_config_api_url,
 )
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
@@ -72,6 +74,7 @@ class CloudClientConfig:
         client_secret: OAuth2 client secret for client credentials flow.
         bearer_token: Pre-generated bearer token for direct authentication.
         api_root: The API root URL. Defaults to Airbyte Cloud API.
+        config_api_root: The Config API root URL.
     """
 
     client_id: SecretString | None = None
@@ -85,6 +88,9 @@ class CloudClientConfig:
 
     api_root: str = api_util.CLOUD_API_ROOT
     """The API root URL. Defaults to Airbyte Cloud API."""
+
+    config_api_root: str | None = None
+    """The Config API root URL."""
 
     def __post_init__(self) -> None:
         """Validate credentials and ensure secrets are properly wrapped."""
@@ -143,6 +149,7 @@ class CloudClientConfig:
         cls,
         *,
         api_root: str | None = None,
+        config_api_root: str | None = None,
     ) -> CloudClientConfig:
         """Create CloudClientConfig from environment variables.
 
@@ -155,6 +162,7 @@ class CloudClientConfig:
             - `AIRBYTE_CLOUD_CLIENT_SECRET`: OAuth client secret (for client credentials flow).
             - `AIRBYTE_CLOUD_BEARER_TOKEN`: Bearer token (alternative to client credentials).
             - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
+            - `AIRBYTE_CLOUD_CONFIG_API_URL`: Optional. The Config API root URL.
 
         The method will first check for a bearer token. If not found, it will
         attempt to use client credentials.
@@ -163,6 +171,8 @@ class CloudClientConfig:
             api_root: The API root URL. If not provided, will be resolved from
                 the `AIRBYTE_CLOUD_API_URL` environment variable, or default to
                 the Airbyte Cloud API.
+            config_api_root: The Config API root URL. If not provided, will be resolved
+                from the `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable.
 
         Returns:
             A CloudClientConfig instance configured with credentials from the environment.
@@ -172,6 +182,7 @@ class CloudClientConfig:
                 the environment.
         """
         resolved_api_root = resolve_cloud_api_url(api_root)
+        resolved_config_api_root = resolve_cloud_config_api_url(config_api_root)
 
         # Try bearer token first
         bearer_token = resolve_cloud_bearer_token()
@@ -179,6 +190,7 @@ class CloudClientConfig:
             return cls(
                 bearer_token=bearer_token,
                 api_root=resolved_api_root,
+                config_api_root=resolved_config_api_root,
             )
 
         # Fall back to client credentials
@@ -186,4 +198,5 @@ class CloudClientConfig:
             client_id=resolve_cloud_client_id(),
             client_secret=resolve_cloud_client_secret(),
             api_root=resolved_api_root,
+            config_api_root=resolved_config_api_root,
         )

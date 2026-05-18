@@ -166,6 +166,7 @@ class CloudConnector(abc.ABC):
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
         check_result = CheckResult(
             success=result[0],
@@ -474,6 +475,7 @@ class CustomCloudSourceDefinition:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
         self._connector_builder_project_id = result.get("builderProjectId")
         self._connector_builder_project_id_fetched = True
@@ -546,6 +548,7 @@ class CustomCloudSourceDefinition:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
         return self._builder_project_data
 
@@ -874,6 +877,7 @@ class CustomCloudSourceDefinition:
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
 
         return self

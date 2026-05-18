@@ -50,6 +50,7 @@ from airbyte.cloud.auth import (
     resolve_cloud_bearer_token,
     resolve_cloud_client_id,
     resolve_cloud_client_secret,
+    resolve_cloud_config_api_url,
     resolve_cloud_workspace_id,
 )
 from airbyte.cloud.client_config import CloudClientConfig
@@ -87,6 +88,7 @@ class CloudOrganization:
         client_id: SecretString | None = None,
         client_secret: SecretString | None = None,
         bearer_token: SecretString | None = None,
+        config_api_root: str | None = None,
     ) -> None:
         """Initialize a CloudOrganization.
 
@@ -98,6 +100,7 @@ class CloudOrganization:
             client_id: OAuth client ID for authentication.
             client_secret: OAuth client secret for authentication.
             bearer_token: Bearer token for authentication (alternative to client credentials).
+            config_api_root: Optional Config API root URL.
         """
         self.organization_id = organization_id
         """The organization ID."""
@@ -109,6 +112,7 @@ class CloudOrganization:
         """Email associated with the organization."""
 
         self._api_root = api_root
+        self._config_api_root = config_api_root
         self._client_id = client_id
         self._client_secret = client_secret
         self._bearer_token = bearer_token
@@ -146,6 +150,7 @@ class CloudOrganization:
             self._organization_info = api_util.get_organization_info(
                 organization_id=self.organization_id,
                 api_root=self._api_root,
+                config_api_root=self._config_api_root,
                 client_id=self._client_id,
                 client_secret=self._client_secret,
                 bearer_token=self._bearer_token,
@@ -239,6 +244,9 @@ class CloudWorkspace:
     client_id: SecretString | None = None
     client_secret: SecretString | None = None
     api_root: str = api_util.CLOUD_API_ROOT
+    config_api_root: str | None = None
+    """The Config API root URL."""
+
     bearer_token: SecretString | None = None
 
     # Internal credentials object (set in __post_init__, excluded from __init__)
@@ -260,6 +268,7 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             api_root=self.api_root,
+            config_api_root=self.config_api_root,
         )
 
     @classmethod
@@ -268,6 +277,7 @@ class CloudWorkspace:
         workspace_id: str | None = None,
         *,
         api_root: str | None = None,
+        config_api_root: str | None = None,
     ) -> CloudWorkspace:
         """Create a CloudWorkspace using credentials from environment variables.
 
@@ -285,6 +295,7 @@ class CloudWorkspace:
             - `AIRBYTE_CLOUD_CLIENT_SECRET`: OAuth client secret (for client credentials flow).
             - `AIRBYTE_CLOUD_WORKSPACE_ID`: The workspace ID (if not passed as argument).
             - `AIRBYTE_CLOUD_API_URL`: Optional. The API root URL (defaults to Airbyte Cloud).
+            - `AIRBYTE_CLOUD_CONFIG_API_URL`: Optional. The Config API root URL.
 
         Args:
             workspace_id: The workspace ID. If not provided, will be resolved from
@@ -292,6 +303,8 @@ class CloudWorkspace:
             api_root: The API root URL. If not provided, will be resolved from
                 the `AIRBYTE_CLOUD_API_URL` environment variable, or default to
                 the Airbyte Cloud API.
+            config_api_root: The Config API root URL. If not provided, will be resolved
+                from the `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable.
 
         Returns:
             A CloudWorkspace instance configured with credentials from the environment.
@@ -310,6 +323,7 @@ class CloudWorkspace:
             ```
         """
         resolved_api_root = resolve_cloud_api_url(api_root)
+        resolved_config_api_root = resolve_cloud_config_api_url(config_api_root)
 
         # Try bearer token first
         bearer_token = resolve_cloud_bearer_token()
@@ -318,6 +332,7 @@ class CloudWorkspace:
                 workspace_id=resolve_cloud_workspace_id(workspace_id),
                 bearer_token=bearer_token,
                 api_root=resolved_api_root,
+                config_api_root=resolved_config_api_root,
             )
 
         # Fall back to client credentials
@@ -326,6 +341,7 @@ class CloudWorkspace:
             client_id=resolve_cloud_client_id(),
             client_secret=resolve_cloud_client_secret(),
             api_root=resolved_api_root,
+            config_api_root=resolved_config_api_root,
         )
 
     @property
@@ -343,6 +359,7 @@ class CloudWorkspace:
         return api_util.get_workspace_organization_info(
             workspace_id=self.workspace_id,
             api_root=self.api_root,
+            config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -413,6 +430,7 @@ class CloudWorkspace:
             organization_id=organization_id,
             organization_name=organization_name,
             api_root=self.api_root,
+            config_api_root=self.config_api_root,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,

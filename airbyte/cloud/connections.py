@@ -395,6 +395,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
         if state_response.get("stateType") == "not_set":
             return None
@@ -434,6 +435,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
         if normalize:
             return _normalize_state_to_protocol(raw)
@@ -503,6 +505,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
 
     def get_stream_state(
@@ -687,6 +690,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
         raw = connection_response.get("syncCatalog")
         if raw is None:
@@ -724,6 +728,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
+            config_api_root=self.workspace.config_api_root,
         )
 
     def rename(self, name: str) -> CloudConnection:

@@ -310,6 +310,9 @@ MCP_CONFIG_CLIENT_SECRET: str = "client_secret"
 MCP_CONFIG_API_URL: str = "api_url"
 """Config arg name for the API URL setting."""
 
+MCP_CONFIG_CONFIG_API_URL: str = "config_api_url"
+"""Config arg name for the Config API URL setting."""
+
 # MCP HTTP Header Keys for credentials
 
 MCP_BEARER_TOKEN_HEADER: str = "Authorization"
@@ -323,3 +326,6 @@ MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
 
 MCP_API_URL_HEADER: str = "X-Airbyte-Cloud-Api-Url"
 """HTTP header key for API URL."""
+
+MCP_CONFIG_API_URL_HEADER: str = "X-Airbyte-Cloud-Config-Api-Url"
+"""HTTP header key for Config API URL."""

@@ -96,16 +96,33 @@ def _wrap_sdk_error(error: SDKError, base_context: dict[str, Any] | None = None)
     )
 
 
-def get_config_api_root(api_root: str) -> str:
-    """Get the configuration API root from the main API root.
+def _infer_config_api_root(api_root: str) -> str | None:
+    """Infer the configuration API root from a public API root."""
+    normalized_api_root = api_root.rstrip("/")
+    public_api_suffix = "/api/public/v1"
+    if normalized_api_root.endswith(public_api_suffix):
+        return normalized_api_root[: -len(public_api_suffix)] + "/api/v1"
+
+    return None
+
+
+def get_config_api_root(
+    api_root: str,
+    *,
+    config_api_root: str | None = None,
+) -> str:
+    """Get the configuration API root from the public API root.
 
     Resolution order:
-    1. If `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable is set, use that value.
-    2. If `api_root` matches the default Cloud API root, return the default Config API root.
-    3. Otherwise, raise NotImplementedError (cannot derive Config API from custom API root).
+    1. If `config_api_root` is provided, use that value.
+    2. If `AIRBYTE_CLOUD_CONFIG_API_URL` environment variable is set, use that value.
+    3. If `api_root` matches the default Cloud API root, return the default Config API root.
+    4. If `api_root` looks like a self-managed public API root, infer the Config API root.
+    5. Otherwise, raise NotImplementedError (cannot derive Config API from custom API root).
 
     Args:
-        api_root: The main API root URL being used.
+        api_root: The public API root URL being used.
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         The configuration API root URL.
@@ -113,20 +130,27 @@ def get_config_api_root(api_root: str) -> str:
     Raises:
         NotImplementedError: If the Config API root cannot be determined.
     """
-    # First, check if the Config API URL is explicitly set via environment variable
+    if config_api_root:
+        return config_api_root.rstrip("/")
+
+    # Next, check if the Config API URL is explicitly set via environment variable
     config_api_override = try_get_secret(CLOUD_CONFIG_API_ROOT_ENV_VAR, default=None)
     if config_api_override:
-        return str(config_api_override)
+        return str(config_api_override).rstrip("/")
 
     # Fall back to deriving from the main API root
     # Normalize URLs by stripping trailing slashes to handle common variants
     if api_root.rstrip("/") == CLOUD_API_ROOT.rstrip("/"):
         return CLOUD_CONFIG_API_ROOT
 
+    inferred_config_api_root = _infer_config_api_root(api_root)
+    if inferred_config_api_root:
+        return inferred_config_api_root
+
     raise NotImplementedError(
         f"Configuration API root not implemented for api_root='{api_root}'. "
-        f"Set the '{CLOUD_CONFIG_API_ROOT_ENV_VAR}' environment variable "
-        "to specify the Config API URL."
+        "Provide the 'config_api_root' argument or set the "
+        f"'{CLOUD_CONFIG_API_ROOT_ENV_VAR}' environment variable to specify the Config API URL."
     )
 
 
@@ -1443,8 +1467,9 @@ def _make_config_api_request(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
-    config_api_root = get_config_api_root(api_root)
+    config_api_root = get_config_api_root(api_root, config_api_root=config_api_root)
 
     # Use provided bearer token or generate one from client credentials
     if bearer_token is None:
@@ -1502,6 +1527,7 @@ def check_connector(
     bearer_token: SecretString | None,
     workspace_id: str | None = None,
     api_root: str = CLOUD_API_ROOT,
+    config_api_root: str | None = None,
 ) -> tuple[bool, str | None]:
     """Check a source.
 
@@ -1518,6 +1544,7 @@ def check_connector(
             f"{connector_type}Id": actor_id,
         },
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -1825,6 +1852,7 @@ def get_connector_builder_project_for_definition_id(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Get the connector builder project info for a declarative source definition.
 
@@ -1840,6 +1868,7 @@ def get_connector_builder_project_for_definition_id(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         A dict containing 'builderProjectId' and 'workspaceId' (the workspace that
@@ -1852,6 +1881,7 @@ def get_connector_builder_project_for_definition_id(
             "workspaceId": workspace_id,
         },
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -1866,6 +1896,7 @@ def get_connector_builder_project(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Get a connector builder project, including the draft manifest if one exists.
 
@@ -1881,6 +1912,7 @@ def get_connector_builder_project(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         A dictionary containing the builder project details. Key fields include:
@@ -1895,13 +1927,14 @@ def get_connector_builder_project(
             "builderProjectId": builder_project_id,
         },
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
 
 
-def update_connector_builder_project_testing_values(
+def update_connector_builder_project_testing_values(  # noqa: PLR0913
     *,
     workspace_id: str,
     builder_project_id: str,
@@ -1911,6 +1944,7 @@ def update_connector_builder_project_testing_values(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Update the testing values for a connector builder project.
 
@@ -1930,6 +1964,7 @@ def update_connector_builder_project_testing_values(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         The updated testing values from the API response
@@ -1943,6 +1978,7 @@ def update_connector_builder_project_testing_values(
             "spec": spec,
         },
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -1968,6 +2004,7 @@ def list_organizations_for_user(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         List of OrganizationResponse objects containing organization_id, organization_name, email
@@ -1999,6 +2036,7 @@ def list_workspaces_in_organization(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
     name_contains: str | None = None,
     max_items_limit: int | None = None,
 ) -> list[dict[str, Any]]:
@@ -2012,6 +2050,7 @@ def list_workspaces_in_organization(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
         name_contains: Optional substring filter for workspace names (server-side)
         max_items_limit: Optional maximum number of workspaces to return
 
@@ -2038,6 +2077,7 @@ def list_workspaces_in_organization(
             path="/workspaces/list_by_organization_id",
             json=payload,
             api_root=api_root,
+            config_api_root=config_api_root,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
@@ -2072,6 +2112,7 @@ def get_workspace_organization_info(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Get organization info for a workspace.
 
@@ -2086,6 +2127,7 @@ def get_workspace_organization_info(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         Dictionary containing organization info:
@@ -2098,6 +2140,7 @@ def get_workspace_organization_info(
         path="/workspaces/get_organization_info",
         json={"workspaceId": workspace_id},
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -2111,6 +2154,7 @@ def get_connection_state(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Get the state for a connection.
 
@@ -2122,6 +2166,7 @@ def get_connection_state(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         Dictionary containing the connection state.
@@ -2130,6 +2175,7 @@ def get_connection_state(
         path="/state/get",
         json={"connectionId": connection_id},
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -2144,6 +2190,7 @@ def replace_connection_state(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Replace the state for a connection.
 
@@ -2171,6 +2218,7 @@ def replace_connection_state(
         client_id: OAuth client ID.
         client_secret: OAuth client secret.
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         Dictionary containing the updated ConnectionState object.
@@ -2186,6 +2234,7 @@ def replace_connection_state(
                 },
             },
             api_root=api_root,
+            config_api_root=config_api_root,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
@@ -2207,6 +2256,7 @@ def get_connection_catalog(
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
+    config_api_root: str | None = None,
 ) -> dict[str, Any]:
     """Get the configured catalog for a connection.
 
@@ -2221,6 +2271,7 @@ def get_connection_catalog(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         Dictionary containing the connection info with syncCatalog.
@@ -2229,6 +2280,7 @@ def get_connection_catalog(
         path="/web_backend/connections/get",
         json={"connectionId": connection_id, "withRefreshedCatalog": False},
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -2240,6 +2292,7 @@ def replace_connection_catalog(
     configured_catalog_dict: dict[str, Any],
     *,
     api_root: str,
+    config_api_root: str | None = None,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
@@ -2258,6 +2311,7 @@ def replace_connection_catalog(
         client_id: OAuth client ID.
         client_secret: OAuth client secret.
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         Dictionary containing the updated WebBackendConnectionRead response.
@@ -2272,6 +2326,7 @@ def replace_connection_catalog(
             "skipReset": True,
         },
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -2282,6 +2337,7 @@ def get_organization_info(
     organization_id: str,
     *,
     api_root: str,
+    config_api_root: str | None = None,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
@@ -2296,6 +2352,7 @@ def get_organization_info(
         client_id: OAuth client ID
         client_secret: OAuth client secret
         bearer_token: Bearer token for authentication (alternative to client credentials).
+        config_api_root: Optional explicit Config API root URL.
 
     Returns:
         Dictionary containing organization info:
@@ -2308,6 +2365,7 @@ def get_organization_info(
         path="/organizations/get_organization_info",
         json={"organizationId": organization_id},
         api_root=api_root,
+        config_api_root=config_api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,

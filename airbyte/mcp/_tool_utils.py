@@ -24,15 +24,18 @@ from airbyte.constants import (
     CLOUD_BEARER_TOKEN_ENV_VAR,
     CLOUD_CLIENT_ID_ENV_VAR,
     CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_API_URL_HEADER,
     MCP_BEARER_TOKEN_HEADER,
     MCP_CLIENT_ID_HEADER,
     MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
+    MCP_CONFIG_API_URL_HEADER,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_EXCLUDE_MODULES,
     MCP_CONFIG_INCLUDE_MODULES,
     MCP_CONFIG_READONLY_MODE,
@@ -179,6 +182,15 @@ API_URL_CONFIG_ARG = MCPServerConfigArg(
     sensitive=False,
 )
 """Config arg for API URL, supporting HTTP header and env var."""
+
+CONFIG_API_URL_CONFIG_ARG = MCPServerConfigArg(
+    name=MCP_CONFIG_CONFIG_API_URL,
+    http_header_key=MCP_CONFIG_API_URL_HEADER,
+    env_var=CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    required=False,
+    sensitive=False,
+)
+"""Config arg for Config API URL, supporting HTTP header and env var."""
 
 
 # =============================================================================
