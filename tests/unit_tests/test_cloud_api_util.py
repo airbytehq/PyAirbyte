@@ -172,12 +172,12 @@ def test_list_connections_paginates_resources(
     expected_names: list[str],
     expected_requests: list[tuple[int | None, int | None]],
 ) -> None:
-    requests: list[api.ListConnectionsRequest] = []
+    captured_requests: list[api.ListConnectionsRequest] = []
 
     def list_connections(
         request: api.ListConnectionsRequest,
     ) -> api.ListConnectionsResponse:
-        requests.append(request)
+        captured_requests.append(request)
         return pages.pop(0)
 
     airbyte_instance = SimpleNamespace(
@@ -200,12 +200,12 @@ def test_list_connections_paginates_resources(
 
     assert [connection.name for connection in result] == expected_names
     assert [
-        (request.limit, request.offset) for request in requests
+        (request.limit, request.offset) for request in captured_requests
     ] == expected_requests
 
 
 def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    requests: list[api.ListJobsRequest] = []
+    captured_requests: list[api.ListJobsRequest] = []
     pages = [
         _list_jobs_response(
             [_job_response(job_id) for job_id in range(100)],
@@ -218,7 +218,7 @@ def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> 
     ]
 
     def list_jobs(request: api.ListJobsRequest) -> api.ListJobsResponse:
-        requests.append(request)
+        captured_requests.append(request)
         return pages.pop(0)
 
     airbyte_instance = SimpleNamespace(jobs=SimpleNamespace(list_jobs=list_jobs))
@@ -239,7 +239,7 @@ def test_get_job_logs_paginates_until_limit(monkeypatch: pytest.MonkeyPatch) -> 
     )
 
     assert [job.job_id for job in result] == list(range(150))
-    assert [(request.limit, request.offset) for request in requests] == [
+    assert [(request.limit, request.offset) for request in captured_requests] == [
         (100, 0),
         (50, 100),
     ]

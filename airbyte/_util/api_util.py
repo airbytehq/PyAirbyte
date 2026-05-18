@@ -333,9 +333,12 @@ def list_connections(  # noqa: PLR0913
         matching_connections = [
             connection for connection in page_data if name_filter(connection.name)
         ]
-        result += matching_connections if remaining is None else matching_connections[:remaining]
+        page_results = (
+            matching_connections if remaining is None else matching_connections[:remaining]
+        )
+        result += page_results
         if remaining is not None:
-            remaining -= len(matching_connections[:remaining])
+            remaining -= len(page_results)
 
         if not response.connections_response.next:
             break
@@ -403,9 +406,10 @@ def list_workspaces(  # noqa: PLR0913
             break
 
         matching_workspaces = [workspace for workspace in page_data if name_filter(workspace.name)]
-        result += matching_workspaces if remaining is None else matching_workspaces[:remaining]
+        page_results = matching_workspaces if remaining is None else matching_workspaces[:remaining]
+        result += page_results
         if remaining is not None:
-            remaining -= len(matching_workspaces[:remaining])
+            remaining -= len(page_results)
 
         if not response.workspaces_response.next:
             break
@@ -473,9 +477,10 @@ def list_sources(  # noqa: PLR0913
             break
 
         matching_sources = [source for source in page_data if name_filter(source.name)]
-        result += matching_sources if remaining is None else matching_sources[:remaining]
+        page_results = matching_sources if remaining is None else matching_sources[:remaining]
+        result += page_results
         if remaining is not None:
-            remaining -= len(matching_sources[:remaining])
+            remaining -= len(page_results)
 
         if not response.sources_response.next:
             break
@@ -545,9 +550,12 @@ def list_destinations(  # noqa: PLR0913
         matching_destinations = [
             destination for destination in page_data if name_filter(destination.name)
         ]
-        result += matching_destinations if remaining is None else matching_destinations[:remaining]
+        page_results = (
+            matching_destinations if remaining is None else matching_destinations[:remaining]
+        )
+        result += page_results
         if remaining is not None:
-            remaining -= len(matching_destinations[:remaining])
+            remaining -= len(page_results)
 
         if not response.destinations_response.next:
             break
@@ -718,10 +726,30 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
 
-        if not status_ok(response.status_code) or not response.jobs_response:
-            raise AirbyteMissingResourceError(
+        if not status_ok(response.status_code):
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise AirbyteMissingResourceError(
+                    response=response,
+                    resource_type="job",
+                    context={
+                        **base_context,
+                        "request_url": response.raw_response.url,
+                        "status_code": response.status_code,
+                    },
+                )
+            raise AirbyteError(
+                message="Failed to list jobs.",
                 response=response,
-                resource_type="job",
+                context={
+                    **base_context,
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
+            )
+        if not response.jobs_response:
+            raise AirbyteError(
+                message="Jobs response payload was empty.",
+                response=response,
                 context={
                     **base_context,
                     "request_url": response.raw_response.url,
