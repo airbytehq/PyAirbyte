@@ -3,6 +3,37 @@
 
 You can use this module to interact with Airbyte Cloud, OSS, and Enterprise.
 
+## Self-managed Airbyte instances
+
+For self-managed Airbyte instances, set `api_root` to the Public API root for your
+deployment. For the default self-managed route, that usually ends in `/api/public/v1`.
+PyAirbyte uses the Public API for workspace and organization discovery.
+
+Some Cloud module methods also call the Config API, including methods such as
+`CloudConnection.dump_raw_catalog()`, which reads the configured catalog directly
+from Airbyte. For documented self-managed deployments where the Public API root ends in
+`/api/public/v1`, PyAirbyte infers the Config API root by replacing that suffix with
+`/api/v1`.
+
+If your deployment uses custom ingress or a nonstandard reverse proxy, pass
+`config_api_root` explicitly or set the `AIRBYTE_CLOUD_CONFIG_API_URL` environment
+variable.
+
+```python
+from airbyte import cloud
+
+workspace = cloud.CloudWorkspace(
+    workspace_id="...",
+    client_id="...",
+    client_secret="...",
+    api_root="https://airbyte.example.com/api/public/v1",
+    config_api_root="https://airbyte.example.com/api/v1",
+)
+
+connection = workspace.get_connection(connection_id="...")
+raw_catalog = connection.dump_raw_catalog()
+```
+
 ## Examples
 
 ### Basic Sync Example:
