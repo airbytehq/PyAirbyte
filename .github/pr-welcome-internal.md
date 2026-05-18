@@ -7,14 +7,16 @@ Here are some helpful tips and reminders for your convenience.
 
 ### Testing This PyAirbyte Version
 
-You can test this version of PyAirbyte using the following:
+Install this branch as a persistent preview CLI before running usage or test examples:
 
 ```bash
-# Run PyAirbyte CLI from this branch:
-uvx --from 'git+https://github.com/airbytehq/PyAirbyte.git@{{ .branch_name }}' pyairbyte --help
+# Install a uv-managed Python and require uv to use only uv-managed Python.
+uv python install 3.11
+uv tool install --managed-python --python 3.11 \
+  'git+https://github.com/airbytehq/PyAirbyte.git@{{ .branch_name }}'
 
-# Install PyAirbyte from this branch for development:
-pip install 'git+https://github.com/airbytehq/PyAirbyte.git@{{ .branch_name }}'
+# Use the preview-suffixed CLI to avoid conflicting with a released install.
+airbyte-preview --help
 ```
 
 ### PR Slash Commands
