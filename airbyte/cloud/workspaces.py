@@ -244,9 +244,9 @@ class CloudWorkspace:
     client_id: SecretString | None = None
     client_secret: SecretString | None = None
     api_root: str = api_util.CLOUD_API_ROOT
-    bearer_token: SecretString | None = None
     config_api_root: str | None = None
     """The Config API root URL."""
+    bearer_token: SecretString | None = None
 
     # Internal credentials object (set in __post_init__, excluded from __init__)
     _credentials: CloudClientConfig | None = field(default=None, init=False, repr=False)
