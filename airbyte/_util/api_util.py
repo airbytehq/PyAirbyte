@@ -141,7 +141,7 @@ def get_config_api_root(
     # Fall back to deriving from the main API root
     # Normalize URLs by stripping trailing slashes to handle common variants
     if api_root.rstrip("/") == CLOUD_API_ROOT.rstrip("/"):
-        return CLOUD_CONFIG_API_ROOT
+        return CLOUD_CONFIG_API_ROOT.rstrip("/")
 
     inferred_config_api_root = _infer_config_api_root(api_root)
     if inferred_config_api_root:
