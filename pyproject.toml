@@ -77,7 +77,8 @@ dev = [
 ]
 
 [project.scripts]
-airbyte = "airbyte.cli._cli:main"
+airbyte-cloud = "airbyte.cli.cloud._cli:cloud_app"
+airbyte-local = "airbyte.cli.local._cli:local_app"
 airbyte-mcp = "airbyte.mcp.server:main"
 source-smoke-test = "airbyte.cli.smoke_test_source.run:run"
 
