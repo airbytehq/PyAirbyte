@@ -12,7 +12,6 @@ from airbyte.cloud._credentials import (
     CREDENTIALS_FILE_PATH,
     CloudLoginResult,
     _AirbyteCredentials,
-    login_with_client_credentials,
 )
 from airbyte.cloud._credentials import logout as remove_credentials_file
 from airbyte.cloud.organizations import CloudOrganization
@@ -161,13 +160,7 @@ class CloudClient:
         if interactive is True:
             raise NotImplementedError("Interactive Airbyte Cloud login is not implemented.")
         if self.client_id is not None and self.client_secret is not None:
-            return login_with_client_credentials(
-                client_id=str(self.client_id),
-                client_secret=str(self.client_secret),
-                airbyte_api_root=self.public_api_root,
-                config_api_root=self.config_api_root,
-                credentials_file_path=credentials_file_path,
-            )
+            return self.credentials.login(credentials_file_path=credentials_file_path)
         if interactive is False:
             raise exc.PyAirbyteInputError(
                 message="Client ID and client secret are both required.",

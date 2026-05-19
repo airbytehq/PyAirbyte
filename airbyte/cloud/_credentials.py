@@ -70,21 +70,25 @@ class _AirbyteCredentials:
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
     ) -> _AirbyteCredentials:
         """Resolve Airbyte Cloud credentials from inputs, env vars, and credentials file."""
-        credentials_file = cls.read_file(credentials_file_path)
+        file_credentials = cls.from_file(credentials_file_path)
         resolved_bearer_token = _first_value(
             str(bearer_token) if bearer_token is not None else None,
             _env_value(BEARER_TOKEN_ENV_VAR, CLOUD_BEARER_TOKEN_ENV_VAR),
-            credentials_file.get("bearer_token"),
+            str(file_credentials.bearer_token)
+            if file_credentials.bearer_token is not None
+            else None,
         )
         resolved_client_id = _first_value(
             str(client_id) if client_id is not None else None,
             _env_value(CLIENT_ID_ENV_VAR, CLOUD_CLIENT_ID_ENV_VAR),
-            credentials_file.get("client_id"),
+            str(file_credentials.client_id) if file_credentials.client_id is not None else None,
         )
         resolved_client_secret = _first_value(
             str(client_secret) if client_secret is not None else None,
             _env_value(CLIENT_SECRET_ENV_VAR, CLOUD_CLIENT_SECRET_ENV_VAR),
-            credentials_file.get("client_secret"),
+            str(file_credentials.client_secret)
+            if file_credentials.client_secret is not None
+            else None,
         )
 
         if resolved_bearer_token and (resolved_client_id or resolved_client_secret):
@@ -111,56 +115,134 @@ class _AirbyteCredentials:
             public_api_root=_first_value(
                 public_api_root,
                 _env_value(PUBLIC_API_ROOT_ENV_VAR, CLOUD_API_ROOT_ENV_VAR),
-                credentials_file.get("airbyte_api_root"),
-                credentials_file.get("public_api_root"),
-                credentials_file.get("api_url"),
+                file_credentials.public_api_root,
             )
             or CLOUD_API_ROOT,
             config_api_root=_first_value(
                 config_api_root,
                 _env_value(CONFIG_API_ROOT_ENV_VAR, CLOUD_CONFIG_API_ROOT_ENV_VAR),
-                credentials_file.get("config_api_root"),
+                file_credentials.config_api_root,
             ),
             workspace_id=_first_value(
                 workspace_id,
                 _env_value(WORKSPACE_ID_ENV_VAR, CLOUD_WORKSPACE_ID_ENV_VAR),
-                credentials_file.get("workspace_id"),
+                file_credentials.workspace_id,
             ),
             organization_id=_first_value(
                 organization_id,
                 _env_value(ORGANIZATION_ID_ENV_VAR, CLOUD_ORGANIZATION_ID_ENV_VAR),
-                credentials_file.get("organization_id"),
+                file_credentials.organization_id,
             ),
         )
 
-    @staticmethod
-    def read_file(
+    @classmethod
+    def from_file(
+        cls,
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
-    ) -> dict[str, str]:
+    ) -> _AirbyteCredentials:
         """Read Airbyte credentials from a YAML credentials file."""
+        credentials: dict[str, str] = {}
         if not credentials_file_path.exists():
-            return {}
+            return cls(
+                client_id=None,
+                client_secret=None,
+                bearer_token=None,
+                public_api_root=CLOUD_API_ROOT,
+                config_api_root=None,
+            )
 
         try:
             content = credentials_file_path.read_text(encoding="utf-8").strip()
             parsed = yaml.safe_load(content) if content else {}
+            credentials = _as_string_mapping(parsed)
         except (OSError, yaml.YAMLError):
-            return {}
+            pass
 
-        return _as_string_mapping(parsed)
+        return cls(
+            client_id=SecretString(credentials["client_id"])
+            if credentials.get("client_id")
+            else None,
+            client_secret=SecretString(credentials["client_secret"])
+            if credentials.get("client_secret")
+            else None,
+            bearer_token=SecretString(credentials["bearer_token"])
+            if credentials.get("bearer_token")
+            else None,
+            public_api_root=_first_value(
+                credentials.get("airbyte_api_root"),
+                credentials.get("public_api_root"),
+                credentials.get("api_url"),
+            )
+            or CLOUD_API_ROOT,
+            config_api_root=credentials.get("config_api_root"),
+            workspace_id=credentials.get("workspace_id"),
+            organization_id=credentials.get("organization_id"),
+        )
 
-    @staticmethod
-    def write_file(
-        credentials: dict[str, str],
+    def to_file(
+        self,
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
     ) -> None:
         """Write Airbyte credentials to a YAML credentials file."""
+        credentials = {
+            key: value
+            for key, value in {
+                "airbyte_api_root": self.public_api_root,
+                "bearer_token": str(self.bearer_token) if self.bearer_token is not None else None,
+                "client_id": str(self.client_id) if self.client_id is not None else None,
+                "client_secret": str(self.client_secret)
+                if self.client_secret is not None
+                else None,
+                "config_api_root": self.config_api_root,
+                "organization_id": self.organization_id,
+                "workspace_id": self.workspace_id,
+            }.items()
+            if value
+        }
         credentials_file_path.parent.mkdir(parents=True, exist_ok=True)
         credentials_file_path.write_text(
-            yaml.safe_dump(dict(credentials), sort_keys=True),
+            yaml.safe_dump(credentials, sort_keys=True),
             encoding="utf-8",
         )
         credentials_file_path.chmod(0o600)
+
+    def login(
+        self,
+        *,
+        credentials_file_path: Path = CREDENTIALS_FILE_PATH,
+    ) -> CloudLoginResult:
+        """Log in using client credentials and persist a bearer token."""
+        resolved_client_id, resolved_client_secret = _validate_client_credentials(
+            client_id=str(self.client_id) if self.client_id is not None else None,
+            client_secret=str(self.client_secret) if self.client_secret is not None else None,
+        )
+        resolved_airbyte_api_root, resolved_config_api_root = _resolve_login_roots(
+            airbyte_api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+        )
+        bearer_token = get_bearer_token(
+            client_id=SecretString(resolved_client_id),
+            client_secret=SecretString(resolved_client_secret),
+            api_root=resolved_airbyte_api_root,
+        )
+
+        existing_credentials = type(self).from_file(credentials_file_path)
+        replace(
+            existing_credentials,
+            bearer_token=SecretString(bearer_token),
+            client_id=None,
+            client_secret=None,
+            public_api_root=resolved_airbyte_api_root,
+            config_api_root=resolved_config_api_root,
+            workspace_id=self.workspace_id or existing_credentials.workspace_id,
+            organization_id=self.organization_id or existing_credentials.organization_id,
+        ).to_file(credentials_file_path)
+
+        return CloudLoginResult(
+            credentials_file_path=credentials_file_path,
+            airbyte_api_root=resolved_airbyte_api_root,
+            config_api_root=resolved_config_api_root,
+        )
 
     def with_workspace_id(self, workspace_id: str | None) -> _AirbyteCredentials:
         """Return credentials scoped to a workspace."""
@@ -255,46 +337,6 @@ def _resolve_login_roots(
         )
 
     return CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
-
-
-def login_with_client_credentials(
-    *,
-    client_id: str | None = None,
-    client_secret: str | None = None,
-    airbyte_api_root: str | None = None,
-    config_api_root: str | None = None,
-    credentials_file_path: Path = CREDENTIALS_FILE_PATH,
-) -> CloudLoginResult:
-    """Log in using client credentials and persist a bearer token."""
-    resolved_client_id, resolved_client_secret = _validate_client_credentials(
-        client_id=client_id,
-        client_secret=client_secret,
-    )
-    resolved_airbyte_api_root, resolved_config_api_root = _resolve_login_roots(
-        airbyte_api_root=airbyte_api_root,
-        config_api_root=config_api_root,
-    )
-    bearer_token = get_bearer_token(
-        client_id=SecretString(resolved_client_id),
-        client_secret=SecretString(resolved_client_secret),
-        api_root=resolved_airbyte_api_root,
-    )
-
-    credentials = _AirbyteCredentials.read_file(credentials_file_path)
-    credentials.update(
-        {
-            "airbyte_api_root": resolved_airbyte_api_root,
-            "bearer_token": str(bearer_token),
-            "config_api_root": resolved_config_api_root,
-        }
-    )
-    _AirbyteCredentials.write_file(credentials, credentials_file_path)
-
-    return CloudLoginResult(
-        credentials_file_path=credentials_file_path,
-        airbyte_api_root=resolved_airbyte_api_root,
-        config_api_root=resolved_config_api_root,
-    )
 
 
 def logout(

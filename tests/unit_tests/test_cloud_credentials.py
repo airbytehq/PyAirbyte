@@ -33,13 +33,13 @@ def test_login_with_client_credentials_writes_bearer_token(
 
     monkeypatch.setattr(cloud_credentials, "get_bearer_token", fake_get_bearer_token)
 
-    result = cloud_credentials.login_with_client_credentials(
-        client_id="test-client-id",
-        client_secret="test-client-secret",
-        airbyte_api_root="https://api.example.com/v1",
+    result = cloud_credentials._AirbyteCredentials(
+        client_id=SecretString("test-client-id"),
+        client_secret=SecretString("test-client-secret"),
+        bearer_token=None,
+        public_api_root="https://api.example.com/v1",
         config_api_root="https://config.example.com/api/v1",
-        credentials_file_path=credentials_file_path,
-    )
+    ).login(credentials_file_path=credentials_file_path)
 
     saved_credentials = yaml.safe_load(
         credentials_file_path.read_text(encoding="utf-8")
@@ -58,23 +58,37 @@ def test_login_with_client_credentials_writes_bearer_token(
 
 def test_login_without_client_credentials_raises_interactive_flow_error() -> None:
     with pytest.raises(PyAirbyteInputError, match="Interactive Airbyte Cloud login"):
-        cloud_credentials.login_with_client_credentials()
+        cloud_credentials._AirbyteCredentials(
+            client_id=None,
+            client_secret=None,
+            bearer_token=None,
+            public_api_root=constants.CLOUD_API_ROOT,
+            config_api_root=constants.CLOUD_CONFIG_API_ROOT,
+        ).login()
 
 
 def test_login_with_partial_client_credentials_raises() -> None:
     with pytest.raises(PyAirbyteInputError, match="Client ID and client secret"):
-        cloud_credentials.login_with_client_credentials(client_id="test-client-id")
+        cloud_credentials._AirbyteCredentials(
+            client_id=SecretString("test-client-id"),
+            client_secret=None,
+            bearer_token=None,
+            public_api_root=constants.CLOUD_API_ROOT,
+            config_api_root=constants.CLOUD_CONFIG_API_ROOT,
+        ).login()
 
 
 def test_self_managed_login_requires_both_api_roots() -> None:
     with pytest.raises(
         PyAirbyteInputError, match="Self-managed login requires both API roots"
     ):
-        cloud_credentials.login_with_client_credentials(
-            client_id="test-client-id",
-            client_secret="test-client-secret",
-            airbyte_api_root="https://api.example.com/v1",
-        )
+        cloud_credentials._AirbyteCredentials(
+            client_id=SecretString("test-client-id"),
+            client_secret=SecretString("test-client-secret"),
+            bearer_token=None,
+            public_api_root="https://api.example.com/v1",
+            config_api_root=None,
+        ).login()
 
 
 def test_login_with_client_credentials_uses_cloud_default_roots(
@@ -96,11 +110,13 @@ def test_login_with_client_credentials_uses_cloud_default_roots(
 
     monkeypatch.setattr(cloud_credentials, "get_bearer_token", fake_get_bearer_token)
 
-    result = cloud_credentials.login_with_client_credentials(
-        client_id="test-client-id",
-        client_secret="test-client-secret",
-        credentials_file_path=credentials_file_path,
-    )
+    result = cloud_credentials._AirbyteCredentials(
+        client_id=SecretString("test-client-id"),
+        client_secret=SecretString("test-client-secret"),
+        bearer_token=None,
+        public_api_root=constants.CLOUD_API_ROOT,
+        config_api_root=None,
+    ).login(credentials_file_path=credentials_file_path)
 
     assert result.airbyte_api_root == constants.CLOUD_API_ROOT
     assert result.config_api_root == constants.CLOUD_CONFIG_API_ROOT
