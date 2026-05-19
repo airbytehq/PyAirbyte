@@ -9,7 +9,7 @@ import yaml
 
 from airbyte import constants
 from airbyte.cloud import _credentials as cloud_credentials
-from airbyte.cloud.workspaces import CloudClient
+from airbyte.cloud.client import CloudClient
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
@@ -125,7 +125,7 @@ def test_cloud_client_login_uses_cloud_default_roots(
 
     monkeypatch.setattr(cloud_credentials, "get_bearer_token", fake_get_bearer_token)
 
-    result = CloudClient(
+    result = CloudClient.from_explicit_credentials(
         client_id=SecretString("test-client-id"),
         client_secret=SecretString("test-client-secret"),
     ).login(credentials_file_path=credentials_file_path)

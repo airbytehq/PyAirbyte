@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
@@ -45,7 +45,7 @@ class CloudLoginResult:
 
 
 @dataclass(frozen=True)
-class CloudCredentials:
+class _AirbyteCredentials:
     """Resolved credentials and API roots for Airbyte control-plane APIs."""
 
     client_id: SecretString | None
@@ -55,6 +55,14 @@ class CloudCredentials:
     config_api_root: str | None
     workspace_id: str | None = None
     organization_id: str | None = None
+
+    def with_workspace_id(self, workspace_id: str | None) -> _AirbyteCredentials:
+        """Return credentials scoped to a workspace."""
+        return replace(self, workspace_id=workspace_id)
+
+    def with_organization_id(self, organization_id: str | None) -> _AirbyteCredentials:
+        """Return credentials scoped to an organization."""
+        return replace(self, organization_id=organization_id)
 
 
 def _as_string_mapping(parsed: object) -> dict[str, str]:
@@ -113,7 +121,7 @@ def resolve_cloud_credentials(
     public_api_root: str | None = None,
     config_api_root: str | None = None,
     credentials_file_path: Path = CREDENTIALS_FILE_PATH,
-) -> CloudCredentials:
+) -> _AirbyteCredentials:
     """Resolve Airbyte Cloud credentials from inputs, env vars, and credentials file."""
     credentials_file = read_credentials_file(credentials_file_path)
     resolved_bearer_token = _first_value(
@@ -149,7 +157,7 @@ def resolve_cloud_credentials(
             ),
         )
 
-    return CloudCredentials(
+    return _AirbyteCredentials(
         client_id=SecretString(resolved_client_id) if resolved_client_id else None,
         client_secret=SecretString(resolved_client_secret) if resolved_client_secret else None,
         bearer_token=SecretString(resolved_bearer_token) if resolved_bearer_token else None,

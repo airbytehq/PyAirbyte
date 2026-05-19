@@ -20,9 +20,11 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
+from airbyte.cloud.client import CloudClient
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.workspaces import CloudClient, CloudOrganization, CloudWorkspace
+from airbyte.cloud.organizations import CloudOrganization
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
