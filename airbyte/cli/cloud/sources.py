@@ -54,7 +54,7 @@ def list_(
 
 
 @sources_app.command
-def get(
+def describe(
     *source_id_args: PositionalIdArg,
     source_id: SourceIdArg = None,
     workspace_id: WorkspaceIdArg = None,
@@ -62,7 +62,7 @@ def get(
     client_secret: ClientSecretArg = None,
     public_api_root: ApiUrlArg = None,
 ) -> None:
-    """Get details of a specific source."""
+    """Describe a specific source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
     workspace = CloudWorkspace(
         workspace_id=workspace_id,

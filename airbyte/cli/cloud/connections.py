@@ -56,7 +56,7 @@ def list_(
 
 
 @connections_app.command
-def get(
+def describe(
     *connection_id_args: PositionalIdArg,
     connection_id: ConnectionIdArg = None,
     workspace_id: WorkspaceIdArg = None,
@@ -64,7 +64,7 @@ def get(
     client_secret: ClientSecretArg = None,
     public_api_root: ApiUrlArg = None,
 ) -> None:
-    """Get details of a specific connection."""
+    """Describe a specific connection."""
     resolved_connection_id = resolve_entity_id(
         connection_id_args,
         connection_id,

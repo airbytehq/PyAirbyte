@@ -54,7 +54,7 @@ def list_(
 
 
 @destinations_app.command
-def get(
+def describe(
     *destination_id_args: PositionalIdArg,
     destination_id: DestinationIdArg = None,
     workspace_id: WorkspaceIdArg = None,
@@ -62,7 +62,7 @@ def get(
     client_secret: ClientSecretArg = None,
     public_api_root: ApiUrlArg = None,
 ) -> None:
-    """Get details of a specific destination."""
+    """Describe a specific destination."""
     resolved_destination_id = resolve_entity_id(
         destination_id_args,
         destination_id,
