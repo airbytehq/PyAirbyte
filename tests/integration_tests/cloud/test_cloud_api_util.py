@@ -55,6 +55,7 @@ def test_list_workspaces(
         client_id=airbyte_cloud_client_id,
         client_secret=airbyte_cloud_client_secret,
         bearer_token=None,
+        limit=1,
     )
     assert result
     assert len(result) > 0

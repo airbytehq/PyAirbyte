@@ -38,10 +38,6 @@ from airbyte.secrets.util import try_get_secret
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from airbyte_api.models import (
         DestinationConfiguration,
     )
@@ -49,6 +45,7 @@ if TYPE_CHECKING:
 
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
+PAGE_SIZE = 100
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -58,6 +55,22 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
     return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
+
+
+def _validate_pagination_params(
+    *,
+    limit: int | None,
+) -> None:
+    """Validate common pagination parameters."""
+    if limit is not None and limit <= 0:
+        raise PyAirbyteInputError(message="`limit` must be greater than 0.")
+
+
+def _get_page_limit(remaining: int | None) -> int:
+    """Get the next API page limit from the remaining item count."""
+    if remaining is None:
+        return PAGE_SIZE
+    return min(remaining, PAGE_SIZE)
 
 
 def _get_sdk_error_context(error: SDKError) -> dict[str, Any]:
@@ -283,14 +296,14 @@ def list_connections(
     bearer_token: SecretString | None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = None,
 ) -> list[models.ConnectionResponse]:
     """List connections."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+    _validate_pagination_params(limit=limit)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
-
-    _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -298,23 +311,20 @@ def list_connections(
         api_root=api_root,
     )
     result: list[models.ConnectionResponse] = []
-    has_more = True
-    offset, page_size = 0, 100
+    current_offset = 0
+    remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
-    while has_more:
+    while remaining is None or remaining > 0:
         try:
             response = airbyte_instance.connections.list_connections(
                 api.ListConnectionsRequest(
                     workspace_ids=[workspace_id],
-                    offset=offset,
-                    limit=page_size,
+                    offset=current_offset,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        has_more = bool(response.connections_response and response.connections_response.next)
-        offset += page_size
 
         if not status_ok(response.status_code):
             raise AirbyteError(
@@ -325,11 +335,24 @@ def list_connections(
                 },
             )
         assert response.connections_response is not None
-        result += [
-            connection
-            for connection in response.connections_response.data
-            if name_filter(connection.name)
+        page_data = response.connections_response.data
+        if not page_data:
+            break
+
+        matching_connections = [
+            connection for connection in page_data if name_filter(connection.name)
         ]
+        page_results = (
+            matching_connections if remaining is None else matching_connections[:remaining]
+        )
+        result += page_results
+        if remaining is not None:
+            remaining -= len(page_results)
+
+        if not response.connections_response.next:
+            break
+
+        current_offset += len(page_data)
     return result
 
 
@@ -342,14 +365,15 @@ def list_workspaces(
     bearer_token: SecretString | None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = None,
 ) -> list[models.WorkspaceResponse]:
     """List workspaces."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
+    _validate_pagination_params(limit=limit)
+    has_name_filter = name is not None or name_filter is not None
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
-
-    _ = workspace_id  # Not used (yet)
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -357,21 +381,20 @@ def list_workspaces(
         api_root=api_root,
     )
     result: list[models.WorkspaceResponse] = []
-    has_more = True
-    offset, page_size = 0, 100
+    current_offset = 0
+    remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
-    while has_more:
+    while remaining is None or remaining > 0:
+        page_limit = PAGE_SIZE if has_name_filter else _get_page_limit(remaining)
         try:
             response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
                 api.ListWorkspacesRequest(
-                    workspace_ids=[workspace_id], offset=offset, limit=page_size
+                    offset=current_offset,
+                    limit=page_limit,
                 ),
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        has_more = bool(response.workspaces_response and response.workspaces_response.next)
-        offset += page_size
 
         if not status_ok(response.status_code):
             raise AirbyteError(
@@ -383,11 +406,20 @@ def list_workspaces(
             )
 
         assert response.workspaces_response is not None
-        result += [
-            workspace
-            for workspace in response.workspaces_response.data
-            if name_filter(workspace.name)
-        ]
+        page_data = response.workspaces_response.data
+        if not page_data:
+            break
+
+        matching_workspaces = [workspace for workspace in page_data if name_filter(workspace.name)]
+        page_results = matching_workspaces if remaining is None else matching_workspaces[:remaining]
+        result += page_results
+        if remaining is not None:
+            remaining -= len(page_results)
+
+        if not response.workspaces_response.next:
+            break
+
+        current_offset += len(page_data)
 
     return result
 
@@ -401,12 +433,13 @@ def list_sources(
     bearer_token: SecretString | None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = None,
 ) -> list[models.SourceResponse]:
     """List sources."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
-
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+    _validate_pagination_params(limit=limit)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance: airbyte_api.AirbyteAPI = get_airbyte_server_instance(
@@ -416,23 +449,20 @@ def list_sources(
         api_root=api_root,
     )
     result: list[models.SourceResponse] = []
-    has_more = True
-    offset, page_size = 0, 100
+    current_offset = 0
+    remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
-    while has_more:
+    while remaining is None or remaining > 0:
         try:
             response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
                 api.ListSourcesRequest(
                     workspace_ids=[workspace_id],
-                    offset=offset,
-                    limit=page_size,
+                    offset=current_offset,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        has_more = bool(response.sources_response and response.sources_response.next)
-        offset += page_size
 
         if not status_ok(response.status_code):
             raise AirbyteError(
@@ -443,7 +473,20 @@ def list_sources(
                 },
             )
         assert response.sources_response is not None
-        result += [source for source in response.sources_response.data if name_filter(source.name)]
+        page_data = response.sources_response.data
+        if not page_data:
+            break
+
+        matching_sources = [source for source in page_data if name_filter(source.name)]
+        page_results = matching_sources if remaining is None else matching_sources[:remaining]
+        result += page_results
+        if remaining is not None:
+            remaining -= len(page_results)
+
+        if not response.sources_response.next:
+            break
+
+        current_offset += len(page_data)
 
     return result
 
@@ -457,12 +500,13 @@ def list_destinations(
     bearer_token: SecretString | None,
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
+    limit: int | None = None,
 ) -> list[models.DestinationResponse]:
     """List destinations."""
-    if name and name_filter:
+    if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
-
-    name_filter = (lambda n: n == name) if name else name_filter or (lambda _: True)
+    _validate_pagination_params(limit=limit)
+    name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
@@ -472,23 +516,20 @@ def list_destinations(
         api_root=api_root,
     )
     result: list[models.DestinationResponse] = []
-    has_more = True
-    offset, page_size = 0, 100
+    current_offset = 0
+    remaining = limit
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
-    while has_more:
+    while remaining is None or remaining > 0:
         try:
             response = airbyte_instance.destinations.list_destinations(
                 api.ListDestinationsRequest(
                     workspace_ids=[workspace_id],
-                    offset=offset,
-                    limit=page_size,
+                    offset=current_offset,
+                    limit=PAGE_SIZE,
                 ),
             )
         except SDKError as e:
             raise _wrap_sdk_error(e, base_context) from e
-
-        has_more = bool(response.destinations_response and response.destinations_response.next)
-        offset += page_size
 
         if not status_ok(response.status_code):
             raise AirbyteError(
@@ -499,11 +540,24 @@ def list_destinations(
                 },
             )
         assert response.destinations_response is not None
-        result += [
-            destination
-            for destination in response.destinations_response.data
-            if name_filter(destination.name)
+        page_data = response.destinations_response.data
+        if not page_data:
+            break
+
+        matching_destinations = [
+            destination for destination in page_data if name_filter(destination.name)
         ]
+        page_results = (
+            matching_destinations if remaining is None else matching_destinations[:remaining]
+        )
+        result += page_results
+        if remaining is not None:
+            remaining -= len(page_results)
+
+        if not response.destinations_response.next:
+            break
+
+        current_offset += len(page_data)
 
     return result
 
@@ -604,27 +658,30 @@ def run_connection(
 def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexibility
     workspace_id: str,
     connection_id: str,
-    limit: int = 100,
+    limit: int | None = 100,
+    offset: int | None = None,
     *,
     api_root: str,
     client_id: SecretString | None,
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
-    offset: int | None = None,
     order_by: str | None = None,
     job_type: models.JobTypeEnum | None = None,
 ) -> list[models.JobResponse]:
     """Get a list of jobs for a connection.
 
+    Automatically paginates through multiple API pages when the requested
+    `limit` exceeds the per-page size.
+
     Args:
         workspace_id: The workspace ID.
         connection_id: The connection ID.
         limit: Maximum number of jobs to return. Defaults to 100.
+        offset: Number of jobs to skip from the beginning. Defaults to None (0).
         api_root: The API root URL.
         client_id: The client ID for authentication.
         client_secret: The client secret for authentication.
         bearer_token: Bearer token for authentication (alternative to client credentials).
-        offset: Number of jobs to skip from the beginning. Defaults to None (0).
         order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
         job_type: Filter by job type (e.g., JobTypeEnum.SYNC, JobTypeEnum.REFRESH).
             If not specified, defaults to sync and reset jobs only (API default behavior).
@@ -632,35 +689,81 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
     Returns:
         A list of JobResponse objects.
     """
+    _validate_pagination_params(limit=limit)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
-        api.ListJobsRequest(
-            workspace_ids=[workspace_id],
-            connection_id=connection_id,
-            limit=limit,
-            offset=offset,
-            order_by=order_by,
-            job_type=job_type,
-        ),
-    )
-    if status_ok(response.status_code) and response.jobs_response:
-        return response.jobs_response.data
+    result: list[models.JobResponse] = []
+    current_offset = offset or 0
+    remaining = limit
+    base_context = {
+        "workspace_id": workspace_id,
+        "connection_id": connection_id,
+        "api_root": api_root,
+    }
+    while remaining is None or remaining > 0:
+        page_limit = _get_page_limit(remaining)
+        try:
+            response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
+                api.ListJobsRequest(
+                    workspace_ids=[workspace_id],
+                    connection_id=connection_id,
+                    limit=page_limit,
+                    offset=current_offset,
+                    order_by=order_by,
+                    job_type=job_type,
+                ),
+            )
+        except SDKError as e:
+            raise _wrap_sdk_error(e, base_context) from e
 
-    raise AirbyteMissingResourceError(
-        response=response,
-        resource_type="job",
-        context={
-            "workspace_id": workspace_id,
-            "connection_id": connection_id,
-            "request_url": response.raw_response.url,
-            "status_code": response.status_code,
-        },
-    )
+        if not status_ok(response.status_code):
+            if response.status_code == HTTPStatus.NOT_FOUND:
+                raise AirbyteMissingResourceError(
+                    response=response,
+                    resource_type="job",
+                    context={
+                        **base_context,
+                        "request_url": response.raw_response.url,
+                        "status_code": response.status_code,
+                    },
+                )
+            raise AirbyteError(
+                message="Failed to list jobs.",
+                response=response,
+                context={
+                    **base_context,
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
+            )
+        if not response.jobs_response:
+            raise AirbyteError(
+                message="Jobs response payload was empty.",
+                response=response,
+                context={
+                    **base_context,
+                    "request_url": response.raw_response.url,
+                    "status_code": response.status_code,
+                },
+            )
+
+        page_data: list[models.JobResponse] = list(response.jobs_response.data)
+        if not page_data:
+            break
+
+        result += page_data
+        if remaining is not None:
+            remaining -= len(page_data)
+        current_offset += len(page_data)
+
+        if not response.jobs_response.next or len(page_data) < page_limit:
+            break
+
+    return result if limit is None else result[:limit]
 
 
 def get_job_info(
@@ -2037,7 +2140,7 @@ def list_workspaces_in_organization(
     bearer_token: SecretString | None,
     config_api_root: str | None = None,
     name_contains: str | None = None,
-    max_items_limit: int | None = None,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """List workspaces within a specific organization.
 
@@ -2051,11 +2154,12 @@ def list_workspaces_in_organization(
         bearer_token: Bearer token for authentication (alternative to client credentials).
         config_api_root: Optional explicit Config API root URL.
         name_contains: Optional substring filter for workspace names (server-side)
-        max_items_limit: Optional maximum number of workspaces to return
+        limit: Optional maximum number of workspaces to return
 
     Returns:
         List of workspace dictionaries containing workspaceId, organizationId, name, slug, etc.
     """
+    _validate_pagination_params(limit=limit)
     result: list[dict[str, Any]] = []
     page_size = 100
 
@@ -2091,8 +2195,8 @@ def list_workspaces_in_organization(
         result.extend(workspaces)
 
         # Check if we've reached the limit
-        if max_items_limit is not None and len(result) >= max_items_limit:
-            return result[:max_items_limit]
+        if limit is not None and len(result) >= limit:
+            return result[:limit]
 
         # If we got fewer results than page_size, this was the last page
         if len(workspaces) < page_size:
