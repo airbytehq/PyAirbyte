@@ -129,7 +129,9 @@ def test_with_json_input_patches_cyclopts_signature() -> None:
     assert command(json_input='{"name": "json-name"}') == "json-name"  # type: ignore[call-arg]
 
 
-def test_source_create_help_includes_json_options(capsys: pytest.CaptureFixture[str]) -> None:
+def test_source_create_help_includes_json_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """`sources create --help` includes JSON input options."""
     app = App()
     app.command(sources.create)
@@ -143,7 +145,9 @@ def test_source_create_help_includes_json_options(capsys: pytest.CaptureFixture[
     assert "--json-file" in output
 
 
-def test_connection_create_help_includes_json_options(capsys: pytest.CaptureFixture[str]) -> None:
+def test_connection_create_help_includes_json_options(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     """`connections create --help` includes JSON input options."""
     app = App()
     app.command(connections.create)
