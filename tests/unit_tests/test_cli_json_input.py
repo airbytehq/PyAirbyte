@@ -40,7 +40,7 @@ def test_parse_json_input_options(tmp_path) -> None:
     assert _input.parse_json_input_options(json_input=f"@{json_file}") == {
         "name": "from-file"
     }
-    assert _input.parse_json_input_options(json_input=str(json_file)) == {
+    assert _input.parse_json_input_options(json_input=json_file.as_posix()) == {
         "name": "from-file"
     }
     assert _input.parse_json_input_options() == {}

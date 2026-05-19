@@ -112,7 +112,7 @@ def parse_json_input_options(
     if not json_input and not json_file:
         return {}
 
-    if json_input and json_input[0] in {"@", ".", "/"}:
+    if json_input and (json_input[0] in {"@", ".", "/"} or Path(json_input).is_absolute()):
         json_file = Path(json_input.removeprefix("@"))
         json_input = None
 
