@@ -55,7 +55,7 @@ class CloudOrganization:
         if force_refresh:
             self._organization_info_fetch_failed = False
 
-        if self._organization_info_fetch_failed:
+        if self._organization_info_fetch_failed and self._organization_info is None:
             return {}
 
         if not force_refresh and self._organization_info is not None:
@@ -71,8 +71,9 @@ class CloudOrganization:
                 bearer_token=self._credentials.bearer_token,
             )
         except Exception:
-            self._organization_info_fetch_failed = True
-            return {}
+            if self._organization_info is None:
+                self._organization_info_fetch_failed = True
+            return self._organization_info or {}
         else:
             return self._organization_info
 

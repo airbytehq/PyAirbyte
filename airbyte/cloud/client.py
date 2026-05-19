@@ -231,7 +231,7 @@ class CloudClient:
                     message="Organization ID is required.",
                     guidance="Provide an organization ID.",
                 )
-            return api_util.list_workspaces_in_organization(
+            workspaces = api_util.list_workspaces_in_organization(
                 organization_id=resolved_organization_id,
                 api_root=self.public_api_root,
                 config_api_root=self.config_api_root,
@@ -239,8 +239,17 @@ class CloudClient:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
                 name_contains=name_contains or name,
-                limit=limit,
+                limit=None if name_filter is not None else limit,
             )
+            if name_filter is not None:
+                workspaces = [
+                    workspace
+                    for workspace in workspaces
+                    if name_filter(str(workspace.get("name", "")))
+                ]
+                if limit is not None:
+                    workspaces = workspaces[:limit]
+            return workspaces
         if name_contains is not None:
             name = name_contains
         return api_util.list_workspaces(
@@ -251,6 +260,7 @@ class CloudClient:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
+            limit=limit,
         )
 
     def get_organization(
