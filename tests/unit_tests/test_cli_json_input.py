@@ -36,8 +36,14 @@ def test_parse_json_input_options(tmp_path) -> None:
     assert _input.parse_json_input_options(json_input='{"name": "inline"}') == {
         "name": "inline"
     }
+    assert _input.parse_json_input_options(json_input='  {"name": "inline"}') == {
+        "name": "inline"
+    }
     assert _input.parse_json_input_options(json_file=json_file) == {"name": "from-file"}
     assert _input.parse_json_input_options(json_input=f"@{json_file}") == {
+        "name": "from-file"
+    }
+    assert _input.parse_json_input_options(json_input=f"  @{json_file}") == {
         "name": "from-file"
     }
     assert _input.parse_json_input_options(json_input=json_file.as_posix()) == {
@@ -50,6 +56,9 @@ def test_parse_json_input_options(tmp_path) -> None:
 
     with pytest.raises(PyAirbyteInputError, match="JSON input must be an object"):
         _input.parse_json_input_options(json_input="[]")
+
+    with pytest.raises(PyAirbyteInputError, match="JSON input must be an object"):
+        _input.parse_json_input_options(json_input='  ["not-an-object"]')
 
     with pytest.MonkeyPatch.context() as monkeypatch:
         monkeypatch.chdir(tmp_path)
