@@ -333,10 +333,10 @@ class CloudOrganization:
 
     def __init__(
         self,
+        *,
         organization_id: str,
         organization_name: str | None = None,
         email: str | None = None,
-        *,
         api_root: str = api_util.CLOUD_API_ROOT,
         client_id: SecretString | None = None,
         client_secret: SecretString | None = None,
@@ -506,6 +506,7 @@ class CloudWorkspace:
 
     def __init__(
         self,
+        *,
         workspace_id: str | None = None,
         client_id: str | SecretString | None = None,
         client_secret: str | SecretString | None = None,
