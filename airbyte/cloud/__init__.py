@@ -96,8 +96,8 @@ from airbyte.cloud.workspaces import CloudWorkspace
 if TYPE_CHECKING:
     # ruff: noqa: TC004
     from airbyte.cloud import (
-        client_config,
         client,
+        client_config,
         connections,
         constants,
         sync_results,
