@@ -22,7 +22,7 @@ from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.workspaces import CloudOrganization, CloudWorkspace
+from airbyte.cloud.workspaces import CloudClient, CloudOrganization, CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
@@ -264,19 +264,28 @@ def _get_cloud_workspace(
             guidance="Set AIRBYTE_CLOUD_WORKSPACE_ID env var or pass workspace_id parameter.",
         )
 
+    return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
+
+
+def _get_cloud_client(
+    ctx: Context,
+    *,
+    organization_id: str | None = None,
+) -> CloudClient:
+    """Get an authenticated `CloudClient` from MCP config."""
     bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
     client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
     client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
-    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
+    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
     config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
 
-    return CloudWorkspace(
-        workspace_id=resolved_workspace_id,
-        client_id=SecretString(client_id) if client_id else None,
-        client_secret=SecretString(client_secret) if client_secret else None,
-        bearer_token=SecretString(bearer_token) if bearer_token else None,
-        api_root=api_url,
+    return CloudClient.from_explicit_credentials(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        public_api_root=api_url,
         config_api_root=config_api_url,
+        organization_id=organization_id,
     )
 
 
@@ -1314,62 +1323,13 @@ def _resolve_organization(
             message="Either 'organization_id' or 'organization_name' must be provided."
         )
 
-    # Get all organizations for the user
-    orgs = api_util.list_organizations_for_user(
-        api_root=api_root,
+    return CloudClient(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
-    )
-
-    org_response: api_util.models.OrganizationResponse | None = None
-
-    if organization_id:
-        # Find by ID
-        matching_orgs = [org for org in orgs if org.organization_id == organization_id]
-        if not matching_orgs:
-            raise AirbyteMissingResourceError(
-                resource_type="organization",
-                context={
-                    "organization_id": organization_id,
-                    "message": f"No organization found with ID '{organization_id}' "
-                    "for the current user.",
-                },
-            )
-        org_response = matching_orgs[0]
-    else:
-        # Find by exact name match (case-sensitive)
-        matching_orgs = [org for org in orgs if org.organization_name == organization_name]
-
-        if not matching_orgs:
-            raise AirbyteMissingResourceError(
-                resource_type="organization",
-                context={
-                    "organization_name": organization_name,
-                    "message": f"No organization found with exact name '{organization_name}' "
-                    "for the current user.",
-                },
-            )
-
-        if len(matching_orgs) > 1:
-            raise PyAirbyteInputError(
-                message=f"Multiple organizations found with name '{organization_name}'. "
-                "Please use 'organization_id' instead to specify the exact organization."
-            )
-
-        org_response = matching_orgs[0]
-
-    # Return a CloudOrganization with credentials for lazy loading of billing info
-    return CloudOrganization(
-        organization_id=org_response.organization_id,
-        organization_name=org_response.organization_name,
-        email=org_response.email,
-        api_root=api_root,
+        public_api_root=api_root,
         config_api_root=config_api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-    )
+    ).get_organization(organization_id=organization_id, organization_name=organization_name)
 
 
 def _resolve_organization_id(
@@ -1444,29 +1404,20 @@ def list_cloud_workspaces(
     This tool will NOT list workspaces across all organizations - you must specify
     which organization to list workspaces from.
     """
-    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
-    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
-    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
-    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
-    config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
+    client = _get_cloud_client(ctx)
 
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=api_url,
-        client_id=SecretString(client_id) if client_id else None,
-        client_secret=SecretString(client_secret) if client_secret else None,
-        bearer_token=SecretString(bearer_token) if bearer_token else None,
-        config_api_root=config_api_url,
+        api_root=client.public_api_root,
+        client_id=client.client_id,
+        client_secret=client.client_secret,
+        bearer_token=client.bearer_token,
+        config_api_root=client.config_api_root,
     )
 
-    workspaces = api_util.list_workspaces_in_organization(
+    workspaces = client.list_workspaces_in_organization(
         organization_id=resolved_org_id,
-        api_root=api_url,
-        client_id=SecretString(client_id) if client_id else None,
-        client_secret=SecretString(client_secret) if client_secret else None,
-        bearer_token=SecretString(bearer_token) if bearer_token else None,
-        config_api_root=config_api_url,
         name_contains=name_contains,
         limit=limit,
     )
@@ -1512,20 +1463,9 @@ def describe_cloud_organization(
     Requires either organization_id OR organization_name (exact match) to be provided.
     This tool is useful for looking up an organization's ID from its name, or vice versa.
     """
-    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
-    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
-    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
-    api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL) or api_util.CLOUD_API_ROOT
-    config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
-
-    org = _resolve_organization(
+    org = _get_cloud_client(ctx).get_organization(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=api_url,
-        client_id=SecretString(client_id) if client_id else None,
-        client_secret=SecretString(client_secret) if client_secret else None,
-        bearer_token=SecretString(bearer_token) if bearer_token else None,
-        config_api_root=config_api_url,
     )
 
     # CloudOrganization has lazy loading of billing properties

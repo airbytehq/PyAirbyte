@@ -178,6 +178,10 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         result._connection_info = connection_response  # noqa: SLF001 # Accessing Non-Public API
         return result
 
+    def get_info(self) -> ConnectionResponse:
+        """Return API metadata for the connection."""
+        return self._fetch_connection_info()
+
     # Properties
 
     @property

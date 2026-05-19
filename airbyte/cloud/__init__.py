@@ -88,7 +88,7 @@ from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.cloud.workspaces import CloudClient, CloudWorkspace
 
 
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
@@ -111,6 +111,7 @@ __all__ = [
     "client_config",
     "sync_results",
     # Classes
+    "CloudClient",
     "CloudWorkspace",
     "CloudConnection",
     "CloudClientConfig",
