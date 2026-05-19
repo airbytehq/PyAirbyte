@@ -118,14 +118,13 @@ class CloudWorkspace:
         bearer_token: str | SecretString | None = None,
     ) -> None:
         """Validate and initialize credentials."""
-        self.config_api_root = config_api_root
         credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
             public_api_root=api_root,
-            config_api_root=self.config_api_root,
+            config_api_root=config_api_root,
         )
         if not credentials.workspace_id:
             raise exc.PyAirbyteInputError(
