@@ -11,7 +11,7 @@ import pytest
 import responses
 
 from airbyte.cloud import credentials as cloud_credentials
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
@@ -221,12 +221,34 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
         "version_check_enabled": False,
     }
     token_request = parse_qs(_request_body(0))
+    token_headers = responses.calls[0].request.headers
     assert token_request["client_id"] == [cloud_credentials.KEYCLOAK_CLIENT_ID]
     assert token_request["grant_type"] == ["authorization_code"]
     assert token_request["code"] == ["test-auth-code"]
     assert "code_verifier" in token_request
+    assert token_headers["Content-Type"] == "application/x-www-form-urlencoded"
+    assert token_headers["User-Agent"] == cloud_credentials.PYAIRBYTE_USER_AGENT
     assert responses.calls[2].request.headers["X-Organization-Id"] == "initial-org-id"
     assert responses.calls[3].request.headers["X-Organization-Id"] == "selected-org-id"
+
+
+@responses.activate
+def test_login_with_browser_token_exchange_non_json_error(tmp_path: Path) -> None:
+    credentials_file_path = tmp_path / ".airbyte-cli" / "settings.json"
+    responses.add(
+        responses.POST,
+        f"{cloud_credentials.KEYCLOAK_BASE_URL}/protocol/openid-connect/token",
+        body="<!doctype html><title>403</title>",
+        content_type="text/html; charset=UTF-8",
+        status=403,
+    )
+
+    with pytest.raises(AirbyteError, match="Keycloak token exchange failed"):
+        cloud_credentials.login_with_browser(
+            credentials_file_path=credentials_file_path,
+            open_url=_simulate_keycloak_redirect,
+            timeout_seconds=5,
+        )
 
 
 @responses.activate

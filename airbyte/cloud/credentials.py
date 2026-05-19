@@ -57,6 +57,7 @@ KEYCLOAK_CALLBACK_HOST = "127.0.0.1"
 AIRBYTE_AI_API_HOST = "https://api.airbyte.ai"
 AIRBYTE_AI_API_ROOT = f"{AIRBYTE_AI_API_HOST}/api/v1"
 DEFAULT_BROWSER_LOGIN_TIMEOUT_SECONDS = 180
+PYAIRBYTE_USER_AGENT = "pyairbyte/dev"
 
 
 @dataclass(frozen=True)
@@ -565,7 +566,11 @@ def _exchange_code_for_keycloak_token(
     token_url = f"{keycloak_base_url.rstrip('/')}/protocol/openid-connect/token"
     response = session.post(
         token_url,
-        headers={"Accept": "application/json"},
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "User-Agent": PYAIRBYTE_USER_AGENT,
+        },
         data={
             "grant_type": "authorization_code",
             "code": code,
@@ -575,7 +580,19 @@ def _exchange_code_for_keycloak_token(
         },
         timeout=timeout_seconds,
     )
-    parsed = _json_object(response, operation="Keycloak token exchange")
+    try:
+        parsed = _json_object(response, operation="Keycloak token exchange")
+    except AirbyteError as ex:
+        if response.status_code != HTTPStatus.OK.value:
+            context: dict[str, object] = {"status_code": response.status_code}
+            content_type = response.headers.get("content-type")
+            if content_type:
+                context["content_type"] = content_type
+            raise AirbyteError(
+                message="Keycloak token exchange failed.",
+                context=context,
+            ) from ex
+        raise
     if response.status_code != HTTPStatus.OK.value or parsed.get("error"):
         error = parsed.get("error")
         error_description = parsed.get("error_description")
