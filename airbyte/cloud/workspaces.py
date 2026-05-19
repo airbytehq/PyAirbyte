@@ -247,7 +247,7 @@ class CloudClient:
         organization_id: str | None = None,
         *,
         name_contains: str | None = None,
-        max_items_limit: int | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, object]]:
         """List workspaces in an organization using the Config API."""
         resolved_organization_id = organization_id or self.organization_id
@@ -265,7 +265,7 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             name_contains=name_contains,
-            max_items_limit=max_items_limit,
+            limit=limit,
         )
 
     def get_organization(
@@ -1081,16 +1081,15 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
+        limit: int | None = None,
     ) -> list[CloudConnection]:
-        """List connections by name in the workspace.
-
-        TODO: Add pagination support
-        """
+        """List connections by name in the workspace, with an optional limit."""
         connections = api_util.list_connections(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
+            limit=limit,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -1101,7 +1100,6 @@ class CloudWorkspace:
                 connection_response=connection,
             )
             for connection in connections
-            if name is None or connection.name == name
         ]
 
     def list_sources(
@@ -1109,16 +1107,15 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
+        limit: int | None = None,
     ) -> list[CloudSource]:
-        """List all sources in the workspace.
-
-        TODO: Add pagination support
-        """
+        """List all sources in the workspace, with an optional limit."""
         sources = api_util.list_sources(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
+            limit=limit,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -1129,7 +1126,6 @@ class CloudWorkspace:
                 source_response=source,
             )
             for source in sources
-            if name is None or source.name == name
         ]
 
     def list_destinations(
@@ -1137,16 +1133,15 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
+        limit: int | None = None,
     ) -> list[CloudDestination]:
-        """List all destinations in the workspace.
-
-        TODO: Add pagination support
-        """
+        """List all destinations in the workspace, with an optional limit."""
         destinations = api_util.list_destinations(
             api_root=self.api_root,
             workspace_id=self.workspace_id,
             name=name,
             name_filter=name_filter,
+            limit=limit,
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -1157,7 +1152,6 @@ class CloudWorkspace:
                 destination_response=destination,
             )
             for destination in destinations
-            if name is None or destination.name == name
         ]
 
     def get_job_info(self, job_id: int) -> JobResponse:
