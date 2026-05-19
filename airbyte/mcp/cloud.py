@@ -1323,7 +1323,7 @@ def _resolve_organization(
             message="Either 'organization_id' or 'organization_name' must be provided."
         )
 
-    return CloudClient(
+    return CloudClient.from_explicit_credentials(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
