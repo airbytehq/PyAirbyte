@@ -156,7 +156,7 @@ class _AirbyteCredentials:
             parsed = yaml.safe_load(content) if content else {}
             credentials = _as_string_mapping(parsed)
         except (OSError, yaml.YAMLError):
-            pass
+            credentials = {}
 
         return cls(
             client_id=SecretString(credentials["client_id"])
