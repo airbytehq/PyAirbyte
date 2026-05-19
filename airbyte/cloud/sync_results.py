@@ -293,10 +293,6 @@ class SyncResult:
         )
         return self._latest_job_info
 
-    def get_info(self) -> JobResponse:
-        """Return API metadata for the sync job."""
-        return self._fetch_latest_job_info()
-
     @property
     def bytes_synced(self) -> int:
         """Return the number of records processed."""
