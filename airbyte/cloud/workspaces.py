@@ -288,10 +288,15 @@ class CloudWorkspace:
                 )
             return None
 
+        organization_credentials = self._credentials.with_organization_id(organization_id)
         return CloudOrganization(
             organization_id=organization_id,
             organization_name=organization_name,
-            credentials=self._credentials.with_organization_id(organization_id),
+            client_id=organization_credentials.client_id,
+            client_secret=organization_credentials.client_secret,
+            bearer_token=organization_credentials.bearer_token,
+            public_api_root=organization_credentials.public_api_root,
+            config_api_root=organization_credentials.config_api_root,
         )
 
     # Test connection and creds

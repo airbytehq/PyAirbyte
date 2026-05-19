@@ -31,71 +31,81 @@ if TYPE_CHECKING:
 class CloudClient:
     """Authenticated client for Airbyte Cloud and self-managed Airbyte APIs."""
 
-    credentials: _AirbyteCredentials
+    _credentials: _AirbyteCredentials
 
     def __init__(
         self,
         *,
-        credentials: _AirbyteCredentials | None = None,
         client_id: str | SecretString | None = None,
         client_secret: str | SecretString | None = None,
         bearer_token: str | SecretString | None = None,
         public_api_root: str | None = None,
         config_api_root: str | None = None,
+        workspace_id: str | None = None,
         organization_id: str | None = None,
     ) -> None:
-        """Initialize a `CloudClient` from credentials or explicit auth values."""
-        if credentials and any(
-            [
-                client_id,
-                client_secret,
-                bearer_token,
-                public_api_root,
-                config_api_root,
-                organization_id,
-            ]
-        ):
-            raise exc.PyAirbyteInputError(
-                message="Cloud client credentials must use one authentication source."
-            )
-        self.credentials = credentials or _AirbyteCredentials(
+        """Initialize a `CloudClient` from explicit auth values."""
+        self._credentials = _AirbyteCredentials(
             client_id=SecretString(client_id) if client_id else None,
             client_secret=SecretString(client_secret) if client_secret else None,
             bearer_token=SecretString(bearer_token) if bearer_token else None,
             public_api_root=public_api_root or api_util.CLOUD_API_ROOT,
             config_api_root=config_api_root,
+            workspace_id=workspace_id,
             organization_id=organization_id,
+        )
+
+    @staticmethod
+    def _credentials_from_auth(
+        *,
+        organization_id: str | None = None,
+        client_id: str | SecretString | None = None,
+        client_secret: str | SecretString | None = None,
+        bearer_token: str | SecretString | None = None,
+        public_api_root: str | None = None,
+        config_api_root: str | None = None,
+        credentials_file_path: Path = CREDENTIALS_FILE_PATH,
+    ) -> _AirbyteCredentials:
+        """Create resolved Cloud credentials from explicit inputs."""
+        return _AirbyteCredentials.from_auth(
+            organization_id=organization_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
+            credentials_file_path=credentials_file_path,
         )
 
     @property
     def client_id(self) -> SecretString | None:
         """OAuth client ID used for authentication."""
-        return self.credentials.client_id
+        return self._credentials.client_id
 
     @property
     def client_secret(self) -> SecretString | None:
         """OAuth client secret used for authentication."""
-        return self.credentials.client_secret
+        return self._credentials.client_secret
 
     @property
     def bearer_token(self) -> SecretString | None:
         """Bearer token used for authentication."""
-        return self.credentials.bearer_token
+        return self._credentials.bearer_token
 
     @property
     def public_api_root(self) -> str:
         """Airbyte Public API root."""
-        return self.credentials.public_api_root
+        return self._credentials.public_api_root
 
     @property
     def config_api_root(self) -> str | None:
         """Airbyte Config API root."""
-        return self.credentials.config_api_root
+        return self._credentials.config_api_root
 
     @property
     def organization_id(self) -> str | None:
         """Default organization ID for organization-scoped operations."""
-        return self.credentials.organization_id
+        return self._credentials.organization_id
 
     @classmethod
     def from_env(
@@ -109,16 +119,15 @@ class CloudClient:
         config_api_root: str | None = None,
     ) -> CloudClient:
         """Create a client from shared environment and credentials-file resolution."""
-        return cls._from_credentials(
-            _AirbyteCredentials.from_auth(
-                client_id=client_id,
-                client_secret=client_secret,
-                bearer_token=bearer_token,
-                organization_id=organization_id,
-                public_api_root=public_api_root,
-                config_api_root=config_api_root,
-            )
+        credentials = cls._credentials_from_auth(
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            organization_id=organization_id,
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
         )
+        return cls._new_from_credentials(credentials)
 
     @classmethod
     def from_auth(
@@ -133,22 +142,29 @@ class CloudClient:
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
     ) -> CloudClient:
         """Create a client from explicit inputs, env vars, and credentials file."""
-        return cls._from_credentials(
-            _AirbyteCredentials.from_auth(
-                organization_id=organization_id,
-                client_id=client_id,
-                client_secret=client_secret,
-                bearer_token=bearer_token,
-                public_api_root=public_api_root,
-                config_api_root=config_api_root,
-                credentials_file_path=credentials_file_path,
-            )
+        credentials = cls._credentials_from_auth(
+            organization_id=organization_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            public_api_root=public_api_root,
+            config_api_root=config_api_root,
+            credentials_file_path=credentials_file_path,
         )
+        return cls._new_from_credentials(credentials)
 
     @classmethod
-    def _from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
+    def _new_from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
         """Create a client from resolved Cloud credentials."""
-        return cls(credentials=credentials)
+        return cls(
+            client_id=credentials.client_id,
+            client_secret=credentials.client_secret,
+            bearer_token=credentials.bearer_token,
+            public_api_root=credentials.public_api_root,
+            config_api_root=credentials.config_api_root,
+            workspace_id=credentials.workspace_id,
+            organization_id=credentials.organization_id,
+        )
 
     def login(
         self,
@@ -160,7 +176,7 @@ class CloudClient:
         if interactive is True:
             raise NotImplementedError("Interactive Airbyte Cloud login is not implemented.")
         if self.client_id is not None and self.client_secret is not None:
-            return self.credentials.login(credentials_file_path=credentials_file_path)
+            return self._credentials.login(credentials_file_path=credentials_file_path)
         if interactive is False:
             raise exc.PyAirbyteInputError(
                 message="Client ID and client secret are both required.",
@@ -179,14 +195,14 @@ class CloudClient:
 
     def get_workspace(self, workspace_id: str | None = None) -> CloudWorkspace:
         """Create a `CloudWorkspace` using this client's credentials."""
-        resolved_workspace_id = workspace_id or self.credentials.workspace_id
+        resolved_workspace_id = workspace_id or self._credentials.workspace_id
         if not resolved_workspace_id:
             raise exc.PyAirbyteInputError(
                 message="Workspace ID is required.",
                 guidance="Provide a workspace ID.",
             )
 
-        credentials = self.credentials.with_workspace_id(resolved_workspace_id)
+        credentials = self._credentials.with_workspace_id(resolved_workspace_id)
         return CloudWorkspace(
             workspace_id=credentials.workspace_id,
             client_id=credentials.client_id,
@@ -303,9 +319,16 @@ class CloudClient:
 
         organization = matching_organizations[0]
 
+        organization_credentials = self._credentials.with_organization_id(
+            organization.organization_id
+        )
         return CloudOrganization(
             organization_id=organization.organization_id,
             organization_name=organization.organization_name,
             email=organization.email,
-            credentials=self.credentials.with_organization_id(organization.organization_id),
+            client_id=organization_credentials.client_id,
+            client_secret=organization_credentials.client_secret,
+            bearer_token=organization_credentials.bearer_token,
+            public_api_root=organization_credentials.public_api_root,
+            config_api_root=organization_credentials.config_api_root,
         )

@@ -3,13 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from airbyte._util import api_util
-
-
-if TYPE_CHECKING:
-    from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.secrets.base import SecretString
 
 
 class CloudOrganization:
@@ -25,7 +23,11 @@ class CloudOrganization:
         organization_name: str | None = None,
         email: str | None = None,
         *,
-        credentials: _AirbyteCredentials,
+        client_id: str | SecretString | None = None,
+        client_secret: str | SecretString | None = None,
+        bearer_token: str | SecretString | None = None,
+        public_api_root: str | None = None,
+        config_api_root: str | None = None,
     ) -> None:
         """Initialize a `CloudOrganization`."""
         self.organization_id = organization_id
@@ -37,8 +39,14 @@ class CloudOrganization:
         self._email = email
         """Email associated with the organization."""
 
-        self._credentials = credentials.with_organization_id(organization_id)
-
+        self._credentials = _AirbyteCredentials(
+            client_id=SecretString(client_id) if client_id else None,
+            client_secret=SecretString(client_secret) if client_secret else None,
+            bearer_token=SecretString(bearer_token) if bearer_token else None,
+            public_api_root=public_api_root or api_util.CLOUD_API_ROOT,
+            config_api_root=config_api_root,
+            organization_id=organization_id,
+        )
         self._organization_info: dict[str, Any] | None = None
         self._organization_info_fetch_failed: bool = False
 
