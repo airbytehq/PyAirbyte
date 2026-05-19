@@ -3,36 +3,49 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
+from cyclopts import Parameter
+
 from airbyte.cli._input import (  # noqa: TC001  # Cyclopts resolves aliases at runtime.
-    AirbyteApiRootArg,
+    ApiUrlArg,
     ClientIdArg,
     ClientSecretArg,
     ConfigApiRootArg,
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud.credentials import login_with_client_credentials
+from airbyte.cloud.client import CloudClient
 
 
 @cloud_app.command
 def login(
     *,
+    interactive: Annotated[
+        bool | None,
+        Parameter(
+            negative="--no-interactive",
+            help="Use browser-based interactive login.",
+        ),
+    ] = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    airbyte_api_root: AirbyteApiRootArg = None,
+    public_api_root: ApiUrlArg = None,
     config_api_root: ConfigApiRootArg = None,
 ) -> None:
     """Log in to Airbyte Cloud or a self-managed Airbyte server.
 
     Providing `--client-id` and `--client-secret` performs non-interactive login and
     stores a bearer token in `~/.airbyte/credentials`. Self-managed servers must also
-    provide `--airbyte-api-root` and `--config-api-root`.
+    provide `--public-api-root` and `--config-api-root`.
     """
-    result = login_with_client_credentials(
+    result = CloudClient.from_auth(
         client_id=client_id,
         client_secret=client_secret,
-        airbyte_api_root=airbyte_api_root,
+        public_api_root=public_api_root,
         config_api_root=config_api_root,
+    ).login(
+        interactive=interactive,
     )
     json_output(
         {
@@ -41,3 +54,10 @@ def login(
             "config_api_root": result.config_api_root,
         }
     )
+
+
+@cloud_app.command
+def logout() -> None:
+    """Log out by removing locally stored Airbyte credentials."""
+    CloudClient().logout()
+    json_output({"logged_out": True})

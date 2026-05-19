@@ -232,6 +232,9 @@ from it automatically.
 CLOUD_WORKSPACE_ID_ENV_VAR: str = "AIRBYTE_CLOUD_WORKSPACE_ID"
 """The environment variable name for the Airbyte Cloud workspace ID."""
 
+CLOUD_ORGANIZATION_ID_ENV_VAR: str = "AIRBYTE_CLOUD_ORGANIZATION_ID"
+"""The environment variable name for the Airbyte Cloud organization ID."""
+
 CLOUD_BEARER_TOKEN_ENV_VAR: str = "AIRBYTE_CLOUD_BEARER_TOKEN"
 """The environment variable name for the Airbyte Cloud bearer token.
 

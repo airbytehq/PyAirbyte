@@ -4,17 +4,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from os import environ
 from pathlib import Path
 
 import yaml
 
 from airbyte._util.api_util import get_bearer_token
-from airbyte.constants import CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+from airbyte.constants import (
+    CLOUD_API_ROOT,
+    CLOUD_API_ROOT_ENV_VAR,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_CONFIG_API_ROOT,
+    CLOUD_CONFIG_API_ROOT_ENV_VAR,
+    CLOUD_ORGANIZATION_ID_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+)
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
 CREDENTIALS_FILE_PATH = Path("~/.airbyte/credentials").expanduser()
+CLIENT_ID_ENV_VAR = "AIRBYTE_CLIENT_ID"
+CLIENT_SECRET_ENV_VAR = "AIRBYTE_CLIENT_SECRET"
+WORKSPACE_ID_ENV_VAR = "AIRBYTE_WORKSPACE_ID"
+ORGANIZATION_ID_ENV_VAR = "AIRBYTE_ORGANIZATION_ID"
+PUBLIC_API_ROOT_ENV_VAR = "AIRBYTE_API_ROOT"
+BEARER_TOKEN_ENV_VAR = "AIRBYTE_BEARER_TOKEN"
+CONFIG_API_ROOT_ENV_VAR = "AIRBYTE_CONFIG_API_ROOT"
 
 
 @dataclass(frozen=True)
@@ -24,6 +42,19 @@ class CloudLoginResult:
     credentials_file_path: Path
     airbyte_api_root: str
     config_api_root: str
+
+
+@dataclass(frozen=True)
+class CloudCredentials:
+    """Resolved credentials and API roots for Airbyte control-plane APIs."""
+
+    client_id: SecretString | None
+    client_secret: SecretString | None
+    bearer_token: SecretString | None
+    public_api_root: str
+    config_api_root: str | None
+    workspace_id: str | None = None
+    organization_id: str | None = None
 
 
 def _as_string_mapping(parsed: object) -> dict[str, str]:
@@ -37,6 +68,23 @@ def _as_string_mapping(parsed: object) -> dict[str, str]:
             result[key] = str(value)
 
     return result
+
+
+def _first_value(*values: str | None) -> str | None:
+    """Return the first non-empty string value."""
+    for value in values:
+        if value:
+            return value
+    return None
+
+
+def _env_value(*names: str) -> str | None:
+    """Return the first available environment variable value."""
+    for name in names:
+        value = environ.get(name)
+        if value:
+            return value
+    return None
 
 
 def read_credentials_file(
@@ -53,6 +101,82 @@ def read_credentials_file(
         return {}
 
     return _as_string_mapping(parsed)
+
+
+def resolve_cloud_credentials(
+    *,
+    workspace_id: str | None = None,
+    organization_id: str | None = None,
+    client_id: str | SecretString | None = None,
+    client_secret: str | SecretString | None = None,
+    bearer_token: str | SecretString | None = None,
+    public_api_root: str | None = None,
+    config_api_root: str | None = None,
+    credentials_file_path: Path = CREDENTIALS_FILE_PATH,
+) -> CloudCredentials:
+    """Resolve Airbyte Cloud credentials from inputs, env vars, and credentials file."""
+    credentials_file = read_credentials_file(credentials_file_path)
+    resolved_bearer_token = _first_value(
+        str(bearer_token) if bearer_token is not None else None,
+        _env_value(BEARER_TOKEN_ENV_VAR, CLOUD_BEARER_TOKEN_ENV_VAR),
+        credentials_file.get("bearer_token"),
+    )
+    resolved_client_id = _first_value(
+        str(client_id) if client_id is not None else None,
+        _env_value(CLIENT_ID_ENV_VAR, CLOUD_CLIENT_ID_ENV_VAR),
+        credentials_file.get("client_id"),
+    )
+    resolved_client_secret = _first_value(
+        str(client_secret) if client_secret is not None else None,
+        _env_value(CLIENT_SECRET_ENV_VAR, CLOUD_CLIENT_SECRET_ENV_VAR),
+        credentials_file.get("client_secret"),
+    )
+
+    if resolved_bearer_token and (resolved_client_id or resolved_client_secret):
+        resolved_client_id = None
+        resolved_client_secret = None
+    elif bool(resolved_client_id) != bool(resolved_client_secret):
+        raise PyAirbyteInputError(
+            message="Client ID and client secret are both required.",
+            guidance="Provide both client ID and client secret, or use a bearer token.",
+        )
+    elif not resolved_bearer_token and not resolved_client_id:
+        raise PyAirbyteInputError(
+            message="No Airbyte credentials found.",
+            guidance=(
+                "Set Airbyte Cloud credentials in environment variables or "
+                f"create a credentials file at {credentials_file_path}."
+            ),
+        )
+
+    return CloudCredentials(
+        client_id=SecretString(resolved_client_id) if resolved_client_id else None,
+        client_secret=SecretString(resolved_client_secret) if resolved_client_secret else None,
+        bearer_token=SecretString(resolved_bearer_token) if resolved_bearer_token else None,
+        public_api_root=_first_value(
+            public_api_root,
+            _env_value(PUBLIC_API_ROOT_ENV_VAR, CLOUD_API_ROOT_ENV_VAR),
+            credentials_file.get("airbyte_api_root"),
+            credentials_file.get("public_api_root"),
+            credentials_file.get("api_url"),
+        )
+        or CLOUD_API_ROOT,
+        config_api_root=_first_value(
+            config_api_root,
+            _env_value(CONFIG_API_ROOT_ENV_VAR, CLOUD_CONFIG_API_ROOT_ENV_VAR),
+            credentials_file.get("config_api_root"),
+        ),
+        workspace_id=_first_value(
+            workspace_id,
+            _env_value(WORKSPACE_ID_ENV_VAR, CLOUD_WORKSPACE_ID_ENV_VAR),
+            credentials_file.get("workspace_id"),
+        ),
+        organization_id=_first_value(
+            organization_id,
+            _env_value(ORGANIZATION_ID_ENV_VAR, CLOUD_ORGANIZATION_ID_ENV_VAR),
+            credentials_file.get("organization_id"),
+        ),
+    )
 
 
 def write_credentials_file(
@@ -115,7 +239,7 @@ def _resolve_login_roots(
         raise PyAirbyteInputError(
             message="Self-managed login requires both API roots.",
             context={"missing": ", ".join(missing_roots)},
-            guidance="Provide both `--airbyte-api-root` and `--config-api-root`.",
+            guidance="Provide both `--public-api-root` and `--config-api-root`.",
         )
 
     return CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
@@ -159,3 +283,12 @@ def login_with_client_credentials(
         airbyte_api_root=resolved_airbyte_api_root,
         config_api_root=resolved_config_api_root,
     )
+
+
+def logout(
+    *,
+    credentials_file_path: Path = CREDENTIALS_FILE_PATH,
+) -> None:
+    """Remove locally stored Airbyte credentials."""
+    if credentials_file_path.exists():
+        credentials_file_path.unlink()

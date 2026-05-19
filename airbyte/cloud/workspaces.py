@@ -45,12 +45,8 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud import client as cloud_client
 from airbyte.cloud.auth import (
-    resolve_cloud_api_url,
-    resolve_cloud_bearer_token,
-    resolve_cloud_client_id,
-    resolve_cloud_client_secret,
-    resolve_cloud_config_api_url,
     resolve_cloud_workspace_id,
 )
 from airbyte.cloud.client_config import CloudClientConfig
@@ -322,27 +318,11 @@ class CloudWorkspace:
             workspace = CloudWorkspace.from_env(workspace_id="your-workspace-id")
             ```
         """
-        resolved_api_root = resolve_cloud_api_url(api_root)
-        resolved_config_api_root = resolve_cloud_config_api_url(config_api_root)
-
-        # Try bearer token first
-        bearer_token = resolve_cloud_bearer_token()
-        if bearer_token:
-            return cls(
-                workspace_id=resolve_cloud_workspace_id(workspace_id),
-                bearer_token=bearer_token,
-                api_root=resolved_api_root,
-                config_api_root=resolved_config_api_root,
-            )
-
-        # Fall back to client credentials
-        return cls(
-            workspace_id=resolve_cloud_workspace_id(workspace_id),
-            client_id=resolve_cloud_client_id(),
-            client_secret=resolve_cloud_client_secret(),
-            api_root=resolved_api_root,
-            config_api_root=resolved_config_api_root,
+        client = cloud_client.CloudClient.from_env(
+            public_api_root=api_root,
+            config_api_root=config_api_root,
         )
+        return client.get_workspace(resolve_cloud_workspace_id(workspace_id))
 
     @property
     def workspace_url(self) -> str | None:
@@ -809,15 +789,13 @@ class CloudWorkspace:
         name_filter: Callable | None = None,
     ) -> list[WorkspaceResponse]:
         """List workspaces available to the current credentials."""
-        return api_util.list_workspaces(
-            api_root=self.api_root,
-            workspace_id=self.workspace_id,
-            name=name,
-            name_filter=name_filter,
+        return cloud_client.CloudClient(
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-        )
+            public_api_root=self.api_root,
+            config_api_root=self.config_api_root,
+        ).list_workspaces(name=name, name_filter=name_filter)
 
     def list_connections(
         self,

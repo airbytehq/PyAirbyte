@@ -10,8 +10,9 @@ see `docs/generate_cli_docs.py`.
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from airbyte.cli._base import _create_app
-from airbyte.cli._cli_auth import create_cloud_workspace, resolve_workspace_id
 from airbyte.cli._input import (  # noqa: TC001
     ApiUrlArg,
     ClientIdArg,
@@ -20,6 +21,7 @@ from airbyte.cli._input import (  # noqa: TC001
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
+from airbyte.cloud.client import CloudClient
 
 
 workspaces_app = _create_app(name="workspaces", help_text="Manage Airbyte Cloud workspaces.")
@@ -31,16 +33,15 @@ def list_(
     *,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """List workspaces."""
-    workspace = create_cloud_workspace(
-        workspace_id="00000000-0000-0000-0000-000000000000",
+    client = CloudClient.from_auth(
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
-    json_output(workspace.list_workspaces())
+    json_output([asdict(workspace) for workspace in client.list_workspaces()])
 
 
 @workspaces_app.command
@@ -49,14 +50,14 @@ def get(
     *,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """Get workspace details."""
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     json_output(workspace.get_info())
 

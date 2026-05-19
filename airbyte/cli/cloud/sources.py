@@ -16,7 +16,6 @@ from typing import Annotated
 from cyclopts import Parameter
 
 from airbyte.cli._base import _create_app
-from airbyte.cli._cli_auth import create_cloud_workspace, resolve_workspace_id
 from airbyte.cli._input import (
     ApiUrlArg,
     ClientIdArg,
@@ -29,6 +28,7 @@ from airbyte.cli._input import (
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
+from airbyte.cloud.client import CloudClient
 
 
 sources_app = _create_app(name="sources", help_text="Manage Airbyte Cloud sources.")
@@ -41,14 +41,14 @@ def list_(
     workspace_id: WorkspaceIdArg = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """List sources in the workspace."""
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     json_output([source.get_info() for source in workspace.list_sources()])
 
@@ -60,15 +60,15 @@ def get(
     workspace_id: WorkspaceIdArg = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """Get details of a specific source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     json_output(workspace.get_source(resolved_source_id).get_info())
 
@@ -87,16 +87,16 @@ def create(
     workspace_id: WorkspaceIdArg = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """Create a new source in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
     config["sourceType"] = source_type
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     json_output(workspace.deploy_source(name=name, config=config).get_info())
 
@@ -109,15 +109,15 @@ def rename(
     workspace_id: WorkspaceIdArg = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """Rename a source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     json_output(workspace.get_source(resolved_source_id).rename(name).get_info())
 
@@ -135,16 +135,16 @@ def update(
     workspace_id: WorkspaceIdArg = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """Update a source configuration."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
     config = parse_config_options(config_json=config_json, config_file=config_file)
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     json_output(workspace.get_source(resolved_source_id).update_config(config).get_info())
 
@@ -157,15 +157,15 @@ def delete(
     workspace_id: WorkspaceIdArg = None,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
-    api_url: ApiUrlArg = None,
+    public_api_root: ApiUrlArg = None,
 ) -> None:
     """Delete a source."""
     resolved_source_id = resolve_entity_id(source_id_args, source_id, option_name="--source-id")
-    workspace = create_cloud_workspace(
-        workspace_id=resolve_workspace_id(workspace_id),
+    workspace = CloudClient.get_workspace_from_auth(
+        workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        api_url=api_url,
+        public_api_root=public_api_root,
     )
     workspace.permanently_delete_source(
         source=workspace.get_source(resolved_source_id),
