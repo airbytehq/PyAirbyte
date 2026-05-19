@@ -45,14 +45,7 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
-from airbyte.cloud.auth import (
-    resolve_cloud_api_url,
-    resolve_cloud_bearer_token,
-    resolve_cloud_client_id,
-    resolve_cloud_client_secret,
-    resolve_cloud_config_api_url,
-    resolve_cloud_workspace_id,
-)
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -60,158 +53,20 @@ from airbyte.cloud.connectors import (
     CloudSource,
     CustomCloudSourceDefinition,
 )
+from airbyte.cloud.organizations import CloudOrganization
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
-from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from airbyte._util.api_imports import WorkspaceResponse
+    from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
 
 
-class CloudOrganization:
-    """Information about an organization in Airbyte Cloud.
-
-    This class provides lazy loading of organization attributes including billing status.
-    It is typically created via CloudWorkspace.get_organization().
-    """
-
-    def __init__(
-        self,
-        organization_id: str,
-        organization_name: str | None = None,
-        email: str | None = None,
-        *,
-        api_root: str = api_util.CLOUD_API_ROOT,
-        client_id: SecretString | None = None,
-        client_secret: SecretString | None = None,
-        bearer_token: SecretString | None = None,
-        config_api_root: str | None = None,
-    ) -> None:
-        """Initialize a CloudOrganization.
-
-        Args:
-            organization_id: The organization ID.
-            organization_name: Display name of the organization.
-            email: Email associated with the organization.
-            api_root: The API root URL.
-            client_id: OAuth client ID for authentication.
-            client_secret: OAuth client secret for authentication.
-            bearer_token: Bearer token for authentication (alternative to client credentials).
-            config_api_root: Optional Config API root URL.
-        """
-        self.organization_id = organization_id
-        """The organization ID."""
-
-        self._organization_name = organization_name
-        """Display name of the organization."""
-
-        self._email = email
-        """Email associated with the organization."""
-
-        self._api_root = api_root
-        self._config_api_root = config_api_root
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._bearer_token = bearer_token
-
-        # Cached organization info (billing, etc.)
-        self._organization_info: dict[str, Any] | None = None
-        # Flag to remember if fetching organization info failed (e.g., permission issues)
-        self._organization_info_fetch_failed: bool = False
-
-    def _fetch_organization_info(self, *, force_refresh: bool = False) -> dict[str, Any]:
-        """Fetch and cache organization info including billing status.
-
-        If fetching fails (e.g., due to permission issues), the failure is cached and
-        subsequent calls will return an empty dict without retrying.
-
-        Args:
-            force_refresh: If True, always fetch from the API even if cached.
-
-        Returns:
-            Dictionary containing organization info including billing data.
-            Returns empty dict if fetching failed or is not permitted.
-        """
-        # Reset failure flag if force_refresh is requested
-        if force_refresh:
-            self._organization_info_fetch_failed = False
-
-        # If we already know fetching failed, return empty dict without retrying
-        if self._organization_info_fetch_failed:
-            return {}
-
-        if not force_refresh and self._organization_info is not None:
-            return self._organization_info
-
-        try:
-            self._organization_info = api_util.get_organization_info(
-                organization_id=self.organization_id,
-                api_root=self._api_root,
-                config_api_root=self._config_api_root,
-                client_id=self._client_id,
-                client_secret=self._client_secret,
-                bearer_token=self._bearer_token,
-            )
-        except Exception:
-            # Cache the failure so we don't retry on subsequent property accesses
-            self._organization_info_fetch_failed = True
-            return {}
-        else:
-            return self._organization_info
-
-    @property
-    def organization_name(self) -> str | None:
-        """Display name of the organization."""
-        if self._organization_name is not None:
-            return self._organization_name
-        # Try to fetch from API if not set (returns empty dict on failure)
-        info = self._fetch_organization_info()
-        return info.get("organizationName")
-
-    @property
-    def email(self) -> str | None:
-        """Email associated with the organization."""
-        if self._email is not None:
-            return self._email
-        # Try to fetch from API if not set (returns empty dict on failure)
-        info = self._fetch_organization_info()
-        return info.get("email")
-
-    @property
-    def payment_status(self) -> str | None:
-        """Payment status of the organization.
-
-        Possible values: 'uninitialized', 'okay', 'grace_period', 'disabled', 'locked', 'manual'.
-        When 'disabled', syncs are blocked due to unpaid invoices.
-        Returns None if billing info is not available (e.g., due to permission issues).
-        """
-        info = self._fetch_organization_info()
-        return (info.get("billing") or {}).get("paymentStatus")
-
-    @property
-    def subscription_status(self) -> str | None:
-        """Subscription status of the organization.
-
-        Possible values: 'pre_subscription', 'subscribed', 'unsubscribed'.
-        Returns None if billing info is not available (e.g., due to permission issues).
-        """
-        info = self._fetch_organization_info()
-        return (info.get("billing") or {}).get("subscriptionStatus")
-
-    @property
-    def is_account_locked(self) -> bool:
-        """Whether the account is locked due to billing issues.
-
-        Returns True if payment_status is 'disabled'/'locked' or subscription_status is
-        'unsubscribed'. Defaults to False unless we have affirmative evidence of a locked state.
-        """
-        return api_util.is_account_locked(self.payment_status, self.subscription_status)
-
-
-@dataclass(kw_only=True)
+@dataclass(init=False, kw_only=True)  # noqa: PLR0904  # Core cloud API facade.
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
@@ -241,28 +96,52 @@ class CloudWorkspace:
     """
 
     workspace_id: str
-    client_id: SecretString | None = None
-    client_secret: SecretString | None = None
-    api_root: str = api_util.CLOUD_API_ROOT
-    config_api_root: str | None = None
+    client_id: SecretString | None
+    client_secret: SecretString | None
+    api_root: str
+    config_api_root: str | None
     """The Config API root URL."""
-    bearer_token: SecretString | None = None
+    bearer_token: SecretString | None
 
-    # Internal credentials object (set in __post_init__, excluded from __init__)
-    _credentials: CloudClientConfig | None = field(default=None, init=False, repr=False)
+    # Internal credentials objects (set in __init__, excluded from repr)
+    _credentials: _AirbyteCredentials = field(init=False, repr=False)
+    _client_config: CloudClientConfig = field(init=False, repr=False)
 
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        workspace_id: str | None = None,
+        client_id: str | SecretString | None = None,
+        client_secret: str | SecretString | None = None,
+        api_root: str | None = None,
+        config_api_root: str | None = None,
+        bearer_token: str | SecretString | None = None,
+    ) -> None:
         """Validate and initialize credentials."""
-        # Wrap secrets in SecretString if provided
-        if self.client_id is not None:
-            self.client_id = SecretString(self.client_id)
-        if self.client_secret is not None:
-            self.client_secret = SecretString(self.client_secret)
-        if self.bearer_token is not None:
-            self.bearer_token = SecretString(self.bearer_token)
+        credentials = _AirbyteCredentials.from_auth(
+            workspace_id=workspace_id,
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            public_api_root=api_root,
+            config_api_root=config_api_root,
+        )
+        if not credentials.workspace_id:
+            raise exc.PyAirbyteInputError(
+                message="Workspace ID is required.",
+                guidance="Provide a workspace ID.",
+            )
+
+        self._credentials = credentials
+        self.workspace_id = credentials.workspace_id or ""
+        self.client_id = credentials.client_id
+        self.client_secret = credentials.client_secret
+        self.bearer_token = credentials.bearer_token
+        self.api_root = credentials.public_api_root
+        self.config_api_root = credentials.config_api_root
 
         # Create internal CloudClientConfig object (validates mutual exclusivity)
-        self._credentials = CloudClientConfig(
+        self._client_config = CloudClientConfig(
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
@@ -321,26 +200,10 @@ class CloudWorkspace:
             workspace = CloudWorkspace.from_env(workspace_id="your-workspace-id")
             ```
         """
-        resolved_api_root = resolve_cloud_api_url(api_root)
-        resolved_config_api_root = resolve_cloud_config_api_url(config_api_root)
-
-        # Try bearer token first
-        bearer_token = resolve_cloud_bearer_token()
-        if bearer_token:
-            return cls(
-                workspace_id=resolve_cloud_workspace_id(workspace_id),
-                bearer_token=bearer_token,
-                api_root=resolved_api_root,
-                config_api_root=resolved_config_api_root,
-            )
-
-        # Fall back to client credentials
         return cls(
-            workspace_id=resolve_cloud_workspace_id(workspace_id),
-            client_id=resolve_cloud_client_id(),
-            client_secret=resolve_cloud_client_secret(),
-            api_root=resolved_api_root,
-            config_api_root=resolved_config_api_root,
+            workspace_id=workspace_id,
+            api_root=api_root,
+            config_api_root=config_api_root,
         )
 
     @property
@@ -425,14 +288,15 @@ class CloudWorkspace:
                 )
             return None
 
+        organization_credentials = self._credentials.with_organization_id(organization_id)
         return CloudOrganization(
             organization_id=organization_id,
             organization_name=organization_name,
-            api_root=self.api_root,
-            config_api_root=self.config_api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
+            client_id=organization_credentials.client_id,
+            client_secret=organization_credentials.client_secret,
+            bearer_token=organization_credentials.bearer_token,
+            public_api_root=organization_credentials.public_api_root,
+            config_api_root=organization_credentials.config_api_root,
         )
 
     # Test connection and creds
@@ -773,7 +637,24 @@ class CloudWorkspace:
                 safe_mode=safe_mode,
             )
 
-    # List sources, destinations, and connections
+    # List workspaces, sources, destinations, and connections
+
+    def list_workspaces(
+        self,
+        name: str | None = None,
+        *,
+        name_filter: Callable | None = None,
+    ) -> list[WorkspaceResponse]:
+        """List workspaces available to the current credentials."""
+        return api_util.list_workspaces(
+            workspace_id="",
+            api_root=self.api_root,
+            name=name,
+            name_filter=name_filter,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
 
     def list_connections(
         self,

@@ -25,6 +25,7 @@ from airbyte_api.models import (
     ConnectionResponse,
     DestinationResponse,
     JobResponse,
+    WorkspaceResponse,
 )
 
 # Public-Use Classes
@@ -39,4 +40,5 @@ __all__: list[str] = [
     "DestinationResponse",
     "JobResponse",
     "JobStatusEnum",
+    "WorkspaceResponse",
 ]
