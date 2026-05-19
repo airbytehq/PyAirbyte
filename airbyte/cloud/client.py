@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util
@@ -13,7 +13,6 @@ from airbyte.cloud._credentials import (
     CloudLoginResult,
     _AirbyteCredentials,
     login_with_client_credentials,
-    resolve_cloud_credentials,
 )
 from airbyte.cloud._credentials import logout as remove_credentials_file
 from airbyte.cloud.organizations import CloudOrganization
@@ -112,7 +111,7 @@ class CloudClient:
     ) -> CloudClient:
         """Create a client from shared environment and credentials-file resolution."""
         return cls.from_credentials(
-            resolve_cloud_credentials(
+            _AirbyteCredentials.from_auth(
                 client_id=client_id,
                 client_secret=client_secret,
                 bearer_token=bearer_token,
@@ -136,7 +135,7 @@ class CloudClient:
     ) -> CloudClient:
         """Create a client from explicit inputs, env vars, and credentials file."""
         return cls.from_credentials(
-            resolve_cloud_credentials(
+            _AirbyteCredentials.from_auth(
                 organization_id=organization_id,
                 client_id=client_id,
                 client_secret=client_secret,
@@ -151,27 +150,6 @@ class CloudClient:
     def from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
         """Create a client from resolved Cloud credentials."""
         return cls(credentials=credentials)
-
-    @classmethod
-    def from_explicit_credentials(
-        cls,
-        *,
-        client_id: str | SecretString | None = None,
-        client_secret: str | SecretString | None = None,
-        bearer_token: str | SecretString | None = None,
-        public_api_root: str | None = None,
-        config_api_root: str | None = None,
-        organization_id: str | None = None,
-    ) -> CloudClient:
-        """Create a client from explicit credential values only."""
-        return cls(
-            client_id=client_id,
-            client_secret=client_secret,
-            bearer_token=bearer_token,
-            public_api_root=public_api_root,
-            config_api_root=config_api_root,
-            organization_id=organization_id,
-        )
 
     def login(
         self,
@@ -215,17 +193,67 @@ class CloudClient:
                 guidance="Provide a workspace ID.",
             )
 
-        return CloudWorkspace.from_credentials(
-            self.credentials.with_workspace_id(resolved_workspace_id)
+        credentials = self.credentials.with_workspace_id(resolved_workspace_id)
+        return CloudWorkspace(
+            workspace_id=credentials.workspace_id,
+            client_id=credentials.client_id,
+            client_secret=credentials.client_secret,
+            bearer_token=credentials.bearer_token,
+            api_root=credentials.public_api_root,
+            config_api_root=credentials.config_api_root,
         )
+
+    @overload
+    def list_workspaces(
+        self,
+        name: str | None = None,
+        *,
+        organization_id: None = None,
+        name_contains: str | None = None,
+        name_filter: Callable[[str], bool] | None = None,
+        limit: int | None = None,
+    ) -> list[api_imports.WorkspaceResponse]: ...
+
+    @overload
+    def list_workspaces(
+        self,
+        name: str | None = None,
+        *,
+        organization_id: str,
+        name_contains: str | None = None,
+        name_filter: Callable[[str], bool] | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, object]]: ...
 
     def list_workspaces(
         self,
         name: str | None = None,
         *,
+        organization_id: str | None = None,
+        name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
-    ) -> list[api_imports.WorkspaceResponse]:
+        limit: int | None = None,
+    ) -> list[api_imports.WorkspaceResponse] | list[dict[str, object]]:
         """List workspaces available to this client."""
+        if organization_id is not None or self.organization_id is not None:
+            resolved_organization_id = organization_id or self.organization_id
+            if not resolved_organization_id:
+                raise exc.PyAirbyteInputError(
+                    message="Organization ID is required.",
+                    guidance="Provide an organization ID.",
+                )
+            return api_util.list_workspaces_in_organization(
+                organization_id=resolved_organization_id,
+                api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                name_contains=name_contains or name,
+                limit=limit,
+            )
+        if name_contains is not None:
+            name = name_contains
         return api_util.list_workspaces(
             workspace_id="",
             api_root=self.public_api_root,
@@ -234,32 +262,6 @@ class CloudClient:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
-        )
-
-    def list_workspaces_in_organization(
-        self,
-        organization_id: str | None = None,
-        *,
-        name_contains: str | None = None,
-        limit: int | None = None,
-    ) -> list[dict[str, object]]:
-        """List workspaces in an organization using the Config API."""
-        resolved_organization_id = organization_id or self.organization_id
-        if not resolved_organization_id:
-            raise exc.PyAirbyteInputError(
-                message="Organization ID is required.",
-                guidance="Provide an organization ID.",
-            )
-
-        return api_util.list_workspaces_in_organization(
-            organization_id=resolved_organization_id,
-            api_root=self.public_api_root,
-            config_api_root=self.config_api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-            name_contains=name_contains,
-            limit=limit,
         )
 
     def get_organization(

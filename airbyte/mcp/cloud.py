@@ -281,7 +281,7 @@ def _get_cloud_client(
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
     config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
 
-    return CloudClient.from_explicit_credentials(
+    return CloudClient(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -1325,7 +1325,7 @@ def _resolve_organization(
             message="Either 'organization_id' or 'organization_name' must be provided."
         )
 
-    return CloudClient.from_explicit_credentials(
+    return CloudClient(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
@@ -1418,7 +1418,7 @@ def list_cloud_workspaces(
         config_api_root=client.config_api_root,
     )
 
-    workspaces = client.list_workspaces_in_organization(
+    workspaces = client.list_workspaces(
         organization_id=resolved_org_id,
         name_contains=name_contains,
         limit=limit,

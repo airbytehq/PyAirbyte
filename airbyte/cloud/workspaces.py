@@ -45,10 +45,7 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
-from airbyte.cloud._credentials import (
-    _AirbyteCredentials,
-    resolve_cloud_credentials,
-)
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -122,7 +119,7 @@ class CloudWorkspace:
     ) -> None:
         """Validate and initialize credentials."""
         self.config_api_root = config_api_root
-        credentials = resolve_cloud_credentials(
+        credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
             client_id=client_id,
             client_secret=client_secret,
@@ -151,18 +148,6 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
             api_root=self.api_root,
             config_api_root=self.config_api_root,
-        )
-
-    @classmethod
-    def from_credentials(cls, credentials: _AirbyteCredentials) -> CloudWorkspace:
-        """Create a workspace from resolved credentials."""
-        return cls(
-            workspace_id=credentials.workspace_id,
-            client_id=credentials.client_id,
-            client_secret=credentials.client_secret,
-            bearer_token=credentials.bearer_token,
-            api_root=credentials.public_api_root,
-            config_api_root=credentials.config_api_root,
         )
 
     @classmethod

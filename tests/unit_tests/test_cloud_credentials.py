@@ -125,7 +125,7 @@ def test_cloud_client_login_uses_cloud_default_roots(
 
     monkeypatch.setattr(cloud_credentials, "get_bearer_token", fake_get_bearer_token)
 
-    result = CloudClient.from_explicit_credentials(
+    result = CloudClient(
         client_id=SecretString("test-client-id"),
         client_secret=SecretString("test-client-secret"),
     ).login(credentials_file_path=credentials_file_path)
@@ -134,7 +134,7 @@ def test_cloud_client_login_uses_cloud_default_roots(
     assert result.config_api_root == constants.CLOUD_CONFIG_API_ROOT
 
 
-def test_resolve_cloud_credentials_uses_pyairbyte_secret_lookup(
+def test_airbyte_credentials_from_auth_uses_pyairbyte_secret_lookup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     secrets = {
@@ -153,7 +153,7 @@ def test_resolve_cloud_credentials_uses_pyairbyte_secret_lookup(
 
     monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
 
-    credentials = cloud_credentials.resolve_cloud_credentials()
+    credentials = cloud_credentials._AirbyteCredentials.from_auth()
 
     assert credentials.bearer_token == "test-bearer-token"
     assert credentials.workspace_id == "test-workspace-id"
