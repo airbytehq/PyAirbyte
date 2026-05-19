@@ -55,28 +55,6 @@ class CloudClient:
             organization_id=organization_id,
         )
 
-    @staticmethod
-    def _credentials_from_auth(
-        *,
-        organization_id: str | None = None,
-        client_id: str | SecretString | None = None,
-        client_secret: str | SecretString | None = None,
-        bearer_token: str | SecretString | None = None,
-        public_api_root: str | None = None,
-        config_api_root: str | None = None,
-        credentials_file_path: Path = CREDENTIALS_FILE_PATH,
-    ) -> _AirbyteCredentials:
-        """Create resolved Cloud credentials from explicit inputs."""
-        return _AirbyteCredentials.from_auth(
-            organization_id=organization_id,
-            client_id=client_id,
-            client_secret=client_secret,
-            bearer_token=bearer_token,
-            public_api_root=public_api_root,
-            config_api_root=config_api_root,
-            credentials_file_path=credentials_file_path,
-        )
-
     @property
     def client_id(self) -> SecretString | None:
         """OAuth client ID used for authentication."""
@@ -119,7 +97,7 @@ class CloudClient:
         config_api_root: str | None = None,
     ) -> CloudClient:
         """Create a client from shared environment and credentials-file resolution."""
-        credentials = cls._credentials_from_auth(
+        credentials = _AirbyteCredentials.from_auth(
             client_id=client_id,
             client_secret=client_secret,
             bearer_token=bearer_token,
@@ -127,7 +105,7 @@ class CloudClient:
             public_api_root=public_api_root,
             config_api_root=config_api_root,
         )
-        return cls._new_from_credentials(credentials)
+        return cls._from_credentials(credentials)
 
     @classmethod
     def from_auth(
@@ -142,7 +120,7 @@ class CloudClient:
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
     ) -> CloudClient:
         """Create a client from explicit inputs, env vars, and credentials file."""
-        credentials = cls._credentials_from_auth(
+        credentials = _AirbyteCredentials.from_auth(
             organization_id=organization_id,
             client_id=client_id,
             client_secret=client_secret,
@@ -151,10 +129,10 @@ class CloudClient:
             config_api_root=config_api_root,
             credentials_file_path=credentials_file_path,
         )
-        return cls._new_from_credentials(credentials)
+        return cls._from_credentials(credentials)
 
     @classmethod
-    def _new_from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
+    def _from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
         """Create a client from resolved Cloud credentials."""
         return cls(
             client_id=credentials.client_id,
