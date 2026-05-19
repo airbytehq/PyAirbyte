@@ -109,7 +109,7 @@ class CloudClient:
         config_api_root: str | None = None,
     ) -> CloudClient:
         """Create a client from shared environment and credentials-file resolution."""
-        return cls.from_credentials(
+        return cls._from_credentials(
             _AirbyteCredentials.from_auth(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -133,7 +133,7 @@ class CloudClient:
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
     ) -> CloudClient:
         """Create a client from explicit inputs, env vars, and credentials file."""
-        return cls.from_credentials(
+        return cls._from_credentials(
             _AirbyteCredentials.from_auth(
                 organization_id=organization_id,
                 client_id=client_id,
@@ -146,7 +146,7 @@ class CloudClient:
         )
 
     @classmethod
-    def from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
+    def _from_credentials(cls, credentials: _AirbyteCredentials) -> CloudClient:
         """Create a client from resolved Cloud credentials."""
         return cls(credentials=credentials)
 
