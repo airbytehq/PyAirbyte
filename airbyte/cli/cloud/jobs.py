@@ -66,7 +66,7 @@ def list_(
 
 
 @jobs_app.command
-def get(
+def describe(
     *job_id_args: PositionalIdArg,
     job_id: JobIdArg = None,
     workspace_id: WorkspaceIdArg = None,
@@ -74,7 +74,7 @@ def get(
     client_secret: ClientSecretArg = None,
     public_api_root: ApiUrlArg = None,
 ) -> None:
-    """Get details of a specific job."""
+    """Describe a specific job."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
     workspace = CloudWorkspace(
         workspace_id=workspace_id,

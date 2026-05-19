@@ -45,14 +45,14 @@ def list_(
 
 
 @workspaces_app.command
-def get(
+def describe(
     workspace_id: WorkspaceIdArg = None,
     *,
     client_id: ClientIdArg = None,
     client_secret: ClientSecretArg = None,
     public_api_root: ApiUrlArg = None,
 ) -> None:
-    """Get workspace details."""
+    """Describe workspace details."""
     workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,

@@ -34,6 +34,31 @@ def test_generate_cli_reference_writes_markdown(tmp_path: Path) -> None:
 
 
 @pytest.mark.filterwarnings("ignore")
+@pytest.mark.parametrize(
+    "command_group",
+    [
+        pytest.param("workspaces", id="workspaces"),
+        pytest.param("sources", id="sources"),
+        pytest.param("destinations", id="destinations"),
+        pytest.param("connections", id="connections"),
+        pytest.param("jobs", id="jobs"),
+    ],
+)
+def test_generate_cli_reference_uses_describe_for_detail_commands(
+    tmp_path: Path,
+    command_group: str,
+) -> None:
+    """Cloud resource detail commands use `describe` rather than `get`."""
+    output_path = tmp_path / "cloud-reference.md"
+
+    generate_cli_reference(output_path)
+
+    content = output_path.read_text()
+    assert f"airbyte cloud {command_group} describe" in content
+    assert f"airbyte cloud {command_group} get" not in content
+
+
+@pytest.mark.filterwarnings("ignore")
 def test_generate_local_cli_reference_writes_markdown(tmp_path: Path) -> None:
     """`generate_local_cli_reference` writes a non-empty Markdown file."""
     output_path = tmp_path / "local-reference.md"
