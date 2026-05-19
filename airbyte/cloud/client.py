@@ -212,7 +212,8 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
-    ) -> list[api_imports.WorkspaceResponse]: ...
+    ) -> list[api_imports.WorkspaceResponse]:
+        raise NotImplementedError
 
     @overload
     def list_workspaces(
@@ -223,7 +224,8 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
-    ) -> list[dict[str, object]]: ...
+    ) -> list[dict[str, object]]:
+        raise NotImplementedError
 
     def list_workspaces(
         self,
