@@ -28,7 +28,7 @@ from airbyte.cli._input import (
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.workspaces import CloudWorkspace
 
 
 destinations_app = _create_app(name="destinations", help_text="Manage Airbyte Cloud destinations.")
@@ -44,11 +44,11 @@ def list_(
     public_api_root: ApiUrlArg = None,
 ) -> None:
     """List destinations in the workspace."""
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output([destination.get_info() for destination in workspace.list_destinations()])
 
@@ -68,11 +68,11 @@ def get(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output(workspace.get_destination(resolved_destination_id).get_info())
 
@@ -96,11 +96,11 @@ def create(
     """Create a new destination in the workspace."""
     config = parse_config_options(config_json=config_json, config_file=config_file)
     config["destinationType"] = destination_type
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output(workspace.deploy_destination(name=name, destination=config).get_info())
 
@@ -121,11 +121,11 @@ def rename(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output(workspace.get_destination(resolved_destination_id).rename(name).get_info())
 
@@ -152,11 +152,11 @@ def update(
         option_name="--destination-id",
     )
     config = parse_config_options(config_json=config_json, config_file=config_file)
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output(workspace.get_destination(resolved_destination_id).update_config(config).get_info())
 
@@ -177,11 +177,11 @@ def delete(
         destination_id,
         option_name="--destination-id",
     )
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     workspace.permanently_delete_destination(
         destination=workspace.get_destination(resolved_destination_id),

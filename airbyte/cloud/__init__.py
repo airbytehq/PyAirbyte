@@ -84,19 +84,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
 from airbyte.cloud.sync_results import SyncResult
-from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.cloud.workspaces import CloudClient, CloudWorkspace
 
 
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757
 if TYPE_CHECKING:
     # ruff: noqa: TC004
     from airbyte.cloud import (
-        client,
         client_config,
         connections,
         constants,
@@ -109,7 +107,6 @@ __all__ = [
     # Submodules
     "workspaces",
     "connections",
-    "client",
     "constants",
     "client_config",
     "sync_results",

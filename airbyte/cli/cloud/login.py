@@ -15,7 +15,7 @@ from airbyte.cli._input import (  # noqa: TC001  # Cyclopts resolves aliases at 
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.workspaces import CloudClient
 
 
 @cloud_app.command

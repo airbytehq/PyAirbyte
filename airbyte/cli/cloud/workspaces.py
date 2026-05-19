@@ -21,7 +21,7 @@ from airbyte.cli._input import (  # noqa: TC001
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.workspaces import CloudClient, CloudWorkspace
 
 
 workspaces_app = _create_app(name="workspaces", help_text="Manage Airbyte Cloud workspaces.")
@@ -53,11 +53,11 @@ def get(
     public_api_root: ApiUrlArg = None,
 ) -> None:
     """Get workspace details."""
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output(workspace.get_info())
 

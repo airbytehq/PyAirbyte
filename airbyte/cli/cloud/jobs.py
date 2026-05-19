@@ -26,7 +26,7 @@ from airbyte.cli._input import (
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import PyAirbyteInputError
 
 
@@ -55,11 +55,11 @@ def list_(
     public_api_root: ApiUrlArg = None,
 ) -> None:
     """List recent jobs for a connection."""
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     results = workspace.get_connection(connection_id).get_previous_sync_logs(limit=limit)
     json_output([job.get_info() for job in results])
@@ -76,11 +76,11 @@ def get(
 ) -> None:
     """Get details of a specific job."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     json_output(workspace.get_job_info(resolved_job_id))
 
@@ -99,11 +99,11 @@ def wait(
 ) -> None:
     """Wait for a job to complete."""
     resolved_job_id = _resolve_job_id(job_id_args, job_id)
-    workspace = CloudClient.get_workspace_from_auth(
+    workspace = CloudWorkspace(
         workspace_id=workspace_id,
         client_id=client_id,
         client_secret=client_secret,
-        public_api_root=public_api_root,
+        api_root=public_api_root,
     )
     job = workspace.get_job_info(resolved_job_id)
     result = workspace.get_connection(job.connection_id).get_sync_result(resolved_job_id)
