@@ -171,6 +171,12 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
         status=200,
     )
     responses.add(
+        responses.POST,
+        f"{api_root}/internal/auth/exchange",
+        json={"access_token": "fast-token", "organization_id": "initial-org-id"},
+        status=200,
+    )
+    responses.add(
         responses.GET,
         f"{api_root}/internal/account/enrollment-status",
         json={"is_enrolled": True, "organization_id": "initial-org-id"},
@@ -183,6 +189,15 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
             "organizations": [
                 {"id": "selected-org-id", "organization_name": "Selected Org"}
             ]
+        },
+        status=200,
+    )
+    responses.add(
+        responses.POST,
+        f"{api_root}/internal/auth/exchange",
+        json={
+            "access_token": "selected-fast-token",
+            "organization_id": "selected-org-id",
         },
         status=200,
     )
@@ -228,8 +243,22 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
     assert "code_verifier" in token_request
     assert token_headers["Content-Type"] == "application/x-www-form-urlencoded"
     assert token_headers["User-Agent"] == cloud_credentials.PYAIRBYTE_USER_AGENT
-    assert responses.calls[2].request.headers["X-Organization-Id"] == "initial-org-id"
-    assert responses.calls[3].request.headers["X-Organization-Id"] == "selected-org-id"
+    assert (
+        responses.calls[1].request.headers["Authorization"]
+        == "Bearer keycloak-access-token"
+    )
+    assert responses.calls[2].request.headers["Authorization"] == "Bearer fast-token"
+    assert responses.calls[3].request.headers["X-Organization-Id"] == "initial-org-id"
+    assert (
+        responses.calls[4].request.headers["Authorization"]
+        == "Bearer keycloak-access-token"
+    )
+    assert responses.calls[4].request.headers["X-Organization-Id"] == "selected-org-id"
+    assert (
+        responses.calls[5].request.headers["Authorization"]
+        == "Bearer selected-fast-token"
+    )
+    assert responses.calls[5].request.headers["X-Organization-Id"] == "selected-org-id"
 
 
 @responses.activate
@@ -262,9 +291,15 @@ def test_login_with_browser_uses_organization_override(tmp_path: Path) -> None:
         status=200,
     )
     responses.add(
+        responses.POST,
+        f"{api_root}/internal/auth/exchange",
+        json={"access_token": "fast-token", "organization_id": "override-org-id"},
+        status=200,
+    )
+    responses.add(
         responses.GET,
         f"{api_root}/internal/account/enrollment-status",
-        json={"is_enrolled": True, "organization_id": "initial-org-id"},
+        json={"is_enrolled": True, "organization_id": "override-org-id"},
         status=200,
     )
     responses.add(
@@ -285,8 +320,10 @@ def test_login_with_browser_uses_organization_override(tmp_path: Path) -> None:
     )
 
     assert result.organization_id == "override-org-id"
-    assert len(responses.calls) == 3
-    assert responses.calls[2].request.headers["X-Organization-Id"] == "override-org-id"
+    assert len(responses.calls) == 4
+    assert responses.calls[1].request.headers["X-Organization-Id"] == "override-org-id"
+    assert responses.calls[3].request.headers["Authorization"] == "Bearer fast-token"
+    assert responses.calls[3].request.headers["X-Organization-Id"] == "override-org-id"
 
 
 def test_login_without_client_credentials_raises_client_credentials_error() -> None:
