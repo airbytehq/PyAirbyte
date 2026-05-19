@@ -6,9 +6,21 @@ from __future__ import annotations
 import functools
 import inspect
 import json
+import types
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, ParamSpec, TypeVar, overload
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    ParamSpec,
+    TypeVar,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
+import typing_extensions
 import yaml
 from cyclopts import Parameter
 
@@ -148,6 +160,49 @@ def _json_string_values_match(named_value: object, json_value: object) -> bool:
         return False
 
 
+def _annotation_allows_none(annotation: object) -> bool:
+    """Return `True` when an annotation accepts `None`."""
+    if annotation is inspect.Parameter.empty:
+        return False
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        annotation = get_args(annotation)[0]
+        origin = get_origin(annotation)
+    return annotation is None or (
+        (origin is types.UnionType or str(origin) == "typing.Union")
+        and type(None) in get_args(annotation)
+    )
+
+
+def _make_annotation_optional(annotation: object) -> object:
+    """Return an annotation that accepts `None`."""
+    if annotation is inspect.Parameter.empty:
+        return annotation
+    if _annotation_allows_none(annotation):
+        return annotation
+    typed_annotation = cast("type[object]", annotation)
+    origin = get_origin(annotation)
+    if origin is Annotated:
+        inner_annotation, *metadata = get_args(annotation)
+        return _make_annotated_optional(cast("type[object]", inner_annotation), metadata)
+    return typed_annotation | None
+
+
+def _make_annotated_optional(
+    inner_annotation: type[object],
+    metadata: list[object],
+) -> object:
+    """Return an `Annotated` annotation that accepts `None`."""
+    return typing_extensions.Annotated[(inner_annotation | None, *metadata)]
+
+
+def _is_default_cli_value(value: object, parameter: inspect.Parameter) -> bool:
+    """Return `True` when a CLI value matches the wrapped command default."""
+    if parameter.default is inspect.Parameter.empty:
+        return value is None
+    return value == parameter.default
+
+
 def resolve_json_input(
     json_values: dict[str, object],
     named_values: dict[str, object],
@@ -219,6 +274,7 @@ def with_json_input(
     def decorate(command: Callable[_P, _R]) -> Callable[_P, _R]:
         """Decorate a command with JSON input support."""
         signature = inspect.signature(command)
+        resolved_annotations = get_type_hints(command, include_extras=True)
 
         @functools.wraps(command)
         def wrapper(*args: _P.args, **kwargs: _P.kwargs) -> _R:
@@ -239,7 +295,11 @@ def with_json_input(
                     continue
                 if parameter.default is inspect.Parameter.empty:
                     required_fields.add(name)
-                named_values[name] = kwargs.get(name, _MISSING)
+                named_value = kwargs.get(name, _MISSING)
+                if named_value is _MISSING or _is_default_cli_value(named_value, parameter):
+                    named_values[name] = _MISSING
+                else:
+                    named_values[name] = named_value
 
             resolved_values = resolve_json_input(
                 json_values,
@@ -252,12 +312,17 @@ def with_json_input(
 
         parameters = []
         for parameter in signature.parameters.values():
-            resolved_parameter = parameter
+            resolved_parameter = parameter.replace(
+                annotation=resolved_annotations.get(parameter.name, parameter.annotation)
+            )
             if (
                 parameter.kind is inspect.Parameter.KEYWORD_ONLY
                 and parameter.default is inspect.Parameter.empty
             ):
-                resolved_parameter = parameter.replace(default=None)
+                resolved_parameter = resolved_parameter.replace(
+                    annotation=_make_annotation_optional(resolved_parameter.annotation),
+                    default=None,
+                )
             parameters.append(resolved_parameter)
 
         parameters.extend(
@@ -277,6 +342,9 @@ def with_json_input(
             ]
         )
         wrapper.__signature__ = signature.replace(parameters=parameters)  # type: ignore[attr-defined]
+        wrapper.__annotations__ = {parameter.name: parameter.annotation for parameter in parameters}
+        if hasattr(wrapper, "__wrapped__"):
+            delattr(wrapper, "__wrapped__")
         return wrapper  # type: ignore[return-value]
 
     if command is None:

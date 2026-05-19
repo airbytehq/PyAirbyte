@@ -15,6 +15,17 @@ from airbyte.cli.cloud import connections, sources
 from airbyte.exceptions import PyAirbyteInputError
 
 
+def _invoke_command(command, args: list[str]) -> None:
+    """Invoke a Cyclopts command and allow successful exits."""
+    app = App()
+    app.command(command)
+    try:
+        app(["create", *args])
+    except SystemExit as exc:
+        if exc.code not in (0, None):
+            raise
+
+
 def test_parse_json_input_options(tmp_path) -> None:
     """`parse_json_input_options` parses inline JSON and JSON files."""
     json_file = tmp_path / "input.json"
@@ -181,14 +192,16 @@ def test_source_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(sources, "CloudWorkspace", FakeWorkspace)
     monkeypatch.setattr(sources, "json_output", outputs.append)
 
-    sources.create(
-        json_input=json.dumps(  # type: ignore[call-arg]
-            {
+    _invoke_command(
+        sources.create,
+        [
+            "--json",
+            json.dumps({
                 "name": "Test Source",
                 "source_type": "postgres",
                 "config": {"host": "localhost"},
-            }
-        )
+            }),
+        ],
     )
 
     assert calls["workspace"] == {
@@ -204,8 +217,92 @@ def test_source_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> No
     assert outputs == [{"sourceId": "source-id"}]
 
 
-def test_connection_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`connections create` accepts command input from `--json`."""
+def test_source_create_accepts_named_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`sources create` accepts command input from named CLI args."""
+    calls = {}
+    outputs = []
+
+    class FakeSource:
+        def get_info(self) -> dict[str, object]:
+            return {"sourceId": "source-id"}
+
+    class FakeWorkspace:
+        def __init__(self, **kwargs: object) -> None:
+            calls["workspace"] = kwargs
+
+        def deploy_source(self, *, name: str, config: dict[str, object]) -> FakeSource:
+            calls["deploy_source"] = {"name": name, "config": config}
+            return FakeSource()
+
+    monkeypatch.setattr(sources, "CloudWorkspace", FakeWorkspace)
+    monkeypatch.setattr(sources, "json_output", outputs.append)
+
+    _invoke_command(
+        sources.create,
+        [
+            "--name",
+            "Named Source",
+            "--source-type",
+            "postgres",
+            "--config-json",
+            '{"host":"localhost"}',
+        ],
+    )
+
+    assert calls["workspace"] == {
+        "workspace_id": None,
+        "client_id": None,
+        "client_secret": None,
+        "api_root": None,
+    }
+    assert calls["deploy_source"] == {
+        "name": "Named Source",
+        "config": {"host": "localhost", "sourceType": "postgres"},
+    }
+    assert outputs == [{"sourceId": "source-id"}]
+
+
+@pytest.mark.parametrize(
+    "args,expected_name",
+    [
+        pytest.param(
+            [
+                "--json",
+                json.dumps({
+                    "name": "Test Connection",
+                    "source_id": "source-id",
+                    "destination_id": "destination-id",
+                    "prefix": "raw_",
+                    "selected_streams": ["users", "orders"],
+                }),
+            ],
+            "Test Connection",
+            id="json_input",
+        ),
+        pytest.param(
+            [
+                "--name",
+                "Named Connection",
+                "--source-id",
+                "source-id",
+                "--destination-id",
+                "destination-id",
+                "--prefix",
+                "raw_",
+                "--selected-streams",
+                "users,orders",
+            ],
+            "Named Connection",
+            id="named_args",
+        ),
+    ],
+)
+def test_connection_create_accepts_json_and_named_input(
+    args: list[str],
+    expected_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`connections create` accepts JSON input and named CLI args."""
     calls = {}
     outputs = []
 
@@ -246,17 +343,7 @@ def test_connection_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(connections, "CloudWorkspace", FakeWorkspace)
     monkeypatch.setattr(connections, "json_output", outputs.append)
 
-    connections.create(
-        json_input=json.dumps(  # type: ignore[call-arg]
-            {
-                "name": "Test Connection",
-                "source_id": "source-id",
-                "destination_id": "destination-id",
-                "prefix": "raw_",
-                "selected_streams": ["users", "orders"],
-            }
-        )
-    )
+    _invoke_command(connections.create, args)
 
     assert calls["workspace"] == {
         "workspace_id": None,
@@ -267,7 +354,7 @@ def test_connection_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -
     assert calls["source_id"] == "source-id"
     assert calls["destination_id"] == "destination-id"
     assert calls["deploy_connection"] == {
-        "connection_name": "Test Connection",
+        "connection_name": expected_name,
         "source": "source:source-id",
         "destination": "destination:destination-id",
         "table_prefix": "raw_",
