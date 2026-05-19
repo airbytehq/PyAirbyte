@@ -521,6 +521,7 @@ class CloudWorkspace:
 
     def __init__(
         self,
+        *,
         workspace_id: str | None = None,
         client_id: str | SecretString | None = None,
         client_secret: str | SecretString | None = None,
