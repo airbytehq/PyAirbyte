@@ -61,7 +61,7 @@ from airbyte.exceptions import AirbyteError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte._util.api_imports import JobResponse, WorkspaceResponse
+    from airbyte._util.api_imports import WorkspaceResponse
     from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
 
@@ -210,16 +210,6 @@ class CloudWorkspace:
     def workspace_url(self) -> str | None:
         """The web URL of the workspace."""
         return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
-
-    def get_info(self) -> WorkspaceResponse:
-        """Return API metadata for the workspace."""
-        return api_util.get_workspace(
-            api_root=self.api_root,
-            workspace_id=self.workspace_id,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-        )
 
     @cached_property
     def _organization_info(self) -> dict[str, Any]:
@@ -754,16 +744,6 @@ class CloudWorkspace:
             )
             for destination in destinations
         ]
-
-    def get_job_info(self, job_id: int) -> JobResponse:
-        """Get a job by ID."""
-        return api_util.get_job_info(
-            job_id=job_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-        )
 
     def publish_custom_source_definition(
         self,
