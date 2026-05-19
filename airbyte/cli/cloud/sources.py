@@ -25,6 +25,7 @@ from airbyte.cli._input import (
     WorkspaceIdArg,
     parse_config_options,
     resolve_entity_id,
+    with_json_input,
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
@@ -74,6 +75,7 @@ def get(
 
 
 @sources_app.command
+@with_json_input(field_aliases={"config": "config_json"}, json_string_fields={"config_json"})
 def create(
     *,
     name: Annotated[str, Parameter(help="Display name for the source.")],

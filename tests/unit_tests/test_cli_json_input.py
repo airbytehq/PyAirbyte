@@ -1,0 +1,272 @@
+# Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+"""Tests for CLI JSON input helpers."""
+
+from __future__ import annotations
+
+import inspect
+import json
+from typing import Annotated
+
+import pytest
+from cyclopts import App, Parameter
+
+from airbyte.cli import _input
+from airbyte.cli.cloud import connections, sources
+from airbyte.exceptions import PyAirbyteInputError
+
+
+def test_parse_json_input_options(tmp_path) -> None:
+    """`parse_json_input_options` parses inline JSON and JSON files."""
+    json_file = tmp_path / "input.json"
+    json_file.write_text('{"name": "from-file"}', encoding="utf-8")
+
+    assert _input.parse_json_input_options(json_input='{"name": "inline"}') == {
+        "name": "inline"
+    }
+    assert _input.parse_json_input_options(json_file=json_file) == {"name": "from-file"}
+    assert _input.parse_json_input_options() == {}
+
+    with pytest.raises(PyAirbyteInputError, match="Only one JSON input source"):
+        _input.parse_json_input_options(json_input="{}", json_file=json_file)
+
+    with pytest.raises(PyAirbyteInputError, match="JSON input must be an object"):
+        _input.parse_json_input_options(json_input="[]")
+
+
+@pytest.mark.parametrize(
+    "json_values,named_values,required_fields,json_string_fields,expected",
+    [
+        pytest.param(
+            {"name": "json-name"},
+            {"name": _input._MISSING},  # noqa: SLF001
+            {"name"},
+            set(),
+            {"name": "json-name"},
+            id="json_supplies_required_value",
+        ),
+        pytest.param(
+            {"config_json": json.dumps({"host": "localhost"})},
+            {"config_json": '{"host":"localhost"}'},
+            set(),
+            {"config_json"},
+            {},
+            id="json_string_conflict_uses_semantic_equality",
+        ),
+    ],
+)
+def test_resolve_json_input(
+    json_values: dict[str, object],
+    named_values: dict[str, object],
+    required_fields: set[str],
+    json_string_fields: set[str],
+    expected: dict[str, object],
+) -> None:
+    """`resolve_json_input` merges JSON values into named CLI values."""
+    assert (
+        _input.resolve_json_input(
+            json_values,
+            named_values,
+            required_fields=required_fields,
+            json_string_fields=json_string_fields,
+        )
+        == expected
+    )
+
+
+@pytest.mark.parametrize(
+    "json_values,named_values,required_fields,match",
+    [
+        pytest.param(
+            {"extra": "value"},
+            {"name": _input._MISSING},  # noqa: SLF001
+            {"name"},
+            "JSON input field is not supported",
+            id="unsupported_field",
+        ),
+        pytest.param(
+            {"name": "json-name"},
+            {"name": "named-name"},
+            {"name"},
+            "JSON input value conflicts with named CLI argument",
+            id="conflicting_named_value",
+        ),
+        pytest.param(
+            {},
+            {"name": _input._MISSING},  # noqa: SLF001
+            {"name"},
+            "Required command input is missing",
+            id="missing_required_value",
+        ),
+    ],
+)
+def test_resolve_json_input_errors(
+    json_values: dict[str, object],
+    named_values: dict[str, object],
+    required_fields: set[str],
+    match: str,
+) -> None:
+    """`resolve_json_input` rejects ambiguous or incomplete input."""
+    with pytest.raises(PyAirbyteInputError, match=match):
+        _input.resolve_json_input(
+            json_values,
+            named_values,
+            required_fields=required_fields,
+        )
+
+
+def test_with_json_input_patches_cyclopts_signature() -> None:
+    """`with_json_input` exposes JSON options and makes required args optional."""
+
+    @_input.with_json_input
+    def command(*, name: Annotated[str, Parameter(help="Name")]) -> str:
+        return name
+
+    signature = inspect.signature(command)
+
+    assert signature.parameters["name"].default is None
+    assert "json_input" in signature.parameters
+    assert "json_file" in signature.parameters
+    assert command(json_input='{"name": "json-name"}') == "json-name"  # type: ignore[call-arg]
+
+
+def test_source_create_help_includes_json_options(capsys: pytest.CaptureFixture[str]) -> None:
+    """`sources create --help` includes JSON input options."""
+    app = App()
+    app.command(sources.create)
+
+    with pytest.raises(SystemExit) as exc_info:
+        app(["create", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--json" in output
+    assert "--json-file" in output
+
+
+def test_connection_create_help_includes_json_options(capsys: pytest.CaptureFixture[str]) -> None:
+    """`connections create --help` includes JSON input options."""
+    app = App()
+    app.command(connections.create)
+
+    with pytest.raises(SystemExit) as exc_info:
+        app(["create", "--help"])
+
+    assert exc_info.value.code == 0
+    output = capsys.readouterr().out
+    assert "--json" in output
+    assert "--json-file" in output
+
+
+def test_source_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`sources create` accepts command input from `--json`."""
+    calls = {}
+    outputs = []
+
+    class FakeSource:
+        def get_info(self) -> dict[str, object]:
+            return {"sourceId": "source-id"}
+
+    class FakeWorkspace:
+        def __init__(self, **kwargs: object) -> None:
+            calls["workspace"] = kwargs
+
+        def deploy_source(self, *, name: str, config: dict[str, object]) -> FakeSource:
+            calls["deploy_source"] = {"name": name, "config": config}
+            return FakeSource()
+
+    monkeypatch.setattr(sources, "CloudWorkspace", FakeWorkspace)
+    monkeypatch.setattr(sources, "json_output", outputs.append)
+
+    sources.create(
+        json_input=json.dumps(  # type: ignore[call-arg]
+            {
+                "name": "Test Source",
+                "source_type": "postgres",
+                "config": {"host": "localhost"},
+            }
+        )
+    )
+
+    assert calls["workspace"] == {
+        "workspace_id": None,
+        "client_id": None,
+        "client_secret": None,
+        "api_root": None,
+    }
+    assert calls["deploy_source"] == {
+        "name": "Test Source",
+        "config": {"host": "localhost", "sourceType": "postgres"},
+    }
+    assert outputs == [{"sourceId": "source-id"}]
+
+
+def test_connection_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`connections create` accepts command input from `--json`."""
+    calls = {}
+    outputs = []
+
+    class FakeConnection:
+        def get_info(self) -> dict[str, object]:
+            return {"connectionId": "connection-id"}
+
+    class FakeWorkspace:
+        def __init__(self, **kwargs: object) -> None:
+            calls["workspace"] = kwargs
+
+        def get_source(self, source_id: str) -> str:
+            calls["source_id"] = source_id
+            return f"source:{source_id}"
+
+        def get_destination(self, destination_id: str) -> str:
+            calls["destination_id"] = destination_id
+            return f"destination:{destination_id}"
+
+        def deploy_connection(
+            self,
+            *,
+            connection_name: str,
+            source: str,
+            destination: str,
+            table_prefix: str,
+            selected_streams: list[str],
+        ) -> FakeConnection:
+            calls["deploy_connection"] = {
+                "connection_name": connection_name,
+                "source": source,
+                "destination": destination,
+                "table_prefix": table_prefix,
+                "selected_streams": selected_streams,
+            }
+            return FakeConnection()
+
+    monkeypatch.setattr(connections, "CloudWorkspace", FakeWorkspace)
+    monkeypatch.setattr(connections, "json_output", outputs.append)
+
+    connections.create(
+        json_input=json.dumps(  # type: ignore[call-arg]
+            {
+                "name": "Test Connection",
+                "source_id": "source-id",
+                "destination_id": "destination-id",
+                "prefix": "raw_",
+                "selected_streams": ["users", "orders"],
+            }
+        )
+    )
+
+    assert calls["workspace"] == {
+        "workspace_id": None,
+        "client_id": None,
+        "client_secret": None,
+        "api_root": None,
+    }
+    assert calls["source_id"] == "source-id"
+    assert calls["destination_id"] == "destination-id"
+    assert calls["deploy_connection"] == {
+        "connection_name": "Test Connection",
+        "source": "source:source-id",
+        "destination": "destination:destination-id",
+        "table_prefix": "raw_",
+        "selected_streams": ["users", "orders"],
+    }
+    assert outputs == [{"connectionId": "connection-id"}]
