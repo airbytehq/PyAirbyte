@@ -636,37 +636,6 @@ def _api_url(airbyte_api_root: str, path: str) -> str:
     return f"{airbyte_api_root.rstrip('/')}{path}"
 
 
-def _exchange_keycloak_token_for_fast_token(
-    *,
-    session: requests.Session,
-    keycloak_access_token: str,
-    organization_id: str | None,
-    airbyte_api_root: str,
-    timeout_seconds: int,
-) -> tuple[str, str]:
-    """Exchange a Keycloak access token for a Sonar fast token."""
-    exchange_response = _bootstrap_request(
-        session=session,
-        method="POST",
-        url=_api_url(airbyte_api_root, "/internal/auth/exchange"),
-        access_token=keycloak_access_token,
-        organization_id=organization_id,
-        operation="Airbyte Cloud token exchange request",
-        timeout_seconds=timeout_seconds,
-    )
-    fast_token = _required_string(
-        exchange_response,
-        "access_token",
-        operation="Airbyte Cloud token exchange request",
-    )
-    exchanged_organization_id = _required_string(
-        exchange_response,
-        "organization_id",
-        operation="Airbyte Cloud token exchange request",
-    )
-    return fast_token, exchanged_organization_id
-
-
 def _parse_organizations(data: Mapping[str, object]) -> list[_OrganizationItem]:
     """Parse bootstrap organization list response."""
     organizations = data.get("organizations")
@@ -747,18 +716,11 @@ def _bootstrap_airbyte_credentials(
     stdin_is_tty: bool,
 ) -> tuple[str, str, str]:
     """Bootstrap Airbyte client credentials from a Keycloak access token."""
-    fast_token, initial_organization_id = _exchange_keycloak_token_for_fast_token(
-        session=session,
-        keycloak_access_token=access_token,
-        organization_id=organization_id,
-        airbyte_api_root=airbyte_api_root,
-        timeout_seconds=timeout_seconds,
-    )
     enrollment = _bootstrap_request(
         session=session,
         method="GET",
         url=_api_url(airbyte_api_root, "/internal/account/enrollment-status"),
-        access_token=fast_token,
+        access_token=access_token,
         operation="Airbyte Cloud enrollment-status request",
         timeout_seconds=timeout_seconds,
     )
@@ -768,13 +730,18 @@ def _bootstrap_airbyte_credentials(
             guidance="Complete onboarding at https://app.airbyte.ai and retry login.",
         )
 
-    chosen_organization_id = organization_id or initial_organization_id
-    if not organization_id:
+    chosen_organization_id = organization_id
+    if not chosen_organization_id:
+        initial_organization_id = _required_string(
+            enrollment,
+            "organization_id",
+            operation="Airbyte Cloud enrollment-status request",
+        )
         organizations_response = _bootstrap_request(
             session=session,
             method="GET",
             url=_api_url(airbyte_api_root, "/internal/account/organizations"),
-            access_token=fast_token,
+            access_token=access_token,
             organization_id=initial_organization_id,
             operation="Airbyte Cloud organizations request",
             timeout_seconds=timeout_seconds,
@@ -785,20 +752,12 @@ def _bootstrap_airbyte_credentials(
             error_stream=error_stream,
             stdin_is_tty=stdin_is_tty,
         )
-        if chosen_organization_id != initial_organization_id:
-            fast_token, chosen_organization_id = _exchange_keycloak_token_for_fast_token(
-                session=session,
-                keycloak_access_token=access_token,
-                organization_id=chosen_organization_id,
-                airbyte_api_root=airbyte_api_root,
-                timeout_seconds=timeout_seconds,
-            )
 
     application = _bootstrap_request(
         session=session,
         method="POST",
         url=_api_url(airbyte_api_root, "/internal/account/applications"),
-        access_token=fast_token,
+        access_token=access_token,
         organization_id=chosen_organization_id,
         operation="Airbyte Cloud applications request",
         timeout_seconds=timeout_seconds,
