@@ -6,9 +6,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import json
 import secrets
 import socket
 import sys
+import tempfile
 import threading
 import webbrowser
 from collections.abc import Callable, Mapping, Sequence
@@ -22,7 +24,6 @@ from typing import TextIO
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import requests
-import yaml
 
 from airbyte._util.api_util import get_bearer_token, status_ok
 from airbyte.constants import (
@@ -40,7 +41,7 @@ from airbyte.exceptions import AirbyteError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
-CREDENTIALS_FILE_PATH = Path("~/.airbyte/credentials").expanduser()
+CREDENTIALS_FILE_PATH = Path("~/.airbyte-cli/settings.json").expanduser()
 CLIENT_ID_ENV_VAR = "AIRBYTE_CLIENT_ID"
 CLIENT_SECRET_ENV_VAR = "AIRBYTE_CLIENT_SECRET"
 WORKSPACE_ID_ENV_VAR = "AIRBYTE_WORKSPACE_ID"
@@ -81,17 +82,33 @@ class CloudCredentials:
     organization_id: str | None = None
 
 
-def _as_string_mapping(parsed: object) -> dict[str, str]:
-    """Return a string-only mapping from parsed YAML content."""
-    if not isinstance(parsed, dict):
+def _as_object_mapping(parsed: object) -> dict[str, object]:
+    """Return a string-keyed mapping from parsed JSON content."""
+    if not isinstance(parsed, Mapping):
         return {}
 
-    result: dict[str, str] = {}
-    for key, value in parsed.items():
-        if isinstance(key, str) and value is not None:
-            result[key] = str(value)
+    return {key: value for key, value in parsed.items() if isinstance(key, str)}
 
-    return result
+
+def _string_value(mapping: Mapping[str, object], key: str) -> str | None:
+    """Return a non-empty string value from a mapping."""
+    value = mapping.get(key)
+    if isinstance(value, str) and value:
+        return value
+    return None
+
+
+def _bool_value(
+    mapping: Mapping[str, object],
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    """Return a boolean value from a mapping, with a default for absent keys."""
+    value = mapping.get(key)
+    if isinstance(value, bool):
+        return value
+    return default
 
 
 def _first_value(*values: str | None) -> str | None:
@@ -111,20 +128,49 @@ def _env_value(*names: str) -> str | None:
     return None
 
 
-def read_credentials_file(
+def _read_settings_body(
     credentials_file_path: Path = CREDENTIALS_FILE_PATH,
-) -> dict[str, str]:
-    """Read Airbyte credentials from a YAML credentials file."""
+) -> dict[str, object]:
+    """Read the `settings` object from an airbyte-cli settings file."""
     if not credentials_file_path.exists():
         return {}
 
     try:
         content = credentials_file_path.read_text(encoding="utf-8").strip()
-        parsed = yaml.safe_load(content) if content else {}
-    except (OSError, yaml.YAMLError):
+        parsed: object = json.loads(content) if content else {}
+    except (OSError, json.JSONDecodeError):
         return {}
 
-    return _as_string_mapping(parsed)
+    parsed_mapping = _as_object_mapping(parsed)
+    return _as_object_mapping(parsed_mapping.get("settings"))
+
+
+def read_credentials_file(
+    credentials_file_path: Path = CREDENTIALS_FILE_PATH,
+) -> dict[str, str]:
+    """Read Airbyte credentials from the shared airbyte-cli settings file."""
+    settings = _read_settings_body(credentials_file_path)
+    settings_credentials = _as_object_mapping(settings.get("credentials"))
+
+    result: dict[str, str] = {}
+    for key in ("client_id", "client_secret"):
+        value = _string_value(settings_credentials, key)
+        if value:
+            result[key] = value
+
+    for key in (
+        "organization_id",
+        "bearer_token",
+        "airbyte_api_root",
+        "public_api_root",
+        "api_url",
+        "config_api_root",
+    ):
+        value = _string_value(settings, key)
+        if value:
+            result[key] = value
+
+    return result
 
 
 def resolve_cloud_credentials(
@@ -207,13 +253,70 @@ def write_credentials_file(
     credentials: dict[str, str],
     credentials_file_path: Path = CREDENTIALS_FILE_PATH,
 ) -> None:
-    """Write Airbyte credentials to a YAML credentials file."""
-    credentials_file_path.parent.mkdir(parents=True, exist_ok=True)
-    credentials_file_path.write_text(
-        yaml.safe_dump(dict(credentials), sort_keys=True),
-        encoding="utf-8",
+    """Write Airbyte credentials to the shared airbyte-cli settings file."""
+    existing_settings = _read_settings_body(credentials_file_path)
+    settings: dict[str, object] = {}
+
+    credentials_body: dict[str, str] = {}
+    for key in ("client_id", "client_secret"):
+        value = credentials.get(key)
+        if value:
+            credentials_body[key] = value
+    if credentials_body:
+        settings["credentials"] = credentials_body
+
+    for key in (
+        "organization_id",
+        "bearer_token",
+        "airbyte_api_root",
+        "config_api_root",
+    ):
+        value = credentials.get(key)
+        if value:
+            settings[key] = value
+
+    workspace = _string_value(existing_settings, "workspace") or "default"
+    if workspace:
+        settings["workspace"] = workspace
+
+    if _bool_value(existing_settings, "allow_destructive", default=False):
+        settings["allow_destructive"] = True
+    settings["telemetry_enabled"] = _bool_value(
+        existing_settings,
+        "telemetry_enabled",
+        default=True,
     )
-    credentials_file_path.chmod(0o600)
+    if _bool_value(existing_settings, "is_internal_user", default=False):
+        settings["is_internal_user"] = True
+    settings["version_check_enabled"] = _bool_value(
+        existing_settings,
+        "version_check_enabled",
+        default=True,
+    )
+
+    credentials_file_path.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform != "win32":
+        credentials_file_path.parent.chmod(0o700)
+
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=credentials_file_path.parent,
+            prefix=".settings-",
+            delete=False,
+        ) as temp_file:
+            temp_path = Path(temp_file.name)
+            json.dump({"settings": settings}, temp_file, indent=2)
+            temp_file.write("\n")
+        if sys.platform != "win32":
+            temp_path.chmod(0o600)
+        temp_path.replace(credentials_file_path)
+    except OSError:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+        raise
 
 
 @dataclass(frozen=True)
@@ -280,9 +383,7 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                     "<p>You can close this window.</p></body></html>"
                 ),
             )
-            server.result_queue.put(
-                _OAuthCallbackResult(error="Callback missing code or state.")
-            )
+            server.result_queue.put(_OAuthCallbackResult(error="Callback missing code or state."))
             return
 
         self._write_html(
@@ -745,18 +846,16 @@ def login_with_browser(  # noqa: PLR0913, PLR0914
         stdin_is_tty=stdin_is_tty,
     )
 
-    credentials = read_credentials_file(credentials_file_path)
-    credentials.pop("bearer_token", None)
-    credentials.update(
+    write_credentials_file(
         {
             "airbyte_api_root": airbyte_api_root,
             "client_id": client_id,
             "client_secret": client_secret,
             "config_api_root": config_api_root,
             "organization_id": selected_organization_id,
-        }
+        },
+        credentials_file_path,
     )
-    write_credentials_file(credentials, credentials_file_path)
 
     return CloudLoginResult(
         credentials_file_path=credentials_file_path,
@@ -770,11 +869,12 @@ def login_with_client_credentials(
     *,
     client_id: str | None = None,
     client_secret: str | None = None,
+    organization_id: str | None = None,
     airbyte_api_root: str | None = None,
     config_api_root: str | None = None,
     credentials_file_path: Path = CREDENTIALS_FILE_PATH,
 ) -> CloudLoginResult:
-    """Log in using client credentials and persist a bearer token."""
+    """Log in using client credentials and persist Airbyte credentials."""
     resolved_client_id, resolved_client_secret = _validate_client_credentials(
         client_id=client_id,
         client_secret=client_secret,
@@ -783,28 +883,27 @@ def login_with_client_credentials(
         airbyte_api_root=airbyte_api_root,
         config_api_root=config_api_root,
     )
-    bearer_token = get_bearer_token(
+    get_bearer_token(
         client_id=SecretString(resolved_client_id),
         client_secret=SecretString(resolved_client_secret),
         api_root=resolved_airbyte_api_root,
     )
 
-    credentials = read_credentials_file(credentials_file_path)
-    credentials.pop("client_id", None)
-    credentials.pop("client_secret", None)
-    credentials.update(
-        {
-            "airbyte_api_root": resolved_airbyte_api_root,
-            "bearer_token": str(bearer_token),
-            "config_api_root": resolved_config_api_root,
-        }
-    )
+    credentials = {
+        "airbyte_api_root": resolved_airbyte_api_root,
+        "client_id": resolved_client_id,
+        "client_secret": resolved_client_secret,
+        "config_api_root": resolved_config_api_root,
+    }
+    if organization_id:
+        credentials["organization_id"] = organization_id
     write_credentials_file(credentials, credentials_file_path)
 
     return CloudLoginResult(
         credentials_file_path=credentials_file_path,
         airbyte_api_root=resolved_airbyte_api_root,
         config_api_root=resolved_config_api_root,
+        organization_id=organization_id,
     )
 
 

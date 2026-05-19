@@ -37,9 +37,10 @@ def login(
 ) -> None:
     """Log in to Airbyte Cloud or a self-managed Airbyte server.
 
-    Providing `--client-id` and `--client-secret` performs non-interactive login and
-    stores a bearer token in `~/.airbyte/credentials`. Self-managed servers must also
-    provide `--public-api-root` and `--config-api-root`.
+    By default, this command uses browser-based login and stores shared Airbyte CLI
+    application credentials in `~/.airbyte-cli/settings.json`. Providing `--client-id`
+    and `--client-secret` performs non-interactive login. Self-managed servers must
+    also provide `--public-api-root` and `--config-api-root`.
     """
     result = CloudClient.from_explicit_credentials(
         client_id=client_id,

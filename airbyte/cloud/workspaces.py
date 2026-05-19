@@ -156,14 +156,16 @@ class CloudClient:
             return login_with_client_credentials(
                 client_id=str(self.client_id),
                 client_secret=str(self.client_secret),
+                organization_id=self.organization_id,
                 airbyte_api_root=self.public_api_root,
                 config_api_root=self.config_api_root,
                 credentials_file_path=credentials_file_path,
             )
 
-        custom_cloud_roots = self.public_api_root.rstrip("/") != api_util.CLOUD_API_ROOT.rstrip(
-            "/"
-        ) or self.config_api_root is not None
+        custom_cloud_roots = (
+            self.public_api_root.rstrip("/") != api_util.CLOUD_API_ROOT.rstrip("/")
+            or self.config_api_root is not None
+        )
         if interactive is False or custom_cloud_roots:
             raise exc.PyAirbyteInputError(
                 message="Client ID and client secret are both required.",

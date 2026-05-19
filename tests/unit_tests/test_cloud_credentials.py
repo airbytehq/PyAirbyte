@@ -1,6 +1,7 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import sys
 from urllib.parse import parse_qs, urlparse
@@ -8,18 +9,44 @@ from urllib.request import urlopen
 
 import pytest
 import responses
-import yaml
 
 from airbyte.cloud import credentials as cloud_credentials
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
-def test_login_with_client_credentials_writes_bearer_token(
+def _read_saved_settings(credentials_file_path: Path) -> dict[str, object]:
+    parsed = json.loads(credentials_file_path.read_text(encoding="utf-8"))
+    settings = parsed["settings"]
+    assert isinstance(settings, dict)
+    return settings
+
+
+def _clear_cloud_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for env_var in (
+        cloud_credentials.BEARER_TOKEN_ENV_VAR,
+        cloud_credentials.CLOUD_BEARER_TOKEN_ENV_VAR,
+        cloud_credentials.CLIENT_ID_ENV_VAR,
+        cloud_credentials.CLOUD_CLIENT_ID_ENV_VAR,
+        cloud_credentials.CLIENT_SECRET_ENV_VAR,
+        cloud_credentials.CLOUD_CLIENT_SECRET_ENV_VAR,
+        cloud_credentials.PUBLIC_API_ROOT_ENV_VAR,
+        cloud_credentials.CLOUD_API_ROOT_ENV_VAR,
+        cloud_credentials.CONFIG_API_ROOT_ENV_VAR,
+        cloud_credentials.CLOUD_CONFIG_API_ROOT_ENV_VAR,
+        cloud_credentials.WORKSPACE_ID_ENV_VAR,
+        cloud_credentials.CLOUD_WORKSPACE_ID_ENV_VAR,
+        cloud_credentials.ORGANIZATION_ID_ENV_VAR,
+        cloud_credentials.CLOUD_ORGANIZATION_ID_ENV_VAR,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+
+
+def test_login_with_client_credentials_writes_shared_settings(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    credentials_file_path = tmp_path / "credentials"
+    credentials_file_path = tmp_path / ".airbyte-cli" / "settings.json"
 
     def fake_get_bearer_token(
         *,
@@ -37,24 +64,61 @@ def test_login_with_client_credentials_writes_bearer_token(
     result = cloud_credentials.login_with_client_credentials(
         client_id="test-client-id",
         client_secret="test-client-secret",
+        organization_id="test-org-id",
         airbyte_api_root="https://api.example.com/v1",
         config_api_root="https://config.example.com/api/v1",
         credentials_file_path=credentials_file_path,
     )
 
-    saved_credentials = yaml.safe_load(
-        credentials_file_path.read_text(encoding="utf-8")
-    )
+    saved_settings = _read_saved_settings(credentials_file_path)
     assert result.credentials_file_path == credentials_file_path
     assert result.airbyte_api_root == "https://api.example.com/v1"
     assert result.config_api_root == "https://config.example.com/api/v1"
-    assert saved_credentials == {
+    assert result.organization_id == "test-org-id"
+    assert saved_settings == {
+        "credentials": {
+            "client_id": "test-client-id",
+            "client_secret": "test-client-secret",
+        },
+        "organization_id": "test-org-id",
         "airbyte_api_root": "https://api.example.com/v1",
-        "bearer_token": "test-bearer-token",
         "config_api_root": "https://config.example.com/api/v1",
+        "workspace": "default",
+        "telemetry_enabled": True,
+        "version_check_enabled": True,
     }
     if sys.platform != "win32":
         assert credentials_file_path.stat().st_mode & 0o777 == 0o600
+        assert credentials_file_path.parent.stat().st_mode & 0o777 == 0o700
+
+
+def test_resolve_cloud_credentials_reads_shared_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _clear_cloud_env(monkeypatch)
+    credentials_file_path = tmp_path / ".airbyte-cli" / "settings.json"
+    credentials_file_path.parent.mkdir()
+    credentials_file_path.write_text(
+        json.dumps({
+            "settings": {
+                "credentials": {
+                    "client_id": "file-client-id",
+                    "client_secret": "file-client-secret",
+                },
+                "organization_id": "file-org-id",
+            }
+        }),
+        encoding="utf-8",
+    )
+
+    credentials = cloud_credentials.resolve_cloud_credentials(
+        credentials_file_path=credentials_file_path,
+    )
+
+    assert str(credentials.client_id) == "file-client-id"
+    assert str(credentials.client_secret) == "file-client-secret"
+    assert credentials.organization_id == "file-org-id"
 
 
 def _simulate_keycloak_redirect(url: str) -> bool:
@@ -62,7 +126,9 @@ def _simulate_keycloak_redirect(url: str) -> bool:
     query = parse_qs(parsed_url.query)
     redirect_uri = query["redirect_uri"][0]
     state = query["state"][0]
-    with urlopen(f"{redirect_uri}?code=test-auth-code&state={state}", timeout=5) as response:
+    with urlopen(
+        f"{redirect_uri}?code=test-auth-code&state={state}", timeout=5
+    ) as response:
         assert response.status == 200
     return True
 
@@ -78,7 +144,25 @@ def _request_body(call_index: int) -> str:
 
 @responses.activate
 def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
-    credentials_file_path = tmp_path / "credentials"
+    credentials_file_path = tmp_path / ".airbyte-cli" / "settings.json"
+    credentials_file_path.parent.mkdir()
+    credentials_file_path.write_text(
+        json.dumps({
+            "settings": {
+                "credentials": {
+                    "client_id": "previous-client-id",
+                    "client_secret": "previous-client-secret",
+                },
+                "organization_id": "previous-org-id",
+                "workspace": "Existing Workspace",
+                "allow_destructive": True,
+                "telemetry_enabled": False,
+                "is_internal_user": True,
+                "version_check_enabled": False,
+            }
+        }),
+        encoding="utf-8",
+    )
     api_root = cloud_credentials.AIRBYTE_AI_API_ROOT
     responses.add(
         responses.POST,
@@ -105,7 +189,10 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
     responses.add(
         responses.POST,
         f"{api_root}/internal/account/applications",
-        json={"client_id": "airbyte-client-id", "client_secret": "airbyte-client-secret"},
+        json={
+            "client_id": "airbyte-client-id",
+            "client_secret": "airbyte-client-secret",
+        },
         status=200,
     )
 
@@ -115,18 +202,23 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
         timeout_seconds=5,
     )
 
-    saved_credentials = yaml.safe_load(
-        credentials_file_path.read_text(encoding="utf-8")
-    )
+    saved_settings = _read_saved_settings(credentials_file_path)
     assert result.credentials_file_path == credentials_file_path
     assert result.airbyte_api_root == api_root
     assert result.organization_id == "selected-org-id"
-    assert saved_credentials == {
-        "airbyte_api_root": api_root,
-        "client_id": "airbyte-client-id",
-        "client_secret": "airbyte-client-secret",
-        "config_api_root": cloud_credentials.CLOUD_CONFIG_API_ROOT,
+    assert saved_settings == {
+        "credentials": {
+            "client_id": "airbyte-client-id",
+            "client_secret": "airbyte-client-secret",
+        },
         "organization_id": "selected-org-id",
+        "airbyte_api_root": api_root,
+        "config_api_root": cloud_credentials.CLOUD_CONFIG_API_ROOT,
+        "workspace": "Existing Workspace",
+        "allow_destructive": True,
+        "telemetry_enabled": False,
+        "is_internal_user": True,
+        "version_check_enabled": False,
     }
     token_request = parse_qs(_request_body(0))
     assert token_request["client_id"] == [cloud_credentials.KEYCLOAK_CLIENT_ID]
@@ -139,7 +231,7 @@ def test_login_with_browser_bootstraps_credentials(tmp_path: Path) -> None:
 
 @responses.activate
 def test_login_with_browser_uses_organization_override(tmp_path: Path) -> None:
-    credentials_file_path = tmp_path / "credentials"
+    credentials_file_path = tmp_path / ".airbyte-cli" / "settings.json"
     api_root = cloud_credentials.AIRBYTE_AI_API_ROOT
     responses.add(
         responses.POST,
@@ -156,7 +248,10 @@ def test_login_with_browser_uses_organization_override(tmp_path: Path) -> None:
     responses.add(
         responses.POST,
         f"{api_root}/internal/account/applications",
-        json={"client_id": "airbyte-client-id", "client_secret": "airbyte-client-secret"},
+        json={
+            "client_id": "airbyte-client-id",
+            "client_secret": "airbyte-client-secret",
+        },
         status=200,
     )
 
