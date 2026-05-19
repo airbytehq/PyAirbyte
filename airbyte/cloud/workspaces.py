@@ -56,6 +56,7 @@ from airbyte.cloud.credentials import (
     CREDENTIALS_FILE_PATH,
     CloudCredentials,
     CloudLoginResult,
+    login_with_browser,
     login_with_client_credentials,
     resolve_cloud_credentials,
 )
@@ -145,9 +146,12 @@ class CloudClient:
         credentials_file_path: Path = CREDENTIALS_FILE_PATH,
     ) -> CloudLoginResult:
         """Log in to Airbyte and persist local credentials."""
-        if interactive is True:
-            # TK-TODO: Implement and verify interactive browser login before merging this PR.
-            raise NotImplementedError("Interactive Airbyte Cloud login is not implemented.")
+        if bool(self.client_id) != bool(self.client_secret):
+            raise exc.PyAirbyteInputError(
+                message="Client ID and client secret are both required.",
+                guidance="Provide both client ID and client secret for non-interactive login.",
+            )
+
         if self.client_id is not None and self.client_secret is not None:
             return login_with_client_credentials(
                 client_id=str(self.client_id),
@@ -156,14 +160,23 @@ class CloudClient:
                 config_api_root=self.config_api_root,
                 credentials_file_path=credentials_file_path,
             )
-        if interactive is False:
+
+        custom_cloud_roots = self.public_api_root.rstrip("/") != api_util.CLOUD_API_ROOT.rstrip(
+            "/"
+        ) or self.config_api_root is not None
+        if interactive is False or custom_cloud_roots:
             raise exc.PyAirbyteInputError(
                 message="Client ID and client secret are both required.",
-                guidance="Provide both client ID and client secret for non-interactive login.",
+                guidance=(
+                    "Provide both client ID and client secret for non-interactive login. "
+                    "Self-managed servers do not support browser login."
+                ),
             )
 
-        # TK-TODO: Implement and verify interactive browser login before merging this PR.
-        raise NotImplementedError("Interactive Airbyte Cloud login is not implemented.")
+        return login_with_browser(
+            organization_id=self.organization_id,
+            credentials_file_path=credentials_file_path,
+        )
 
     def logout(
         self,

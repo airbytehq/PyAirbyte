@@ -24,6 +24,14 @@ WorkspaceIdArg = Annotated[
         help="The workspace ID.",
     ),
 ]
+OrganizationIdArg = Annotated[
+    str | None,
+    Parameter(
+        name="--organization-id",
+        env_var=["AIRBYTE_ORGANIZATION_ID", "AIRBYTE_CLOUD_ORGANIZATION_ID"],
+        help="The organization ID.",
+    ),
+]
 ClientIdArg = Annotated[
     str | None,
     Parameter(env_var=["AIRBYTE_CLIENT_ID", "AIRBYTE_CLOUD_CLIENT_ID"], help="Airbyte client ID."),
