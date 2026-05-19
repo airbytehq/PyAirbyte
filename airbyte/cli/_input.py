@@ -81,7 +81,7 @@ JsonInputArg = Annotated[
     str | None,
     Parameter(
         name="--json",
-        help="Inline JSON object containing command input values.",
+        help="Inline JSON object, or file path prefixed with @, ., or /.",
     ),
 ]
 JsonFileInputArg = Annotated[
@@ -112,9 +112,16 @@ def parse_json_input_options(
     if not json_input and not json_file:
         return {}
 
+    if json_input and json_input[0] in {"@", ".", "/"}:
+        json_file = Path(json_input.removeprefix("@"))
+        json_input = None
+
     if json_file:
-        if not json_file.exists():
-            raise PyAirbyteInputError(message="JSON input file does not exist.")
+        if not json_file.is_file():
+            raise PyAirbyteInputError(
+                message="JSON input file does not exist.",
+                context={"path": str(json_file)},
+            )
         json_input = json_file.read_text(encoding="utf-8")
 
     if not json_input:

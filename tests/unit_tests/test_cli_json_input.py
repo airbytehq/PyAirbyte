@@ -30,11 +30,19 @@ def test_parse_json_input_options(tmp_path) -> None:
     """`parse_json_input_options` parses inline JSON and JSON files."""
     json_file = tmp_path / "input.json"
     json_file.write_text('{"name": "from-file"}', encoding="utf-8")
+    relative_json_file = tmp_path / "relative.json"
+    relative_json_file.write_text('{"name": "from-relative-file"}', encoding="utf-8")
 
     assert _input.parse_json_input_options(json_input='{"name": "inline"}') == {
         "name": "inline"
     }
     assert _input.parse_json_input_options(json_file=json_file) == {"name": "from-file"}
+    assert _input.parse_json_input_options(json_input=f"@{json_file}") == {
+        "name": "from-file"
+    }
+    assert _input.parse_json_input_options(json_input=str(json_file)) == {
+        "name": "from-file"
+    }
     assert _input.parse_json_input_options() == {}
 
     with pytest.raises(PyAirbyteInputError, match="Only one JSON input source"):
@@ -42,6 +50,12 @@ def test_parse_json_input_options(tmp_path) -> None:
 
     with pytest.raises(PyAirbyteInputError, match="JSON input must be an object"):
         _input.parse_json_input_options(json_input="[]")
+
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.chdir(tmp_path)
+        assert _input.parse_json_input_options(json_input="./relative.json") == {
+            "name": "from-relative-file"
+        }
 
 
 @pytest.mark.parametrize(
@@ -172,10 +186,22 @@ def test_connection_create_help_includes_json_options(
     assert "--json-file" in output
 
 
-def test_source_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`sources create` accepts command input from `--json`."""
+def test_source_create_accepts_json_path_input(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`sources create` accepts command file input from `--json`."""
     calls = {}
     outputs = []
+    json_file = tmp_path / "source.json"
+    json_file.write_text(
+        json.dumps({
+            "name": "Test Source",
+            "source_type": "postgres",
+            "config": {"host": "localhost"},
+        }),
+        encoding="utf-8",
+    )
 
     class FakeSource:
         def get_info(self) -> dict[str, object]:
@@ -196,11 +222,7 @@ def test_source_create_accepts_json_input(monkeypatch: pytest.MonkeyPatch) -> No
         sources.create,
         [
             "--json",
-            json.dumps({
-                "name": "Test Source",
-                "source_type": "postgres",
-                "config": {"host": "localhost"},
-            }),
+            f"@{json_file}",
         ],
     )
 
