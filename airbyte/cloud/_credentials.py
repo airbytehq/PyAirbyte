@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from os import environ
 from pathlib import Path
 
 import yaml
@@ -23,6 +22,7 @@ from airbyte.constants import (
 )
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
+from airbyte.secrets.util import try_get_secret
 
 
 CREDENTIALS_FILE_PATH = Path("~/.airbyte/credentials").expanduser()
@@ -81,9 +81,9 @@ def _first_value(*values: str | None) -> str | None:
 def _env_value(*names: str) -> str | None:
     """Return the first available environment variable value."""
     for name in names:
-        value = environ.get(name)
+        value = try_get_secret(name, default=None)
         if value:
-            return value
+            return str(value)
     return None
 
 
@@ -227,6 +227,9 @@ def _resolve_login_roots(
     config_api_root: str | None,
 ) -> tuple[str, str]:
     """Resolve Cloud or self-managed API roots for login."""
+    if airbyte_api_root in {None, CLOUD_API_ROOT} and config_api_root is None:
+        return CLOUD_API_ROOT, CLOUD_CONFIG_API_ROOT
+
     if airbyte_api_root is not None or config_api_root is not None:
         if airbyte_api_root is not None and config_api_root is not None:
             return airbyte_api_root, config_api_root

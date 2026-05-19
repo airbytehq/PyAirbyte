@@ -7,7 +7,9 @@ import sys
 import pytest
 import yaml
 
-from airbyte.cloud import credentials as cloud_credentials
+from airbyte import constants
+from airbyte.cloud import _credentials as cloud_credentials
+from airbyte.cloud.workspaces import CloudClient
 from airbyte.exceptions import PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
@@ -73,3 +75,85 @@ def test_self_managed_login_requires_both_api_roots() -> None:
             client_secret="test-client-secret",
             airbyte_api_root="https://api.example.com/v1",
         )
+
+
+def test_login_with_client_credentials_uses_cloud_default_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credentials_file_path = tmp_path / "credentials"
+
+    def fake_get_bearer_token(
+        *,
+        client_id: SecretString,
+        client_secret: SecretString,
+        api_root: str,
+    ) -> str:
+        assert str(client_id) == "test-client-id"
+        assert str(client_secret) == "test-client-secret"
+        assert api_root == constants.CLOUD_API_ROOT
+        return "test-bearer-token"
+
+    monkeypatch.setattr(cloud_credentials, "get_bearer_token", fake_get_bearer_token)
+
+    result = cloud_credentials.login_with_client_credentials(
+        client_id="test-client-id",
+        client_secret="test-client-secret",
+        credentials_file_path=credentials_file_path,
+    )
+
+    assert result.airbyte_api_root == constants.CLOUD_API_ROOT
+    assert result.config_api_root == constants.CLOUD_CONFIG_API_ROOT
+
+
+def test_cloud_client_login_uses_cloud_default_roots(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    credentials_file_path = tmp_path / "credentials"
+
+    def fake_get_bearer_token(
+        *,
+        client_id: SecretString,
+        client_secret: SecretString,
+        api_root: str,
+    ) -> str:
+        assert str(client_id) == "test-client-id"
+        assert str(client_secret) == "test-client-secret"
+        assert api_root == constants.CLOUD_API_ROOT
+        return "test-bearer-token"
+
+    monkeypatch.setattr(cloud_credentials, "get_bearer_token", fake_get_bearer_token)
+
+    result = CloudClient(
+        client_id=SecretString("test-client-id"),
+        client_secret=SecretString("test-client-secret"),
+    ).login(credentials_file_path=credentials_file_path)
+
+    assert result.airbyte_api_root == constants.CLOUD_API_ROOT
+    assert result.config_api_root == constants.CLOUD_CONFIG_API_ROOT
+
+
+def test_resolve_cloud_credentials_uses_pyairbyte_secret_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secrets = {
+        constants.CLOUD_BEARER_TOKEN_ENV_VAR: SecretString("test-bearer-token"),
+        constants.CLOUD_WORKSPACE_ID_ENV_VAR: SecretString("test-workspace-id"),
+    }
+
+    def fake_try_get_secret(
+        secret_name: str,
+        /,
+        *,
+        default: str | SecretString | None = None,
+        **_: object,
+    ) -> SecretString | str | None:
+        return secrets.get(secret_name, default)
+
+    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+
+    credentials = cloud_credentials.resolve_cloud_credentials()
+
+    assert credentials.bearer_token == "test-bearer-token"
+    assert credentials.workspace_id == "test-workspace-id"

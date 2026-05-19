@@ -45,6 +45,14 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_imports, api_util, text_util
 from airbyte._util.api_util import get_web_url_root
+from airbyte.cloud._credentials import (
+    CREDENTIALS_FILE_PATH,
+    CloudCredentials,
+    CloudLoginResult,
+    login_with_client_credentials,
+    resolve_cloud_credentials,
+)
+from airbyte.cloud._credentials import logout as remove_credentials_file
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -52,14 +60,6 @@ from airbyte.cloud.connectors import (
     CloudSource,
     CustomCloudSourceDefinition,
 )
-from airbyte.cloud.credentials import (
-    CREDENTIALS_FILE_PATH,
-    CloudCredentials,
-    CloudLoginResult,
-    login_with_client_credentials,
-    resolve_cloud_credentials,
-)
-from airbyte.cloud.credentials import logout as remove_credentials_file
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
 from airbyte.secrets.base import SecretString
