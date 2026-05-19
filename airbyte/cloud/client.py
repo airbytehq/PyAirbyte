@@ -310,7 +310,5 @@ class CloudClient:
             organization_id=organization.organization_id,
             organization_name=organization.organization_name,
             email=organization.email,
-            credentials=self.credentials.with_organization_id(
-                organization.organization_id
-            ),
+            credentials=self.credentials.with_organization_id(organization.organization_id),
         )
