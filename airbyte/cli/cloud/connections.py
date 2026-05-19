@@ -24,7 +24,7 @@ from airbyte.cli._input import (
     WorkspaceIdArg,
     parse_csv,
     resolve_entity_id,
-    with_json_input,
+    wrapped_cli,
 )
 from airbyte.cli._output import json_output
 from airbyte.cli.cloud._cli import cloud_app
@@ -81,7 +81,7 @@ def get(
 
 
 @connections_app.command
-@with_json_input(comma_list_fields={"selected_streams"})
+@wrapped_cli(comma_list_fields={"selected_streams"})
 def create(  # noqa: PLR0913
     *,
     name: Annotated[str, Parameter(help="Display name for the connection.")],

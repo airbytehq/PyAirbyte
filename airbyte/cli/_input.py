@@ -262,11 +262,11 @@ def resolve_json_input(
 
 
 @overload
-def with_json_input(command: Callable[_P, _R]) -> Callable[_P, _R]: ...
+def wrapped_cli(command: Callable[_P, _R]) -> Callable[_P, _R]: ...
 
 
 @overload
-def with_json_input(
+def wrapped_cli(
     *,
     comma_list_fields: set[str] | None = None,
     field_aliases: Mapping[str, str] | None = None,
@@ -274,7 +274,7 @@ def with_json_input(
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]: ...
 
 
-def with_json_input(
+def wrapped_cli(
     command: Callable[_P, _R] | None = None,
     *,
     comma_list_fields: set[str] | None = None,

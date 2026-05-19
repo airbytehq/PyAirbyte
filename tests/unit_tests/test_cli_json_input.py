@@ -148,10 +148,10 @@ def test_resolve_json_input_errors(
         )
 
 
-def test_with_json_input_patches_cyclopts_signature() -> None:
-    """`with_json_input` exposes JSON options and makes required args optional."""
+def test_wrapped_cli_patches_cyclopts_signature() -> None:
+    """`wrapped_cli` exposes JSON options and makes required args optional."""
 
-    @_input.with_json_input
+    @_input.wrapped_cli
     def command(*, name: Annotated[str, Parameter(help="Name")]) -> str:
         return name
 
