@@ -58,6 +58,7 @@ AIRBYTE_AI_API_HOST = "https://api.airbyte.ai"
 AIRBYTE_AI_API_ROOT = f"{AIRBYTE_AI_API_HOST}/api/v1"
 DEFAULT_BROWSER_LOGIN_TIMEOUT_SECONDS = 180
 PYAIRBYTE_USER_AGENT = "pyairbyte/dev"
+MAX_ERROR_RESPONSE_BODY_CHARS = 1_000
 
 
 @dataclass(frozen=True)
@@ -532,6 +533,42 @@ def _json_object(response: requests.Response, *, operation: str) -> dict[str, ob
     return {str(key): value for key, value in parsed.items() if isinstance(key, str)}
 
 
+def _response_body_excerpt(response: requests.Response) -> str | None:
+    """Return a bounded response body excerpt for error context."""
+    response_text = response.text.strip()
+    if not response_text:
+        return None
+    if len(response_text) <= MAX_ERROR_RESPONSE_BODY_CHARS:
+        return response_text
+    return f"{response_text[:MAX_ERROR_RESPONSE_BODY_CHARS]}..."
+
+
+def _add_error_response_context(
+    response: requests.Response,
+    context: dict[str, object],
+) -> None:
+    """Add safe response details to request error context."""
+    content_type = response.headers.get("content-type")
+    if content_type:
+        context["content_type"] = content_type
+
+    if content_type and "application/json" in content_type.lower():
+        try:
+            parsed: object = response.json()
+        except requests.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, Mapping):
+            for key in ("detail", "message", "error", "error_description"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value:
+                    context[key] = value
+            return
+
+    response_body = _response_body_excerpt(response)
+    if response_body:
+        context["response_body"] = response_body
+
+
 def _raise_for_response_status(response: requests.Response, *, operation: str) -> None:
     """Raise a PyAirbyte API error for an unsuccessful response."""
     if status_ok(response.status_code):
@@ -540,6 +577,7 @@ def _raise_for_response_status(response: requests.Response, *, operation: str) -
     context: dict[str, object] = {"status_code": response.status_code}
     if response.request is not None:
         context["url"] = response.request.url
+    _add_error_response_context(response, context)
     raise AirbyteError(message=f"{operation} failed.", context=context)
 
 
@@ -585,9 +623,7 @@ def _exchange_code_for_keycloak_token(
     except AirbyteError as ex:
         if response.status_code != HTTPStatus.OK.value:
             context: dict[str, object] = {"status_code": response.status_code}
-            content_type = response.headers.get("content-type")
-            if content_type:
-                context["content_type"] = content_type
+            _add_error_response_context(response, context)
             raise AirbyteError(
                 message="Keycloak token exchange failed.",
                 context=context,
@@ -597,6 +633,7 @@ def _exchange_code_for_keycloak_token(
         error = parsed.get("error")
         error_description = parsed.get("error_description")
         context: dict[str, object] = {"status_code": response.status_code}
+        _add_error_response_context(response, context)
         if isinstance(error, str):
             context["error"] = error
         if isinstance(error_description, str):

@@ -255,12 +255,57 @@ def test_login_with_browser_token_exchange_non_json_error(tmp_path: Path) -> Non
         status=403,
     )
 
-    with pytest.raises(AirbyteError, match="Keycloak token exchange failed"):
+    with pytest.raises(
+        AirbyteError, match="Keycloak token exchange failed"
+    ) as exc_info:
         cloud_credentials.login_with_browser(
             credentials_file_path=credentials_file_path,
             open_url=_simulate_keycloak_redirect,
             timeout_seconds=5,
         )
+
+    assert exc_info.value.context == {
+        "status_code": 403,
+        "content_type": "text/html; charset=UTF-8",
+        "response_body": "<!doctype html><title>403</title>",
+    }
+
+
+@responses.activate
+def test_login_with_browser_bootstrap_error_includes_response_detail(
+    tmp_path: Path,
+) -> None:
+    credentials_file_path = tmp_path / ".airbyte-cli" / "settings.json"
+    api_root = cloud_credentials.AIRBYTE_AI_API_ROOT
+    responses.add(
+        responses.POST,
+        f"{cloud_credentials.KEYCLOAK_BASE_URL}/protocol/openid-connect/token",
+        json={"access_token": "keycloak-access-token"},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{api_root}/internal/account/enrollment-status",
+        json={"detail": "Not authenticated"},
+        status=401,
+    )
+
+    with pytest.raises(
+        AirbyteError,
+        match="Airbyte Cloud enrollment-status request failed",
+    ) as exc_info:
+        cloud_credentials.login_with_browser(
+            credentials_file_path=credentials_file_path,
+            open_url=_simulate_keycloak_redirect,
+            timeout_seconds=5,
+        )
+
+    assert exc_info.value.context == {
+        "status_code": 401,
+        "url": f"{api_root}/internal/account/enrollment-status",
+        "content_type": "application/json",
+        "detail": "Not authenticated",
+    }
 
 
 @responses.activate
