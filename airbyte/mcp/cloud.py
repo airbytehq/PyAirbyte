@@ -23,7 +23,6 @@ from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
-from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
@@ -41,7 +40,6 @@ from airbyte.mcp._tool_utils import (
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
-from airbyte.secrets import SecretString
 
 
 CLOUD_AUTH_TIP_TEXT = (
@@ -1287,63 +1285,13 @@ def list_deployed_cloud_connections(
     return results
 
 
-def _resolve_organization(
-    organization_id: str | None,
-    organization_name: str | None,
-    *,
-    api_root: str,
-    client_id: SecretString | None,
-    client_secret: SecretString | None,
-    bearer_token: SecretString | None = None,
-    config_api_root: str | None = None,
-) -> CloudOrganization:
-    """Resolve organization from either ID or exact name match.
-
-    Args:
-        organization_id: The organization ID (if provided directly)
-        organization_name: The organization name (exact match required)
-        api_root: The API root URL
-        client_id: OAuth client ID (optional if bearer_token is provided)
-        client_secret: OAuth client secret (optional if bearer_token is provided)
-        bearer_token: Bearer token for authentication (optional if client credentials provided)
-        config_api_root: Optional Config API root URL.
-
-    Returns:
-        A CloudOrganization object with credentials for lazy loading of billing info.
-
-    Raises:
-        PyAirbyteInputError: If neither or both parameters are provided,
-            or if no organization matches the exact name
-        AirbyteMissingResourceError: If the organization is not found
-    """
-    if organization_id and organization_name:
-        raise PyAirbyteInputError(
-            message="Provide either 'organization_id' or 'organization_name', not both."
-        )
-    if not organization_id and not organization_name:
-        raise PyAirbyteInputError(
-            message="Either 'organization_id' or 'organization_name' must be provided."
-        )
-
-    return CloudClient(
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        public_api_root=api_root,
-        config_api_root=config_api_root,
-    ).get_organization(organization_id=organization_id, organization_name=organization_name)
-
-
 def _resolve_organization_id(
     organization_id: str | None,
     organization_name: str | None,
     *,
     client: CloudClient,
 ) -> str:
-    """Resolve organization ID from either ID or exact name match.
-
-    This is a convenience wrapper around _resolve_organization that returns just the ID.
-    """
+    """Resolve organization ID from either ID or exact name match."""
     org = client.get_organization(
         organization_id=organization_id,
         organization_name=organization_name,

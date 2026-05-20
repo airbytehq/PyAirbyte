@@ -99,6 +99,39 @@ def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "client_id, client_secret, bearer_token, expected_message",
+    [
+        pytest.param(
+            "client-id",
+            None,
+            None,
+            "Client ID and client secret are both required.",
+            id="missing_client_secret",
+        ),
+        pytest.param(
+            "client-id",
+            "client-secret",
+            "token",
+            "Cannot use both client credentials and bearer token authentication.",
+            id="mixed_auth_methods",
+        ),
+    ],
+)
+def test_cloud_client_init_validates_auth_inputs(
+    client_id: str | None,
+    client_secret: str | None,
+    bearer_token: str | None,
+    expected_message: str,
+) -> None:
+    with pytest.raises(PyAirbyteInputError, match=expected_message):
+        CloudClient(
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+        )
+
+
 def test_cloud_client_list_workspaces_forwards_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

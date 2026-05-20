@@ -12,13 +12,13 @@ from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteMissingResourceError
-from airbyte.secrets.base import SecretString
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from airbyte._util import api_imports
+    from airbyte.secrets.base import SecretString
 
 
 @dataclass(init=False, kw_only=True)
@@ -39,14 +39,15 @@ class CloudClient:
         organization_id: str | None = None,
     ) -> None:
         """Initialize a `CloudClient` from explicit auth values."""
-        self._credentials = _AirbyteCredentials(
-            client_id=SecretString(client_id) if client_id else None,
-            client_secret=SecretString(client_secret) if client_secret else None,
-            bearer_token=SecretString(bearer_token) if bearer_token else None,
-            public_api_root=public_api_root or api_util.CLOUD_API_ROOT,
+        self._credentials = _AirbyteCredentials.from_auth(
+            client_id=client_id,
+            client_secret=client_secret,
+            bearer_token=bearer_token,
+            public_api_root=public_api_root,
             config_api_root=config_api_root,
             workspace_id=workspace_id,
             organization_id=organization_id,
+            env_vars=False,
         )
 
     @property
