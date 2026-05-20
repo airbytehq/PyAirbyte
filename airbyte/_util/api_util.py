@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     )
 
 
-JOB_WAIT_INTERVAL_SECS = 2.0
+JOB_WAIT_INTERVAL_SECS = 5.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
 
@@ -2244,6 +2244,51 @@ def get_workspace_organization_info(
         json={"workspaceId": workspace_id},
         api_root=api_root,
         config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def get_job_debug_info(
+    job_id: int,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get debug info for a job, including per-stream records/bytes stats.
+
+    Uses the Config API endpoint: `POST /v1/jobs/get_debug_info`.
+
+    The `streamStats` entries returned for the latest attempt update in
+    real-time during a running sync, making this call a useful
+    "proof-of-life" progress signal even when cursor-based progress
+    cannot be computed (e.g. because the state API returns frozen
+    cursors mid-sync).
+
+    The response shape looks roughly like:
+
+    ```
+    {
+      "job": {...},
+      "attempts": [
+        {"attempt": {"streamStats": [
+            {"streamName": "contacts",
+             "stats": {"recordsEmitted": N, "bytesEmitted": N, ...}}
+        ]}}
+      ]
+    }
+    ```
+
+    Returns:
+        The decoded JSON payload from the Config API.
+    """
+    return _make_config_api_request(
+        path="/jobs/get_debug_info",
+        json={"id": job_id},
+        api_root=api_root,
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,

@@ -28,6 +28,7 @@ from contextlib import suppress
 from enum import Enum, auto
 from typing import IO, TYPE_CHECKING, Any, Literal, cast
 
+import ulid
 from rich.console import Console
 from rich.errors import LiveError
 from rich.live import Live as RichLive
@@ -40,6 +41,10 @@ from airbyte_protocol.models import (
 )
 
 from airbyte import logs
+from airbyte._local_sync_progress import (
+    compute_stream_progress_pct,
+    extract_cursor_from_state_message,
+)
 from airbyte._message_iterators import _new_stream_success_message
 from airbyte._util import meta
 from airbyte._util.telemetry import (
@@ -47,15 +52,18 @@ from airbyte._util.telemetry import (
     EventType,
     send_telemetry,
 )
-from airbyte.logs import get_global_file_logger
+from airbyte.logs import AIRBYTE_LOGGING_ROOT, get_global_file_logger
 
 
 if TYPE_CHECKING:
     import logging
     from collections.abc import Generator, Iterable
+    from pathlib import Path
     from types import ModuleType
 
     from structlog import BoundLogger
+
+    from airbyte_protocol.models import AirbyteStateMessage
 
     from airbyte._message_iterators import AirbyteMessageIterator
     from airbyte.caches.base import CacheBase
@@ -118,6 +126,21 @@ def _to_time_str(timestamp: float) -> str:
     datetime_obj = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
     datetime_obj = datetime_obj.astimezone()
     return datetime_obj.strftime("%H:%M:%S")
+
+
+def _cursor_date_str(cursor_value: str | None) -> str | None:
+    """Format a cursor value as a concise `yyyy-mm-dd` date string.
+
+    Returns `None` if `cursor_value` is falsy or cannot be parsed as a
+    datetime. ISO-8601 timestamps are truncated to their date portion.
+    """
+    if not cursor_value:
+        return None
+    try:
+        parsed = datetime.datetime.fromisoformat(cursor_value.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+    return parsed.strftime("%Y-%m-%d")
 
 
 def _get_elapsed_time_str(seconds: float) -> str:
@@ -214,10 +237,26 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self.destination_stream_records_delivered: dict[str, int] = defaultdict(int)
         self.destination_stream_records_confirmed: dict[str, int] = defaultdict(int)
 
+        # State-message cursor tracking (local sync progress).
+        # `baseline` is the first cursor observed from the source; `latest` is
+        # updated every time a STATE message is observed from the source.
+        # `committed` mirrors the cursor on state messages acknowledged by the
+        # destination. See `airbyte._local_sync_progress` for formula details.
+        self.stream_baseline_cursors: dict[str, str] = {}
+        self.stream_latest_cursors: dict[str, str] = {}
+        self.stream_committed_cursors: dict[str, str] = {}
+        self.stream_cursor_fields: dict[str, str] = {}
+        self.stream_latest_cursor_times: dict[str, float] = {}
+        self.stream_committed_cursor_times: dict[str, float] = {}
+
         # Progress bar properties
         self._last_update_time: float | None = None
         self._stderr_console: Console | None = None
         self._rich_view: RichLive | None = None
+
+        # JSONL audit log path -- set lazily on first write.
+        self._progress_audit_log_path: Path | None = None
+        self._progress_audit_log_resolved: bool = False
 
         self.reset_progress_style(style)
 
@@ -256,7 +295,13 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         *,
         auto_close_streams: bool = False,
     ) -> Generator[AirbyteMessage, Any, None]:
-        """This method simply tallies the number of records processed and yields the messages."""
+        """This method simply tallies the number of records processed and yields the messages.
+
+        STATE messages emitted by the source are observed here to extract
+        per-stream cursor values. The original messages are passed through
+        unchanged so downstream consumers (caches, destinations) still receive
+        them.
+        """
         # Update the display before we start.
         self._log_sync_start()
         self._start_rich_view()
@@ -267,6 +312,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         for count, message in enumerate(messages, start=1):
             # Yield the message immediately.
             yield message
+
+            if message.state:
+                self._observe_state_message(message.state, is_committed=False)
 
             if message.record:
                 # If this is the first record, set the start time.
@@ -331,6 +379,9 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 # For now at least, we don't need to pay the cost of parsing it.
                 continue
 
+            if message.state:
+                self._observe_state_message(message.state, is_committed=False)
+
             if message.record and message.record.stream:
                 self.destination_stream_records_delivered[message.record.stream] += 1
 
@@ -358,6 +409,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         self._start_rich_view()  # Start Rich's live view if not already running.
         for message in messages:
             if message.state:
+                # Observe the destination-acknowledged cursor before anything else.
+                self._observe_state_message(message.state, is_committed=True)
                 # This is a state message from the destination. Tally the records written.
                 if message.state.stream and message.state.destinationStats:
                     stream_name = message.state.stream.stream_descriptor.name
@@ -376,6 +429,165 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         Unlike the other tally methods, this method does not yield messages.
         """
         self.stream_bytes_read[stream_name] += bytes_read
+
+    # Local-sync state observation
+
+    def _observe_state_message(
+        self,
+        state_message: AirbyteStateMessage,
+        *,
+        is_committed: bool,
+    ) -> None:
+        """Observe a STATE message flowing through the local pipeline.
+
+        When `is_committed` is `False`, the message came directly from the
+        source and advances the `latest` cursor. When `True`, the message was
+        acknowledged by the destination and advances the `committed` cursor.
+
+        Only per-stream (`STREAM`-type) state messages contribute a
+        cursor. `GLOBAL` and `LEGACY` state messages are still passed through
+        the pipeline but are skipped here because they have no single
+        per-stream cursor value to record.
+        """
+        stream_name, cursor_field, cursor_value = extract_cursor_from_state_message(state_message)
+        if stream_name is None or cursor_value is None:
+            return
+
+        now = time.time()
+        if cursor_field and stream_name not in self.stream_cursor_fields:
+            self.stream_cursor_fields[stream_name] = cursor_field
+
+        if is_committed:
+            self.stream_committed_cursors[stream_name] = cursor_value
+            self.stream_committed_cursor_times[stream_name] = now
+            return
+
+        # Source-side: record baseline the first time we see a cursor.
+        if stream_name not in self.stream_baseline_cursors:
+            self.stream_baseline_cursors[stream_name] = cursor_value
+        self.stream_latest_cursors[stream_name] = cursor_value
+        self.stream_latest_cursor_times[stream_name] = now
+
+    @property
+    def stream_progress_pcts(self) -> dict[str, float]:
+        """Per-stream datetime-cursor progress estimates.
+
+        Returns values in `[0.0, 1.0]`. A stream is reported as `1.0` once the
+        source has emitted a `STREAM_STATUS=COMPLETE` trace (or the sync has
+        otherwise been finalized via `log_success()`); otherwise the value is
+        derived from the datetime-cursor formula and only streams with a
+        datetime-parseable baseline + latest cursor are included.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        result: dict[str, float] = {}
+        for stream_name, latest in self.stream_latest_cursors.items():
+            baseline = self.stream_baseline_cursors.get(stream_name)
+            pct = compute_stream_progress_pct(
+                baseline_cursor=baseline,
+                latest_cursor=latest,
+                now=now,
+            )
+            if pct is not None:
+                result[stream_name] = pct
+        for stream_name in self.stream_read_end_times:
+            result[stream_name] = 1.0
+        return result
+
+    @property
+    def stream_write_progress_pcts(self) -> dict[str, float]:
+        """Per-stream datetime-cursor write-progress estimates.
+
+        Uses the same formula as `stream_progress_pcts` but with the
+        destination-acknowledged (committed) cursor instead of the latest
+        source-emitted cursor. Only populated for streams with a
+        datetime-parseable baseline + committed cursor.
+        """
+        now = datetime.datetime.now(datetime.timezone.utc)
+        result: dict[str, float] = {}
+        for stream_name, committed in self.stream_committed_cursors.items():
+            baseline = self.stream_baseline_cursors.get(stream_name)
+            pct = compute_stream_progress_pct(
+                baseline_cursor=baseline,
+                latest_cursor=committed,
+                now=now,
+            )
+            if pct is not None:
+                result[stream_name] = pct
+        return result
+
+    def _build_progress_snapshot(self) -> dict[str, Any]:
+        """Build a point-in-time progress snapshot for JSONL audit logging.
+
+        Includes per-stream record counts, cursor fields/values, and
+        computed progress percentages when available.
+        """
+        now_dt = datetime.datetime.now(datetime.timezone.utc)
+        progress_pcts = self.stream_progress_pcts
+        write_progress_pcts = self.stream_write_progress_pcts
+        stream_names = (
+            set(self.stream_read_counts)
+            | set(self.written_stream_names)
+            | set(self.stream_latest_cursors)
+            | set(self.stream_committed_cursors)
+        )
+        streams: list[dict[str, Any]] = [
+            {
+                "stream_name": stream_name,
+                "records_read": self.stream_read_counts.get(stream_name, 0),
+                "records_delivered": self.destination_stream_records_delivered.get(stream_name, 0),
+                "records_confirmed": self.destination_stream_records_confirmed.get(stream_name, 0),
+                "cursor_field": self.stream_cursor_fields.get(stream_name),
+                "baseline_cursor": self.stream_baseline_cursors.get(stream_name),
+                "latest_cursor": self.stream_latest_cursors.get(stream_name),
+                "committed_cursor": self.stream_committed_cursors.get(stream_name),
+                "progress_pct": progress_pcts.get(stream_name),
+                "write_progress_pct": write_progress_pcts.get(stream_name),
+            }
+            for stream_name in sorted(stream_names)
+        ]
+        return {
+            "timestamp": now_dt.isoformat(),
+            "elapsed_secs": round(self.elapsed_seconds, 3),
+            "total_records_read": self.total_records_read,
+            "total_records_written": self.total_records_written,
+            "total_records_delivered": self.total_destination_records_delivered,
+            "total_records_confirmed": self.total_destination_records_confirmed,
+            "streams": streams,
+        }
+
+    def _get_progress_audit_log_path(self) -> Path | None:
+        """Resolve the JSONL audit log path for this tracker, once per instance."""
+        if self._progress_audit_log_resolved:
+            return self._progress_audit_log_path
+
+        self._progress_audit_log_resolved = True
+        if AIRBYTE_LOGGING_ROOT is None:
+            return None
+
+        yyyy_mm_dd = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+        folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return None
+
+        self._progress_audit_log_path = folder / f"progress-{ulid.ULID()}.jsonl"
+        return self._progress_audit_log_path
+
+    def _append_progress_audit_log(self) -> None:
+        """Append a single JSONL snapshot to the audit log, if available."""
+        path = self._get_progress_audit_log_path()
+        if path is None:
+            return
+
+        snapshot = self._build_progress_snapshot()
+        try:
+            with path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(snapshot, default=str))
+                fh.write("\n")
+        except OSError:
+            # Audit logging is best-effort; do not interfere with the sync.
+            return
 
     # Logging methods
 
@@ -608,7 +820,20 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
             self.end_time = time.time()
 
+        now = time.time()
+        all_known_streams = (
+            set(self.stream_read_counts)
+            | set(self.stream_latest_cursors)
+            | set(self.stream_committed_cursors)
+            | set(self.written_stream_names)
+        )
+        for stream_name in all_known_streams:
+            self.stream_read_end_times.setdefault(stream_name, now)
+
         self._update_display(force_refresh=True)
+        audit_path = self._get_progress_audit_log_path()
+        if audit_path is not None:
+            self._print_info_message(f"Progress audit log written to `{audit_path}`.")
         self._stop_rich_view()
         streams = list(self.stream_read_start_times.keys())
         if not streams:
@@ -862,9 +1087,10 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         elif self.style in {ProgressStyle.PLAIN, ProgressStyle.NONE}:
             pass
 
+        self._append_progress_audit_log()
         self._last_update_time = time.time()
 
-    def _get_status_message(self) -> str:
+    def _get_status_message(self) -> str:  # noqa: PLR0912, PLR0914, PLR0915
         """Compile and return a status message."""
         # Format start time as a friendly string in local timezone:
         start_time_str = _to_time_str(self.read_start_time)
@@ -893,23 +1119,53 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
                 f"({records_per_second:,.1f} records/s{mb_per_second_str}).\n\n"
             )
 
-        if self.stream_read_counts:
-            status_message += (
-                f"- Received records for {len(self.stream_read_counts)}"
-                + (
-                    f" out of {self.num_streams_expected} expected"
-                    if self.num_streams_expected
-                    else ""
-                )
-                + " streams:\n  - "
-                + join_streams_strings(
-                    [
-                        f"{self.stream_read_counts[stream_name]:,} {stream_name}"
-                        for stream_name in self.stream_read_counts
-                    ]
-                )
-                + "\n\n"
+        # Consolidated per-stream status: records + read/write progress per line.
+        read_progress_pcts = self.stream_progress_pcts
+        write_progress_pcts = self.stream_write_progress_pcts
+        per_stream_names = sorted(
+            set(self.stream_read_counts)
+            | set(self.stream_latest_cursors)
+            | set(self.stream_read_end_times)
+            | set(self.stream_committed_cursors)
+        )
+        if per_stream_names:
+            header = (
+                f"- Streams ({len(self.stream_read_counts)}"
+                + (f" of {self.num_streams_expected} expected" if self.num_streams_expected else "")
+                + "):\n"
             )
+            lines: list[str] = []
+            for stream_name in per_stream_names:
+                done_marker = "✓ " if stream_name in self.stream_read_end_times else ""
+                records = self.stream_read_counts.get(stream_name, 0)
+                baseline = self.stream_baseline_cursors.get(stream_name)
+                latest = self.stream_latest_cursors.get(stream_name)
+                committed = self.stream_committed_cursors.get(stream_name)
+                read_pct = read_progress_pcts.get(stream_name)
+                write_pct = write_progress_pcts.get(stream_name)
+
+                baseline_date = _cursor_date_str(baseline)
+                latest_date = _cursor_date_str(latest)
+                committed_date = _cursor_date_str(committed)
+
+                if read_pct is not None and baseline_date and latest_date:
+                    read_frag = (
+                        f"Read Progress: {read_pct * 100:.1f}% "
+                        f"(dates: `{baseline_date}`-`{latest_date}`)"
+                    )
+                elif stream_name in self.stream_read_end_times:
+                    read_frag = "Read Progress: 100.0% ✓"
+                else:
+                    read_frag = "Progress: n/a"
+
+                segments = [f"{records:,} records", read_frag]
+                if write_pct is not None and baseline_date and committed_date:
+                    segments.append(
+                        f"Write Progress: {write_pct * 100:.1f}% "
+                        f"(dates: `{baseline_date}`-`{committed_date}`)"
+                    )
+                lines.append(f"  - `{stream_name}`: {done_marker}" + " | ".join(segments))
+            status_message += header + "\n".join(lines) + "\n\n"
 
         # Source cache writes
         if self.total_records_written > 0:

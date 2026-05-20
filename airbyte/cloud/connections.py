@@ -23,7 +23,8 @@ from airbyte.cloud._connection_state import (
     _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
-from airbyte.cloud.sync_results import SyncResult
+from airbyte.cloud.constants import JobStatusEnum
+from airbyte.cloud.sync_results import SyncResult, _extract_stream_stats
 from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
 
 
@@ -270,8 +271,40 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         *,
         wait: bool = True,
         wait_timeout: int = 300,
+        with_rich_status_updates: bool | int = False,
+        progress_log_path: str | None = None,
     ) -> SyncResult:
-        """Run a sync."""
+        """Run a sync.
+
+        When `with_rich_status_updates` is truthy, a Rich Live table
+        showing per-stream progress is displayed while waiting for
+        completion.  Requires `wait=True`; passing `wait=False` with a
+        truthy `with_rich_status_updates` raises `ValueError`.
+
+        When `progress_log_path` is set, each Rich polling iteration
+        appends a JSONL line to the given file with timestamped
+        per-stream progress data for auditing.
+        """
+        if not wait and with_rich_status_updates:
+            raise ValueError(
+                "Cannot use `with_rich_status_updates` when `wait=False`. "
+                "Rich status updates require waiting for the sync to complete."
+            )
+
+        # Snapshot the current committed state *before* triggering the sync.
+        # This gives us the baseline (denominator) for progress calculation,
+        # since the state API only exposes the latest advancing cursor.
+        pre_sync_state: dict[str, Any] | None = None
+        pre_sync_stream_stats: dict[str, dict[str, int]] | None = None
+        if with_rich_status_updates:
+            pre_sync_state = self.dump_raw_state()
+            # Fetch the previous completed sync's per-stream records/bytes
+            # stats so we can use them as a rough denominator for the
+            # mid-sync records-based progress signal.  Best-effort — a
+            # missing previous sync just means the Records % column will
+            # render as `--` during the new sync.
+            pre_sync_stream_stats = self._fetch_latest_sync_stream_stats()
+
         connection_response = api_util.run_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
@@ -284,6 +317,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             workspace=self.workspace,
             connection=self,
             job_id=connection_response.job_id,
+            _pre_sync_state=pre_sync_state,
+            _pre_sync_stream_stats=pre_sync_stream_stats,
         )
 
         if wait:
@@ -291,6 +326,8 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 wait_timeout=wait_timeout,
                 raise_failure=True,
                 raise_timeout=True,
+                with_rich_status_updates=with_rich_status_updates,
+                progress_log_path=progress_log_path,
             )
 
         return sync_result
@@ -383,6 +420,77 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             connection=self,
             job_id=job_id,
         )
+
+    def get_previous_sync_state(
+        self,
+        *,
+        current_job_id: int | None = None,
+    ) -> dict[str, Any] | None:
+        """Get the state from the most recent completed sync job.
+
+        Fetches the previous completed (succeeded) sync job from job history
+        and extracts the final committed state from its last attempt's output.
+        This is useful for determining the baseline cursor values before
+        the current sync started advancing state.
+
+        When `current_job_id` is provided, that job is skipped so the
+        returned state always comes from a *previous* job.
+
+        Returns the state dict (same shape as `dump_raw_state()`), or `None`
+        if no previous completed sync is found or if state data is not
+        available in the job output.
+        """
+        previous_jobs = self.get_previous_sync_logs(limit=5)
+
+        for job in previous_jobs:
+            # Skip the current job if specified
+            if current_job_id is not None and job.job_id == current_job_id:
+                continue
+
+            if job.get_job_status() != JobStatusEnum.SUCCEEDED:
+                continue
+
+            # Fetch full job data including attempt output
+            job_data = job._fetch_job_with_attempts()  # noqa: SLF001
+            attempts = job_data.get("attempts", [])
+            if not attempts:
+                continue
+
+            last_attempt = attempts[-1]
+            output = last_attempt.get("attempt", {}).get("output", {})
+            state = output.get("state")
+            if isinstance(state, dict):
+                return state
+
+        return None
+
+    def _fetch_latest_sync_stream_stats(self) -> dict[str, dict[str, int]] | None:
+        """Fetch per-stream records/bytes stats from the most recent completed sync.
+
+        Used as a rough denominator for the mid-sync records-based
+        progress signal (Records % column).  Walks recent job history to
+        find the latest `SUCCEEDED` sync and pulls its `streamStats` via
+        the Config API's `jobs/get_debug_info` endpoint.
+
+        Returns a mapping from stream name to a dict of integer stats
+        (`records_emitted`, `bytes_emitted`), or `None` if no suitable
+        previous sync is found.
+        """
+        previous_jobs = self.get_previous_sync_logs(limit=5)
+        for job in previous_jobs:
+            if job.get_job_status() != JobStatusEnum.SUCCEEDED:
+                continue
+            debug_info = api_util.get_job_debug_info(
+                job_id=job.job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            stats = _extract_stream_stats(debug_info)
+            if stats:
+                return stats
+        return None
 
     # Artifacts
 
