@@ -200,7 +200,15 @@ class CloudClient:
                     workspaces = workspaces[:limit]
             return workspaces
         if name_contains is not None:
-            name = name_contains
+            if name_filter is not None:
+                raise exc.PyAirbyteInputError(
+                    message="You can provide name_contains or name_filter, but not both."
+                )
+            name_substring = name_contains
+
+            def name_filter(workspace_name: str) -> bool:
+                return name_substring in workspace_name
+
         return api_util.list_workspaces(
             workspace_id="",
             api_root=self.public_api_root,
@@ -248,10 +256,14 @@ class CloudClient:
             ]
 
         if not matching_organizations:
-            raise AirbyteMissingResourceError(resource_type="organization")
+            raise AirbyteMissingResourceError(
+                resource_type="organization",
+                resource_name_or_id=organization_id or organization_name,
+            )
         if len(matching_organizations) > 1:
             raise exc.PyAirbyteInputError(
-                message="Organization name matches multiple organizations."
+                message="Organization name matches multiple organizations.",
+                context={"organization_name": organization_name},
             )
 
         organization = matching_organizations[0]

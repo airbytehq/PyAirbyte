@@ -3,11 +3,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.secrets.base import SecretString
+
+
+logger = logging.getLogger(__name__)
 
 
 class CloudOrganization:
@@ -70,7 +74,8 @@ class CloudOrganization:
                 client_secret=self._credentials.client_secret,
                 bearer_token=self._credentials.bearer_token,
             )
-        except Exception:
+        except Exception as ex:
+            logger.debug("Failed to fetch organization info.", exc_info=ex)
             if self._organization_info is None:
                 self._organization_info_fetch_failed = True
             return self._organization_info or {}

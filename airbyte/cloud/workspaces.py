@@ -118,6 +118,7 @@ class CloudWorkspace:
         bearer_token: str | SecretString | None = None,
     ) -> None:
         """Validate and initialize credentials."""
+        env_vars = not (client_id or client_secret or bearer_token)
         credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
             client_id=client_id,
@@ -125,6 +126,7 @@ class CloudWorkspace:
             bearer_token=bearer_token,
             public_api_root=api_root,
             config_api_root=config_api_root,
+            env_vars=env_vars,
         )
         if not credentials.workspace_id:
             raise exc.PyAirbyteInputError(
@@ -188,8 +190,8 @@ class CloudWorkspace:
             A CloudWorkspace instance configured with credentials from the environment.
 
         Raises:
-            PyAirbyteSecretNotFoundError: If required credentials are not found in
-                the environment.
+            PyAirbyteInputError: If required credentials are not found in
+                the environment or are incomplete.
 
         Example:
             ```python
@@ -644,8 +646,9 @@ class CloudWorkspace:
         name: str | None = None,
         *,
         name_filter: Callable | None = None,
+        limit: int | None = None,
     ) -> list[WorkspaceResponse]:
-        """List workspaces available to the current credentials."""
+        """List workspaces available to the current credentials, with an optional limit."""
         return api_util.list_workspaces(
             workspace_id="",
             api_root=self.api_root,
@@ -654,6 +657,7 @@ class CloudWorkspace:
             client_id=self.client_id,
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
+            limit=limit,
         )
 
     def list_connections(

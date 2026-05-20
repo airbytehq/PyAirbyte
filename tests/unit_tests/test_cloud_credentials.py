@@ -8,6 +8,8 @@ from airbyte._util import api_util
 from airbyte.cloud import _credentials as cloud_credentials
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.organizations import CloudOrganization
+from airbyte.cloud.workspaces import CloudWorkspace
+from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 
 
@@ -36,6 +38,67 @@ def test_airbyte_credentials_from_auth_uses_pyairbyte_secret_lookup(
     assert credentials.workspace_id == "test-workspace-id"
 
 
+def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secrets = {
+        constants.CLOUD_BEARER_TOKEN_ENV_VAR: SecretString("test-bearer-token"),
+    }
+
+    def fake_try_get_secret(
+        secret_name: str,
+        /,
+        *,
+        default: str | SecretString | None = None,
+        **_: object,
+    ) -> SecretString | str | None:
+        return secrets.get(secret_name, default)
+
+    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+
+    credentials = cloud_credentials._AirbyteCredentials.from_auth()
+
+    assert credentials.bearer_token == "test-bearer-token"
+
+
+@pytest.mark.parametrize(
+    "env_vars, expected_guidance",
+    [
+        pytest.param(
+            False,
+            "Provide either bearer_token or both client_id and client_secret.",
+            id="explicit_inputs",
+        ),
+        pytest.param(
+            True,
+            "Set Airbyte Cloud credentials in environment variables.",
+            id="env_vars",
+        ),
+    ],
+)
+def test_airbyte_credentials_missing_credentials_guidance_matches_resolution_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    env_vars: bool,
+    expected_guidance: str,
+) -> None:
+    monkeypatch.setattr(cloud_credentials, "try_get_secret", lambda *_, **__: None)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        cloud_credentials._AirbyteCredentials.from_auth(env_vars=env_vars)
+
+    assert exc_info.value.guidance == expected_guidance
+
+
+def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
+    with pytest.raises(PyAirbyteInputError, match="Cannot use both"):
+        cloud_credentials._AirbyteCredentials.from_auth(
+            bearer_token="token",
+            client_id="client-id",
+            client_secret="client-secret",
+            env_vars=False,
+        )
+
+
 def test_cloud_client_list_workspaces_forwards_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -55,6 +118,29 @@ def test_cloud_client_list_workspaces_forwards_limit(
     CloudClient(bearer_token="token").list_workspaces(limit=3)
 
     assert captured_limit == 3
+
+
+def test_cloud_client_list_workspaces_applies_name_contains_to_non_org_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_filter = None
+
+    def fake_list_workspaces(
+        *,
+        name_filter: object = None,
+        **_: object,
+    ) -> list[object]:
+        nonlocal captured_filter
+        captured_filter = name_filter
+        return []
+
+    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+
+    CloudClient(bearer_token="token").list_workspaces(name_contains="target")
+
+    assert captured_filter is not None
+    assert captured_filter("a-target-workspace")
+    assert not captured_filter("other-workspace")
 
 
 def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before_limit(
@@ -91,6 +177,71 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
 
     assert captured_limit is None
     assert result == [{"name": "target-one"}]
+
+
+def test_cloud_workspace_list_workspaces_forwards_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_limit = None
+
+    def fake_list_workspaces(
+        *,
+        limit: int | None = None,
+        **_: object,
+    ) -> list[object]:
+        nonlocal captured_limit
+        captured_limit = limit
+        return []
+
+    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+
+    CloudWorkspace(workspace_id="workspace-id", bearer_token="token").list_workspaces(
+        limit=3
+    )
+
+    assert captured_limit == 3
+
+
+def test_cloud_workspace_explicit_credentials_do_not_resolve_env_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secrets = {
+        constants.CLOUD_BEARER_TOKEN_ENV_VAR: SecretString("env-bearer-token"),
+    }
+
+    def fake_try_get_secret(
+        secret_name: str,
+        /,
+        *,
+        default: str | SecretString | None = None,
+        **_: object,
+    ) -> SecretString | str | None:
+        return secrets.get(secret_name, default)
+
+    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        client_id="client-id",
+        client_secret="client-secret",
+    )
+
+    assert workspace.client_id == "client-id"
+    assert workspace.client_secret == "client-secret"
+    assert workspace.bearer_token is None
+
+
+def test_cloud_client_get_organization_adds_missing_lookup_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api_util, "list_organizations_for_user", lambda **_: [])
+
+    with pytest.raises(AirbyteMissingResourceError) as exc_info:
+        CloudClient(bearer_token="token").get_organization(
+            organization_id="missing-org"
+        )
+
+    assert exc_info.value.resource_name_or_id == "missing-org"
 
 
 def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(

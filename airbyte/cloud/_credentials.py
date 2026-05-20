@@ -73,17 +73,27 @@ class _AirbyteCredentials:
         )
 
         if resolved_bearer_token and (resolved_client_id or resolved_client_secret):
-            resolved_client_id = None
-            resolved_client_secret = None
-        elif bool(resolved_client_id) != bool(resolved_client_secret):
+            raise PyAirbyteInputError(
+                message="Cannot use both client credentials and bearer token authentication.",
+                guidance=(
+                    "Provide either client_id and client_secret together, "
+                    "or bearer_token alone, but not both."
+                ),
+            )
+        if bool(resolved_client_id) != bool(resolved_client_secret):
             raise PyAirbyteInputError(
                 message="Client ID and client secret are both required.",
                 guidance="Provide both client ID and client secret, or use a bearer token.",
             )
-        elif not resolved_bearer_token and not resolved_client_id:
+        if not resolved_bearer_token and not resolved_client_id:
+            guidance = (
+                "Set Airbyte Cloud credentials in environment variables."
+                if env_vars
+                else "Provide either bearer_token or both client_id and client_secret."
+            )
             raise PyAirbyteInputError(
                 message="No Airbyte credentials found.",
-                guidance="Set Airbyte Cloud credentials in environment variables.",
+                guidance=guidance,
             )
 
         return cls(

@@ -1338,24 +1338,15 @@ def _resolve_organization_id(
     organization_id: str | None,
     organization_name: str | None,
     *,
-    api_root: str,
-    client_id: SecretString | None,
-    client_secret: SecretString | None,
-    bearer_token: SecretString | None = None,
-    config_api_root: str | None = None,
+    client: CloudClient,
 ) -> str:
     """Resolve organization ID from either ID or exact name match.
 
     This is a convenience wrapper around _resolve_organization that returns just the ID.
     """
-    org = _resolve_organization(
+    org = client.get_organization(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=api_root,
-        client_id=client_id,
-        client_secret=client_secret,
-        bearer_token=bearer_token,
-        config_api_root=config_api_root,
     )
     return org.organization_id
 
@@ -1411,11 +1402,7 @@ def list_cloud_workspaces(
     resolved_org_id = _resolve_organization_id(
         organization_id=organization_id,
         organization_name=organization_name,
-        api_root=client.public_api_root,
-        client_id=client.client_id,
-        client_secret=client.client_secret,
-        bearer_token=client.bearer_token,
-        config_api_root=client.config_api_root,
+        client=client,
     )
 
     workspaces = client.list_workspaces(
