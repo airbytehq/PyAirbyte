@@ -1292,6 +1292,9 @@ def _resolve_organization_id(
     client: CloudClient,
 ) -> str:
     """Resolve organization ID from either ID or exact name match."""
+    if organization_id is not None:
+        return organization_id
+
     org = client.get_organization(
         organization_id=organization_id,
         organization_name=organization_name,

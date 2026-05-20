@@ -228,11 +228,12 @@ class CloudClient:
         organization_name: str | None = None,
     ) -> CloudOrganization:
         """Resolve an organization by ID or exact name."""
-        if organization_id and organization_name:
+        resolved_organization_id = organization_id or self.organization_id
+        if resolved_organization_id and organization_name:
             raise exc.PyAirbyteInputError(
                 message="Provide either organization ID or organization name."
             )
-        if not organization_id and not organization_name:
+        if not resolved_organization_id and not organization_name:
             raise exc.PyAirbyteInputError(
                 message="Organization ID or organization name is required."
             )
@@ -243,11 +244,11 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
-        if organization_id:
+        if resolved_organization_id:
             matching_organizations = [
                 organization
                 for organization in organizations
-                if organization.organization_id == organization_id
+                if organization.organization_id == resolved_organization_id
             ]
         else:
             matching_organizations = [
@@ -259,7 +260,7 @@ class CloudClient:
         if not matching_organizations:
             raise AirbyteMissingResourceError(
                 resource_type="organization",
-                resource_name_or_id=organization_id or organization_name,
+                resource_name_or_id=resolved_organization_id or organization_name,
             )
         if len(matching_organizations) > 1:
             raise exc.PyAirbyteInputError(

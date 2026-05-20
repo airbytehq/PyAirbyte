@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from airbyte_api import models
 
 from airbyte import constants
 from airbyte._util import api_util
@@ -10,6 +11,7 @@ from airbyte.cloud.client import CloudClient
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
 
 
@@ -275,6 +277,43 @@ def test_cloud_client_get_organization_adds_missing_lookup_context(
         )
 
     assert exc_info.value.resource_name_or_id == "missing-org"
+
+
+def test_cloud_client_get_organization_uses_default_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "list_organizations_for_user",
+        lambda **_: [
+            models.OrganizationResponse(
+                organization_id="default-org",
+                organization_name="Default Org",
+                email="test@example.com",
+            )
+        ],
+    )
+
+    organization = CloudClient(
+        bearer_token="token",
+        organization_id="default-org",
+    ).get_organization()
+
+    assert organization.organization_id == "default-org"
+
+
+def test_mcp_resolve_organization_id_skips_lookup_when_id_provided() -> None:
+    class FailingClient:
+        def get_organization(self, **_: object) -> object:
+            pytest.fail("get_organization should not be called")
+
+    resolved_organization_id = mcp_cloud._resolve_organization_id(  # noqa: SLF001
+        organization_id="organization-id",
+        organization_name=None,
+        client=FailingClient(),
+    )
+
+    assert resolved_organization_id == "organization-id"
 
 
 def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(
