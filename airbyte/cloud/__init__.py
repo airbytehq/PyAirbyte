@@ -84,9 +84,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from airbyte.cloud.client import CloudClient
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.constants import JobStatusEnum
+from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.cloud.workspaces import CloudWorkspace
 
@@ -95,9 +97,11 @@ from airbyte.cloud.workspaces import CloudWorkspace
 if TYPE_CHECKING:
     # ruff: noqa: TC004
     from airbyte.cloud import (
+        client,
         client_config,
         connections,
         constants,
+        organizations,
         sync_results,
         workspaces,
     )
@@ -106,11 +110,15 @@ if TYPE_CHECKING:
 __all__ = [
     # Submodules
     "workspaces",
+    "client",
+    "organizations",
     "connections",
     "constants",
     "client_config",
     "sync_results",
     # Classes
+    "CloudClient",
+    "CloudOrganization",
     "CloudWorkspace",
     "CloudConnection",
     "CloudClientConfig",
