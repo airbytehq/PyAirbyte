@@ -11,8 +11,8 @@ dependencies = [
     "airbyte-api>=0.53.0,<1.0",
     "airbyte-cdk>=7.3.9,<8.0.0",
     "airbyte-protocol-models-pdv2>=0.13.0,<1.0",
-    "click>=8.1.7,<9.0",
     "cryptography>=44.0.0,<45.0.0",
+    "cyclopts>=4.0,<5.0",
     # TODO: Restore broader version constraints after verifying compatibility
     # "duckdb>=1.4.0,<2.0",
     # "duckdb-engine>=0.17.0,<1.0",
