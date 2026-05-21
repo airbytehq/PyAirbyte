@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Generate Markdown documentation for the PyAirbyte MCP server.
+"""Generate Markdown documentation for the Airbyte Replication MCP server.
 
 Runs `fastmcp inspect` against the default `airbyte/mcp/server.py:app` spec
 (override with `--server-spec`) to obtain the full FastMCP protocol surface

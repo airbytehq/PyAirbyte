@@ -1,5 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""MCP prompt definitions for the PyAirbyte MCP server.
+"""MCP prompt definitions for the Airbyte Replication MCP server.
 
 This module defines prompts that can be invoked by MCP clients to perform
 common workflows.

@@ -75,7 +75,7 @@ To pin your GitHub actions, you can use the [pinact](https://github.com/suzuki-s
 pinact run [optional_file]
 ```
 
-## Contributing to the PyAirbyte MCP Server
+## Contributing to the Airbyte Replication MCP Server
 
 The Airbyte MCP server is part of the PyAirbyte project. Contributions are welcome!
 
@@ -118,7 +118,7 @@ In your MCP config, you can test your development updates using `uv` as the entr
 
 ### Testing MCP Tools
 
-The easiest way to test PyAirbyte MCP tools during development is using the built-in Poe tasks.
+The easiest way to test Airbyte Replication MCP tools during development is using the built-in Poe tasks.
 
 ```bash
 poe mcp-tool-test <tool_name> '<json_args>'

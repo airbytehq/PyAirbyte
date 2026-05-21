@@ -1,19 +1,19 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 
-r"""***PyAirbyte MCP Server - Model Context Protocol Integration***
+r"""***Airbyte Replication MCP Server - Model Context Protocol Integration***
 
 > **NOTE:**
 > This MCP server implementation is experimental and may change without notice between minor
 > versions of PyAirbyte. The API may be modified or entirely refactored in future versions.
 
-The PyAirbyte MCP (Model Context Protocol) server provides a standardized interface for
-managing Airbyte connectors through MCP-compatible clients. This experimental feature
-allows you to list connectors, validate configurations, and run sync operations using
-the MCP protocol.
+The Airbyte Replication MCP (Model Context Protocol) server provides a standardized interface
+for managing Airbyte connectors through MCP-compatible clients. This PyAirbyte-powered
+experimental feature allows you to list connectors, validate configurations, and run sync
+operations using the MCP protocol.
 
-## Getting Started with PyAirbyte MCP
+## Getting Started with Airbyte Replication MCP
 
-To get started with the PyAirbyte MCP server, follow these steps:
+To get started with the Airbyte Replication MCP server, follow these steps:
 
 1. Create a Dotenv secrets file.
 2. Register the MCP server with your MCP client.
@@ -21,7 +21,7 @@ To get started with the PyAirbyte MCP server, follow these steps:
 
 ### Step 1: Generate a Dotenv Secrets File
 
-To get started with the PyAirbyte MCP server, you will need to create a dotenv
+To get started with the Airbyte Replication MCP server, you will need to create a dotenv
 file containing your Airbyte Cloud credentials, as well as credentials for any
 third-party services you wish to connect to via Airbyte.
 
@@ -113,8 +113,8 @@ Helpful prompts to try:
 
 ## Airbyte Cloud MCP Server Safety
 
-The PyAirbyte MCP server supports environment variables to control safety and access levels for
-Airbyte Cloud operations.
+The Airbyte Replication MCP server supports environment variables to control safety and access
+levels for Airbyte Cloud operations.
 
 **Important:** The below settings only affect Cloud operations; local operations are not affected.
 
