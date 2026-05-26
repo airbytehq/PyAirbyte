@@ -660,24 +660,6 @@ class CloudWorkspace:
             limit=limit,
         )
 
-    def create_workspace(
-        self,
-        *,
-        name: str,
-        organization_id: str | None = None,
-        region_id: str | None = None,
-    ) -> WorkspaceResponse:
-        """Create an Airbyte workspace."""
-        return api_util.create_workspace(
-            name=name,
-            organization_id=organization_id,
-            region_id=region_id,
-            api_root=self.api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-        )
-
     def rename(
         self,
         name: str,

@@ -318,37 +318,6 @@ def test_cloud_workspace_list_workspaces_forwards_limit(
     assert captured_limit == 3
 
 
-def test_cloud_workspace_create_workspace_forwards_inputs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_kwargs: dict[str, object] = {}
-
-    def fake_create_workspace(**kwargs: object) -> models.WorkspaceResponse:
-        captured_kwargs.update(kwargs)
-        return models.WorkspaceResponse(
-            data_residency="auto",
-            name="New workspace",
-            notifications=models.NotificationsConfig(),
-            workspace_id="workspace-id",
-        )
-
-    monkeypatch.setattr(api_util, "create_workspace", fake_create_workspace)
-
-    workspace = CloudWorkspace(
-        workspace_id="workspace-id",
-        bearer_token="token",
-    ).create_workspace(
-        name="New workspace",
-        organization_id="organization-id",
-        region_id="us-east",
-    )
-
-    assert workspace.workspace_id == "workspace-id"
-    assert captured_kwargs["name"] == "New workspace"
-    assert captured_kwargs["organization_id"] == "organization-id"
-    assert captured_kwargs["region_id"] == "us-east"
-
-
 def test_cloud_workspace_rename_forwards_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
