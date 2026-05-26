@@ -140,6 +140,25 @@ class CloudClient:
             config_api_root=credentials.config_api_root,
         )
 
+    def create_workspace(
+        self,
+        *,
+        name: str,
+        organization_id: str | None = None,
+        region_id: str | None = None,
+    ) -> api_imports.WorkspaceResponse:
+        """Create an Airbyte workspace."""
+        resolved_organization_id = organization_id or self.organization_id
+        return api_util.create_workspace(
+            name=name,
+            organization_id=resolved_organization_id,
+            region_id=region_id,
+            api_root=self.public_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+
     @overload
     def list_workspaces(
         self,

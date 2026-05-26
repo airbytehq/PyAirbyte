@@ -214,6 +214,36 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
     assert result == [{"name": "target-one"}]
 
 
+def test_cloud_client_create_workspace_uses_default_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_organization_id = None
+
+    def fake_create_workspace(
+        *,
+        organization_id: str | None = None,
+        **_: object,
+    ) -> models.WorkspaceResponse:
+        nonlocal captured_organization_id
+        captured_organization_id = organization_id
+        return models.WorkspaceResponse(
+            data_residency="auto",
+            name="New workspace",
+            notifications=models.NotificationsConfig(),
+            workspace_id="workspace-id",
+        )
+
+    monkeypatch.setattr(api_util, "create_workspace", fake_create_workspace)
+
+    workspace = CloudClient(
+        bearer_token="token",
+        organization_id="organization-id",
+    ).create_workspace(name="New workspace")
+
+    assert workspace.workspace_id == "workspace-id"
+    assert captured_organization_id == "organization-id"
+
+
 def test_cloud_workspace_list_workspaces_forwards_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -235,6 +265,37 @@ def test_cloud_workspace_list_workspaces_forwards_limit(
     )
 
     assert captured_limit == 3
+
+
+def test_cloud_workspace_create_workspace_forwards_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_create_workspace(**kwargs: object) -> models.WorkspaceResponse:
+        captured_kwargs.update(kwargs)
+        return models.WorkspaceResponse(
+            data_residency="auto",
+            name="New workspace",
+            notifications=models.NotificationsConfig(),
+            workspace_id="workspace-id",
+        )
+
+    monkeypatch.setattr(api_util, "create_workspace", fake_create_workspace)
+
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+    ).create_workspace(
+        name="New workspace",
+        organization_id="organization-id",
+        region_id="us-east",
+    )
+
+    assert workspace.workspace_id == "workspace-id"
+    assert captured_kwargs["name"] == "New workspace"
+    assert captured_kwargs["organization_id"] == "organization-id"
+    assert captured_kwargs["region_id"] == "us-east"
 
 
 def test_cloud_workspace_explicit_credentials_do_not_resolve_env_vars(

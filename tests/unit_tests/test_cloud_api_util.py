@@ -107,6 +107,52 @@ def _list_workspaces_response(
     )
 
 
+def test_create_workspace_forwards_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request = None
+
+    def create_workspace(
+        *,
+        request: models.WorkspaceCreateRequest,
+    ) -> api.CreateWorkspaceResponse:
+        nonlocal captured_request
+        captured_request = request
+        raw_response = requests.Response()
+        raw_response.url = "https://api.airbyte.com/v1/workspaces"
+        return api.CreateWorkspaceResponse(
+            content_type="application/json",
+            status_code=200,
+            raw_response=raw_response,
+            workspace_response=_workspace_response("New workspace", 1),
+        )
+
+    airbyte_instance = SimpleNamespace(
+        workspaces=SimpleNamespace(create_workspace=create_workspace)
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    workspace = api_util.create_workspace(
+        name="New workspace",
+        organization_id="organization-id",
+        region_id="us-east",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert workspace.workspace_id == "workspace-1"
+    assert captured_request is not None
+    assert captured_request.name == "New workspace"
+    assert captured_request.organization_id == "organization-id"
+    assert captured_request.region_id == "us-east"
+
+
 @pytest.mark.parametrize(
     "kwargs,pages,expected_names,expected_requests",
     [

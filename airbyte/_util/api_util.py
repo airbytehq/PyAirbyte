@@ -284,6 +284,43 @@ def get_workspace(
     )
 
 
+def create_workspace(
+    *,
+    name: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    organization_id: str | None = None,
+    region_id: str | None = None,
+) -> models.WorkspaceResponse:
+    """Create a workspace."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    response = airbyte_instance.workspaces.create_workspace(
+        request=models.WorkspaceCreateRequest(
+            name=name,
+            organization_id=organization_id,
+            region_id=region_id,
+        )
+    )
+
+    if status_ok(response.status_code) and response.workspace_response:
+        return response.workspace_response
+
+    raise AirbyteError(
+        message="Could not create workspace.",
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+    )
+
+
 # List resources
 
 
