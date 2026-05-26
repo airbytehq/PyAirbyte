@@ -681,7 +681,12 @@ class CloudWorkspace:
         workspace_name: str | None = None,
         safe_mode: bool = True,
     ) -> None:
-        """Permanently delete this empty workspace."""
+        """Permanently delete this workspace if it has no connections.
+
+        When `safe_mode` is enabled, the workspace name must contain `delete-me`
+        or `deleteme`. This also checks for existing connections before deleting
+        and raises `AirbyteWorkspaceNotEmptyError` if the workspace is not empty.
+        """
         api_util.permanently_delete_workspace(
             workspace_id=self.workspace_id,
             workspace_name=workspace_name,
