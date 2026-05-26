@@ -103,7 +103,7 @@ def _setup_analytics() -> str | bool:
     if not _ANALYTICS_FILE.exists():
         # This is a one-time message to inform the user that we are tracking anonymous usage stats.
         print(
-            "Thank you for using PyAirbyte!\n"
+            "Thank you for using Airbyte!\n"
             "Anonymous usage reporting is currently enabled. For more information, please"
             " see https://docs.airbyte.com/telemetry",
             file=sys.stderr,
