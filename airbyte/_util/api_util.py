@@ -434,13 +434,21 @@ def permanently_delete_workspace(
         bearer_token=bearer_token,
         api_root=api_root,
     )
-    response = airbyte_instance.workspaces.delete_workspace(
-        api.DeleteWorkspaceRequest(workspace_id=workspace_id),
-    )
+    base_context = {
+        "workspace_id": workspace_id,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.workspaces.delete_workspace(
+            api.DeleteWorkspaceRequest(workspace_id=workspace_id),
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
     if not status_ok(response.status_code):
         raise AirbyteError(
             context={
-                "workspace_id": workspace_id,
+                **base_context,
                 "request_url": response.raw_response.url,
                 "status_code": response.status_code,
             },
