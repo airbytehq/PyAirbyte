@@ -44,7 +44,8 @@ def set_mcp_mode() -> None:
     proper detection and prevent interactive prompts.
     """
     print(
-        f"Running in MCP mode: PyAirbyte MCP v{get_version()} (Python v{python_version()})",
+        "Running in MCP mode: "
+        f"Airbyte Replication MCP v{get_version()} (Python v{python_version()})",
         file=sys.stderr,
     )
     global _MCP_MODE_ENABLED
