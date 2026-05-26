@@ -301,13 +301,22 @@ def create_workspace(
         client_secret=client_secret,
         bearer_token=bearer_token,
     )
-    response = airbyte_instance.workspaces.create_workspace(
-        request=models.WorkspaceCreateRequest(
-            name=name,
-            organization_id=organization_id,
-            region_id=region_id,
+    base_context = {
+        "name": name,
+        "organization_id": organization_id,
+        "region_id": region_id,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.workspaces.create_workspace(
+            request=models.WorkspaceCreateRequest(
+                name=name,
+                organization_id=organization_id,
+                region_id=region_id,
+            )
         )
-    )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
 
     if status_ok(response.status_code) and response.workspace_response:
         return response.workspace_response
@@ -315,6 +324,7 @@ def create_workspace(
     raise AirbyteError(
         message="Could not create workspace.",
         context={
+            **base_context,
             "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
