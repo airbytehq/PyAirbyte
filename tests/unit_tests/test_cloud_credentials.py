@@ -214,6 +214,87 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
     assert result == [{"name": "target-one"}]
 
 
+def test_cloud_client_create_workspace_uses_default_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_organization_id = None
+
+    def fake_create_workspace(
+        *,
+        organization_id: str | None = None,
+        **_: object,
+    ) -> models.WorkspaceResponse:
+        nonlocal captured_organization_id
+        captured_organization_id = organization_id
+        return models.WorkspaceResponse(
+            data_residency="auto",
+            name="New workspace",
+            notifications=models.NotificationsConfig(),
+            workspace_id="workspace-id",
+        )
+
+    monkeypatch.setattr(api_util, "create_workspace", fake_create_workspace)
+
+    workspace = CloudClient(
+        bearer_token="token",
+        organization_id="organization-id",
+    ).create_workspace(name="New workspace")
+
+    assert workspace.workspace_id == "workspace-id"
+    assert captured_organization_id == "organization-id"
+
+
+def test_cloud_client_rename_workspace_forwards_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_rename_workspace(**kwargs: object) -> models.WorkspaceResponse:
+        captured_kwargs.update(kwargs)
+        return models.WorkspaceResponse(
+            data_residency="auto",
+            name="Renamed workspace",
+            notifications=models.NotificationsConfig(),
+            workspace_id="workspace-id",
+        )
+
+    monkeypatch.setattr(api_util, "rename_workspace", fake_rename_workspace)
+
+    workspace = CloudClient(bearer_token="token").rename_workspace(
+        workspace_id="workspace-id",
+        name="Renamed workspace",
+    )
+
+    assert workspace.name == "Renamed workspace"
+    assert captured_kwargs["workspace_id"] == "workspace-id"
+    assert captured_kwargs["name"] == "Renamed workspace"
+
+
+def test_cloud_client_permanently_delete_workspace_forwards_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_permanently_delete_workspace(**kwargs: object) -> None:
+        captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(
+        api_util,
+        "permanently_delete_workspace",
+        fake_permanently_delete_workspace,
+    )
+
+    CloudClient(bearer_token="token").permanently_delete_workspace(
+        workspace_id="workspace-id",
+        workspace_name="delete-me workspace",
+        safe_mode=True,
+    )
+
+    assert captured_kwargs["workspace_id"] == "workspace-id"
+    assert captured_kwargs["workspace_name"] == "delete-me workspace"
+    assert captured_kwargs["safe_mode"] is True
+
+
 def test_cloud_workspace_list_workspaces_forwards_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -235,6 +316,58 @@ def test_cloud_workspace_list_workspaces_forwards_limit(
     )
 
     assert captured_limit == 3
+
+
+def test_cloud_workspace_rename_forwards_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_rename_workspace(**kwargs: object) -> models.WorkspaceResponse:
+        captured_kwargs.update(kwargs)
+        return models.WorkspaceResponse(
+            data_residency="auto",
+            name="Renamed workspace",
+            notifications=models.NotificationsConfig(),
+            workspace_id="workspace-id",
+        )
+
+    monkeypatch.setattr(api_util, "rename_workspace", fake_rename_workspace)
+
+    workspace = CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+    )
+
+    result = workspace.rename("Renamed workspace")
+
+    assert result is workspace
+    assert captured_kwargs["workspace_id"] == "workspace-id"
+    assert captured_kwargs["name"] == "Renamed workspace"
+
+
+def test_cloud_workspace_permanently_delete_forwards_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_permanently_delete_workspace(**kwargs: object) -> None:
+        captured_kwargs.update(kwargs)
+
+    monkeypatch.setattr(
+        api_util,
+        "permanently_delete_workspace",
+        fake_permanently_delete_workspace,
+    )
+
+    CloudWorkspace(
+        workspace_id="workspace-id",
+        bearer_token="token",
+    ).permanently_delete(workspace_name="delete-me workspace")
+
+    assert captured_kwargs["workspace_id"] == "workspace-id"
+    assert captured_kwargs["workspace_name"] == "delete-me workspace"
+    assert captured_kwargs["safe_mode"] is True
 
 
 def test_cloud_workspace_explicit_credentials_do_not_resolve_env_vars(

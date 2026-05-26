@@ -517,6 +517,17 @@ class AirbyteWorkspaceMismatchError(AirbyteError):
 
 
 @dataclass
+class AirbyteWorkspaceNotEmptyError(AirbyteError):
+    """Workspace cannot be deleted because it contains connections."""
+
+    workspace_id: str | None = None
+    """The workspace ID that was expected to be empty."""
+
+    connection_ids: list[str] | None = None
+    """The connection IDs found in the workspace."""
+
+
+@dataclass
 class AirbyteConnectionSyncTimeoutError(AirbyteConnectionSyncError):
     """An timeout occurred while waiting for the remote Airbyte job to complete."""
 
