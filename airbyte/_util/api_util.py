@@ -318,6 +318,7 @@ def create_workspace(
             "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
+        response=response,
     )
 
 
