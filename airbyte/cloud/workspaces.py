@@ -678,6 +678,38 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
 
+    def rename(
+        self,
+        name: str,
+    ) -> CloudWorkspace:
+        """Rename this workspace."""
+        api_util.rename_workspace(
+            workspace_id=self.workspace_id,
+            name=name,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+        return self
+
+    def permanently_delete(
+        self,
+        *,
+        workspace_name: str | None = None,
+        safe_mode: bool = True,
+    ) -> None:
+        """Permanently delete this workspace."""
+        api_util.permanently_delete_workspace(
+            workspace_id=self.workspace_id,
+            workspace_name=workspace_name,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            safe_mode=safe_mode,
+        )
+
     def list_connections(
         self,
         name: str | None = None,

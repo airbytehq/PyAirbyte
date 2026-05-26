@@ -159,6 +159,40 @@ class CloudClient:
             bearer_token=self.bearer_token,
         )
 
+    def rename_workspace(
+        self,
+        workspace_id: str,
+        *,
+        name: str,
+    ) -> api_imports.WorkspaceResponse:
+        """Rename an Airbyte workspace."""
+        return api_util.rename_workspace(
+            workspace_id=workspace_id,
+            name=name,
+            api_root=self.public_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+
+    def permanently_delete_workspace(
+        self,
+        workspace_id: str,
+        *,
+        workspace_name: str | None = None,
+        safe_mode: bool = True,
+    ) -> None:
+        """Permanently delete an Airbyte workspace."""
+        api_util.permanently_delete_workspace(
+            workspace_id=workspace_id,
+            workspace_name=workspace_name,
+            api_root=self.public_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            safe_mode=safe_mode,
+        )
+
     @overload
     def list_workspaces(
         self,

@@ -153,6 +153,117 @@ def test_create_workspace_forwards_request(
     assert captured_request.region_id == "us-east"
 
 
+def test_rename_workspace_forwards_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_request = None
+
+    def update_workspace(
+        request: api.UpdateWorkspaceRequest,
+    ) -> api.UpdateWorkspaceResponse:
+        nonlocal captured_request
+        captured_request = request
+        raw_response = requests.Response()
+        raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-1"
+        return api.UpdateWorkspaceResponse(
+            content_type="application/json",
+            status_code=200,
+            raw_response=raw_response,
+            workspace_response=_workspace_response("Renamed workspace", 1),
+        )
+
+    airbyte_instance = SimpleNamespace(
+        workspaces=SimpleNamespace(update_workspace=update_workspace)
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    workspace = api_util.rename_workspace(
+        workspace_id="workspace-1",
+        name="Renamed workspace",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert workspace.name == "Renamed workspace"
+    assert captured_request is not None
+    assert captured_request.workspace_id == "workspace-1"
+    assert captured_request.workspace_update_request.name == "Renamed workspace"
+
+
+@pytest.mark.parametrize(
+    "workspace_name,should_delete",
+    [
+        pytest.param("delete-me workspace", True, id="delete_me_with_hyphen"),
+        pytest.param("deleteme workspace", True, id="deleteme_without_hyphen"),
+        pytest.param("production workspace", False, id="unsafe_name"),
+    ],
+)
+def test_permanently_delete_workspace_requires_safe_name(
+    monkeypatch: pytest.MonkeyPatch,
+    workspace_name: str,
+    should_delete: bool,
+) -> None:
+    delete_calls = 0
+
+    def get_workspace(**_: object) -> models.WorkspaceResponse:
+        return models.WorkspaceResponse(
+            data_residency="auto",
+            name=workspace_name,
+            notifications=models.NotificationsConfig(),
+            workspace_id="workspace-1",
+        )
+
+    def delete_workspace(
+        request: api.DeleteWorkspaceRequest,
+    ) -> api.DeleteWorkspaceResponse:
+        nonlocal delete_calls
+        delete_calls += 1
+        assert request.workspace_id == "workspace-1"
+        raw_response = requests.Response()
+        raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-1"
+        return api.DeleteWorkspaceResponse(
+            content_type="",
+            status_code=204,
+            raw_response=raw_response,
+        )
+
+    airbyte_instance = SimpleNamespace(
+        workspaces=SimpleNamespace(delete_workspace=delete_workspace)
+    )
+    monkeypatch.setattr(api_util, "get_workspace", get_workspace)
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    if should_delete:
+        api_util.permanently_delete_workspace(
+            workspace_id="workspace-1",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+        assert delete_calls == 1
+    else:
+        with pytest.raises(PyAirbyteInputError):
+            api_util.permanently_delete_workspace(
+                workspace_id="workspace-1",
+                api_root="https://api.airbyte.com/v1",
+                client_id=None,
+                client_secret=None,
+                bearer_token=SecretString("token"),
+            )
+        assert delete_calls == 0
+
+
 @pytest.mark.parametrize(
     "kwargs,pages,expected_names,expected_requests",
     [

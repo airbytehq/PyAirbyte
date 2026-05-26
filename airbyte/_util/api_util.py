@@ -332,6 +332,122 @@ def create_workspace(
     )
 
 
+def rename_workspace(
+    workspace_id: str,
+    *,
+    name: str,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> models.WorkspaceResponse:
+    """Rename a workspace."""
+    airbyte_instance = get_airbyte_server_instance(
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    base_context = {
+        "workspace_id": workspace_id,
+        "name": name,
+        "api_root": api_root,
+    }
+    try:
+        response = airbyte_instance.workspaces.update_workspace(
+            api.UpdateWorkspaceRequest(
+                workspace_id=workspace_id,
+                workspace_update_request=models.WorkspaceUpdateRequest(name=name),
+            )
+        )
+    except SDKError as e:
+        raise _wrap_sdk_error(e, base_context) from e
+
+    if status_ok(response.status_code) and response.workspace_response:
+        return response.workspace_response
+
+    raise AirbyteError(
+        message="Could not rename workspace.",
+        context={
+            **base_context,
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+        response=response,
+    )
+
+
+def permanently_delete_workspace(
+    workspace_id: str,
+    *,
+    workspace_name: str | None = None,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    safe_mode: bool = True,
+) -> None:
+    """Delete a workspace.
+
+    Args:
+        workspace_id: The workspace ID to delete.
+        workspace_name: Optional workspace name. If not provided and safe mode is enabled,
+            the workspace name is fetched from the API for safety checks.
+        api_root: The API root URL.
+        client_id: OAuth client ID.
+        client_secret: OAuth client secret.
+        bearer_token: Bearer token for authentication.
+        safe_mode: If True, the workspace name must contain `delete-me` or `deleteme`
+            (case insensitive). Defaults to True.
+
+    Raises:
+        PyAirbyteInputError: If safe mode is True and the workspace name does not meet
+            the safety requirements.
+    """
+    if safe_mode:
+        if workspace_name is None:
+            workspace_info = get_workspace(
+                workspace_id=workspace_id,
+                api_root=api_root,
+                client_id=client_id,
+                client_secret=client_secret,
+                bearer_token=bearer_token,
+            )
+            workspace_name = workspace_info.name
+
+        if not _is_safe_name_to_delete(workspace_name):
+            raise PyAirbyteInputError(
+                message=(
+                    "Cannot delete workspace with safe_mode enabled because the workspace "
+                    "name does not contain 'delete-me' or 'deleteme'."
+                ),
+                context={
+                    "workspace_id": workspace_id,
+                    "workspace_name": workspace_name,
+                    "safe_mode": True,
+                },
+            )
+
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    response = airbyte_instance.workspaces.delete_workspace(
+        api.DeleteWorkspaceRequest(workspace_id=workspace_id),
+    )
+    if not status_ok(response.status_code):
+        raise AirbyteError(
+            context={
+                "workspace_id": workspace_id,
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
+            },
+            response=response,
+        )
+
+
 # List resources
 
 
