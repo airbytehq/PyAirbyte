@@ -29,6 +29,7 @@ from airbyte.exceptions import (
     AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMultipleResourcesError,
+    AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
 )
 from airbyte.secrets.base import SecretString
@@ -387,7 +388,7 @@ def permanently_delete_workspace(
     bearer_token: SecretString | None,
     safe_mode: bool = True,
 ) -> None:
-    """Delete a workspace.
+    """Delete an empty workspace.
 
     Args:
         workspace_id: The workspace ID to delete.
@@ -403,6 +404,7 @@ def permanently_delete_workspace(
     Raises:
         PyAirbyteInputError: If safe mode is True and the workspace name does not meet
             the safety requirements.
+        AirbyteWorkspaceNotEmptyError: If the workspace contains connections.
     """
     if safe_mode:
         if workspace_name is None:
@@ -427,6 +429,20 @@ def permanently_delete_workspace(
                     "safe_mode": True,
                 },
             )
+
+    connections = list_connections(
+        workspace_id=workspace_id,
+        api_root=api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        limit=1,
+    )
+    if connections:
+        raise AirbyteWorkspaceNotEmptyError(
+            workspace_id=workspace_id,
+            connection_ids=[connection.connection_id for connection in connections],
+        )
 
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,

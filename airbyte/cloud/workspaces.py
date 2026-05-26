@@ -681,7 +681,7 @@ class CloudWorkspace:
         workspace_name: str | None = None,
         safe_mode: bool = True,
     ) -> None:
-        """Permanently delete this workspace."""
+        """Permanently delete this empty workspace."""
         api_util.permanently_delete_workspace(
             workspace_id=self.workspace_id,
             workspace_name=workspace_name,

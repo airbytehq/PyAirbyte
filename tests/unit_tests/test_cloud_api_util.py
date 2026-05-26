@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 import requests
 from airbyte._util import api_util
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteWorkspaceNotEmptyError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
 
@@ -242,6 +242,7 @@ def test_permanently_delete_workspace_requires_safe_name(
         "get_airbyte_server_instance",
         lambda **_: airbyte_instance,
     )
+    monkeypatch.setattr(api_util, "list_connections", lambda **_: [])
 
     if should_delete:
         api_util.permanently_delete_workspace(
@@ -262,6 +263,53 @@ def test_permanently_delete_workspace_requires_safe_name(
                 bearer_token=SecretString("token"),
             )
         assert delete_calls == 0
+
+
+def test_permanently_delete_workspace_requires_empty_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delete_calls = 0
+
+    def delete_workspace(
+        request: api.DeleteWorkspaceRequest,
+    ) -> api.DeleteWorkspaceResponse:
+        nonlocal delete_calls
+        delete_calls += 1
+        raw_response = requests.Response()
+        raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-1"
+        return api.DeleteWorkspaceResponse(
+            content_type="",
+            status_code=204,
+            raw_response=raw_response,
+        )
+
+    airbyte_instance = SimpleNamespace(
+        workspaces=SimpleNamespace(delete_workspace=delete_workspace)
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+    monkeypatch.setattr(
+        api_util,
+        "list_connections",
+        lambda **_: [_connection_response("existing connection", 1)],
+    )
+
+    with pytest.raises(AirbyteWorkspaceNotEmptyError) as exc_info:
+        api_util.permanently_delete_workspace(
+            workspace_id="workspace-id",
+            workspace_name="delete-me workspace",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+    assert exc_info.value.workspace_id == "workspace-id"
+    assert exc_info.value.connection_ids == ["connection-1"]
+    assert delete_calls == 0
 
 
 @pytest.mark.parametrize(

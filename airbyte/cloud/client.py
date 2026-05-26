@@ -182,7 +182,7 @@ class CloudClient:
         workspace_name: str | None = None,
         safe_mode: bool = True,
     ) -> None:
-        """Permanently delete an Airbyte workspace."""
+        """Permanently delete an empty Airbyte workspace."""
         api_util.permanently_delete_workspace(
             workspace_id=workspace_id,
             workspace_name=workspace_name,
