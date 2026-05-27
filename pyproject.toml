@@ -7,6 +7,8 @@ authors = [
 ]
 requires-python = ">=3.10,<3.13"
 dynamic = ["version"]
+# `project.dependencies` remains the published full install requirement set.
+# Keep it in sync with `dependency-groups.slim`, `dependency-groups.full`, and `uv.lock`.
 dependencies = [
     "airbyte-api>=0.53.0,<1.0",
     "airbyte-cdk>=7.3.9,<8.0.0",
@@ -51,6 +53,7 @@ dependencies = [
 ]
 
 [dependency-groups]
+# These uv groups model install boundaries for local workflows and lockfile management.
 slim = [
     "airbyte-api>=0.53.0,<1.0",
     "airbyte-protocol-models-pdv2>=0.13.0,<1.0",
@@ -73,6 +76,7 @@ slim = [
     "uv>=0.5.0,<0.9.0",
 ]
 full = [
+    { include-group = "slim" },
     "airbyte-cdk>=7.3.9,<8.0.0",
     "cyclopts>=4.0,<5.0",
     # TODO: Restore broader version constraints after verifying compatibility

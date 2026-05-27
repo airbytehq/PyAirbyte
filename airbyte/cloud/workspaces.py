@@ -445,10 +445,11 @@ class CloudWorkspace:
         else:
             destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
-            if "destinationType" not in destination_conf_dict:
-                raise exc.PyAirbyteInputError(
-                    message="Missing `destinationType` in configuration dictionary.",
-                )
+
+        if "destinationType" not in destination_conf_dict:
+            raise exc.PyAirbyteInputError(
+                message="Missing `destinationType` in configuration dictionary.",
+            )
 
         if random_name_suffix:
             name += f" (ID: {text_util.generate_random_suffix()})"

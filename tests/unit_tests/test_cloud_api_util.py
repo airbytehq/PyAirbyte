@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import requests
 from airbyte._util import api_util
+from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteWorkspaceNotEmptyError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
@@ -105,6 +107,42 @@ def _list_workspaces_response(
             next=next_page,
         ),
     )
+
+
+def test_deploy_destination_rejects_dict_without_destination_type() -> None:
+    workspace = CloudWorkspace(workspace_id="workspace-id", bearer_token="token")
+
+    with pytest.raises(PyAirbyteInputError, match="Missing `destinationType`"):
+        workspace.deploy_destination(
+            name="test-destination",
+            destination={"host": "example.com"},
+        )
+
+
+def test_deploy_destination_forwards_destination_type(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_config: dict[str, Any] | None = None
+
+    def create_destination(
+        *,
+        config: dict[str, Any],
+        **_: Any,
+    ) -> SimpleNamespace:
+        nonlocal captured_config
+        captured_config = config
+        return SimpleNamespace(destination_id="destination-id")
+
+    monkeypatch.setattr(api_util, "create_destination", create_destination)
+
+    workspace = CloudWorkspace(workspace_id="workspace-id", bearer_token="token")
+    workspace.deploy_destination(
+        name="test-destination",
+        destination={"destinationType": "duckdb", "path": "/tmp/test.duckdb"},
+        unique=False,
+    )
+
+    assert captured_config == {"destinationType": "duckdb", "path": "/tmp/test.duckdb"}
 
 
 def test_create_workspace_forwards_request(
