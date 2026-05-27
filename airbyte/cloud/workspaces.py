@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, Protocol, overload
 
 import yaml
 
@@ -54,8 +54,14 @@ from airbyte.cloud.connectors import (
     CustomCloudSourceDefinition,
 )
 from airbyte.cloud.organizations import CloudOrganization
-from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
+
+
+class _DestinationLike(Protocol):
+    name: str
+
+    @property
+    def _hydrated_config(self) -> dict[str, Any]: ...
 
 
 if TYPE_CHECKING:
@@ -415,7 +421,7 @@ class CloudWorkspace:
     def deploy_destination(
         self,
         name: str,
-        destination: Destination | dict[str, Any],
+        destination: _DestinationLike | dict[str, Any],
         *,
         unique: bool = True,
         random_name_suffix: bool = False,
@@ -432,12 +438,11 @@ class CloudWorkspace:
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
         """
-        if isinstance(destination, Destination):
-            destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
-            destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
-            # raise ValueError(destination_conf_dict)
-        else:
+        if isinstance(destination, dict):
             destination_conf_dict = destination.copy()
+        else:
+            destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001
+            destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
             if "destinationType" not in destination_conf_dict:
                 raise exc.PyAirbyteInputError(
                     message="Missing `destinationType` in configuration dictionary.",

@@ -4,13 +4,12 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
 from typing_extensions import final
 
-from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 from airbyte_protocol.models import (
     AirbyteMessage,
     AirbyteRecordMessage,
@@ -26,7 +25,6 @@ from airbyte.constants import AB_EXTRACTED_AT_COLUMN
 
 
 if TYPE_CHECKING:
-    import datetime
     from collections.abc import Callable, Generator, Iterable, Iterator
     from pathlib import Path
 
@@ -39,7 +37,7 @@ def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
         type=Type.TRACE,
         trace=AirbyteTraceMessage(
             type=TraceType.STREAM_STATUS,
-            emitted_at=ab_datetime_now().timestamp(),
+            emitted_at=datetime.now(tz=UTC).timestamp(),
             stream_status=AirbyteStreamStatusTraceMessage(
                 stream_descriptor=StreamDescriptor(
                     name=stream_name,
@@ -104,9 +102,7 @@ class AirbyteMessageIterator:
                             stream=stream_name,
                             data=record,
                             emitted_at=int(
-                                cast(
-                                    "datetime.datetime", record.get(AB_EXTRACTED_AT_COLUMN)
-                                ).timestamp()
+                                cast("datetime", record.get(AB_EXTRACTED_AT_COLUMN)).timestamp()
                             ),
                             # `meta` and `namespace` are not handled:
                             meta=None,

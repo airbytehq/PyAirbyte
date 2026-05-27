@@ -123,21 +123,44 @@ has its own documentation and code samples related to effectively using the rela
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+# ruff: noqa: F822  # Lazy exports are resolved by __getattr__ at runtime.
+from importlib import import_module
+from typing import TYPE_CHECKING, Protocol
 
 from airbyte import registry
-from airbyte.caches.bigquery import BigQueryCache
-from airbyte.caches.duckdb import DuckDBCache
-from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_cache
-from airbyte.datasets import CachedDataset
-from airbyte.destinations.base import Destination
-from airbyte.destinations.util import get_destination
 from airbyte.records import StreamRecord
 from airbyte.registry import get_available_connectors
-from airbyte.results import ReadResult, WriteResult
 from airbyte.secrets import SecretSourceEnum, get_secret
-from airbyte.sources.base import Source
-from airbyte.sources.util import get_source
+
+
+class _LazyExport(Protocol):
+    def __call__(self, *args: object, **kwargs: object) -> object: ...
+
+
+_LAZY_EXPORTS = {
+    "BigQueryCache": "airbyte.caches.bigquery",
+    "CachedDataset": "airbyte.datasets",
+    "Destination": "airbyte.destinations.base",
+    "DuckDBCache": "airbyte.caches.duckdb",
+    "ReadResult": "airbyte.results",
+    "Source": "airbyte.sources.base",
+    "WriteResult": "airbyte.results",
+    "get_colab_cache": "airbyte.caches.util",
+    "get_default_cache": "airbyte.caches.util",
+    "get_destination": "airbyte.destinations.util",
+    "get_source": "airbyte.sources.util",
+    "new_local_cache": "airbyte.caches.util",
+}
+
+
+def __getattr__(name: str) -> _LazyExport:
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module 'airbyte' has no attribute {name!r}")
+
+    module = import_module(_LAZY_EXPORTS[name])
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
 
 
 # Submodules imported here for documentation reasons: https://github.com/mitmproxy/pdoc/issues/757

@@ -103,31 +103,41 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import final
 
-from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
-
 from airbyte._util import api_util
-from airbyte.caches._utils._dest_to_cache import destination_to_cache
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
-from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
+
+
+def _parse_datetime(value: str | int) -> datetime:
+    if isinstance(value, int) or (
+        isinstance(value, str)
+        and (value.isdigit() or (value.startswith("-") and value[1:].isdigit()))
+    ):
+        return datetime.fromtimestamp(int(value), tz=UTC)
+
+    if not isinstance(value, str):
+        raise TypeError(f"Could not parse datetime string: {value}")
+
+    normalized = value.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized)
 
 
 DEFAULT_SYNC_TIMEOUT_SECONDS = 30 * 60  # 30 minutes
 """The default timeout for waiting for a sync job to complete, in seconds."""
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
     import sqlalchemy
 
     from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
+    from airbyte.datasets import CachedDataset  # noqa: TC004
 
 
 @dataclass
@@ -168,7 +178,7 @@ class SyncAttempt:
     def created_at(self) -> datetime:
         """Return the creation time of the attempt."""
         timestamp = self._get_attempt_data()["createdAt"]
-        return ab_datetime_parse(timestamp)
+        return _parse_datetime(timestamp)
 
     def _get_attempt_data(self) -> dict[str, Any]:
         """Get attempt data from the provided attempt data."""
@@ -307,7 +317,7 @@ class SyncResult:
     def start_time(self) -> datetime:
         """Return the start time of the sync job in UTC."""
         try:
-            return ab_datetime_parse(self._fetch_latest_job_info().start_time)
+            return _parse_datetime(self._fetch_latest_job_info().start_time)
         except (ValueError, TypeError) as e:
             if "Invalid isoformat string" in str(e):
                 job_info_raw = api_util._make_config_api_request(  # noqa: SLF001
@@ -321,7 +331,7 @@ class SyncResult:
                 )
                 raw_start_time = job_info_raw.get("startTime")
                 if raw_start_time:
-                    return ab_datetime_parse(raw_start_time)
+                    return _parse_datetime(raw_start_time)
             raise
 
     def _fetch_job_with_attempts(self) -> dict[str, Any]:
@@ -421,6 +431,8 @@ class SyncResult:
         if self._cache:
             return self._cache
 
+        from airbyte.caches._utils._dest_to_cache import destination_to_cache  # noqa: PLC0415
+
         destination_configuration = self._get_destination_configuration()
         self._cache = destination_to_cache(destination_configuration=destination_configuration)
         return self._cache
@@ -449,6 +461,8 @@ class SyncResult:
               (catalog information) to the `CachedDataset` object via the "Get stream properties"
               API: https://reference.airbyte.com/reference/getstreamproperties
         """
+        from airbyte.datasets import CachedDataset  # noqa: PLC0415
+
         return CachedDataset(
             self.get_sql_cache(),
             stream_name=stream_name,
