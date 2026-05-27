@@ -19,6 +19,8 @@ jobs:
       - name: Run actionlint
         uses: reviewdog/action-actionlint@95395aac8c053577d0bc67eb7b74936c660c6f66 # v1.67.0
         with:
+          # TODO: Remove once actionlint supports GitHub's public-preview code-quality permission scope.
+          actionlint_flags: -ignore 'unknown permission scope "code-quality"'
           github_token: ${{ secrets.GITHUB_TOKEN }}
           reporter: github-pr-review
           level: error

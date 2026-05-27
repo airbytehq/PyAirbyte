@@ -19,14 +19,25 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   pytest-fast:
     name: Pytest (Fast)
     runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      contents: read
+      code-quality: write
+      pull-requests: read
     steps:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
@@ -53,7 +64,7 @@ jobs:
       if: always()
       run: |
         uv run coverage html -d htmlcov
-        uv run coverage xml -o htmlcov/coverage.xml
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -61,6 +72,15 @@ jobs:
       with:
         name: fasttest-coverage
         path: htmlcov/
+
+    - name: Upload coverage to GitHub Code Quality
+      if: always()
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+      with:
+        file: htmlcov/coverage.xml
+        language: Python
+        label: code-coverage/pytest-fast
+        fail-on-error: false
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
@@ -82,10 +102,16 @@ jobs:
   pytest-no-creds:
     name: Pytest (No Creds)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      code-quality: write
+      pull-requests: read
     steps:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
@@ -114,7 +140,7 @@ jobs:
       if: always()
       run: |
         uv run coverage html -d htmlcov
-        uv run coverage xml -o htmlcov/coverage.xml
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -122,6 +148,15 @@ jobs:
       with:
         name: nocreds-test-coverage
         path: htmlcov/
+
+    - name: Upload coverage to GitHub Code Quality
+      if: always()
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+      with:
+        file: htmlcov/coverage.xml
+        language: Python
+        label: code-coverage/pytest-no-creds
+        fail-on-error: false
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
@@ -150,6 +185,11 @@ jobs:
       fail-fast: false
 
     runs-on: "${{ matrix.os }}-latest"
+    permissions:
+      checks: write
+      contents: read
+      code-quality: write
+      pull-requests: read
     env:
       # Enforce UTF-8 encoding so Windows runners don't fail inside the connector code.
       # TODO: See if we can fully enforce this within PyAirbyte itself.
@@ -158,6 +198,8 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
@@ -197,7 +239,7 @@ jobs:
       if: always()
       run: |
         uv run coverage html -d htmlcov
-        uv run coverage xml -o htmlcov/coverage.xml
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -205,6 +247,15 @@ jobs:
       with:
         name: py${{ matrix.python-version }}-${{ matrix.os }}-test-coverage
         path: htmlcov/
+
+    - name: Upload coverage to GitHub Code Quality
+      if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
+      with:
+        file: htmlcov/coverage.xml
+        language: Python
+        label: code-coverage/pytest
+        fail-on-error: false
 
     - name: Upload logs to GitHub Artifacts
       if: failure()
