@@ -36,6 +36,8 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
@@ -108,6 +110,8 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
@@ -194,6 +198,8 @@ jobs:
     # Common steps:
     - name: Checkout code
       uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        ref: ${{ github.event.pull_request.head.sha || github.sha }}
     - name: Install uv
       uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
       with:
