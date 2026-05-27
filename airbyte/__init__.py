@@ -125,7 +125,7 @@ from __future__ import annotations
 
 # ruff: noqa: F822  # Lazy exports are resolved by __getattr__ at runtime.
 from importlib import import_module
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from airbyte import registry
 from airbyte.records import StreamRecord
@@ -149,12 +149,12 @@ _LAZY_EXPORTS = {
 }
 
 
-def __getattr__(name: str) -> object:
+def __getattr__(name: str) -> Any:  # noqa: ANN401
     if name not in _LAZY_EXPORTS:
         raise AttributeError(f"module 'airbyte' has no attribute {name!r}")
 
     module = import_module(_LAZY_EXPORTS[name])
-    value = getattr(module, name)
+    value = cast("Any", getattr(module, name))
     globals()[name] = value
     return value
 
