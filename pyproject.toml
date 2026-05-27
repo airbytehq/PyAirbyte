@@ -7,6 +7,8 @@ authors = [
 ]
 requires-python = ">=3.10,<3.13"
 dynamic = ["version"]
+# `project.dependencies` remains the published full install requirement set.
+# Keep it in sync with `dependency-groups.slim`, `dependency-groups.full`, and `uv.lock`.
 dependencies = [
     "airbyte-api>=0.53.0,<1.0",
     "airbyte-cdk>=7.3.9,<8.0.0",
@@ -51,7 +53,54 @@ dependencies = [
 ]
 
 [dependency-groups]
+# These uv groups model install boundaries for local workflows and lockfile management.
+slim = [
+    "airbyte-api>=0.53.0,<1.0",
+    "airbyte-protocol-models-pdv2>=0.13.0,<1.0",
+    "cryptography>=44.0.0,<45.0.0",
+    "google-auth>=2.27.0,<3.0",
+    "google-cloud-secret-manager>=2.17.0,<3.0",
+    "jsonschema>=3.2.0,<5.0",
+    "orjson>=3.10,<4.0",
+    "overrides>=7.4.0,<8.0",
+    "pydantic>=2.0,<3.0",
+    "pydantic-core",
+    "python-dotenv>=1.0.1,<2.0",
+    "python-ulid>=3.0.0,<4.0",
+    "pyyaml>=6.0.2,<7.0",
+    "requests!=3.32.0",
+    "rich>=13.7.0,<14.0",
+    "structlog>=24.4.0,<25.0",
+    "typing-extensions",
+    "uuid7>=0.1.0,<1.0",
+    "uv>=0.5.0,<0.9.0",
+]
+full = [
+    { include-group = "slim" },
+    "airbyte-cdk>=7.3.9,<8.0.0",
+    "cyclopts>=4.0,<5.0",
+    # TODO: Restore broader version constraints after verifying compatibility
+    # "duckdb>=1.4.0,<2.0",
+    # "duckdb-engine>=0.17.0,<1.0",
+    "duckdb==1.4.3",  # Pinned to match uv.lock
+    "duckdb-engine==0.17.0",  # Pinned to match uv.lock
+    "fastmcp>=3.0,<4.0",
+    "fastmcp-extensions>=0.3.0,<1.0.0",
+    "google-cloud-bigquery>=3.12.0,<4.0",
+    "google-cloud-bigquery-storage>=2.25.0,<3.0",
+    "pandas>=1.5.3,<3.0",
+    "psycopg[binary,pool]>=3.1.19,<4.0",
+    "psycopg2-binary>=2.9.9,<3.0",
+    "pyarrow>=16.1,<22.0",
+    "snowflake-connector-python>=3.12.2,<4.0",
+    "snowflake-sqlalchemy>=1.6.1,<2.0",
+    # TODO: Restore broader version constraints after verifying compatibility
+    # "sqlalchemy>=1.4.51,!=2.0.36,<3.0",
+    "sqlalchemy==2.0.43",  # Pinned to match uv.lock
+    "sqlalchemy-bigquery==1.12.0",
+]
 dev = [
+    { include-group = "full" },
     "coverage>=7.5.1,<8.0",
     "deptry>=0.21.1,<1.0",
     "docker>=7.1.0,<8.0",
@@ -160,6 +209,7 @@ coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" 
 coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
+build-slim = { cmd = "uv build packages/airbyte-slim --out-dir dist", help = "Build the airbyte-slim package into dist/" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}

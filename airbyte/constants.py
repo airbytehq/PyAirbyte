@@ -133,6 +133,14 @@ need your temporary files to exist in user level directories, and not in system 
 directories for permissions reasons.
 """
 
+
+DEFAULT_CONNECTOR_PYTHON_VERSIONS: tuple[str, ...] = tuple(
+    version.strip()
+    for version in os.getenv("AIRBYTE_CONNECTOR_PYTHON_VERSIONS", "3.12,3.11").split(",")
+    if version.strip()
+)
+"""Default uv-managed Python versions to try for Python connector execution."""
+
 TEMP_FILE_CLEANUP = _str_to_bool(
     os.getenv(
         key="AIRBYTE_TEMP_FILE_CLEANUP",

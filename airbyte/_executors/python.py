@@ -17,7 +17,7 @@ from airbyte._executors.base import Executor
 from airbyte._util.meta import is_windows
 from airbyte._util.telemetry import EventState, log_install_state
 from airbyte._util.venv_util import get_bin_dir
-from airbyte.constants import DEFAULT_INSTALL_DIR, NO_UV
+from airbyte.constants import DEFAULT_CONNECTOR_PYTHON_VERSIONS, DEFAULT_INSTALL_DIR, NO_UV
 
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ class VenvExecutor(Executor):
             install_root: (Optional.) The root directory where the virtual environment will be
                 created. If not provided, the current working directory will be used.
             use_python: (Optional.) Python interpreter specification:
-                - True: Use current Python interpreter
+                - True: Use uv-managed default connector Python versions
                 - False: Use Docker instead (handled by factory)
                 - Path: Use interpreter at this path or interpreter name/command
                 - str: Use uv-managed Python version (semver patterns like "3.12", "3.11.5")
@@ -98,6 +98,41 @@ class VenvExecutor(Executor):
                 log_text=result.stderr.decode("utf-8"),
             )
 
+    def _create_venv(self, python_override: str | None) -> None:
+        uv_cmd_prefix = ["uv"] if not NO_UV else []
+        python_clause: list[str] = ["--python", python_override] if python_override else []
+        venv_cmd: list[str] = [
+            *(uv_cmd_prefix or [sys.executable, "-m"]),
+            "venv",
+            str(self._get_venv_path()),
+            *python_clause,
+        ]
+        print(
+            f"Creating '{self.name}' virtual environment with command '{' '.join(venv_cmd)}'",
+            file=sys.stderr,
+        )
+        self._run_subprocess_and_raise_on_failure(venv_cmd)
+
+    def _create_venv_with_fallbacks(self, python_versions: tuple[str, ...]) -> None:
+        failures: list[exc.AirbyteSubprocessFailedError] = []
+        for python_version in python_versions:
+            try:
+                self._create_venv(python_version)
+            except exc.AirbyteSubprocessFailedError as ex:
+                failures.append(ex)
+            else:
+                self.use_python = python_version
+                return
+
+        raise exc.AirbyteConnectorInstallationError(
+            message="Connector virtual environment could not be created.",
+            context={
+                "connector_name": self.name,
+                "python_versions": python_versions,
+            },
+            log_text=[str(failure.log_text or "") for failure in failures],
+        )
+
     def uninstall(self) -> None:
         if self._get_venv_path().exists():
             rmtree(str(self._get_venv_path()))
@@ -134,20 +169,10 @@ class VenvExecutor(Executor):
         elif not NO_UV and isinstance(self.use_python, str):
             python_override = self.use_python
 
-        uv_cmd_prefix = ["uv"] if not NO_UV else []
-        python_clause: list[str] = ["--python", python_override] if python_override else []
-
-        venv_cmd: list[str] = [
-            *(uv_cmd_prefix or [sys.executable, "-m"]),
-            "venv",
-            str(self._get_venv_path()),
-            *python_clause,
-        ]
-        print(
-            f"Creating '{self.name}' virtual environment with command '{' '.join(venv_cmd)}'",
-            file=sys.stderr,
-        )
-        self._run_subprocess_and_raise_on_failure(venv_cmd)
+        if not NO_UV and self.use_python is True:
+            self._create_venv_with_fallbacks(DEFAULT_CONNECTOR_PYTHON_VERSIONS)
+        else:
+            self._create_venv(python_override)
 
         install_cmd = (
             [

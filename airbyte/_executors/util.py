@@ -270,6 +270,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
                 case InstallType.PYTHON:
                     pip_url = metadata.pypi_package_name
                     pip_url = f"{pip_url}=={version}" if version else pip_url
+                    use_python = True
                 case _:
                     docker_image = True
 

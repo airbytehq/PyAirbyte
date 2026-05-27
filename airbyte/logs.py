@@ -17,13 +17,12 @@ import platform
 import sys
 import tempfile
 import warnings
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
 import structlog
 import ulid
-
-from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
 
 def _str_to_bool(value: str) -> bool:
@@ -145,7 +144,7 @@ def get_global_file_logger() -> logging.Logger | None:
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    yyyy_mm_dd: str = ab_datetime_now().strftime("%Y-%m-%d")
+    yyyy_mm_dd: str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
     folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
     try:
         folder.mkdir(parents=True, exist_ok=True)
