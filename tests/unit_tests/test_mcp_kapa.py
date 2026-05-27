@@ -85,12 +85,21 @@ def test_register_kapa_tools_skips_registration_without_credentials() -> None:
     register.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "env_name",
+    [
+        pytest.param(name, id=name.lower())
+        for name in kapa._KAPA_CREDENTIAL_ENV_VARS  # noqa: SLF001
+    ],
+)
 def test_register_kapa_tools_registers_when_credentials_are_configured(
     monkeypatch: pytest.MonkeyPatch,
+    env_name: str,
 ) -> None:
     """Test that Kapa tools are visible when credentials are configured."""
     app = MagicMock()
-    monkeypatch.setenv("KAPA_API_KEY", "secret")
+    monkeypatch.setenv(env_name, "secret")
+    monkeypatch.setenv("KAPA_PROJECT_ID", "project-id")
 
     with patch("airbyte.mcp.kapa.register_mcp_tools") as register:
         kapa.register_kapa_tools(app)

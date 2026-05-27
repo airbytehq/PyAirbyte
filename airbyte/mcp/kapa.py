@@ -3,12 +3,13 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Annotated
 
 import requests
 from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import Field
+
+from airbyte.secrets.util import try_get_secret
 
 
 if TYPE_CHECKING:
@@ -17,24 +18,42 @@ if TYPE_CHECKING:
 
 _KAPA_RETRIEVAL_URL_TEMPLATE = "https://api.kapa.ai/query/v1/projects/{project_id}/retrieval/"
 _KAPA_TIMEOUT_SECONDS = 30.0
+_KAPA_API_KEY_ENV_VAR = "KAPA_API_KEY"
+_KAPA_DOCS_MCP_BEARER_TOKEN_ENV_VAR = "KAPA_DOCS_MCP_BEARER_TOKEN"
+_KAPA_BEARER_TOKEN_ENV_VAR = "KAPA_BEARER_TOKEN"
+_KAPA_CREDENTIAL_ENV_VARS = (
+    _KAPA_API_KEY_ENV_VAR,
+    _KAPA_DOCS_MCP_BEARER_TOKEN_ENV_VAR,
+    _KAPA_BEARER_TOKEN_ENV_VAR,
+)
+_KAPA_PROJECT_ID_ENV_VAR = "KAPA_PROJECT_ID"
+_KAPA_INTEGRATION_ID_ENV_VAR = "KAPA_INTEGRATION_ID"
+
+
+def _kapa_config_value(name: str) -> str:
+    value = try_get_secret(name)
+    if value is None:
+        return ""
+
+    return str(value).strip()
 
 
 def _kapa_credentials_configured() -> bool:
-    return bool(
-        os.getenv("KAPA_API_KEY")
-        or os.getenv("KAPA_DOCS_MCP_BEARER_TOKEN")
-        or os.getenv("KAPA_BEARER_TOKEN")
-    )
+    return any(_kapa_config_value(name) for name in _KAPA_CREDENTIAL_ENV_VARS)
+
+
+def _kapa_project_configured() -> bool:
+    return bool(_kapa_config_value(_KAPA_PROJECT_ID_ENV_VAR))
 
 
 def _kapa_auth_headers() -> dict[str, str]:
-    api_key = (os.getenv("KAPA_API_KEY") or "").strip()
+    api_key = _kapa_config_value(_KAPA_API_KEY_ENV_VAR)
     if api_key:
         return {"X-API-KEY": api_key}
 
-    bearer_token = (
-        (os.getenv("KAPA_DOCS_MCP_BEARER_TOKEN") or os.getenv("KAPA_BEARER_TOKEN")) or ""
-    ).strip()
+    bearer_token = _kapa_config_value(_KAPA_DOCS_MCP_BEARER_TOKEN_ENV_VAR) or _kapa_config_value(
+        _KAPA_BEARER_TOKEN_ENV_VAR
+    )
     if bearer_token:
         return {"Authorization": f"Bearer {bearer_token}"}
 
@@ -45,7 +64,7 @@ def _kapa_auth_headers() -> dict[str, str]:
 
 
 def _kapa_retrieval_url() -> str:
-    project_id = (os.getenv("KAPA_PROJECT_ID") or "").strip()
+    project_id = _kapa_config_value(_KAPA_PROJECT_ID_ENV_VAR)
     if not project_id:
         raise ValueError("KAPA_PROJECT_ID must be set to use Kapa docs search.")
 
@@ -54,7 +73,7 @@ def _kapa_retrieval_url() -> str:
 
 def _kapa_request_payload(query: str) -> dict[str, str]:
     payload = {"query": query}
-    integration_id = (os.getenv("KAPA_INTEGRATION_ID") or "").strip()
+    integration_id = _kapa_config_value(_KAPA_INTEGRATION_ID_ENV_VAR)
     if integration_id:
         payload["integration_id"] = integration_id
     return payload
@@ -108,5 +127,5 @@ def search_airbyte_knowledge_sources(
 
 def register_kapa_tools(app: FastMCP) -> None:
     """Register Kapa tools with the FastMCP app."""
-    if _kapa_credentials_configured():
+    if _kapa_credentials_configured() and _kapa_project_configured():
         register_mcp_tools(app, mcp_module=__name__)
