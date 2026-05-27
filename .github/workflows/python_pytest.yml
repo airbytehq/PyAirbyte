@@ -15,6 +15,7 @@ on:
       branches:
       - main
     pull_request: {}
+    workflow_dispatch: {}
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
