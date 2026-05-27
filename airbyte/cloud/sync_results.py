@@ -112,6 +112,7 @@ from airbyte_cdk.utils.datetime_helpers import ab_datetime_parse
 from airbyte._util import api_util
 from airbyte.caches._utils._dest_to_cache import destination_to_cache
 from airbyte.cloud.constants import FAILED_STATUSES, FINAL_STATUSES
+from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, JobStatusEnum
 from airbyte.datasets import CachedDataset
 from airbyte.exceptions import AirbyteConnectionSyncError, AirbyteConnectionSyncTimeoutError
 
@@ -124,7 +125,6 @@ if TYPE_CHECKING:
 
     import sqlalchemy
 
-    from airbyte._util.api_imports import ConnectionResponse, JobResponse, JobStatusEnum
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
@@ -227,8 +227,8 @@ class SyncResult:
     job_id: int
     table_name_prefix: str = ""
     table_name_suffix: str = ""
-    _latest_job_info: JobResponse | None = None
-    _connection_response: ConnectionResponse | None = None
+    _latest_job_info: CloudJobInfo | None = None
+    _connection_response: CloudConnectionInfo | None = None
     _cache: CacheBase | None = None
     _job_with_attempts_info: dict[str, Any] | None = None
 
@@ -244,24 +244,26 @@ class SyncResult:
         """
         return f"{self.connection.job_history_url}"
 
-    def _get_connection_info(self, *, force_refresh: bool = False) -> ConnectionResponse:
+    def _get_connection_info(self, *, force_refresh: bool = False) -> CloudConnectionInfo:
         """Return connection info for the sync job."""
         if self._connection_response and not force_refresh:
             return self._connection_response
 
-        self._connection_response = api_util.get_connection(
-            workspace_id=self.workspace.workspace_id,
-            api_root=self.workspace.api_root,
-            connection_id=self.connection.connection_id,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
+        self._connection_response = CloudConnectionInfo.from_api_response(
+            api_util.get_connection(
+                workspace_id=self.workspace.workspace_id,
+                api_root=self.workspace.api_root,
+                connection_id=self.connection.connection_id,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
         )
         return self._connection_response
 
     def _get_destination_configuration(self, *, force_refresh: bool = False) -> dict[str, Any]:
         """Return the destination configuration for the sync job."""
-        connection_info: ConnectionResponse = self._get_connection_info(force_refresh=force_refresh)
+        connection_info = self._get_connection_info(force_refresh=force_refresh)
         destination_response = api_util.get_destination(
             destination_id=connection_info.destination_id,
             api_root=self.workspace.api_root,
@@ -279,17 +281,19 @@ class SyncResult:
         """Check if the sync job is still running."""
         return self._fetch_latest_job_info().status
 
-    def _fetch_latest_job_info(self) -> JobResponse:
+    def _fetch_latest_job_info(self) -> CloudJobInfo:
         """Return the job info for the sync job."""
         if self._latest_job_info and self._latest_job_info.status in FINAL_STATUSES:
             return self._latest_job_info
 
-        self._latest_job_info = api_util.get_job_info(
-            job_id=self.job_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
+        self._latest_job_info = CloudJobInfo.from_api_response(
+            api_util.get_job_info(
+                job_id=self.job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
         )
         return self._latest_job_info
 

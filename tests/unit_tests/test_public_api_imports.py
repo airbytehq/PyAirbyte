@@ -10,11 +10,15 @@ import pytest
 
 
 REPO_ROOT = Path(__file__).parents[2]
-RESTRICTED_IMPORTS_BY_PATH = {
+PUBLIC_MODULE_RESTRICTED_IMPORTS = {
     Path("airbyte/cli"): ("airbyte_api", "airbyte._util.api_imports"),
     Path("airbyte/mcp"): ("airbyte_api", "airbyte._util.api_imports"),
-    Path("airbyte/cloud/client.py"): ("airbyte_api", "airbyte._util.api_imports"),
-    Path("airbyte/cloud/workspaces.py"): ("airbyte_api", "airbyte._util.api_imports"),
+    Path("airbyte/cloud"): ("airbyte_api", "airbyte._util.api_imports"),
+}
+PUBLIC_MODULE_RESTRICTED_REFERENCES = {
+    Path("airbyte/cli"): ("api_util.models", ".value"),
+    Path("airbyte/mcp"): ("api_util.models", ".value"),
+    Path("airbyte/cloud"): ("api_util.models",),
 }
 
 
@@ -41,20 +45,44 @@ def _imported_modules(path: Path) -> list[str]:
     return imported_modules
 
 
+def _attribute_references(path: Path) -> list[str]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except SyntaxError as exc:
+        pytest.fail(f"Syntax error parsing {path}: {exc}")
+    references: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            references.append(_attribute_reference(node))
+    return references
+
+
+def _attribute_reference(node: ast.Attribute) -> str:
+    parts: list[str] = []
+    current: ast.AST = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+    return ".".join(reversed(parts))
+
+
 def _is_restricted_import(imported_module: str, restricted_import: str) -> bool:
     return imported_module == restricted_import or imported_module.startswith(
         f"{restricted_import}."
     )
 
 
+@pytest.mark.linting
 @pytest.mark.parametrize(
     ("relative_path", "restricted_imports"),
     [
         pytest.param(relative_path, restricted_imports, id=relative_path.as_posix())
-        for relative_path, restricted_imports in RESTRICTED_IMPORTS_BY_PATH.items()
+        for relative_path, restricted_imports in PUBLIC_MODULE_RESTRICTED_IMPORTS.items()
     ],
 )
-def test_public_modules_do_not_import_generated_api_models(
+def test_public_modules_do_not_import_generated_api_model_modules(
     relative_path: Path,
     restricted_imports: tuple[str, ...],
 ) -> None:
@@ -68,8 +96,40 @@ def test_public_modules_do_not_import_generated_api_models(
                     )
 
     assert not violations, (
-        "Public CLI, MCP, and workspace modules must not import generated Airbyte API "
+        "Public CLI, MCP, and cloud modules must not import generated Airbyte API "
         "models directly. Wrap generated API models in PyAirbyte-owned response models "
         "before exposing them through public or presentation-layer modules.\n"
         + "\n".join(violations)
+    )
+
+
+@pytest.mark.linting
+@pytest.mark.parametrize(
+    ("relative_path", "restricted_references"),
+    [
+        pytest.param(relative_path, restricted_references, id=relative_path.as_posix())
+        for relative_path, restricted_references in PUBLIC_MODULE_RESTRICTED_REFERENCES.items()
+    ],
+)
+def test_public_modules_do_not_reference_generated_api_model_namespaces(
+    relative_path: Path,
+    restricted_references: tuple[str, ...],
+) -> None:
+    """Check that public modules don't reach through internal model namespaces."""
+    violations: list[str] = []
+    for file_path in _python_files(REPO_ROOT / relative_path):
+        for reference in _attribute_references(file_path):
+            if reference in restricted_references:
+                violations.append(
+                    f"{file_path.relative_to(REPO_ROOT)} references {reference}"
+                )
+            if ".value" in restricted_references and reference.endswith(".value"):
+                violations.append(
+                    f"{file_path.relative_to(REPO_ROOT)} references {reference}"
+                )
+
+    assert not violations, (
+        "Public CLI, MCP, and cloud modules must not reference generated Airbyte API "
+        "model namespaces through internal utilities. Keep generated API models behind "
+        "internal helpers or PyAirbyte-owned response models.\n" + "\n".join(violations)
     )

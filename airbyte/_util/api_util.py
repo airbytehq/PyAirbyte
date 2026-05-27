@@ -1492,6 +1492,17 @@ def build_stream_configurations(
     return models.StreamConfigurations(streams=stream_configurations)
 
 
+def build_connection_schedule(
+    schedule_type: str,
+    cron_expression: str | None = None,
+) -> models.AirbyteAPIConnectionSchedule:
+    """Build a connection schedule object."""
+    return models.AirbyteAPIConnectionSchedule(
+        schedule_type=models.ScheduleTypeEnum(schedule_type),
+        cron_expression=cron_expression,
+    )
+
+
 def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,

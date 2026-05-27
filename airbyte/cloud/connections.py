@@ -23,6 +23,7 @@ from airbyte.cloud._connection_state import (
     _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, _ConnectionResponseLike
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
 
@@ -31,8 +32,6 @@ logger = logging.getLogger(__name__)
 
 
 if TYPE_CHECKING:
-    from airbyte_api.models import ConnectionResponse, JobResponse
-
     from airbyte.cloud.workspaces import CloudWorkspace
 
 JobType = Literal["sync", "reset", "refresh", "clear"]
@@ -67,7 +66,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         self._destination_id = destination
         """The ID of the destination."""
 
-        self._connection_info: ConnectionResponse | None = None
+        self._connection_info: CloudConnectionInfo | None = None
         """The connection info object. (Cached.)"""
 
         self._cloud_source_object: CloudSource | None = None
@@ -81,7 +80,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         *,
         force_refresh: bool = False,
         verify: bool = True,
-    ) -> ConnectionResponse:
+    ) -> CloudConnectionInfo:
         """Fetch and cache connection info from the API.
 
         By default, this method will only fetch from the API if connection info is not
@@ -96,7 +95,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 validation fails.
 
         Returns:
-            The ConnectionResponse from the API.
+            Information about the connection from the API.
 
         Raises:
             AirbyteWorkspaceMismatchError: If verify is True and the connection's
@@ -118,17 +117,17 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
+        result = CloudConnectionInfo.from_api_response(connection_info)
 
-        # Cache the result first (before verification may raise)
-        self._connection_info = connection_info
+        self._connection_info = result
 
         # Verify if requested
         if verify:
-            self._verify_workspace_match(connection_info)
+            self._verify_workspace_match(result)
 
-        return connection_info
+        return result
 
-    def _verify_workspace_match(self, connection_info: ConnectionResponse) -> None:
+    def _verify_workspace_match(self, connection_info: CloudConnectionInfo) -> None:
         """Verify that the connection belongs to the expected workspace.
 
         Raises:
@@ -168,16 +167,17 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
     def _from_connection_response(
         cls,
         workspace: CloudWorkspace,
-        connection_response: ConnectionResponse,
+        connection_response: _ConnectionResponseLike,
     ) -> CloudConnection:
-        """Create a CloudConnection from a ConnectionResponse."""
+        """Create a CloudConnection from an API connection response."""
+        connection_info = CloudConnectionInfo.from_api_response(connection_response)
         result = cls(
             workspace=workspace,
-            connection_id=connection_response.connection_id,
-            source=connection_response.source_id,
-            destination=connection_response.destination_id,
+            connection_id=connection_info.connection_id,
+            source=connection_info.source_id,
+            destination=connection_info.destination_id,
         )
-        result._connection_info = connection_response  # noqa: SLF001 # Accessing Non-Public API
+        result._connection_info = connection_info  # noqa: SLF001 # Accessing Non-Public API
         return result
 
     # Properties
@@ -337,7 +337,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             if from_tail
             else api_util.JOB_ORDER_BY_CREATED_AT_ASC
         )
-        sync_logs: list[JobResponse] = api_util.get_job_logs(
+        sync_logs = api_util.get_job_logs(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             workspace_id=self.workspace.workspace_id,
@@ -354,7 +354,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 workspace=self.workspace,
                 connection=self,
                 job_id=sync_log.job_id,
-                _latest_job_info=sync_log,
+                _latest_job_info=CloudJobInfo.from_api_response(sync_log),
             )
             for sync_log in sync_logs
         ]
@@ -750,7 +750,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
             name=name,
         )
-        self._connection_info = updated_response
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
     def set_table_prefix(self, prefix: str) -> CloudConnection:
@@ -770,7 +770,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
             prefix=prefix,
         )
-        self._connection_info = updated_response
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
     def set_selected_streams(self, stream_names: list[str]) -> CloudConnection:
@@ -795,7 +795,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
             configurations=configurations,
         )
-        self._connection_info = updated_response
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
         return self
 
     # Enable/Disable
@@ -811,7 +811,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             True if the connection status is 'active', False otherwise.
         """
         connection_info = self._fetch_connection_info(force_refresh=True)
-        return connection_info.status == api_util.models.ConnectionStatusEnum.ACTIVE
+        return connection_info.status == "active"
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
@@ -845,11 +845,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         # Always fetch fresh data to check current status
         connection_info = self._fetch_connection_info(force_refresh=True)
         current_status = connection_info.status
-        desired_status = (
-            api_util.models.ConnectionStatusEnum.ACTIVE
-            if enabled
-            else api_util.models.ConnectionStatusEnum.INACTIVE
-        )
+        desired_status = "active" if enabled else "inactive"
 
         if current_status == desired_status:
             if ignore_noop:
@@ -867,7 +863,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             bearer_token=self.workspace.bearer_token,
             status=desired_status,
         )
-        self._connection_info = updated_response
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
 
     # Scheduling
 
@@ -885,37 +881,33 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 - "0 */6 * * *" - Every 6 hours
                 - "0 0 * * 0" - Weekly on Sunday at midnight UTC
         """
-        schedule = api_util.models.AirbyteAPIConnectionSchedule(
-            schedule_type=api_util.models.ScheduleTypeEnum.CRON,
-            cron_expression=cron_expression,
-        )
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
-            schedule=schedule,
+            schedule=api_util.build_connection_schedule(
+                schedule_type="cron",
+                cron_expression=cron_expression,
+            ),
         )
-        self._connection_info = updated_response
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
 
     def set_manual_schedule(self) -> None:
         """Set the connection to manual scheduling.
 
         Disables automatic syncs. Syncs will only run when manually triggered.
         """
-        schedule = api_util.models.AirbyteAPIConnectionSchedule(
-            schedule_type=api_util.models.ScheduleTypeEnum.MANUAL,
-        )
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,
             api_root=self.workspace.api_root,
             client_id=self.workspace.client_id,
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
-            schedule=schedule,
+            schedule=api_util.build_connection_schedule(schedule_type="manual"),
         )
-        self._connection_info = updated_response
+        self._connection_info = CloudConnectionInfo.from_api_response(updated_response)
 
     # Deletions
 

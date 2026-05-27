@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from airbyte._util.api_imports import JobStatusEnum
+from airbyte.cloud.models import JobStatusEnum
 
 
 FINAL_STATUSES: set[JobStatusEnum] = {
