@@ -854,7 +854,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     order_by: str | None = None,
-    job_type: models.JobTypeEnum | None = None,
+    job_type: str | models.JobTypeEnum | None = None,
 ) -> list[models.JobResponse]:
     """Get a list of jobs for a connection.
 
@@ -871,7 +871,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         client_secret: The client secret for authentication.
         bearer_token: Bearer token for authentication (alternative to client credentials).
         order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
-        job_type: Filter by job type (e.g., JobTypeEnum.SYNC, JobTypeEnum.REFRESH).
+        job_type: Filter by job type (e.g., `sync`, `refresh`).
             If not specified, defaults to sync and reset jobs only (API default behavior).
 
     Returns:
@@ -892,6 +892,8 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         "connection_id": connection_id,
         "api_root": api_root,
     }
+    job_type_value = models.JobTypeEnum(job_type) if isinstance(job_type, str) else job_type
+
     while remaining is None or remaining > 0:
         page_limit = _get_page_limit(remaining)
         try:
@@ -902,7 +904,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
                     limit=page_limit,
                     offset=current_offset,
                     order_by=order_by,
-                    job_type=job_type,
+                    job_type=job_type_value,
                 ),
             )
         except SDKError as e:

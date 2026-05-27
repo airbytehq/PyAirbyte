@@ -8,6 +8,7 @@ from airbyte import constants
 from airbyte._util import api_util
 from airbyte.cloud import _credentials as cloud_credentials
 from airbyte.cloud.client import CloudClient
+from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
@@ -191,9 +192,9 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
         nonlocal captured_limit
         captured_limit = limit
         return [
-            {"name": "miss"},
-            {"name": "target-one"},
-            {"name": "target-two"},
+            {"name": "miss", "workspaceId": "workspace-miss"},
+            {"name": "target-one", "workspaceId": "workspace-target-one"},
+            {"name": "target-two", "workspaceId": "workspace-target-two"},
         ]
 
     monkeypatch.setattr(
@@ -211,7 +212,7 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
     )
 
     assert captured_limit is None
-    assert result == [{"name": "target-one"}]
+    assert [workspace.name for workspace in result] == ["target-one"]
 
 
 def test_cloud_client_create_workspace_uses_default_organization_id(
@@ -240,6 +241,7 @@ def test_cloud_client_create_workspace_uses_default_organization_id(
         organization_id="organization-id",
     ).create_workspace(name="New workspace")
 
+    assert isinstance(workspace, CloudWorkspaceInfo)
     assert workspace.workspace_id == "workspace-id"
     assert captured_organization_id == "organization-id"
 
@@ -265,6 +267,7 @@ def test_cloud_client_rename_workspace_forwards_inputs(
         name="Renamed workspace",
     )
 
+    assert isinstance(workspace, CloudWorkspaceInfo)
     assert workspace.name == "Renamed workspace"
     assert captured_kwargs["workspace_id"] == "workspace-id"
     assert captured_kwargs["name"] == "Renamed workspace"

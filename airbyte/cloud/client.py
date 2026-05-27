@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, overload
 from airbyte import exceptions as exc
 from airbyte._util import api_util
 from airbyte.cloud._credentials import _AirbyteCredentials
+from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.exceptions import AirbyteMissingResourceError
@@ -17,7 +18,6 @@ from airbyte.exceptions import AirbyteMissingResourceError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte._util import api_imports
     from airbyte.secrets.base import SecretString
 
 
@@ -146,10 +146,10 @@ class CloudClient:
         name: str,
         organization_id: str | None = None,
         region_id: str | None = None,
-    ) -> api_imports.WorkspaceResponse:
+    ) -> CloudWorkspaceInfo:
         """Create an Airbyte workspace."""
         resolved_organization_id = organization_id or self.organization_id
-        return api_util.create_workspace(
+        workspace = api_util.create_workspace(
             name=name,
             organization_id=resolved_organization_id,
             region_id=region_id,
@@ -158,15 +158,16 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
+        return CloudWorkspaceInfo.from_api_response(workspace)
 
     def rename_workspace(
         self,
         workspace_id: str,
         *,
         name: str,
-    ) -> api_imports.WorkspaceResponse:
+    ) -> CloudWorkspaceInfo:
         """Rename an Airbyte workspace."""
-        return api_util.rename_workspace(
+        workspace = api_util.rename_workspace(
             workspace_id=workspace_id,
             name=name,
             api_root=self.public_api_root,
@@ -174,6 +175,7 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
+        return CloudWorkspaceInfo.from_api_response(workspace)
 
     def permanently_delete_workspace(
         self,
@@ -207,7 +209,7 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
-    ) -> list[api_imports.WorkspaceResponse]:
+    ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
     @overload
@@ -219,7 +221,7 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
-    ) -> list[dict[str, object]]:
+    ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
     def list_workspaces(
@@ -230,7 +232,7 @@ class CloudClient:
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
-    ) -> list[api_imports.WorkspaceResponse] | list[dict[str, object]]:
+    ) -> list[CloudWorkspaceInfo]:
         """List workspaces available to this client."""
         if organization_id is not None or self.organization_id is not None:
             resolved_organization_id = organization_id or self.organization_id
@@ -249,15 +251,16 @@ class CloudClient:
                 name_contains=name_contains or name,
                 limit=None if name_filter is not None else limit,
             )
+            workspace_infos = [
+                CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces
+            ]
             if name_filter is not None:
-                workspaces = [
-                    workspace
-                    for workspace in workspaces
-                    if name_filter(str(workspace.get("name", "")))
+                workspace_infos = [
+                    workspace for workspace in workspace_infos if name_filter(workspace.name)
                 ]
                 if limit is not None:
-                    workspaces = workspaces[:limit]
-            return workspaces
+                    workspace_infos = workspace_infos[:limit]
+            return workspace_infos
         if name_contains is not None:
             if name_filter is not None:
                 raise exc.PyAirbyteInputError(
@@ -268,16 +271,19 @@ class CloudClient:
             def name_filter(workspace_name: str) -> bool:
                 return name_substring in workspace_name
 
-        return api_util.list_workspaces(
-            workspace_id="",
-            api_root=self.public_api_root,
-            name=name,
-            name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-            limit=limit,
-        )
+        return [
+            CloudWorkspaceInfo.from_api_response(workspace)
+            for workspace in api_util.list_workspaces(
+                workspace_id="",
+                api_root=self.public_api_root,
+                name=name,
+                name_filter=name_filter,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                limit=limit,
+            )
+        ]
 
     def get_organization(
         self,

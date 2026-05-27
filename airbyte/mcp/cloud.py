@@ -13,7 +13,6 @@ __all__: list[str] = []
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from airbyte_api.models import JobTypeEnum
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -48,6 +47,7 @@ CLOUD_AUTH_TIP_TEXT = (
     "will be used to authenticate with the Airbyte Cloud API."
 )
 WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
+JobType = Literal["sync", "reset", "refresh", "clear"]
 
 
 class CloudSourceResult(BaseModel):
@@ -747,7 +747,7 @@ def list_cloud_sync_jobs(
         ),
     ],
     job_type: Annotated[
-        JobTypeEnum | None,
+        JobType | None,
         Field(
             description=(
                 "Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'. "
@@ -1364,9 +1364,9 @@ def list_cloud_workspaces(
 
     return [
         CloudWorkspaceResult(
-            workspace_id=ws.get("workspaceId", ""),
-            workspace_name=ws.get("name", ""),
-            organization_id=ws.get("organizationId", ""),
+            workspace_id=ws.workspace_id,
+            workspace_name=ws.name,
+            organization_id=ws.organization_id or "",
         )
         for ws in workspaces
     ]
