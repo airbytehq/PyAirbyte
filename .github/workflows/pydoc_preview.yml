@@ -9,6 +9,9 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
+
 jobs:
   preview_docs:
     runs-on: ubuntu-latest

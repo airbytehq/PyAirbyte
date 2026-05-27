@@ -8,6 +8,9 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: write
+
 jobs:
   python-autofix:
     runs-on: ubuntu-latest
