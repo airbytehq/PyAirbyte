@@ -28,7 +28,6 @@ jobs:
     name: Pytest (Fast)
     runs-on: ubuntu-latest
     permissions:
-      checks: write
       contents: read
       code-quality: write
       pull-requests: read
