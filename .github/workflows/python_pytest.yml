@@ -73,7 +73,7 @@ jobs:
 
     - name: Upload coverage to GitHub Code Quality
       if: always()
-      uses: actions/upload-code-coverage@v1
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
       with:
         file: htmlcov/coverage.xml
         language: Python
@@ -147,7 +147,7 @@ jobs:
 
     - name: Upload coverage to GitHub Code Quality
       if: always()
-      uses: actions/upload-code-coverage@v1
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
       with:
         file: htmlcov/coverage.xml
         language: Python
@@ -244,7 +244,7 @@ jobs:
 
     - name: Upload coverage to GitHub Code Quality
       if: always() && matrix.python-version == '3.10' && matrix.os == 'Ubuntu'
-      uses: actions/upload-code-coverage@v1
+      uses: actions/upload-code-coverage@b51da2c3c1b23e04d2d6477cfc34350b1f5cd3e9 # v1
       with:
         file: htmlcov/coverage.xml
         language: Python
