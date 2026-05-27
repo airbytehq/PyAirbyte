@@ -24,6 +24,7 @@ from airbyte.mcp._tool_utils import (
     airbyte_readonly_mode_filter,
 )
 from airbyte.mcp.cloud import register_cloud_tools
+from airbyte.mcp.kapa import register_kapa_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
@@ -93,6 +94,7 @@ app = mcp_server(
 register_cloud_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
+register_kapa_tools(app)
 register_prompts(app)
 
 
