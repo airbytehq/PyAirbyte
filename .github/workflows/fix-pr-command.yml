@@ -15,6 +15,11 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
 jobs:
   # This is copied from the `python_pytest.yml` file.
   # Only the first two steps of the job are different, and they check out the PR's branch.

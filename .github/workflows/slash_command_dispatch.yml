@@ -7,6 +7,11 @@ on:
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
 jobs:
   slashCommandDispatch:
     # Only allow slash commands on pull request (not on issues)
