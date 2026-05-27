@@ -44,6 +44,7 @@ class CloudWorkspaceInfo(BaseModel):
             workspace_id=workspace.workspace_id,
             name=workspace.name,
             data_residency=workspace.data_residency,
+            organization_id=getattr(workspace, "organization_id", None),
             notifications=_notifications_to_dict(workspace.notifications),
         )
 

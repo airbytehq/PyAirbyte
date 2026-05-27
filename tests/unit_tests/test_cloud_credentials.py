@@ -212,6 +212,7 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
     )
 
     assert captured_limit is None
+    assert all(isinstance(workspace, CloudWorkspaceInfo) for workspace in result)
     assert [workspace.name for workspace in result] == ["target-one"]
 
 

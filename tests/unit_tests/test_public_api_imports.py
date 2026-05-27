@@ -1,4 +1,6 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
+"""Validate public modules do not import generated Airbyte API models directly."""
+
 from __future__ import annotations
 
 import ast
@@ -23,7 +25,10 @@ def _python_files(path: Path) -> list[Path]:
 
 
 def _imported_modules(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except SyntaxError as exc:
+        pytest.fail(f"Syntax error parsing {path}: {exc}")
     imported_modules: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):

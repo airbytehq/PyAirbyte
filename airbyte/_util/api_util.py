@@ -892,7 +892,17 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         "connection_id": connection_id,
         "api_root": api_root,
     }
-    job_type_value = models.JobTypeEnum(job_type) if isinstance(job_type, str) else job_type
+    if isinstance(job_type, str):
+        try:
+            job_type_value = models.JobTypeEnum(job_type)
+        except ValueError:
+            valid_job_types = ", ".join(job_type.value for job_type in models.JobTypeEnum)
+            raise PyAirbyteInputError(
+                message=f"`job_type` must be one of: {valid_job_types}.",
+                input_value=job_type,
+            ) from None
+    else:
+        job_type_value = job_type
 
     while remaining is None or remaining > 0:
         page_limit = _get_page_limit(remaining)
