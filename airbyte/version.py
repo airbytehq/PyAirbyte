@@ -6,7 +6,17 @@ from __future__ import annotations
 import importlib.metadata
 
 
-airbyte_version = importlib.metadata.version("airbyte")
+def _get_installed_version() -> str:
+    for distribution_name in ("airbyte", "airbyte-slim"):
+        try:
+            return importlib.metadata.version(distribution_name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+
+    raise importlib.metadata.PackageNotFoundError("airbyte")
+
+
+airbyte_version = _get_installed_version()
 
 
 def get_version() -> str:

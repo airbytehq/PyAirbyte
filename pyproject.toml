@@ -209,7 +209,7 @@ coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" 
 coverage-reset = { shell = "coverage erase" }
 
 check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
-build-slim = { cmd = "scripts/build_slim_package.uv", help = "Build the airbyte-slim package into dist/" }
+build-slim = { cmd = "uv build packages/airbyte-slim --out-dir dist", help = "Build the airbyte-slim package into dist/" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}

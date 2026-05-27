@@ -44,7 +44,7 @@ jobs:
         # Build the main and slim variants with same version.
         run: |
           UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
-          UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv run scripts/build_slim_package.uv
+          UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build packages/airbyte-slim --out-dir dist
 
       - name: Create or update draft release
         uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
