@@ -15,6 +15,7 @@ on:
       branches:
       - main
     pull_request: {}
+    workflow_dispatch: {}
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
@@ -170,6 +171,7 @@ jobs:
     # Don't run on forks. Run on pushes to main, and on PRs that are not from forks.
     if: >
       (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event.pull_request.head.repo.fork == false)
     strategy:
       matrix:
