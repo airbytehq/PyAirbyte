@@ -28,6 +28,7 @@ jobs:
     name: Pytest (Fast)
     runs-on: ubuntu-latest
     permissions:
+      checks: write
       contents: read
       code-quality: write
       pull-requests: read
@@ -100,6 +101,7 @@ jobs:
     name: Pytest (No Creds)
     runs-on: ubuntu-latest
     permissions:
+      checks: write
       contents: read
       code-quality: write
       pull-requests: read
@@ -181,6 +183,7 @@ jobs:
 
     runs-on: "${{ matrix.os }}-latest"
     permissions:
+      checks: write
       contents: read
       code-quality: write
       pull-requests: read
