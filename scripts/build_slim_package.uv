@@ -31,6 +31,7 @@ SLIM_EXCLUDED_PACKAGES = [
     "airbyte/sources",
     "airbyte/_processors/sql",
 ]
+SAFE_BUILD_PARENT = REPO_ROOT / "build"
 
 
 def _load_pyproject() -> dict[str, TomlValue]:
@@ -69,8 +70,17 @@ def _build_slim_pyproject(full_pyproject: dict[str, TomlValue]) -> dict[str, Tom
 
 
 def _copy_project(build_dir: Path) -> None:
-    if build_dir.exists():
-        shutil.rmtree(build_dir)
+    resolved_build_dir = build_dir.resolve()
+    safe_build_parent = SAFE_BUILD_PARENT.resolve()
+    if (
+        resolved_build_dir == Path("/")
+        or resolved_build_dir == REPO_ROOT
+        or resolved_build_dir.parent != safe_build_parent
+    ):
+        raise ValueError(f"Refusing to delete unsafe build_dir: {resolved_build_dir}")
+
+    if resolved_build_dir.exists():
+        shutil.rmtree(resolved_build_dir)
 
     ignore = shutil.ignore_patterns(
         ".git",
@@ -84,11 +94,13 @@ def _copy_project(build_dir: Path) -> None:
         "__pycache__",
         "*.pyc",
     )
-    shutil.copytree(REPO_ROOT, build_dir, ignore=ignore)
+    shutil.copytree(REPO_ROOT, resolved_build_dir, ignore=ignore)
 
 
 def build_airbyte_slim(dist_dir: Path, build_dir: Path) -> None:
     """Build the slim wheel and sdist artifacts."""
+    dist_dir = dist_dir.resolve()
+    build_dir = build_dir.resolve()
     slim_pyproject = _build_slim_pyproject(_load_pyproject())
     _copy_project(build_dir)
 
