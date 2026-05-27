@@ -61,7 +61,7 @@ jobs:
       if: always()
       run: |
         uv run coverage html -d htmlcov
-        uv run coverage xml -o htmlcov/coverage.xml
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -135,7 +135,7 @@ jobs:
       if: always()
       run: |
         uv run coverage html -d htmlcov
-        uv run coverage xml -o htmlcov/coverage.xml
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
@@ -231,7 +231,7 @@ jobs:
       if: always()
       run: |
         uv run coverage html -d htmlcov
-        uv run coverage xml -o htmlcov/coverage.xml
+        uv run coverage xml --include="airbyte/*" -o htmlcov/coverage.xml
 
     - name: Upload coverage to GitHub Artifacts
       if: always()
