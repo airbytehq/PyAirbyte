@@ -1,4 +1,5 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
+
 """***PyAirbyte brings the power of Airbyte to every Python developer.***
 
 [![PyPI version](https://badge.fury.io/py/airbyte.svg)](https://badge.fury.io/py/airbyte)
