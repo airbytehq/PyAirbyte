@@ -42,7 +42,9 @@ jobs:
         env:
           VERSION: ${{ steps.dry-run.outputs.tag-name }}
         # Standardize by removing preceding 'v' char:
-        run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
+        run: |
+          UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
+          UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv run scripts/build_slim_package.uv
 
       - name: Create or update draft release
         uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
