@@ -61,13 +61,15 @@ class _DestinationLike(Protocol):
     name: str
 
     @property
-    def _hydrated_config(self) -> dict[str, Any]: ...
+    def _hydrated_config(self) -> dict[str, Any]:
+        return {}
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from airbyte._util.api_imports import WorkspaceResponse
+    from airbyte.destinations.base import Destination
     from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
 
@@ -421,7 +423,7 @@ class CloudWorkspace:
     def deploy_destination(
         self,
         name: str,
-        destination: _DestinationLike | dict[str, Any],
+        destination: Destination | _DestinationLike | dict[str, Any],
         *,
         unique: bool = True,
         random_name_suffix: bool = False,

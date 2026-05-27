@@ -125,16 +125,12 @@ from __future__ import annotations
 
 # ruff: noqa: F822  # Lazy exports are resolved by __getattr__ at runtime.
 from importlib import import_module
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from airbyte import registry
 from airbyte.records import StreamRecord
 from airbyte.registry import get_available_connectors
 from airbyte.secrets import SecretSourceEnum, get_secret
-
-
-class _LazyExport(Protocol):
-    def __call__(self, *args: object, **kwargs: object) -> object: ...
 
 
 _LAZY_EXPORTS = {
@@ -153,7 +149,7 @@ _LAZY_EXPORTS = {
 }
 
 
-def __getattr__(name: str) -> _LazyExport:
+def __getattr__(name: str) -> object:
     if name not in _LAZY_EXPORTS:
         raise AttributeError(f"module 'airbyte' has no attribute {name!r}")
 
@@ -184,6 +180,15 @@ if TYPE_CHECKING:
         secrets,
         sources,
     )
+    from airbyte.caches.bigquery import BigQueryCache
+    from airbyte.caches.duckdb import DuckDBCache
+    from airbyte.caches.util import get_colab_cache, get_default_cache, new_local_cache
+    from airbyte.datasets import CachedDataset
+    from airbyte.destinations.base import Destination
+    from airbyte.destinations.util import get_destination
+    from airbyte.results import ReadResult, WriteResult
+    from airbyte.sources.base import Source
+    from airbyte.sources.util import get_source
 
 
 __all__ = [

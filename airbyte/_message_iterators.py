@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import IO, TYPE_CHECKING, cast
 
 import pydantic
@@ -37,7 +37,7 @@ def _new_stream_success_message(stream_name: str) -> AirbyteMessage:
         type=Type.TRACE,
         trace=AirbyteTraceMessage(
             type=TraceType.STREAM_STATUS,
-            emitted_at=datetime.now(tz=UTC).timestamp(),
+            emitted_at=datetime.now(tz=timezone.utc).timestamp(),
             stream_status=AirbyteStreamStatusTraceMessage(
                 stream_descriptor=StreamDescriptor(
                     name=stream_name,

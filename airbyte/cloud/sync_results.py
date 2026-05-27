@@ -103,7 +103,7 @@ from __future__ import annotations
 import time
 from collections.abc import Iterator, Mapping
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from typing_extensions import final
@@ -118,7 +118,7 @@ def _parse_datetime(value: str | int) -> datetime:
         isinstance(value, str)
         and (value.isdigit() or (value.startswith("-") and value[1:].isdigit()))
     ):
-        return datetime.fromtimestamp(int(value), tz=UTC)
+        return datetime.fromtimestamp(int(value), tz=timezone.utc)
 
     if not isinstance(value, str):
         raise TypeError(f"Could not parse datetime string: {value}")
@@ -137,7 +137,7 @@ if TYPE_CHECKING:
     from airbyte.caches.base import CacheBase
     from airbyte.cloud.connections import CloudConnection
     from airbyte.cloud.workspaces import CloudWorkspace
-    from airbyte.datasets import CachedDataset  # noqa: TC004
+    from airbyte.datasets import CachedDataset
 
 
 @dataclass
@@ -496,7 +496,7 @@ class SyncResult:
         """
         return self._SyncResultStreams(self)
 
-    class _SyncResultStreams(Mapping[str, CachedDataset]):
+    class _SyncResultStreams(Mapping[str, "CachedDataset"]):
         """A mapping of stream names to cached datasets."""
 
         def __init__(

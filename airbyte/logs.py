@@ -17,7 +17,7 @@ import platform
 import sys
 import tempfile
 import warnings
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
 
@@ -144,7 +144,7 @@ def get_global_file_logger() -> logging.Logger | None:
     for handler in logger.handlers:
         logger.removeHandler(handler)
 
-    yyyy_mm_dd: str = datetime.now(tz=UTC).strftime("%Y-%m-%d")
+    yyyy_mm_dd: str = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
     folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
     try:
         folder.mkdir(parents=True, exist_ok=True)
