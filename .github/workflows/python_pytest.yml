@@ -21,7 +21,6 @@ env:
 
 permissions:
   contents: read
-  code-quality: write
   pull-requests: read
 
 jobs:
