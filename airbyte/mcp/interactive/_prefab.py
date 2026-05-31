@@ -1,5 +1,8 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
-"""Prefab generative UI MCP provider."""
+"""Prefab generative UI MCP provider.
+
+For more info: https://gofastmcp.com/apps/generative
+"""
 
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.server.providers import Provider
