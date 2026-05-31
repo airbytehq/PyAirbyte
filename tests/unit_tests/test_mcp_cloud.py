@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Callable, cast
 
 import pytest
-from airbyte._util.api_imports import JobStatusEnum
+from airbyte.cloud.models import JobStatusEnum
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,

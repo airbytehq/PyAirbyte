@@ -65,6 +65,15 @@ class JobStatusEnum(str, Enum):
     CANCELLED = "cancelled"
 
 
+class JobTypeEnum(str, Enum):
+    """Job type values for Airbyte Cloud jobs."""
+
+    SYNC = "sync"
+    RESET = "reset"
+    REFRESH = "refresh"
+    CLEAR = "clear"
+
+
 class CloudWorkspaceInfo(BaseModel):
     """Information about an Airbyte workspace."""
 

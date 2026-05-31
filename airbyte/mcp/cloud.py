@@ -22,6 +22,7 @@ from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
+from airbyte.cloud.models import JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
@@ -47,7 +48,6 @@ CLOUD_AUTH_TIP_TEXT = (
     "will be used to authenticate with the Airbyte Cloud API."
 )
 WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
-JobType = Literal["sync", "reset", "refresh", "clear"]
 
 
 class CloudSourceResult(BaseModel):
@@ -747,7 +747,7 @@ def list_cloud_sync_jobs(
         ),
     ],
     job_type: Annotated[
-        JobType | None,
+        JobTypeEnum | None,
         Field(
             description=(
                 "Filter by job type. Options: 'sync', 'reset', 'refresh', 'clear'. "

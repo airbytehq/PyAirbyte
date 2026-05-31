@@ -23,7 +23,12 @@ from airbyte.cloud._connection_state import (
     _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
-from airbyte.cloud.models import CloudConnectionInfo, CloudJobInfo, _ConnectionResponseLike
+from airbyte.cloud.models import (
+    CloudConnectionInfo,
+    CloudJobInfo,
+    JobTypeEnum,
+    _ConnectionResponseLike,
+)
 from airbyte.cloud.sync_results import SyncResult
 from airbyte.exceptions import AirbyteWorkspaceMismatchError, PyAirbyteInputError
 
@@ -33,8 +38,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
-
-JobType = Literal["sync", "reset", "refresh", "clear"]
 
 
 class CloudConnection:  # noqa: PLR0904  # Too many public methods
@@ -312,7 +315,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         limit: int = 20,
         offset: int | None = None,
         from_tail: bool = True,
-        job_type: JobType | None = None,
+        job_type: JobTypeEnum | None = None,
     ) -> list[SyncResult]:
         """Get previous sync jobs for a connection with pagination support.
 
