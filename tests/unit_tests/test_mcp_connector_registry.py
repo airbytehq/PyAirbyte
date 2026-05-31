@@ -10,6 +10,7 @@ import pytest
 from mcp.types import TextContent
 
 from airbyte import exceptions as exc
+from airbyte.mcp._tool_utils import _mcp_module_for_tool
 from airbyte.mcp.interactive import show_connectors_list
 from airbyte.mcp.interactive._registry import _list_public_registry_connectors
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
@@ -489,3 +490,9 @@ def test_interactive_tools_include_prefab_metadata() -> None:
 
     assert tool.meta is not None
     assert tool.meta["ui"]["resourceUri"] == "ui://prefab/renderer.html"
+
+
+def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
+    """Test that tools in private implementation modules use their public module."""
+    assert _mcp_module_for_tool(show_connectors_list) == "interactive"
+    assert _mcp_module_for_tool(get_api_docs_urls) == "registry"

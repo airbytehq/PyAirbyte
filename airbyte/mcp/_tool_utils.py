@@ -257,10 +257,10 @@ def mcp_tool(
 
 
 def _mcp_module_for_tool(func: Callable[..., object]) -> str:
-    module_name = func.__module__
-    if module_name.startswith("airbyte.mcp.interactive."):
-        return "interactive"
-    return module_name.rsplit(".", 1)[-1]
+    module_parts = func.__module__.split(".")
+    return next(
+        module_part for module_part in reversed(module_parts) if not module_part.startswith("_")
+    )
 
 
 def _get_caller_file_stem() -> str:
