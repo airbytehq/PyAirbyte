@@ -1,14 +1,42 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Interactive connector registry MCP tools."""
 
-from typing import Annotated
+import json
+from collections.abc import Mapping
+from datetime import date, datetime
+from decimal import Decimal
+from enum import Enum
+from typing import Annotated, TypeAlias
+from uuid import UUID
 
 from fastmcp.tools.base import ToolResult
 from fastmcp_extensions import mcp_tool
-from pydantic import Field
+from prefab_ui.actions import OpenLink, SendMessage, SetState
+from prefab_ui.app import PrefabApp
+from prefab_ui.components import (
+    Alert,
+    AlertDescription,
+    AlertTitle,
+    Button,
+    Card,
+    CardContent,
+    CardHeader,
+    CardTitle,
+    Column,
+    DataTable,
+    DataTableColumn,
+    Div,
+    Grid,
+    Heading,
+    If,
+    Metric,
+    Row,
+    Text,
+)
+from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte.mcp._ui_builders import connector_catalog_app, tool_result_with_prefab
+from airbyte.mcp._tool_utils import mcp_prefab_tool, mcp_ui_tool
 from airbyte.mcp.interactive._shared_models import (
     ConnectorType,
     PublicConnectorFilters,
@@ -19,7 +47,32 @@ from airbyte.mcp.interactive._shared_models import (
 from airbyte.registry import ConnectorMetadata, _get_registry_url, list_connector_metadata
 
 
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 CONNECTOR_CATALOG_AGENT_PREVIEW_LIMIT = 25
+
+
+def _jsonable(value: object) -> JsonValue:
+    if isinstance(value, BaseModel):
+        result: JsonValue = _jsonable(value.model_dump(mode="json"))
+    elif isinstance(value, datetime | date):
+        result = value.isoformat()
+    elif isinstance(value, UUID | Decimal):
+        result = str(value)
+    elif isinstance(value, Enum):
+        result = _jsonable(value.value)
+    elif isinstance(value, Mapping):
+        result = {str(key): _jsonable(item) for key, item in value.items()}
+    elif isinstance(value, list | tuple | set):
+        result = [_jsonable(item) for item in value]
+    elif isinstance(value, str | int | float | bool) or value is None:
+        result = value
+    else:
+        result = str(value)
+    return result
+
+
+def _json_dumps(value: JsonValue) -> str:
+    return json.dumps(value, indent=2)
 
 
 @mcp_tool(
@@ -27,6 +80,8 @@ CONNECTOR_CATALOG_AGENT_PREVIEW_LIMIT = 25
     idempotent=True,
     open_world=True,
 )
+@mcp_prefab_tool
+@mcp_ui_tool
 def show_connectors_list(
     support_level: Annotated[
         str,
@@ -143,14 +198,173 @@ def show_connectors_list(
         "entries for model context. The interactive widget renders all "
         f"{full_count_rendered_to_user} matching connectors."
     )
-    return tool_result_with_prefab(
-        raw_value=agent_value,
-        app=connector_catalog_app(
+    return ToolResult(
+        content=_json_dumps(_jsonable(agent_value)),
+        structured_content=connector_catalog_app(
             connectors=connectors,
             filters=filters,
             registry_url=registry_url,
         ),
+        meta={"airbyte_mcp_raw_result": _jsonable(agent_value)},
     )
+
+
+def connector_catalog_app(
+    *,
+    connectors: list[PublicConnectorSummary],
+    filters: PublicConnectorFilters,
+    registry_url: str,
+) -> PrefabApp:
+    """Build the interactive connector catalog UI."""
+    connector_payloads = [
+        _public_connector_summary_to_payload(connector)
+        for connector in connectors
+        if connector is not None
+    ]
+    rows = [
+        {
+            "display_name": connector.get("display_name"),
+            "connector_name": connector.get("connector_name"),
+            "connector_type": _connector_display_value(
+                connector.get("connector_type") or "unknown"
+            ),
+            "support_level": _connector_support_label(connector.get("support_level") or "unknown"),
+            "release_stage": _connector_display_value(connector.get("release_stage") or "unknown"),
+            "source_type": _connector_display_value(connector.get("source_type")),
+            "docker_image_tag": connector.get("docker_image_tag"),
+            "latest_version": connector.get("docker_image_tag"),
+            "definition_id": connector.get("definition_id"),
+            "docker_repository": connector.get("docker_repository"),
+            "documentation_url": connector.get("documentation_url"),
+        }
+        for connector in connector_payloads
+    ]
+    filters_payload = _public_connector_filters_to_payload(filters)
+    applied_filters = _connector_applied_filters(filters_payload)
+
+    with (
+        PrefabApp(
+            title="Airbyte connectors",
+            state={
+                "filters": filters_payload,
+                "applied_filters": applied_filters,
+                "applied_filter_summary": _connector_applied_filter_summary(applied_filters),
+                "registry_url": registry_url,
+                "selected_connector": None,
+            },
+        ) as app,
+        Column(gap=4, css_class="p-6"),
+    ):
+        Heading("Airbyte connectors")
+        Text(
+            "Public Cloud registry connector catalog. Search, sort, scroll, and "
+            "click a row to inspect details.",
+            css_class="text-sm text-muted-foreground",
+        )
+        with Row(gap=4):
+            Metric(label="Connectors", value=len(connectors))
+            Metric(
+                label="Sources",
+                value=sum(
+                    1
+                    for connector in connector_payloads
+                    if connector.get("connector_type") == "source"
+                ),
+            )
+            Metric(
+                label="Destinations",
+                value=sum(
+                    1
+                    for connector in connector_payloads
+                    if connector.get("connector_type") == "destination"
+                ),
+            )
+        with Alert(variant="info", icon="mouse-pointer-click"):
+            AlertTitle("Interactive table")
+            AlertDescription("Click a connector row to update the details panel below the table.")
+        with Card():
+            with CardHeader():
+                CardTitle("Applied filters")
+            with CardContent():
+                Text(
+                    "{{ applied_filter_summary }}",
+                    css_class="text-sm text-muted-foreground",
+                )
+        with Div(
+            css_class="rounded-md",
+            style={
+                "border": "1px solid rgba(148, 163, 184, 0.28)",
+                "maxHeight": "560px",
+                "overflowY": "auto",
+            },
+        ):
+            DataTable(
+                columns=[
+                    DataTableColumn(key="display_name", header="Name", sortable=True),
+                    DataTableColumn(key="connector_type", header="Type", sortable=True),
+                    DataTableColumn(key="source_type", header="Subtype", sortable=True),
+                    DataTableColumn(key="support_level", header="Support", sortable=True),
+                    DataTableColumn(key="release_stage", header="Stage", sortable=True),
+                    DataTableColumn(
+                        key="latest_version",
+                        header="Latest Version",
+                        sortable=True,
+                    ),
+                ],
+                rows=rows,
+                search=True,
+                paginated=False,
+                on_row_click=SetState("selected_connector", "{{ $event }}"),
+            )
+        with If("selected_connector"), Card():
+            with CardHeader():
+                CardTitle("{{ selected_connector.display_name }}")
+                Text(
+                    "{{ selected_connector.connector_type }}",
+                    css_class="text-sm text-muted-foreground font-mono",
+                )
+            with CardContent():
+                with Grid(columns=2, gap=4):
+                    _connector_detail(
+                        "Connector ID",
+                        "{{ selected_connector.connector_name }}",
+                    )
+                    _connector_detail("Type", "{{ selected_connector.connector_type }}")
+                    _connector_detail(
+                        "Support",
+                        "{{ selected_connector.support_level }}",
+                    )
+                    _connector_detail(
+                        "Release stage",
+                        "{{ selected_connector.release_stage }}",
+                    )
+                    _connector_detail(
+                        "Docker image",
+                        "{{ selected_connector.docker_repository }}:"
+                        "{{ selected_connector.docker_image_tag }}",
+                    )
+                    _connector_detail(
+                        "Definition ID",
+                        "{{ selected_connector.definition_id }}",
+                    )
+                with Row(gap=2, css_class="mt-4"):
+                    Button(
+                        "Open docs",
+                        variant="outline",
+                        icon="external-link",
+                        onClick=OpenLink("{{ selected_connector.documentation_url }}"),
+                    )
+                    Button(
+                        "Ask about connector",
+                        variant="secondary",
+                        icon="message-square",
+                        onClick=SendMessage(
+                            "Summarize Airbyte connector "
+                            "{{ selected_connector.connector_name }} "
+                            "from the selected connector list."
+                        ),
+                    )
+    return app
 
 
 def _list_public_registry_connectors(
@@ -191,6 +405,74 @@ def _connector_metadata_to_public_summary(
         release_date=connector.release_date,
         github_issue_label=connector.github_issue_label,
     )
+
+
+def _public_connector_summary_to_payload(
+    connector: PublicConnectorSummary,
+) -> dict[str, JsonValue]:
+    jsonable = _jsonable(connector)
+    if not isinstance(jsonable, dict):
+        raise TypeError(f"Expected connector summary payload to be a dict: {jsonable!r}")
+    return jsonable
+
+
+def _public_connector_filters_to_payload(
+    filters: PublicConnectorFilters,
+) -> dict[str, JsonValue]:
+    jsonable = _jsonable(filters)
+    if not isinstance(jsonable, dict):
+        raise TypeError(f"Expected connector filters payload to be a dict: {jsonable!r}")
+    return jsonable
+
+
+def _connector_filter_label(key: str) -> str:
+    labels = {
+        "certified": "Certified",
+        "support_level": "Support level",
+        "min_support_level": "Minimum support level",
+        "connector_type": "Type",
+        "search": "Search",
+        "limit": "Limit",
+    }
+    return labels.get(key, key.replace("_", " ").title())
+
+
+def _connector_applied_filters(filters: dict[str, JsonValue]) -> list[dict[str, str]]:
+    return [
+        {"label": _connector_filter_label(key), "value": str(value)}
+        for key, value in filters.items()
+        if value not in {"", None, 0}
+    ]
+
+
+def _connector_applied_filter_summary(filters: list[dict[str, str]]) -> str:
+    if not filters:
+        return "No filters applied"
+    return ", ".join(
+        f"{filter_value['label']}: {filter_value['value']}" for filter_value in filters
+    )
+
+
+def _connector_support_label(value: object) -> str:
+    support_labels = {
+        "certified": "Airbyte",
+        "community": "Marketplace",
+        "enterprise": "Enterprise",
+    }
+    normalized = str(value or "unknown").lower()
+    return support_labels.get(normalized, _connector_display_value(normalized))
+
+
+def _connector_display_value(value: object) -> str:
+    if value in {"", None}:
+        return ""
+    return str(value).replace("_", " ").title()
+
+
+def _connector_detail(label: str, value: str) -> None:
+    with Column(gap=1):
+        Text(label, css_class="text-xs uppercase text-muted-foreground")
+        Text(value, css_class="text-sm font-medium")
 
 
 def _connector_type_from_name(name: str) -> str:

@@ -473,3 +473,19 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
 
     with pytest.raises(ValueError, match="not available"):
         asyncio.run(app.call_tool("show_connectors_list"))
+
+
+def test_interactive_tools_include_prefab_metadata() -> None:
+    """Test that Prefab metadata is registered for interactive tools."""
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+
+    app = mcp_server(name="test")
+    interactive.register_interactive_tools(app)
+
+    provider = getattr(app, "_local_provider")
+    tool = provider._components["tool:show_connectors_list@"]  # noqa: SLF001
+
+    assert tool.meta is not None
+    assert tool.meta["ui"]["resourceUri"] == "ui://prefab/renderer.html"
