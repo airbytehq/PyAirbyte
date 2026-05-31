@@ -27,7 +27,6 @@ from airbyte.mcp._tool_utils import (
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
-from airbyte.mcp.prefab import register_prefab_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
 
@@ -98,7 +97,6 @@ register_cloud_tools(app)
 register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
-register_prefab_tools(app)
 register_prompts(app)
 
 

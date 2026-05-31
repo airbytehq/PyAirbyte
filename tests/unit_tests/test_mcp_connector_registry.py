@@ -495,10 +495,10 @@ def test_prefab_generative_provider_registers_tools_and_renderer() -> None:
     """Test that the FastMCP Prefab generative provider is registered."""
     from fastmcp_extensions import mcp_server
 
-    from airbyte.mcp import prefab
+    from airbyte.mcp import interactive
 
     app = mcp_server(name="test")
-    prefab.register_prefab_tools(app)
+    interactive.register_interactive_tools(app)
 
     tool_names = {tool.name for tool in asyncio.run(app.list_tools())}
     resource_uris = {
@@ -513,14 +513,14 @@ def test_prefab_generative_tools_are_filtered_by_ui_support() -> None:
     """Test that Prefab generative tools require MCP Apps UI support."""
     from fastmcp_extensions import mcp_server
 
-    from airbyte.mcp import prefab
+    from airbyte.mcp import interactive
     from airbyte.mcp._tool_utils import airbyte_ui_support_filter
 
     app = mcp_server(
         name="test",
         tool_filters=[airbyte_ui_support_filter],
     )
-    prefab.register_prefab_tools(app)
+    interactive.register_interactive_tools(app)
 
     with patch(
         "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
@@ -535,11 +535,11 @@ def test_prefab_generative_tools_include_airbyte_annotations() -> None:
     """Test that Airbyte annotations are applied to FastMCP provider tools."""
     from fastmcp_extensions import mcp_server
 
-    from airbyte.mcp import prefab
+    from airbyte.mcp import interactive
     from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION
 
     app = mcp_server(name="test")
-    prefab.register_prefab_tools(app)
+    interactive.register_interactive_tools(app)
 
     fastmcp_tool = asyncio.run(app.get_tool("generate_prefab_ui"))
     assert fastmcp_tool is not None
@@ -549,5 +549,5 @@ def test_prefab_generative_tools_include_airbyte_annotations() -> None:
     assert tool.annotations.readOnlyHint is True
     assert tool.annotations.idempotentHint is True
     assert tool.annotations.openWorldHint is True
-    assert getattr(tool.annotations, "mcp_module") == "prefab"
+    assert getattr(tool.annotations, "mcp_module") == "interactive"
     assert getattr(tool.annotations, INTERACTIVE_UI_ANNOTATION) is True
