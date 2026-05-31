@@ -8,6 +8,7 @@ from fastmcp_extensions import mcp_tool
 from pydantic import Field
 
 from airbyte import exceptions as exc
+from airbyte.mcp._ui_builders import connector_catalog_app, tool_result_with_prefab
 from airbyte.mcp.interactive._shared_models import (
     ConnectorType,
     PublicConnectorFilters,
@@ -15,7 +16,6 @@ from airbyte.mcp.interactive._shared_models import (
     PublicConnectorSummary,
     SupportLevel,
 )
-from airbyte.mcp.ui_builders import connector_catalog_app, tool_result_with_prefab
 from airbyte.registry import ConnectorMetadata, _get_registry_url, list_connector_metadata
 
 

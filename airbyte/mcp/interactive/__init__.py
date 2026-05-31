@@ -9,8 +9,8 @@ from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_context
 from fastmcp_extensions import register_mcp_tools
 
+from airbyte.mcp._ui_builders import register_prefab_tool_metadata
 from airbyte.mcp.interactive._registry import show_connectors_list
-from airbyte.mcp.ui_builders import register_prefab_tool_metadata
 
 
 if TYPE_CHECKING:
