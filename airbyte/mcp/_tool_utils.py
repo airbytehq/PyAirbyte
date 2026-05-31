@@ -13,7 +13,7 @@ import inspect
 import os
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar
+from typing import TYPE_CHECKING, TypeVar, get_args
 
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_context
@@ -27,7 +27,6 @@ from fastmcp_extensions.tool_filters import (
     ANNOTATION_READ_ONLY_HINT,
     get_annotation,
 )
-from mcp.types import ToolAnnotations
 
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
@@ -310,9 +309,14 @@ class _ProviderToolAnnotations(Transform):
     def _apply_annotations(self, tool: FastMCPTool) -> FastMCPTool:
         annotations = tool.annotations.model_dump(exclude_none=True) if tool.annotations else {}
         annotations.update(self._annotations)
+        tool_annotations_type = next(
+            annotation_type
+            for annotation_type in get_args(type(tool).model_fields["annotations"].annotation)
+            if annotation_type is not type(None)
+        )
         return tool.model_copy(
             update={
-                "annotations": ToolAnnotations(**annotations),
+                "annotations": tool_annotations_type(**annotations),
             },
         )
 
