@@ -23,6 +23,74 @@ from airbyte.registry import (
 )
 
 
+@pytest.fixture
+def connector_metadata_cache() -> dict[str, ConnectorMetadata]:
+    """Return representative connector metadata keyed by connector name."""
+    connectors = [
+        ConnectorMetadata(
+            name="destination-snowflake",
+            display_name="Snowflake",
+            connector_type="destination",
+            definition_id="destination-snowflake-definition",
+            docker_repository="airbyte/destination-snowflake",
+            latest_available_version="3.0.0",
+            pypi_package_name=None,
+            language=None,
+            install_types=set(),
+            support_level="certified",
+            release_stage="generally_available",
+            source_type=None,
+            documentation_url="https://docs.airbyte.com/integrations/destinations/snowflake",
+        ),
+        ConnectorMetadata(
+            name="source-faker",
+            display_name="Faker",
+            connector_type="source",
+            definition_id="source-faker-definition",
+            docker_repository="airbyte/source-faker",
+            latest_available_version="1.0.0",
+            pypi_package_name=None,
+            language=None,
+            install_types=set(),
+            support_level="community",
+            release_stage="alpha",
+            source_type="file",
+            documentation_url="https://docs.airbyte.com/integrations/sources/faker",
+        ),
+        ConnectorMetadata(
+            name="source-github",
+            display_name="GitHub",
+            connector_type="source",
+            definition_id="source-github-definition",
+            docker_repository="airbyte/source-github",
+            latest_available_version="2.0.0",
+            pypi_package_name=None,
+            language=None,
+            install_types=set(),
+            support_level="certified",
+            release_stage="generally_available",
+            source_type="api",
+            documentation_url="https://docs.airbyte.com/integrations/sources/github",
+        ),
+        ConnectorMetadata(
+            name="source-legacy",
+            display_name="Legacy",
+            connector_type="source",
+            definition_id="source-legacy-definition",
+            docker_repository="airbyte/source-legacy",
+            latest_available_version="0.1.0",
+            pypi_package_name=None,
+            language=None,
+            install_types=set(),
+            support_level="archived",
+            release_stage="alpha",
+            source_type="api",
+            documentation_url="https://docs.airbyte.com/integrations/sources/legacy",
+        ),
+    ]
+    return {connector.name: connector for connector in connectors}
+
+
 class TestManifestUrlFor:
     """Tests for _manifest_url_for function."""
 
@@ -235,10 +303,120 @@ def test_list_public_registry_connectors_uses_underlying_registry_filters() -> N
     )
 
 
+@pytest.mark.parametrize(
+    (
+        "support_level",
+        "min_support_level",
+        "connector_type",
+        "search",
+        "limit",
+        "expected_names",
+    ),
+    [
+        pytest.param(
+            "certified",
+            None,
+            None,
+            "",
+            None,
+            ["destination-snowflake", "source-github"],
+            id="exact_support_level",
+        ),
+        pytest.param(
+            None,
+            "community",
+            None,
+            "",
+            None,
+            ["destination-snowflake", "source-faker", "source-github"],
+            id="minimum_support_level",
+        ),
+        pytest.param(
+            None,
+            None,
+            "source",
+            "",
+            None,
+            ["source-faker", "source-github", "source-legacy"],
+            id="connector_type",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            "snow",
+            None,
+            ["destination-snowflake"],
+            id="search",
+        ),
+        pytest.param(
+            None,
+            None,
+            None,
+            "",
+            2,
+            ["destination-snowflake", "source-faker"],
+            id="limit",
+        ),
+    ],
+)
+def test_list_connector_metadata_applies_filters(
+    connector_metadata_cache: dict[str, ConnectorMetadata],
+    support_level: str | None,
+    min_support_level: str | None,
+    connector_type: str | None,
+    search: str,
+    limit: int | None,
+    expected_names: list[str],
+) -> None:
+    """Test that connector metadata filters are applied by the registry."""
+    with patch(
+        "airbyte.registry._get_registry_cache", return_value=connector_metadata_cache
+    ):
+        connectors = list_connector_metadata(
+            support_level=support_level,
+            min_support_level=min_support_level,
+            connector_type=connector_type,
+            search=search,
+            limit=limit,
+        )
+
+    assert [connector.name for connector in connectors] == expected_names
+
+
 def test_list_connector_metadata_rejects_invalid_min_support_level() -> None:
     """Test that invalid support level thresholds fail clearly."""
     with pytest.raises(ValueError, match="Unrecognized min_support_level: 'gold'"):
         list_connector_metadata(min_support_level="gold")
+
+
+def test_show_connectors_list_rejects_negative_limit() -> None:
+    """Test that negative connector limits fail clearly."""
+    with pytest.raises(
+        exc.PyAirbyteInputError, match="Limit parameter must be non-negative."
+    ):
+        show_connectors_list(limit=-1)
+
+
+def test_show_connectors_list_uses_resolved_registry_url(
+    connector_metadata_cache: dict[str, ConnectorMetadata],
+) -> None:
+    """Test that the tool reports the active registry URL."""
+    registry_url = "file:///tmp/local_registry.json"
+    with (
+        patch(
+            "airbyte.registry._get_registry_cache",
+            return_value=connector_metadata_cache,
+        ),
+        patch(
+            "airbyte.mcp.interactive._registry._get_registry_url",
+            return_value=registry_url,
+        ),
+    ):
+        result = show_connectors_list(limit=1)
+
+    assert result.meta is not None
+    assert result.meta["airbyte_mcp_raw_result"]["registry_url"] == registry_url
 
 
 def test_show_connectors_list_rejects_conflicting_support_filters() -> None:
@@ -261,11 +439,13 @@ def test_interactive_tools_are_filtered_by_ui_support(
     expected_visible: bool,
 ) -> None:
     """Test that interactive tools are filtered by MCP Apps UI support."""
-    from fastmcp import FastMCP
-
     from airbyte.mcp import interactive
+    from fastmcp_extensions import mcp_server
 
-    app = FastMCP(name="test")
+    app = mcp_server(
+        name="test",
+        tool_filters=[interactive.interactive_tool_filter],
+    )
     interactive.register_interactive_tools(app)
 
     with patch(
@@ -275,3 +455,19 @@ def test_interactive_tools_are_filtered_by_ui_support(
         tools = asyncio.run(app.list_tools())
 
     assert ("show_connectors_list" in {tool.name for tool in tools}) is expected_visible
+
+
+def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> None:
+    """Test that non-UI clients cannot call interactive tools directly."""
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+
+    app = mcp_server(
+        name="test",
+        tool_filters=[interactive.interactive_tool_filter],
+    )
+    interactive.register_interactive_tools(app)
+
+    with pytest.raises(ValueError, match="not available"):
+        asyncio.run(app.call_tool("show_connectors_list"))

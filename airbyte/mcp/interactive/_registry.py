@@ -7,6 +7,7 @@ from fastmcp.tools.base import ToolResult
 from fastmcp_extensions import mcp_tool
 from pydantic import Field
 
+from airbyte import exceptions as exc
 from airbyte.mcp.interactive._shared_models import (
     ConnectorType,
     PublicConnectorFilters,
@@ -15,7 +16,7 @@ from airbyte.mcp.interactive._shared_models import (
     SupportLevel,
 )
 from airbyte.mcp.ui_builders import connector_catalog_app, tool_result_with_prefab
-from airbyte.registry import _REGISTRY_URL, ConnectorMetadata, list_connector_metadata
+from airbyte.registry import ConnectorMetadata, _get_registry_url, list_connector_metadata
 
 
 CONNECTOR_CATALOG_AGENT_PREVIEW_LIMIT = 25
@@ -74,10 +75,19 @@ def show_connectors_list(
     ] = "",
     limit: Annotated[
         int,
-        Field(description="Maximum number of connectors to return. Use `0` for no limit."),
+        Field(
+            description="Maximum number of connectors to return. Use `0` for no limit.",
+            ge=0,
+        ),
     ] = 0,
 ) -> ToolResult:
     """Show an interactive public connector catalog from the OSS registry."""
+    if limit < 0:
+        raise exc.PyAirbyteInputError(
+            message="Limit parameter must be non-negative.",
+            context={"limit": limit},
+        )
+
     eff_support_level = SupportLevel.CERTIFIED if certified else None
     if support_level:
         if certified:
@@ -89,8 +99,8 @@ def show_connectors_list(
     eff_min_support_level = SupportLevel.parse(min_support_level) if min_support_level else None
     if eff_support_level and eff_min_support_level:
         raise ValueError(
-            "Cannot specify both `support_level` and `min_support_level`. "
-            "Use `support_level` for an exact match or `min_support_level` for a threshold."
+            "Cannot specify both `certified` or `support_level` and `min_support_level`. "
+            "Use an exact match or a threshold."
         )
     eff_connector_type = ConnectorType.parse(connector_type) if connector_type else None
     filters = PublicConnectorFilters(
@@ -108,8 +118,9 @@ def show_connectors_list(
         search=search,
         limit=limit or None,
     )
+    registry_url = _get_registry_url()
     raw_value = PublicConnectorListResult(
-        registry_url=_REGISTRY_URL,
+        registry_url=registry_url,
         connector_count=len(connectors),
         filters=filters,
         connectors=connectors,
@@ -134,11 +145,10 @@ def show_connectors_list(
     )
     return tool_result_with_prefab(
         raw_value=agent_value,
-        meta_value=agent_value,
         app=connector_catalog_app(
             connectors=connectors,
             filters=filters,
-            registry_url=_REGISTRY_URL,
+            registry_url=registry_url,
         ),
     )
 
