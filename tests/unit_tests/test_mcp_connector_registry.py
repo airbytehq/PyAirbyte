@@ -6,9 +6,10 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from airbyte import exceptions as exc
-from airbyte.mcp.registry import get_api_docs_urls
+from airbyte.mcp.registry import get_api_docs_urls, show_connectors_list
 from airbyte.registry import (
     ApiDocsUrl,
+    ConnectorMetadata,
     _fetch_manifest_dict,
     _manifest_url_for,
 )
@@ -157,3 +158,42 @@ class TestGetApiDocsUrls:
             assert isinstance(result, list)
             assert len(result) == 1
             assert result[0].title == "Airbyte Documentation"
+
+
+def test_show_connectors_list_limits_text_and_meta_payload() -> None:
+    """Test that the model payload is capped while the UI gets all rows."""
+    connector_metadata = [
+        ConnectorMetadata(
+            name=f"source-test-{i:02d}",
+            display_name=f"Test {i:02d}",
+            connector_type="source",
+            definition_id=f"definition-{i:02d}",
+            docker_repository=f"airbyte/source-test-{i:02d}",
+            latest_available_version="1.0.0",
+            pypi_package_name=None,
+            language=None,
+            install_types=[],
+            support_level="community",
+            release_stage="alpha",
+            source_type="api",
+            documentation_url=f"https://docs.airbyte.com/integrations/sources/test-{i:02d}",
+        )
+        for i in range(30)
+    ]
+
+    with patch("airbyte.mcp.registry.list_connector_metadata") as mock_list_metadata:
+        mock_list_metadata.return_value = connector_metadata
+
+        result = show_connectors_list()
+
+    text_payload = result.content[0].text
+    assert '"model_preview_count": 25' in text_payload
+    assert '"model_preview_truncated": true' in text_payload
+    assert '"full_count_rendered_to_user": 30' in text_payload
+    assert result.meta is not None
+    assert result.meta["airbyte_mcp_raw_result"]["model_preview_count"] == 25
+    assert result.meta["airbyte_mcp_raw_result"]["full_count_rendered_to_user"] == 30
+    assert result.structured_content is not None
+    structured_content = result.structured_content
+    assert "$prefab" in structured_content
+    assert "source-test-29" in str(structured_content["view"])
