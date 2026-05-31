@@ -10,6 +10,7 @@ This module provides:
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import TYPE_CHECKING, TypeVar
 
 from fastmcp.apps import UI_EXTENSION_ID, PrefabAppConfig
@@ -50,13 +51,11 @@ from airbyte.constants import (
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from fastmcp import FastMCP
     from fastmcp.server.context import Context
     from mcp.types import Tool
 
-_MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound="Callable[..., object]")
+_MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 
 
 # =============================================================================
