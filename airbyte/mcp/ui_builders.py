@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
@@ -109,7 +109,7 @@ def register_prefab_tool_metadata(app: FastMCP, tool_names: tuple[str, ...]) -> 
 
 def connector_catalog_app(
     *,
-    connectors: list[BaseModel],
+    connectors: Sequence[BaseModel],
     filters: BaseModel,
     registry_url: str,
 ) -> PrefabApp:

@@ -388,8 +388,11 @@ def list_connector_metadata(
         connectors = [
             connector
             for connector in connectors
-            if connector.support_level in _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE
-            and _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE[connector.support_level] >= threshold
+            if (
+                connector.support_level is not None
+                and connector.support_level in _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE
+                and _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE[connector.support_level] >= threshold
+            )
         ]
 
     if connector_type:

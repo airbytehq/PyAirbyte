@@ -14,7 +14,7 @@ __all__: list[str] = []
 # types to be available at import time for tool registration.
 import contextlib
 import logging
-from enum import StrEnum
+from enum import Enum
 from typing import Annotated, Any, Literal
 
 import requests
@@ -52,7 +52,7 @@ logger = logging.getLogger("airbyte.mcp")
 CONNECTOR_CATALOG_AGENT_PREVIEW_LIMIT = 25
 
 
-class SupportLevel(StrEnum):
+class SupportLevel(str, Enum):
     """Connector support levels ordered by precedence."""
 
     ARCHIVED = "archived"
@@ -88,7 +88,7 @@ class SupportLevel(StrEnum):
             ) from None
 
 
-class ConnectorType(StrEnum):
+class ConnectorType(str, Enum):
     """Connector type: `source` or `destination`."""
 
     SOURCE = "source"
