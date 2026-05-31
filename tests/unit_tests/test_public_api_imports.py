@@ -119,10 +119,12 @@ def test_public_modules_do_not_reference_generated_api_model_namespaces(
     violations: list[str] = []
     for file_path in _python_files(REPO_ROOT / relative_path):
         for reference in _attribute_references(file_path):
-            if reference in restricted_references:
-                violations.append(
-                    f"{file_path.relative_to(REPO_ROOT)} references {reference}"
-                )
+            for restricted_reference in restricted_references:
+                if _is_restricted_import(reference, restricted_reference):
+                    violations.append(
+                        f"{file_path.relative_to(REPO_ROOT)} references {reference}"
+                    )
+                    break
     assert not violations, (
         "Public CLI, MCP, and cloud modules must not reference generated Airbyte API "
         "model namespaces through internal utilities. Keep generated API models behind "
