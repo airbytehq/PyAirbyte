@@ -340,45 +340,49 @@ def register_mcp_tools(
     mcp_module: str | None = None,
     *,
     exclude_args: list[str] | None = None,
+    include_tools: bool = True,
+    include_providers: bool = True,
 ) -> None:
     """Register deferred MCP tools with Airbyte-specific metadata support."""
     if mcp_module is None:
         mcp_module = _get_caller_file_stem()
     mcp_module = mcp_module.rsplit(".", 1)[-1]
-    matching_tools = [
-        (func, tool_annotations)
-        for func, tool_annotations in _REGISTERED_TOOLS
-        if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
-    ]
+    if include_tools:
+        matching_tools = [
+            (func, tool_annotations)
+            for func, tool_annotations in _REGISTERED_TOOLS
+            if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
+        ]
 
-    for func, tool_annotations in matching_tools:
-        tool_exclude_args: list[str] | None = None
-        if exclude_args:
-            params = set(inspect.signature(func).parameters.keys())
-            excluded = [name for name in exclude_args if name in params]
-            tool_exclude_args = excluded or None
+        for func, tool_annotations in matching_tools:
+            tool_exclude_args: list[str] | None = None
+            if exclude_args:
+                params = set(inspect.signature(func).parameters.keys())
+                excluded = [name for name in exclude_args if name in params]
+                tool_exclude_args = excluded or None
 
-        app.tool(
-            func,
-            annotations={
-                key: value
-                for key, value in tool_annotations.items()
-                if key not in {_TOOL_APP_KEY, _TOOL_META_KEY}
-            },
-            exclude_args=tool_exclude_args,
-            meta=tool_annotations.get(_TOOL_META_KEY),
-            app=tool_annotations.get(_TOOL_APP_KEY),
-        )
+            app.tool(
+                func,
+                annotations={
+                    key: value
+                    for key, value in tool_annotations.items()
+                    if key not in {_TOOL_APP_KEY, _TOOL_META_KEY}
+                },
+                exclude_args=tool_exclude_args,
+                meta=tool_annotations.get(_TOOL_META_KEY),
+                app=tool_annotations.get(_TOOL_APP_KEY),
+            )
 
-    matching_providers = [
-        (provider_factory, tool_annotations)
-        for provider_factory, tool_annotations in _REGISTERED_PROVIDERS
-        if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
-    ]
-    for provider_factory, tool_annotations in matching_providers:
-        provider = provider_factory()
-        provider.add_transform(_ProviderToolAnnotations(tool_annotations))
-        app.add_provider(provider)
+    if include_providers:
+        matching_providers = [
+            (provider_factory, tool_annotations)
+            for provider_factory, tool_annotations in _REGISTERED_PROVIDERS
+            if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
+        ]
+        for provider_factory, tool_annotations in matching_providers:
+            provider = provider_factory()
+            provider.add_transform(_ProviderToolAnnotations(tool_annotations))
+            app.add_provider(provider)
 
 
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
