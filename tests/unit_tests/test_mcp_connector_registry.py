@@ -3,10 +3,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock, patch
 
+import pytest
+from mcp.types import TextContent
+
 from airbyte import exceptions as exc
-from airbyte.mcp.registry import get_api_docs_urls, show_connectors_list
+from airbyte.mcp.interactive import show_connectors_list
+from airbyte.mcp.interactive._registry import _list_public_registry_connectors
+from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
+from airbyte.mcp.registry import get_api_docs_urls
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -181,12 +188,16 @@ def test_show_connectors_list_limits_text_and_meta_payload() -> None:
         for i in range(30)
     ]
 
-    with patch("airbyte.mcp.registry.list_connector_metadata") as mock_list_metadata:
+    with patch(
+        "airbyte.mcp.interactive._registry.list_connector_metadata"
+    ) as mock_list_metadata:
         mock_list_metadata.return_value = connector_metadata
 
         result = show_connectors_list()
 
-    text_payload = result.content[0].text
+    text_content = result.content[0]
+    assert isinstance(text_content, TextContent)
+    text_payload = text_content.text
     assert '"model_preview_count": 25' in text_payload
     assert '"model_preview_truncated": true' in text_payload
     assert '"full_count_rendered_to_user": 30' in text_payload
@@ -197,3 +208,55 @@ def test_show_connectors_list_limits_text_and_meta_payload() -> None:
     structured_content = result.structured_content
     assert "$prefab" in structured_content
     assert "source-test-29" in str(structured_content["view"])
+
+
+def test_list_public_registry_connectors_uses_underlying_registry_filters() -> None:
+    """Test that the interactive list wraps the public registry implementation."""
+    with patch(
+        "airbyte.mcp.interactive._registry.list_connector_metadata"
+    ) as mock_list_metadata:
+        mock_list_metadata.return_value = []
+
+        _list_public_registry_connectors(
+            support_level=SupportLevel.CERTIFIED,
+            min_support_level=None,
+            connector_type=ConnectorType.SOURCE,
+            search="github",
+            limit=10,
+        )
+
+    mock_list_metadata.assert_called_once_with(
+        support_level="certified",
+        min_support_level=None,
+        connector_type="source",
+        search="github",
+        limit=10,
+    )
+
+
+@pytest.mark.parametrize(
+    ("supports_ui", "expected_visible"),
+    [
+        pytest.param(False, False, id="hidden_without_ui"),
+        pytest.param(True, True, id="visible_with_ui"),
+    ],
+)
+def test_interactive_tools_are_filtered_by_ui_support(
+    supports_ui: bool,
+    expected_visible: bool,
+) -> None:
+    """Test that interactive tools are filtered by MCP Apps UI support."""
+    from fastmcp import FastMCP
+
+    from airbyte.mcp import interactive
+
+    app = FastMCP(name="test")
+    interactive.register_interactive_tools(app)
+
+    with patch(
+        "airbyte.mcp.interactive._fastmcp_context_supports_ui",
+        return_value=supports_ui,
+    ):
+        tools = asyncio.run(app.list_tools())
+
+    assert ("show_connectors_list" in {tool.name for tool in tools}) is expected_visible
