@@ -44,12 +44,6 @@ _DEFAULT_MANIFEST_URL = (
     "https://connectors.airbyte.com/files/metadata/airbyte/{source_name}/{version}/manifest.yaml"
 )
 
-_SUPPORT_LEVEL_PRECEDENCE_BY_VALUE = {
-    "archived": 100,
-    "community": 200,
-    "certified": 300,
-}
-
 
 class InstallType(str, Enum):
     """The type of installation for a connector."""

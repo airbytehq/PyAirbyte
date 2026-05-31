@@ -7,8 +7,6 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from airbyte.registry import _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE
-
 
 class SupportLevel(str, Enum):
     """Connector support levels ordered by precedence."""
@@ -65,8 +63,9 @@ class ConnectorType(str, Enum):
 
 
 _SUPPORT_LEVEL_PRECEDENCE: dict[SupportLevel, int] = {
-    SupportLevel(level): precedence
-    for level, precedence in _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE.items()
+    SupportLevel.ARCHIVED: 100,
+    SupportLevel.COMMUNITY: 200,
+    SupportLevel.CERTIFIED: 300,
 }
 
 
