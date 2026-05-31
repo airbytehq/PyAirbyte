@@ -782,7 +782,7 @@ def list_cloud_sync_jobs(
     jobs = [
         SyncJobResult(
             job_id=sync_result.job_id,
-            status=str(sync_result.get_job_status()),
+            status=sync_result.get_job_status().value,
             bytes_synced=sync_result.bytes_synced,
             records_synced=sync_result.records_synced,
             start_time=sync_result.start_time.isoformat(),
@@ -1253,7 +1253,7 @@ def list_deployed_cloud_connections(
                     continue
 
                 last_completed_job_status = job_status
-                last_job_status = str(job_status) if job_status else None
+                last_job_status = job_status.value if job_status else None
                 last_job_id = sync_result.job_id
                 last_job_time = sync_result.start_time.isoformat()
                 break

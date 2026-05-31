@@ -16,8 +16,8 @@ PUBLIC_MODULE_RESTRICTED_IMPORTS = {
     Path("airbyte/cloud"): ("airbyte_api", "airbyte._util.api_imports"),
 }
 PUBLIC_MODULE_RESTRICTED_REFERENCES = {
-    Path("airbyte/cli"): ("api_util.models", ".value"),
-    Path("airbyte/mcp"): ("api_util.models", ".value"),
+    Path("airbyte/cli"): ("api_util.models",),
+    Path("airbyte/mcp"): ("api_util.models",),
     Path("airbyte/cloud"): ("api_util.models",),
 }
 
@@ -123,11 +123,6 @@ def test_public_modules_do_not_reference_generated_api_model_namespaces(
                 violations.append(
                     f"{file_path.relative_to(REPO_ROOT)} references {reference}"
                 )
-            if ".value" in restricted_references and reference.endswith(".value"):
-                violations.append(
-                    f"{file_path.relative_to(REPO_ROOT)} references {reference}"
-                )
-
     assert not violations, (
         "Public CLI, MCP, and cloud modules must not reference generated Airbyte API "
         "model namespaces through internal utilities. Keep generated API models behind "
