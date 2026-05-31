@@ -19,6 +19,7 @@ from airbyte.registry import (
     ConnectorMetadata,
     _fetch_manifest_dict,
     _manifest_url_for,
+    list_connector_metadata,
 )
 
 
@@ -232,6 +233,12 @@ def test_list_public_registry_connectors_uses_underlying_registry_filters() -> N
         search="github",
         limit=10,
     )
+
+
+def test_list_connector_metadata_rejects_invalid_min_support_level() -> None:
+    """Test that invalid support level thresholds fail clearly."""
+    with pytest.raises(ValueError, match="Unrecognized min_support_level: 'gold'"):
+        list_connector_metadata(min_support_level="gold")
 
 
 def test_show_connectors_list_rejects_conflicting_support_filters() -> None:

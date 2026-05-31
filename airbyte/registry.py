@@ -384,15 +384,19 @@ def list_connector_metadata(
         ]
 
     if min_support_level:
-        threshold = _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE[min_support_level]
+        threshold = _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE.get(min_support_level)
+        if threshold is None:
+            valid = ", ".join(f"`{level}`" for level in _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE)
+            raise ValueError(
+                f"Unrecognized min_support_level: {min_support_level!r}. "
+                f"Expected one of: {valid}."
+            )
         connectors = [
             connector
             for connector in connectors
-            if (
-                connector.support_level is not None
-                and connector.support_level in _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE
-                and _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE[connector.support_level] >= threshold
-            )
+            if (precedence := _SUPPORT_LEVEL_PRECEDENCE_BY_VALUE.get(connector.support_level or ""))
+            is not None
+            and precedence >= threshold
         ]
 
     if connector_type:
