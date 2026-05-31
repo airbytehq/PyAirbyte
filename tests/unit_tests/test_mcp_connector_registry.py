@@ -440,16 +440,17 @@ def test_interactive_tools_are_filtered_by_ui_support(
 ) -> None:
     """Test that interactive tools are filtered by MCP Apps UI support."""
     from airbyte.mcp import interactive
+    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
     from fastmcp_extensions import mcp_server
 
     app = mcp_server(
         name="test",
-        tool_filters=[interactive.interactive_tool_filter],
+        tool_filters=[airbyte_ui_support_filter],
     )
     interactive.register_interactive_tools(app)
 
     with patch(
-        "airbyte.mcp.interactive._fastmcp_context_supports_ui",
+        "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
         return_value=supports_ui,
     ):
         tools = asyncio.run(app.list_tools())
@@ -462,10 +463,11 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
     from fastmcp_extensions import mcp_server
 
     from airbyte.mcp import interactive
+    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
 
     app = mcp_server(
         name="test",
-        tool_filters=[interactive.interactive_tool_filter],
+        tool_filters=[airbyte_ui_support_filter],
     )
     interactive.register_interactive_tools(app)
 

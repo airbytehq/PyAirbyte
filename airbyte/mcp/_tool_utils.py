@@ -12,6 +12,8 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
+from fastmcp.apps import UI_EXTENSION_ID
+from fastmcp.server.dependencies import get_context
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
@@ -49,6 +51,7 @@ from airbyte.constants import (
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from fastmcp.server.context import Context
     from mcp.types import Tool
 
 
@@ -197,6 +200,9 @@ CONFIG_API_URL_CONFIG_ARG = MCPServerConfigArg(
 # Tool Filters for Backward Compatibility
 # =============================================================================
 
+UI_REQUIRED_TOOL_NAMES = frozenset({"show_connectors_list"})
+"""Tools that require MCP Apps UI support from the client."""
+
 
 def _parse_csv_config(value: str) -> list[str]:
     """Parse a comma-separated config value into a list of strings."""
@@ -237,3 +243,22 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
         return bool(tool_module and tool_module in include_modules)
 
     return True
+
+
+def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
+    """Filter tools that require MCP Apps UI support."""
+    if tool.name not in UI_REQUIRED_TOOL_NAMES:
+        return True
+    return _client_supports_ui()
+
+
+def _client_supports_ui() -> bool:
+    try:
+        context = get_context()
+    except RuntimeError:
+        return False
+    return _fastmcp_context_supports_ui(context)
+
+
+def _fastmcp_context_supports_ui(context: Context) -> bool:
+    return context.client_supports_extension(UI_EXTENSION_ID)

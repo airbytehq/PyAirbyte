@@ -22,9 +22,10 @@ from airbyte.mcp._tool_utils import (
     WORKSPACE_ID_CONFIG_ARG,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
+    airbyte_ui_support_filter,
 )
 from airbyte.mcp.cloud import register_cloud_tools
-from airbyte.mcp.interactive import interactive_tool_filter, register_interactive_tools
+from airbyte.mcp.interactive import register_interactive_tools
 from airbyte.mcp.local import register_local_tools
 from airbyte.mcp.prompts import register_prompts
 from airbyte.mcp.registry import register_registry_tools
@@ -86,7 +87,7 @@ app = mcp_server(
     tool_filters=[
         airbyte_readonly_mode_filter,
         airbyte_module_filter,
-        interactive_tool_filter,
+        airbyte_ui_support_filter,
     ],
 )
 """The Airbyte MCP Server application instance."""
