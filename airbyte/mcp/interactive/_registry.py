@@ -80,6 +80,11 @@ def show_connectors_list(
     """Show an interactive public connector catalog from the OSS registry."""
     eff_support_level = SupportLevel.CERTIFIED if certified else None
     if support_level:
+        if certified:
+            raise ValueError(
+                "Cannot specify both `certified` and `support_level`. "
+                "Use `certified=True` as shorthand or `support_level` for explicit control."
+            )
         eff_support_level = SupportLevel.parse(support_level)
     eff_min_support_level = SupportLevel.parse(min_support_level) if min_support_level else None
     if eff_support_level and eff_min_support_level:

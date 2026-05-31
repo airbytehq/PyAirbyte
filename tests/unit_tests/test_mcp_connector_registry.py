@@ -234,6 +234,14 @@ def test_list_public_registry_connectors_uses_underlying_registry_filters() -> N
     )
 
 
+def test_show_connectors_list_rejects_conflicting_support_filters() -> None:
+    """Test that support-level shorthands do not silently override each other."""
+    with pytest.raises(
+        ValueError, match="Cannot specify both `certified` and `support_level`"
+    ):
+        show_connectors_list(certified=True, support_level="community")
+
+
 @pytest.mark.parametrize(
     ("supports_ui", "expected_visible"),
     [
