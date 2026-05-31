@@ -6,18 +6,15 @@ For more info: https://gofastmcp.com/apps/generative
 
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.server.providers import Provider
+from fastmcp_extensions import mcp_provider
+from fastmcp_extensions.tool_filters import ANNOTATION_MCP_MODULE
 
-from airbyte.mcp._tool_utils import (
-    INTERACTIVE_UI_ANNOTATION,
-    mcp_provider,
-)
+from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION
 
 
 @mcp_provider(
-    read_only=True,
-    idempotent=True,
-    open_world=True,
     annotations={
+        ANNOTATION_MCP_MODULE: "interactive",
         INTERACTIVE_UI_ANNOTATION: True,
     },
 )

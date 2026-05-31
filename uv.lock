@@ -200,7 +200,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.3.0,<1.0.0" },
+    { name = "fastmcp-extensions", specifier = ">=0.5.0,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1127,14 +1127,14 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.3.0"
+version = "0.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/be/61de5a759d046167c2a629af74690206cb457364778be92b185fd7c6d781/fastmcp_extensions-0.3.0.tar.gz", hash = "sha256:7bc7358d1a0b0c56596418dc048063a631787d804549b6660b9e164b4d431ffb", size = 160437, upload-time = "2026-04-02T22:40:16.813Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/48/62/b2b9f395d41051f723b8cd29e99851bf45a7c81c3d13ce295dd260b60c4e/fastmcp_extensions-0.5.0.tar.gz", hash = "sha256:3a925573a51a653fbc63dc1a7ca9170be63ebbc537c3d224209a83a70a0071d2", size = 172924, upload-time = "2026-05-31T06:47:25.279Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/14/2eeee7b1761c96dd924f6b3132f2694ac44c3c3477faba268e21fff5278d/fastmcp_extensions-0.3.0-py3-none-any.whl", hash = "sha256:299e4e7c48d64744e26a2dc07a25de5c80095c0ed0b824eba38e33a0714c42fc", size = 34308, upload-time = "2026-04-02T22:40:15.514Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/4c/7e1fadd08710363b634e8a889ef9050b01773d907b6da09e15078b132546/fastmcp_extensions-0.5.0-py3-none-any.whl", hash = "sha256:0eb8fa3b53009d5ff5d4c59753410d88ad2015b1320c080554e54cd12dcb8635", size = 44539, upload-time = "2026-05-31T06:47:24.131Z" },
 ]
 
 [[package]]

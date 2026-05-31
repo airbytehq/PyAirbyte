@@ -12,7 +12,10 @@ from mcp.types import TextContent
 from airbyte import exceptions as exc
 from airbyte.mcp._tool_utils import _mcp_module_for_tool
 from airbyte.mcp.interactive import show_connectors_list
-from airbyte.mcp.interactive._registry import _list_public_registry_connectors
+from airbyte.mcp.interactive._registry_ui import (
+    _connector_metadata_to_public_summary,
+    _list_public_registry_connectors,
+)
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
 from airbyte.mcp.registry import get_api_docs_urls
 from airbyte.registry import (
@@ -20,7 +23,6 @@ from airbyte.registry import (
     ConnectorMetadata,
     _fetch_manifest_dict,
     _manifest_url_for,
-    list_connector_metadata,
 )
 
 
@@ -259,10 +261,12 @@ def test_show_connectors_list_limits_text_and_meta_payload() -> None:
     ]
 
     with patch(
-        "airbyte.mcp.interactive._registry.list_connector_metadata"
-    ) as mock_list_metadata:
-        mock_list_metadata.return_value = connector_metadata
-
+        "airbyte.mcp.interactive._registry_ui._list_public_registry_connectors"
+    ) as mock_list_connectors:
+        mock_list_connectors.return_value = [
+            _connector_metadata_to_public_summary(connector)
+            for connector in connector_metadata
+        ]
         result = show_connectors_list()
 
     text_content = result.content[0]
@@ -280,13 +284,15 @@ def test_show_connectors_list_limits_text_and_meta_payload() -> None:
     assert "source-test-29" in str(structured_content["view"])
 
 
-def test_list_public_registry_connectors_uses_underlying_registry_filters() -> None:
-    """Test that the interactive list wraps the public registry implementation."""
-    with patch(
-        "airbyte.mcp.interactive._registry.list_connector_metadata"
-    ) as mock_list_metadata:
-        mock_list_metadata.return_value = []
-
+def test_list_public_registry_connectors_uses_existing_registry_tool() -> None:
+    """Test that the interactive list starts from the existing MCP registry tool."""
+    with (
+        patch(
+            "airbyte.mcp.interactive._registry_ui._list_connectors",
+            return_value=[],
+        ) as mock_list_connectors,
+        patch("airbyte.mcp.interactive._registry_ui.get_connector_metadata"),
+    ):
         _list_public_registry_connectors(
             support_level=SupportLevel.CERTIFIED,
             min_support_level=None,
@@ -295,12 +301,10 @@ def test_list_public_registry_connectors_uses_underlying_registry_filters() -> N
             limit=10,
         )
 
-    mock_list_metadata.assert_called_once_with(
-        support_level="certified",
-        min_support_level=None,
-        connector_type="source",
-        search="github",
-        limit=10,
+    mock_list_connectors.assert_called_once_with(
+        keyword_filter=None,
+        connector_type_filter="source",
+        install_types=None,
     )
 
 
@@ -361,7 +365,7 @@ def test_list_public_registry_connectors_uses_underlying_registry_filters() -> N
         ),
     ],
 )
-def test_list_connector_metadata_applies_filters(
+def test_list_public_registry_connectors_applies_filters(
     connector_metadata_cache: dict[str, ConnectorMetadata],
     support_level: str | None,
     min_support_level: str | None,
@@ -370,25 +374,28 @@ def test_list_connector_metadata_applies_filters(
     limit: int | None,
     expected_names: list[str],
 ) -> None:
-    """Test that connector metadata filters are applied by the registry."""
-    with patch(
-        "airbyte.registry._get_registry_cache", return_value=connector_metadata_cache
+    """Test that connector metadata filters are applied by the interactive list."""
+    with (
+        patch(
+            "airbyte.mcp.interactive._registry_ui._list_connectors",
+            return_value=list(connector_metadata_cache),
+        ),
+        patch(
+            "airbyte.mcp.interactive._registry_ui.get_connector_metadata",
+            side_effect=connector_metadata_cache.get,
+        ),
     ):
-        connectors = list_connector_metadata(
-            support_level=support_level,
-            min_support_level=min_support_level,
-            connector_type=connector_type,
+        connectors = _list_public_registry_connectors(
+            support_level=SupportLevel(support_level) if support_level else None,
+            min_support_level=SupportLevel(min_support_level)
+            if min_support_level
+            else None,
+            connector_type=ConnectorType(connector_type) if connector_type else None,
             search=search,
             limit=limit,
         )
 
-    assert [connector.name for connector in connectors] == expected_names
-
-
-def test_list_connector_metadata_rejects_invalid_min_support_level() -> None:
-    """Test that invalid support level thresholds fail clearly."""
-    with pytest.raises(ValueError, match="Unrecognized min_support_level: 'gold'"):
-        list_connector_metadata(min_support_level="gold")
+    assert [connector.connector_name for connector in connectors] == expected_names
 
 
 def test_show_connectors_list_rejects_negative_limit() -> None:
@@ -406,11 +413,15 @@ def test_show_connectors_list_uses_resolved_registry_url(
     registry_url = "file:///tmp/local_registry.json"
     with (
         patch(
-            "airbyte.registry._get_registry_cache",
-            return_value=connector_metadata_cache,
+            "airbyte.mcp.interactive._registry_ui._list_connectors",
+            return_value=list(connector_metadata_cache),
         ),
         patch(
-            "airbyte.mcp.interactive._registry._get_registry_url",
+            "airbyte.mcp.interactive._registry_ui.get_connector_metadata",
+            side_effect=connector_metadata_cache.get,
+        ),
+        patch(
+            "airbyte.mcp.interactive._registry_ui._get_registry_url",
             return_value=registry_url,
         ),
     ):
@@ -553,8 +564,5 @@ def test_prefab_generative_tools_include_airbyte_annotations() -> None:
     tool = fastmcp_tool.to_mcp_tool()
 
     assert tool.annotations is not None
-    assert tool.annotations.readOnlyHint is True
-    assert tool.annotations.idempotentHint is True
-    assert tool.annotations.openWorldHint is True
     assert getattr(tool.annotations, "mcp_module") == "interactive"
     assert getattr(tool.annotations, INTERACTIVE_UI_ANNOTATION) is True

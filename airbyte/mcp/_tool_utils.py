@@ -11,16 +11,19 @@ from __future__ import annotations
 
 import inspect
 import os
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeVar, get_args
+from typing import TYPE_CHECKING, TypeVar
 
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_context
-from fastmcp.server.transforms import Transform
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
-from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
+from fastmcp_extensions.decorators import (
+    _REGISTERED_PROVIDERS,  # noqa: PLC2701
+    _REGISTERED_TOOLS,  # noqa: PLC2701
+)
+from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PLC2701
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,
@@ -58,17 +61,11 @@ from airbyte.constants import (
 if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.context import Context
-    from fastmcp.server.providers import Provider
-    from fastmcp.server.transforms import GetToolNext
-    from fastmcp.tools import Tool as FastMCPTool
-    from fastmcp.utilities.versions import VersionSpec
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
-_MCP_PROVIDER_FUNC = TypeVar("_MCP_PROVIDER_FUNC", bound=Callable[[], "Provider"])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
-_REGISTERED_PROVIDERS: list[tuple[Callable[[], Provider], dict[str, object]]] = []
 
 INTERACTIVE_UI_ANNOTATION = "interactive-ui"
 """Annotation indicating the tool requires MCP Apps UI support."""
@@ -263,65 +260,6 @@ def mcp_tool(
     return decorator
 
 
-def mcp_provider(
-    *,
-    read_only: bool = False,
-    destructive: bool = False,
-    idempotent: bool = False,
-    open_world: bool = False,
-    annotations: Mapping[str, object] | None = None,
-) -> Callable[[_MCP_PROVIDER_FUNC], _MCP_PROVIDER_FUNC]:
-    """Decorate an MCP provider factory with deferred Airbyte registration metadata."""
-    tool_annotations: dict[str, object] = {
-        ANNOTATION_READ_ONLY_HINT: read_only,
-        "destructiveHint": destructive,
-        "idempotentHint": idempotent,
-        "openWorldHint": open_world,
-    }
-    tool_annotations.update(annotations or {})
-
-    def decorator(func: _MCP_PROVIDER_FUNC) -> _MCP_PROVIDER_FUNC:
-        tool_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(func)
-        _REGISTERED_PROVIDERS.append((func, tool_annotations))
-        return func
-
-    return decorator
-
-
-class _ProviderToolAnnotations(Transform):
-    def __init__(self, annotations: Mapping[str, object]) -> None:
-        self._annotations = annotations
-
-    async def list_tools(self, tools: Sequence[FastMCPTool]) -> Sequence[FastMCPTool]:
-        return [self._apply_annotations(tool) for tool in tools]
-
-    async def get_tool(
-        self,
-        name: str,
-        call_next: GetToolNext,
-        *,
-        version: VersionSpec | None = None,
-    ) -> FastMCPTool | None:
-        tool = await call_next(name, version=version)
-        if tool is None:
-            return None
-        return self._apply_annotations(tool)
-
-    def _apply_annotations(self, tool: FastMCPTool) -> FastMCPTool:
-        annotations = tool.annotations.model_dump(exclude_none=True) if tool.annotations else {}
-        annotations.update(self._annotations)
-        tool_annotations_type = next(
-            annotation_type
-            for annotation_type in get_args(type(tool).model_fields["annotations"].annotation)
-            if annotation_type is not type(None)
-        )
-        return tool.model_copy(
-            update={
-                "annotations": tool_annotations_type(**annotations),
-            },
-        )
-
-
 def _mcp_module_for_tool(func: Callable[..., object]) -> str:
     module_parts = func.__module__.split(".")
     return next(
@@ -345,7 +283,7 @@ def register_mcp_tools(
     """Register deferred MCP tools with Airbyte-specific metadata support."""
     if mcp_module is None:
         mcp_module = _get_caller_file_stem()
-    mcp_module = mcp_module.rsplit(".", 1)[-1]
+    mcp_module = _normalize_mcp_module(mcp_module)
     matching_tools = [
         (func, tool_annotations)
         for func, tool_annotations in _REGISTERED_TOOLS
@@ -374,12 +312,19 @@ def register_mcp_tools(
     matching_providers = [
         (provider_factory, tool_annotations)
         for provider_factory, tool_annotations in _REGISTERED_PROVIDERS
-        if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
+        if _normalize_mcp_module(str(tool_annotations.get(ANNOTATION_MCP_MODULE))) == mcp_module
     ]
     for provider_factory, tool_annotations in matching_providers:
         provider = provider_factory()
         provider.add_transform(_ProviderToolAnnotations(tool_annotations))
         app.add_provider(provider)
+
+
+def _normalize_mcp_module(mcp_module: str) -> str:
+    for module_part in reversed(mcp_module.split(".")):
+        if not module_part.startswith("_"):
+            return module_part
+    return mcp_module
 
 
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:

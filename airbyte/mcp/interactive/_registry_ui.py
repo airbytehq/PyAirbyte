@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Annotated, TypeAlias
+from typing import Annotated, Literal, TypeAlias
 from uuid import UUID
 
 from fastmcp.apps import PrefabAppConfig
@@ -44,10 +44,12 @@ from airbyte.mcp.interactive._shared_models import (
     PublicConnectorSummary,
     SupportLevel,
 )
-from airbyte.registry import ConnectorMetadata, _get_registry_url, list_connector_metadata
+from airbyte.mcp.registry import list_connectors as _list_connectors
+from airbyte.registry import ConnectorMetadata, _get_registry_url, get_connector_metadata
 
 
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
+ConnectorTypeValue: TypeAlias = Literal["source", "destination"]
 CONNECTOR_CATALOG_AGENT_PREVIEW_LIMIT = 25
 
 
@@ -377,14 +379,74 @@ def _list_public_registry_connectors(
     search: str = "",
     limit: int | None = None,
 ) -> list[PublicConnectorSummary]:
-    entries = list_connector_metadata(
-        support_level=support_level.value if support_level else None,
-        min_support_level=min_support_level.value if min_support_level else None,
-        connector_type=connector_type.value if connector_type else None,
-        search=search,
-        limit=limit,
+    connector_names = _list_connectors(
+        keyword_filter=None,
+        connector_type_filter=_connector_type_value(connector_type),
+        install_types=None,
     )
-    return [_connector_metadata_to_public_summary(entry) for entry in entries]
+    entries = [
+        metadata
+        for connector_name in connector_names
+        if (metadata := get_connector_metadata(connector_name)) is not None
+    ]
+
+    if connector_type:
+        entries = [
+            connector for connector in entries if connector.connector_type == connector_type.value
+        ]
+
+    if support_level:
+        entries = [
+            connector for connector in entries if connector.support_level == support_level.value
+        ]
+
+    if min_support_level:
+        entries = [
+            connector
+            for connector in entries
+            if connector.support_level
+            and SupportLevel.parse(connector.support_level).precedence
+            >= min_support_level.precedence
+        ]
+
+    if search:
+        normalized_search = search.casefold()
+        entries = [
+            connector
+            for connector in entries
+            if any(
+                normalized_search in value.casefold()
+                for value in _connector_metadata_search_values(connector)
+            )
+        ]
+
+    entries = sorted(entries, key=lambda connector: connector.name)
+    limited_entries = entries[:limit] if limit is not None else entries
+    return [_connector_metadata_to_public_summary(entry) for entry in limited_entries]
+
+
+def _connector_type_value(
+    connector_type: ConnectorType | None,
+) -> ConnectorTypeValue | None:
+    if connector_type is None:
+        return None
+    if connector_type is ConnectorType.SOURCE:
+        return "source"
+    return "destination"
+
+
+def _connector_metadata_search_values(connector: ConnectorMetadata) -> tuple[str, ...]:
+    return tuple(
+        str(value or "")
+        for value in (
+            connector.name,
+            connector.display_name,
+            connector.definition_id,
+            connector.docker_repository,
+            connector.source_type,
+            connector.documentation_url,
+        )
+    )
 
 
 def _connector_metadata_to_public_summary(
