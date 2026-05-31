@@ -13,16 +13,12 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
 
 
-INTERACTIVE_TOOL_NAMES = frozenset({"show_connectors_list"})
-
-
 def register_interactive_tools(app: FastMCP) -> None:
     """Register UI-presenting tools."""
     register_mcp_prefab_tools(app, mcp_module="_registry")
 
 
 __all__ = [
-    "INTERACTIVE_TOOL_NAMES",
     "register_interactive_tools",
     "show_connectors_list",
 ]
