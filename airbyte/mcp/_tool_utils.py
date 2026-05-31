@@ -9,13 +9,17 @@ This module provides:
 
 from __future__ import annotations
 
+import inspect
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
-from fastmcp.apps import UI_EXTENSION_ID, PrefabAppConfig
+from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.dependencies import get_context
-from fastmcp_extensions import MCPServerConfigArg, get_mcp_config, register_mcp_tools
+from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
+from fastmcp_extensions import mcp_tool as _mcp_tool
+from fastmcp_extensions.decorators import _REGISTERED_TOOLS  # noqa: PLC2701
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,
@@ -56,6 +60,11 @@ if TYPE_CHECKING:
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
+_TOOL_APP_KEY = "_airbyte_tool_app"
+_TOOL_META_KEY = "_airbyte_tool_meta"
+
+INTERACTIVE_UI_ANNOTATION = "interactive-ui"
+"""Annotation indicating the tool requires MCP Apps UI support."""
 
 
 # =============================================================================
@@ -203,15 +212,98 @@ CONFIG_API_URL_CONFIG_ARG = MCPServerConfigArg(
 # Tool Filters for Backward Compatibility
 # =============================================================================
 
-UI_REQUIRED_TOOL_NAMES: set[str] = set()
-"""Tools that require MCP Apps UI support from the client."""
-
 
 def _parse_csv_config(value: str) -> list[str]:
     """Parse a comma-separated config value into a list of strings."""
     if not value:
         return []
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def mcp_tool(
+    *,
+    read_only: bool = False,
+    destructive: bool = False,
+    idempotent: bool = False,
+    open_world: bool = False,
+    annotations: Mapping[str, object] | None = None,
+    meta: Mapping[str, object] | None = None,
+    app: object | None = None,
+    extra_help_text: str | None = None,
+) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
+    """Decorate an MCP tool with deferred Airbyte registration metadata."""
+    base_decorator = _mcp_tool(
+        read_only=read_only,
+        destructive=destructive,
+        idempotent=idempotent,
+        open_world=open_world,
+        extra_help_text=extra_help_text,
+    )
+
+    def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+        decorated = base_decorator(func)
+        registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
+        if registered_func is not decorated:
+            raise RuntimeError("Unexpected MCP tool registration state.")
+        registered_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(decorated)
+        registered_annotations.update(annotations or {})
+        if meta:
+            registered_annotations[_TOOL_META_KEY] = dict(meta)
+        if app is not None:
+            registered_annotations[_TOOL_APP_KEY] = app
+        return decorated
+
+    return decorator
+
+
+def _mcp_module_for_tool(func: Callable[..., object]) -> str:
+    module_name = func.__module__
+    if module_name.startswith("airbyte.mcp.interactive."):
+        return "interactive"
+    return module_name.rsplit(".", 1)[-1]
+
+
+def _get_caller_file_stem() -> str:
+    for frame_info in inspect.stack():
+        if frame_info.filename != __file__:
+            return Path(frame_info.filename).stem
+    return "unknown"
+
+
+def register_mcp_tools(
+    app: FastMCP,
+    mcp_module: str | None = None,
+    *,
+    exclude_args: list[str] | None = None,
+) -> None:
+    """Register deferred MCP tools with Airbyte-specific metadata support."""
+    if mcp_module is None:
+        mcp_module = _get_caller_file_stem()
+    mcp_module = mcp_module.rsplit(".", 1)[-1]
+    matching_tools = [
+        (func, tool_annotations)
+        for func, tool_annotations in _REGISTERED_TOOLS
+        if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
+    ]
+
+    for func, tool_annotations in matching_tools:
+        tool_exclude_args: list[str] | None = None
+        if exclude_args:
+            params = set(inspect.signature(func).parameters.keys())
+            excluded = [name for name in exclude_args if name in params]
+            tool_exclude_args = excluded or None
+
+        app.tool(
+            func,
+            annotations={
+                key: value
+                for key, value in tool_annotations.items()
+                if key not in {_TOOL_APP_KEY, _TOOL_META_KEY}
+            },
+            exclude_args=tool_exclude_args,
+            meta=tool_annotations.get(_TOOL_META_KEY),
+            app=tool_annotations.get(_TOOL_APP_KEY),
+        )
 
 
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
@@ -250,7 +342,7 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
 
 def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
     """Filter tools that require MCP Apps UI support."""
-    if tool.name not in UI_REQUIRED_TOOL_NAMES:
+    if not get_annotation(tool, INTERACTIVE_UI_ANNOTATION, default=False):
         return True
     return _client_supports_ui()
 
@@ -265,39 +357,3 @@ def _client_supports_ui() -> bool:
 
 def _fastmcp_context_supports_ui(context: Context) -> bool:
     return context.client_supports_extension(UI_EXTENSION_ID)
-
-
-def mcp_prefab_tool(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
-    """Decorate a deferred MCP tool with Prefab UI registration metadata."""
-    func.__mcp_app__ = PrefabAppConfig()  # type: ignore[attr-defined]
-    return func
-
-
-def register_mcp_prefab_tools(
-    app: FastMCP,
-    mcp_module: str | None = None,
-    *,
-    exclude_args: list[str] | None = None,
-) -> None:
-    """Register deferred MCP tools that carry Prefab UI decorator metadata."""
-    original_tool = app.tool
-
-    def tool_with_prefab_app(
-        name_or_fn: object | None = None,
-        **kwargs: object,
-    ) -> object:
-        if callable(name_or_fn) and (tool_app := getattr(name_or_fn, "__mcp_app__", None)):
-            kwargs["app"] = tool_app
-        return original_tool(name_or_fn, **kwargs)  # type: ignore[arg-type]
-
-    app.tool = tool_with_prefab_app  # type: ignore[method-assign]
-    try:
-        register_mcp_tools(app, mcp_module=mcp_module, exclude_args=exclude_args)
-    finally:
-        app.tool = original_tool  # type: ignore[method-assign]
-
-
-def mcp_ui_tool(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
-    """Mark a deferred MCP tool as requiring MCP Apps UI support."""
-    UI_REQUIRED_TOOL_NAMES.add(func.__name__)
-    return func

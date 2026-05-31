@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from airbyte.mcp._tool_utils import register_mcp_prefab_tools
+from airbyte.mcp._tool_utils import register_mcp_tools
 from airbyte.mcp.interactive._registry import show_connectors_list
 
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 def register_interactive_tools(app: FastMCP) -> None:
     """Register UI-presenting tools."""
-    register_mcp_prefab_tools(app, mcp_module="_registry")
+    register_mcp_tools(app, mcp_module="interactive")
 
 
 __all__ = [

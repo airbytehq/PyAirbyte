@@ -9,8 +9,8 @@ from enum import Enum
 from typing import Annotated, TypeAlias
 from uuid import UUID
 
+from fastmcp.apps import PrefabAppConfig
 from fastmcp.tools.base import ToolResult
-from fastmcp_extensions import mcp_tool
 from prefab_ui.actions import OpenLink, SendMessage, SetState
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
@@ -36,7 +36,7 @@ from prefab_ui.components import (
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte.mcp._tool_utils import mcp_prefab_tool, mcp_ui_tool
+from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
 from airbyte.mcp.interactive._shared_models import (
     ConnectorType,
     PublicConnectorFilters,
@@ -79,9 +79,11 @@ def _json_dumps(value: JsonValue) -> str:
     read_only=True,
     idempotent=True,
     open_world=True,
+    annotations={
+        INTERACTIVE_UI_ANNOTATION: True,
+    },
+    app=PrefabAppConfig(),
 )
-@mcp_prefab_tool
-@mcp_ui_tool
 def show_connectors_list(
     support_level: Annotated[
         str,
