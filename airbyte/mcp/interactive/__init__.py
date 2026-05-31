@@ -6,6 +6,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from airbyte.mcp._tool_utils import register_mcp_tools
+from airbyte.mcp.interactive._prefab import prefab_generative_ui_provider
 from airbyte.mcp.interactive._registry import show_connectors_list
 
 
@@ -19,6 +20,7 @@ def register_interactive_tools(app: FastMCP) -> None:
 
 
 __all__ = [
+    "prefab_generative_ui_provider",
     "register_interactive_tools",
     "show_connectors_list",
 ]

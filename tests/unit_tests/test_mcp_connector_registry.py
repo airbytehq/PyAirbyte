@@ -496,3 +496,65 @@ def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
     assert _mcp_module_for_tool(show_connectors_list) == "interactive"
     assert _mcp_module_for_tool(get_api_docs_urls) == "registry"
+
+
+def test_prefab_generative_provider_registers_tools_and_renderer() -> None:
+    """Test that the FastMCP Prefab generative provider is registered."""
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+
+    app = mcp_server(name="test")
+    interactive.register_interactive_tools(app)
+
+    tool_names = {tool.name for tool in asyncio.run(app.list_tools())}
+    resource_uris = {
+        str(resource.uri) for resource in asyncio.run(app.list_resources())
+    }
+
+    assert {"generate_prefab_ui", "search_prefab_components"} <= tool_names
+    assert "ui://prefab/generative.html" in resource_uris
+
+
+def test_prefab_generative_tools_are_filtered_by_ui_support() -> None:
+    """Test that Prefab generative tools require MCP Apps UI support."""
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
+
+    app = mcp_server(
+        name="test",
+        tool_filters=[airbyte_ui_support_filter],
+    )
+    interactive.register_interactive_tools(app)
+
+    with patch(
+        "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
+        return_value=False,
+    ):
+        tools = asyncio.run(app.list_tools())
+
+    assert "generate_prefab_ui" not in {tool.name for tool in tools}
+
+
+def test_prefab_generative_tools_include_airbyte_annotations() -> None:
+    """Test that Airbyte annotations are applied to FastMCP provider tools."""
+    from fastmcp_extensions import mcp_server
+
+    from airbyte.mcp import interactive
+    from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION
+
+    app = mcp_server(name="test")
+    interactive.register_interactive_tools(app)
+
+    fastmcp_tool = asyncio.run(app.get_tool("generate_prefab_ui"))
+    assert fastmcp_tool is not None
+    tool = fastmcp_tool.to_mcp_tool()
+
+    assert tool.annotations is not None
+    assert tool.annotations.readOnlyHint is True
+    assert tool.annotations.idempotentHint is True
+    assert tool.annotations.openWorldHint is True
+    assert getattr(tool.annotations, "mcp_module") == "interactive"
+    assert getattr(tool.annotations, INTERACTIVE_UI_ANNOTATION) is True
