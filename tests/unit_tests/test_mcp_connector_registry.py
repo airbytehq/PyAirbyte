@@ -11,7 +11,7 @@ from mcp.types import TextContent
 
 from airbyte import exceptions as exc
 from airbyte.mcp._tool_utils import _mcp_module_for_tool
-from airbyte.mcp.interactive import show_connectors_list
+from airbyte.mcp.interactive import show_connectors_list, show_workspace_sync_status
 from airbyte.mcp.interactive._registry_ui import (
     _connector_metadata_to_public_summary,
     _list_public_registry_connectors,
@@ -467,7 +467,9 @@ def test_interactive_tools_are_filtered_by_ui_support(
     ):
         tools = asyncio.run(app.list_tools())
 
-    assert ("show_connectors_list" in {tool.name for tool in tools}) is expected_visible
+    tool_names = {tool.name for tool in tools}
+    assert ("show_connectors_list" in tool_names) is expected_visible
+    assert ("show_workspace_sync_status" in tool_names) is expected_visible
 
 
 def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> None:
@@ -506,6 +508,7 @@ def test_interactive_tools_include_prefab_metadata() -> None:
 def test_mcp_module_for_tool_uses_nearest_public_module() -> None:
     """Test that tools in private implementation modules use their public module."""
     assert _mcp_module_for_tool(show_connectors_list) == "interactive"
+    assert _mcp_module_for_tool(show_workspace_sync_status) == "interactive"
     assert _mcp_module_for_tool(get_api_docs_urls) == "registry"
 
 
