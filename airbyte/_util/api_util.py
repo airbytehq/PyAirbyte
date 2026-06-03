@@ -854,7 +854,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
     order_by: str | None = None,
-    job_type: models.JobTypeEnum | None = None,
+    job_type: str | models.JobTypeEnum | None = None,
 ) -> list[models.JobResponse]:
     """Get a list of jobs for a connection.
 
@@ -871,7 +871,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         client_secret: The client secret for authentication.
         bearer_token: Bearer token for authentication (alternative to client credentials).
         order_by: Field and direction to order by (e.g., "createdAt|DESC"). Defaults to None.
-        job_type: Filter by job type (e.g., JobTypeEnum.SYNC, JobTypeEnum.REFRESH).
+        job_type: Filter by job type (e.g., `sync`, `refresh`).
             If not specified, defaults to sync and reset jobs only (API default behavior).
 
     Returns:
@@ -892,6 +892,18 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         "connection_id": connection_id,
         "api_root": api_root,
     }
+    if isinstance(job_type, str):
+        try:
+            job_type_value = models.JobTypeEnum(job_type)
+        except ValueError:
+            valid_job_types = ", ".join(job_type_enum.value for job_type_enum in models.JobTypeEnum)
+            raise PyAirbyteInputError(
+                message=f"`job_type` must be one of: {valid_job_types}.",
+                input_value=job_type,
+            ) from None
+    else:
+        job_type_value = job_type
+
     while remaining is None or remaining > 0:
         page_limit = _get_page_limit(remaining)
         try:
@@ -902,7 +914,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
                     limit=page_limit,
                     offset=current_offset,
                     order_by=order_by,
-                    job_type=job_type,
+                    job_type=job_type_value,
                 ),
             )
         except SDKError as e:
@@ -1480,6 +1492,17 @@ def build_stream_configurations(
     return models.StreamConfigurations(streams=stream_configurations)
 
 
+def build_connection_schedule(
+    schedule_type: str,
+    cron_expression: str | None = None,
+) -> models.AirbyteAPIConnectionSchedule:
+    """Build a connection schedule object."""
+    return models.AirbyteAPIConnectionSchedule(
+        schedule_type=models.ScheduleTypeEnum(schedule_type),
+        cron_expression=cron_expression,
+    )
+
+
 def create_connection(  # noqa: PLR0913  # Too many arguments
     name: str,
     *,
@@ -1665,7 +1688,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     configurations: models.StreamConfigurationsInput | None = None,
     schedule: models.AirbyteAPIConnectionSchedule | None = None,
     prefix: str | None = None,
-    status: models.ConnectionStatusEnum | None = None,
+    status: str | models.ConnectionStatusEnum | None = None,
 ) -> models.ConnectionResponse:
     """Update/patch a connection configuration.
 
@@ -1693,6 +1716,20 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         bearer_token=bearer_token,
         api_root=api_root,
     )
+    if isinstance(status, str):
+        try:
+            status_value = models.ConnectionStatusEnum(status)
+        except ValueError:
+            valid_statuses = ", ".join(
+                connection_status.value for connection_status in models.ConnectionStatusEnum
+            )
+            raise PyAirbyteInputError(
+                message=f"`status` must be one of: {valid_statuses}.",
+                input_value=status,
+            ) from None
+    else:
+        status_value = status
+
     response = airbyte_instance.connections.patch_connection(
         api.PatchConnectionRequest(
             connection_id=connection_id,
@@ -1701,7 +1738,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
                 configurations=configurations,
                 schedule=schedule,
                 prefix=prefix,
-                status=status,
+                status=status_value,
             ),
         ),
     )

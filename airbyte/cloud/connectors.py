@@ -45,10 +45,17 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 import yaml
-from airbyte_api import models as api_models  # noqa: TC002
 
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
+from airbyte.cloud.models import (
+    CloudCustomSourceDefinitionInfo,
+    CloudDestinationInfo,
+    CloudSourceInfo,
+    _DeclarativeSourceDefinitionResponseLike,
+    _DestinationResponseLike,
+    _SourceResponseLike,
+)
 
 
 if TYPE_CHECKING:
@@ -104,9 +111,7 @@ class CloudConnector(abc.ABC):
         self.connector_id = connector_id
         """The ID of the connector."""
 
-        self._connector_info: api_models.SourceResponse | api_models.DestinationResponse | None = (
-            None
-        )
+        self._connector_info: CloudSourceInfo | CloudDestinationInfo | None = None
         """The connection info object. (Cached.)"""
 
     @property
@@ -121,7 +126,7 @@ class CloudConnector(abc.ABC):
         return self._connector_info.name
 
     @abc.abstractmethod
-    def _fetch_connector_info(self) -> api_models.SourceResponse | api_models.DestinationResponse:
+    def _fetch_connector_info(self) -> CloudSourceInfo | CloudDestinationInfo:
         """Populate the connector with data from the API."""
         ...
 
@@ -192,14 +197,16 @@ class CloudSource(CloudConnector):
         """
         return self.connector_id
 
-    def _fetch_connector_info(self) -> api_models.SourceResponse:
+    def _fetch_connector_info(self) -> CloudSourceInfo:
         """Populate the source with data from the API."""
-        return api_util.get_source(
-            source_id=self.connector_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
+        return CloudSourceInfo.from_api_response(
+            api_util.get_source(
+                source_id=self.connector_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
         )
 
     def rename(self, name: str) -> CloudSource:
@@ -219,7 +226,7 @@ class CloudSource(CloudConnector):
             bearer_token=self.workspace.bearer_token,
             name=name,
         )
-        self._connector_info = updated_response
+        self._connector_info = CloudSourceInfo.from_api_response(updated_response)
         return self
 
     def update_config(self, config: dict[str, Any]) -> CloudSource:
@@ -242,24 +249,25 @@ class CloudSource(CloudConnector):
             bearer_token=self.workspace.bearer_token,
             config=config,
         )
-        self._connector_info = updated_response
+        self._connector_info = CloudSourceInfo.from_api_response(updated_response)
         return self
 
     @classmethod
     def _from_source_response(
         cls,
         workspace: CloudWorkspace,
-        source_response: api_models.SourceResponse,
+        source_response: _SourceResponseLike,
     ) -> CloudSource:
         """Internal factory method.
 
-        Creates a CloudSource object from a REST API SourceResponse object.
+        Creates a CloudSource object from a REST API source response object.
         """
+        source_info = CloudSourceInfo.from_api_response(source_response)
         result = cls(
             workspace=workspace,
-            connector_id=source_response.source_id,
+            connector_id=source_info.source_id,
         )
-        result._connector_info = source_response  # noqa: SLF001  # Accessing Non-Public API
+        result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
 
 
@@ -277,14 +285,16 @@ class CloudDestination(CloudConnector):
         """
         return self.connector_id
 
-    def _fetch_connector_info(self) -> api_models.DestinationResponse:
+    def _fetch_connector_info(self) -> CloudDestinationInfo:
         """Populate the destination with data from the API."""
-        return api_util.get_destination(
-            destination_id=self.connector_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
+        return CloudDestinationInfo.from_api_response(
+            api_util.get_destination(
+                destination_id=self.connector_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
         )
 
     def rename(self, name: str) -> CloudDestination:
@@ -304,7 +314,7 @@ class CloudDestination(CloudConnector):
             bearer_token=self.workspace.bearer_token,
             name=name,
         )
-        self._connector_info = updated_response
+        self._connector_info = CloudDestinationInfo.from_api_response(updated_response)
         return self
 
     def update_config(self, config: dict[str, Any]) -> CloudDestination:
@@ -327,24 +337,25 @@ class CloudDestination(CloudConnector):
             bearer_token=self.workspace.bearer_token,
             config=config,
         )
-        self._connector_info = updated_response
+        self._connector_info = CloudDestinationInfo.from_api_response(updated_response)
         return self
 
     @classmethod
     def _from_destination_response(
         cls,
         workspace: CloudWorkspace,
-        destination_response: api_models.DestinationResponse,
+        destination_response: _DestinationResponseLike,
     ) -> CloudDestination:
         """Internal factory method.
 
-        Creates a CloudDestination object from a REST API DestinationResponse object.
+        Creates a CloudDestination object from a REST API destination response object.
         """
+        destination_info = CloudDestinationInfo.from_api_response(destination_response)
         result = cls(
             workspace=workspace,
-            connector_id=destination_response.destination_id,
+            connector_id=destination_info.destination_id,
         )
-        result._connector_info = destination_response  # noqa: SLF001  # Accessing Non-Public API
+        result._connector_info = destination_info  # noqa: SLF001  # Accessing Non-Public API
         return result
 
 
@@ -371,7 +382,7 @@ class CustomCloudSourceDefinition:
         self.workspace = workspace
         self.definition_id = definition_id
         self.definition_type: Literal["yaml", "docker"] = definition_type
-        self._definition_info: api_models.DeclarativeSourceDefinitionResponse | None = None
+        self._definition_info: CloudCustomSourceDefinitionInfo | None = None
         self._connector_builder_project_id: str | None = None
         self._connector_builder_project_id_fetched: bool = False
         self._builder_project_workspace_id: str | None = None
@@ -379,16 +390,18 @@ class CustomCloudSourceDefinition:
 
     def _fetch_definition_info(
         self,
-    ) -> api_models.DeclarativeSourceDefinitionResponse:
+    ) -> CloudCustomSourceDefinitionInfo:
         """Fetch definition info from the API."""
         if self.definition_type == "yaml":
-            return api_util.get_custom_yaml_source_definition(
-                workspace_id=self.workspace.workspace_id,
-                definition_id=self.definition_id,
-                api_root=self.workspace.api_root,
-                client_id=self.workspace.client_id,
-                client_secret=self.workspace.client_secret,
-                bearer_token=self.workspace.bearer_token,
+            return CloudCustomSourceDefinitionInfo.from_api_response(
+                api_util.get_custom_yaml_source_definition(
+                    workspace_id=self.workspace.workspace_id,
+                    definition_id=self.definition_id,
+                    api_root=self.workspace.api_root,
+                    client_id=self.workspace.client_id,
+                    client_secret=self.workspace.client_secret,
+                    bearer_token=self.workspace.bearer_token,
+                )
             )
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "
@@ -749,15 +762,16 @@ class CustomCloudSourceDefinition:
     def _from_yaml_response(
         cls,
         workspace: CloudWorkspace,
-        response: api_models.DeclarativeSourceDefinitionResponse,
+        response: _DeclarativeSourceDefinitionResponseLike,
     ) -> CustomCloudSourceDefinition:
         """Internal factory method for YAML connectors."""
+        definition_info = CloudCustomSourceDefinitionInfo.from_api_response(response)
         result = cls(
             workspace=workspace,
-            definition_id=response.id,
+            definition_id=definition_info.definition_id,
             definition_type="yaml",
         )
-        result._definition_info = response  # noqa: SLF001
+        result._definition_info = definition_info  # noqa: SLF001
         return result
 
     def deploy_source(

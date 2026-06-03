@@ -13,7 +13,6 @@ __all__: list[str] = []
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
-from airbyte_api.models import JobTypeEnum
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
@@ -23,6 +22,7 @@ from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
+from airbyte.cloud.models import JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
     MCP_CONFIG_API_URL,
@@ -782,7 +782,7 @@ def list_cloud_sync_jobs(
     jobs = [
         SyncJobResult(
             job_id=sync_result.job_id,
-            status=str(sync_result.get_job_status()),
+            status=sync_result.get_job_status().value,
             bytes_synced=sync_result.bytes_synced,
             records_synced=sync_result.records_synced,
             start_time=sync_result.start_time.isoformat(),
@@ -1253,7 +1253,7 @@ def list_deployed_cloud_connections(
                     continue
 
                 last_completed_job_status = job_status
-                last_job_status = str(job_status.value) if job_status else None
+                last_job_status = job_status.value
                 last_job_id = sync_result.job_id
                 last_job_time = sync_result.start_time.isoformat()
                 break
@@ -1364,9 +1364,9 @@ def list_cloud_workspaces(
 
     return [
         CloudWorkspaceResult(
-            workspace_id=ws.get("workspaceId", ""),
-            workspace_name=ws.get("name", ""),
-            organization_id=ws.get("organizationId", ""),
+            workspace_id=ws.workspace_id,
+            workspace_name=ws.name,
+            organization_id=ws.organization_id or "",
         )
         for ws in workspaces
     ]

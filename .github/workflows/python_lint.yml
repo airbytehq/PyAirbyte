@@ -28,7 +28,7 @@ jobs:
       # We only need helper libraries
       run: uv sync --group dev
 
-    # Job-specifc step(s):
+    # Job-specific step(s):
     - name: Lint code
       run: uv run ruff check .
 
@@ -48,7 +48,7 @@ jobs:
       # We only need helper libraries
       run: uv sync --group dev
 
-    # Job-specifc step(s):
+    # Job-specific step(s):
     - name: Check code format
       run: uv run ruff format --diff .
 
@@ -68,6 +68,28 @@ jobs:
       # We only need helper libraries
       run: uv sync --group dev
 
-    # Job-specifc step(s):
+    # Job-specific step(s):
     - name: Run Pyrefly Check
       run: uv run pyrefly check
+
+  public-api-import-guard:
+    name: Public API Import Guard
+    runs-on: ubuntu-latest
+    steps:
+    # Common steps:
+    - name: Checkout code
+      uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
+      with:
+        persist-credentials: false
+    - name: Install uv
+      uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
+      with:
+        version: "latest"
+        python-version: '3.10'
+    - name: Install dev dependencies
+      # We only need helper libraries
+      run: uv sync --group dev
+
+    # Job-specific step(s):
+    - name: Check public API imports
+      run: uv run pytest tests/unit_tests/test_public_api_imports.py -m linting

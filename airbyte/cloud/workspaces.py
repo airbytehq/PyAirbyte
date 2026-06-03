@@ -53,6 +53,7 @@ from airbyte.cloud.connectors import (
     CloudSource,
     CustomCloudSourceDefinition,
 )
+from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.destinations.base import Destination
 from airbyte.exceptions import AirbyteError
@@ -61,7 +62,6 @@ from airbyte.exceptions import AirbyteError
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from airbyte._util.api_imports import WorkspaceResponse
     from airbyte.secrets.base import SecretString
     from airbyte.sources.base import Source
 
@@ -647,18 +647,21 @@ class CloudWorkspace:
         *,
         name_filter: Callable | None = None,
         limit: int | None = None,
-    ) -> list[WorkspaceResponse]:
+    ) -> list[CloudWorkspaceInfo]:
         """List workspaces available to the current credentials, with an optional limit."""
-        return api_util.list_workspaces(
-            workspace_id="",
-            api_root=self.api_root,
-            name=name,
-            name_filter=name_filter,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-            limit=limit,
-        )
+        return [
+            CloudWorkspaceInfo.from_api_response(workspace)
+            for workspace in api_util.list_workspaces(
+                workspace_id="",
+                api_root=self.api_root,
+                name=name,
+                name_filter=name_filter,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                limit=limit,
+            )
+        ]
 
     def rename(
         self,
