@@ -204,10 +204,10 @@ def show_sync_history(  # noqa: PLR0914
         content=agent_text,
         structured_content=_build_sync_history_app(
             connection_name=resolved_name,
-            job_history_url=job_history_url,
-            source_name=source.name,
+            job_history_url=job_history_url or "",
+            source_name=source.name or source.source_id,
             source_url=source.connector_url,
-            destination_name=destination.name,
+            destination_name=destination.name or destination.destination_id,
             destination_url=destination.connector_url,
             jobs_data=jobs_data,
             chart_data=chart_data,
