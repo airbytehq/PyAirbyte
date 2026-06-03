@@ -110,17 +110,28 @@ def show_sync_history(
         ),
     ] = 30,
     agent_context: Annotated[
-        Literal["verbose", "default", "min"],
+        Literal["verbose", "summary", "min"],
         Field(
             description=(
                 "Controls how much context is returned to the agent in the text response. "
                 "'verbose': full job-level data for detailed follow-up analysis. "
-                "'default': aggregates and key observations only. "
+                "'summary': aggregates and key observations only. "
                 "'min': one-liner confirmation that the dashboard rendered."
             ),
-            default="default",
+            default="min",
         ),
-    ] = "default",
+    ] = "min",
+    suppress_ui: Annotated[
+        bool,
+        Field(
+            description=(
+                "If True, skip rendering the visual dashboard and return only the agent "
+                "text response. Use this for follow-up data retrieval without re-rendering "
+                "the UI that the user has already seen."
+            ),
+            default=False,
+        ),
+    ] = False,
 ) -> ToolResult:
     """Show interactive sync history dashboard for an Airbyte Cloud connection.
 
@@ -182,6 +193,9 @@ def show_sync_history(
         jobs_data=jobs_data,
     )
 
+    if suppress_ui:
+        return ToolResult(content=agent_text)
+
     return ToolResult(
         content=agent_text,
         structured_content=_build_sync_history_app(
@@ -198,7 +212,7 @@ def show_sync_history(
 
 def _build_agent_text(
     *,
-    agent_context: Literal["verbose", "default", "min"],
+    agent_context: Literal["verbose", "summary", "min"],
     connection_id: str,
     total_jobs: int,
     succeeded: int,
@@ -218,9 +232,16 @@ def _build_agent_text(
         f"the user can already see it."
     )
 
+    followup_hint = (
+        "To retrieve more detail without re-rendering the UI, call this tool again "
+        "with agent_context='verbose' and suppress_ui=True."
+    )
+
     if agent_context == "min":
         return (
-            f"{header}\n\n" f"Summary: {total_jobs} jobs, {round(success_rate, 1)}% success rate."
+            f"{header}\n\n"
+            f"Summary: {total_jobs} jobs, {round(success_rate, 1)}% success rate.\n\n"
+            f"{followup_hint}"
         )
 
     summary = (
@@ -232,7 +253,7 @@ def _build_agent_text(
         f"A data table lists all {total_jobs} jobs with IDs, statuses, and timestamps."
     )
 
-    if agent_context == "default":
+    if agent_context == "summary":
         return f"{header}\n\n{summary}"
 
     # verbose: include per-job data for detailed follow-up analysis
