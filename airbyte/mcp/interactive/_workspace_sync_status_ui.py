@@ -466,85 +466,23 @@ def _build_workspace_sync_status_app(
                 icon="external-link",
                 onClick=OpenLink(workspace_url),
             )
-        with Grid(columns=4, gap=4, css_class="mt-4"):
-            Metric(label="Connections", value=str(metric_summary["total_connections"]))
-            Metric(
-                label=f"Synced in {recent_hours}h",
-                value=str(metric_summary["recently_synced_connections"]),
-            )
-            Metric(
-                label="Problem Connections",
-                value=str(metric_summary["problem_connections"]),
-                trend="down" if metric_summary["problem_connections"] else "neutral",
-                trend_sentiment=(
-                    "negative" if metric_summary["problem_connections"] else "neutral"
-                ),
-            )
-            Metric(
-                label="Recent Success Rate",
-                value=f"{metric_summary['recent_success_rate']}%",
-                trend=(
-                    "up"
-                    if metric_summary["recent_success_rate"] >= _SUCCESS_HIGH
-                    else (
-                        "down"
-                        if metric_summary["recent_success_rate"] < _SUCCESS_LOW
-                        else "neutral"
-                    )
-                ),
-                trend_sentiment=(
-                    "positive"
-                    if metric_summary["recent_success_rate"] >= _SUCCESS_HIGH
-                    else (
-                        "negative"
-                        if metric_summary["recent_success_rate"] < _SUCCESS_LOW
-                        else "neutral"
-                    )
-                ),
-            )
-        with Grid(columns=2, gap=4):
-            Metric(
-                label="Recent Records Synced",
-                value=_format_records(int(metric_summary["recent_records_synced"])),
-            )
-            Metric(
-                label="Recent Bytes Synced",
-                value=_format_bytes(int(metric_summary["recent_bytes_synced"])),
-            )
         if connection_statuses:
-            with Div(style=_status_pie_chart_style(status_pie_rows)):
-                PieChart(
-                    data=status_pie_rows,
-                    data_key="connections",
-                    name_key="status",
-                    height=360,
-                    inner_radius=87,
-                    padding_angle=2,
-                    show_label=True,
-                    show_legend=True,
-                    show_tooltip=True,
+            with Grid(columns=2, gap=4, css_class="mt-4 items-start"):
+                _workspace_metric_cards(
+                    metric_summary=metric_summary,
+                    recent_hours=recent_hours,
                 )
-            with Row(gap=3, css_class="flex-wrap"):
-                for status_row in status_pie_rows:
-                    with Row(gap=1, css_class="items-center"):
-                        Div(
-                            style={
-                                "width": "0.5rem",
-                                "height": "0.5rem",
-                                "borderRadius": "0.125rem",
-                                "backgroundColor": str(status_row["color"]),
-                                "flexShrink": "0",
-                            },
-                        )
-                        Text(
-                            f"{status_row['status']}: {status_row['connections']}",
-                            css_class="text-xs text-muted-foreground",
-                        )
-            _status_filter_controls(
-                status_pie_rows=status_pie_rows,
-                rows_by_status=rows_by_status,
-                rows=rows,
-            )
+                _status_pie_section(
+                    status_pie_rows=status_pie_rows,
+                    rows_by_status=rows_by_status,
+                    rows=rows,
+                )
+        else:
+            with Div(css_class="mt-4"):
+                _workspace_metric_cards(
+                    metric_summary=metric_summary,
+                    recent_hours=recent_hours,
+                )
         if problem_rows:
             with Alert(variant="warning", icon="triangle-alert"):
                 AlertTitle("Connections needing attention")
@@ -645,6 +583,103 @@ def _connection_status_to_row(
         "suggested_tool_call": connection_status.suggested_tool_call,
         "is_problem": connection_status.is_problem,
     }
+
+
+def _workspace_metric_cards(
+    *,
+    metric_summary: dict[str, int | float],
+    recent_hours: int,
+) -> None:
+    """Render workspace summary metrics."""
+    with Column(gap=4):
+        with Grid(columns=2, gap=4):
+            Metric(label="Connections", value=str(metric_summary["total_connections"]))
+            Metric(
+                label=f"Synced in {recent_hours}h",
+                value=str(metric_summary["recently_synced_connections"]),
+            )
+            Metric(
+                label="Problem Connections",
+                value=str(metric_summary["problem_connections"]),
+                trend="down" if metric_summary["problem_connections"] else "neutral",
+                trend_sentiment=(
+                    "negative" if metric_summary["problem_connections"] else "neutral"
+                ),
+            )
+            Metric(
+                label="Recent Success Rate",
+                value=f"{metric_summary['recent_success_rate']}%",
+                trend=(
+                    "up"
+                    if metric_summary["recent_success_rate"] >= _SUCCESS_HIGH
+                    else (
+                        "down"
+                        if metric_summary["recent_success_rate"] < _SUCCESS_LOW
+                        else "neutral"
+                    )
+                ),
+                trend_sentiment=(
+                    "positive"
+                    if metric_summary["recent_success_rate"] >= _SUCCESS_HIGH
+                    else (
+                        "negative"
+                        if metric_summary["recent_success_rate"] < _SUCCESS_LOW
+                        else "neutral"
+                    )
+                ),
+            )
+        with Grid(columns=2, gap=4):
+            Metric(
+                label="Recent Records Synced",
+                value=_format_records(int(metric_summary["recent_records_synced"])),
+            )
+            Metric(
+                label="Recent Bytes Synced",
+                value=_format_bytes(int(metric_summary["recent_bytes_synced"])),
+            )
+
+
+def _status_pie_section(
+    *,
+    status_pie_rows: list[dict[str, int | str]],
+    rows_by_status: dict[str, list[_ConnectionStatusRow]],
+    rows: list[_ConnectionStatusRow],
+) -> None:
+    """Render status pie chart and table filters."""
+    with Column(gap=3):
+        with Div(style=_status_pie_chart_style(status_pie_rows)):
+            PieChart(
+                data=status_pie_rows,
+                data_key="connections",
+                name_key="status",
+                height=360,
+                inner_radius=87,
+                padding_angle=2,
+                show_label=True,
+                show_legend=True,
+                show_tooltip=True,
+            )
+        with Row(gap=3, css_class="flex-wrap"):
+            for status_row in status_pie_rows:
+                with Row(gap=1, css_class="items-center"):
+                    Div(
+                        style={
+                            "width": "0.5rem",
+                            "height": "0.5rem",
+                            "borderRadius": "0.125rem",
+                            "backgroundColor": str(status_row["color"]),
+                            "flexShrink": "0",
+                        },
+                    )
+                    Text(
+                        f"{status_row['status']}: {status_row['connections']}",
+                        css_class="text-xs text-muted-foreground",
+                    )
+        _status_filter_controls(
+            status_pie_rows=status_pie_rows,
+            rows_by_status=rows_by_status,
+            rows=rows,
+        )
 
 
 def _status_filter_controls(

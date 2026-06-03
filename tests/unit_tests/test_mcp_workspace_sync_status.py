@@ -255,6 +255,7 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
     assert "Workspace sync status" in view
     assert "PieChart" in view
     assert "'height': 360" in view
+    assert "mt-4 items-start" in view
     assert "filtered_connection_rows" in view
     assert "Filter table:" in view
     assert "Succeeded" in view
