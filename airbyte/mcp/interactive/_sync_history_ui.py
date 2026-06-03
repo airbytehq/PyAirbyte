@@ -188,7 +188,7 @@ def _build_sync_history_app(
     *,
     connection_id: str,
     jobs_data: list[dict[str, object]],
-    chart_data: list[dict[str, object]],
+    chart_data: list[dict[str, int | str]],
     succeeded: int,
     success_rate: float,
     total_records: int,
@@ -247,7 +247,7 @@ def _build_sync_history_app(
             )
 
         with Tabs(css_class="mt-6"):
-            with Tab(label="Success / Failure"):
+            with Tab(title="Success / Failure"):
                 BarChart(
                     data=chart_data,
                     series=[
@@ -260,7 +260,7 @@ def _build_sync_history_app(
                     show_legend=True,
                     show_tooltip=True,
                 )
-            with Tab(label="Records Synced"):
+            with Tab(title="Records Synced"):
                 LineChart(
                     data=chart_data,
                     series=[
@@ -273,7 +273,7 @@ def _build_sync_history_app(
                     show_tooltip=True,
                     value_format="compact",
                 )
-            with Tab(label="Bytes Synced"):
+            with Tab(title="Bytes Synced"):
                 LineChart(
                     data=chart_data,
                     series=[
