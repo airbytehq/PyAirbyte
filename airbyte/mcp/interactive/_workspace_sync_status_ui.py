@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 
 
 WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT = 25
+_ConnectionStatusRow = dict[str, str | int | float | bool | None]
 _SUCCESS_HIGH = 90
 _SUCCESS_LOW = 50
 _RECENT_HOURS_DEFAULT = 24
@@ -431,6 +432,12 @@ def _build_workspace_sync_status_app(
     ]
     status_pie_rows = _status_pie_rows(connection_statuses)
     problem_rows = [row for row in rows if row["is_problem"]]
+    rows_by_status = {
+        str(status_row["status"]): [
+            row for row in rows if row["latest_status_label"] == status_row["status"]
+        ]
+        for status_row in status_pie_rows
+    }
 
     with (
         PrefabApp(
@@ -438,6 +445,9 @@ def _build_workspace_sync_status_app(
             state={
                 "workspace_id": workspace_id,
                 "workspace_url": workspace_url,
+                "connection_rows": rows,
+                "filtered_connection_rows": rows,
+                "active_status_filter": "All",
                 "selected_connection": rows[0] if rows else None,
             },
         ) as app,
@@ -507,8 +517,8 @@ def _build_workspace_sync_status_app(
                     data=status_pie_rows,
                     data_key="connections",
                     name_key="status",
-                    height=240,
-                    inner_radius=58,
+                    height=360,
+                    inner_radius=87,
                     padding_angle=2,
                     show_label=True,
                     show_legend=True,
@@ -530,6 +540,11 @@ def _build_workspace_sync_status_app(
                             f"{status_row['status']}: {status_row['connections']}",
                             css_class="text-xs text-muted-foreground",
                         )
+            _status_filter_controls(
+                status_pie_rows=status_pie_rows,
+                rows_by_status=rows_by_status,
+                rows=rows,
+            )
         if problem_rows:
             with Alert(variant="warning", icon="triangle-alert"):
                 AlertTitle("Connections needing attention")
@@ -558,7 +573,7 @@ def _build_workspace_sync_status_app(
                     DataTableColumn(key="recent_records", header="Records", sortable=True),
                     DataTableColumn(key="recent_bytes", header="Bytes", sortable=True),
                 ],
-                rows=rows,
+                rows="{{ filtered_connection_rows }}",
                 search=True,
                 paginated=False,
                 on_row_click=SetState("selected_connection", "{{ $event }}"),
@@ -604,8 +619,9 @@ def _build_workspace_sync_status_app(
 
 def _connection_status_to_row(
     connection_status: WorkspaceConnectionSyncStatus,
-) -> dict[str, str | int | float | bool | None]:
+) -> _ConnectionStatusRow:
     """Convert a connection summary into a table row."""
+    latest_status_label, _, _ = _status_pie_style(connection_status.latest_status)
     return {
         "connection_id": connection_status.connection_id,
         "connection_name": connection_status.connection_name,
@@ -615,6 +631,7 @@ def _connection_status_to_row(
         "destination_name": connection_status.destination_name,
         "destination_url": connection_status.destination_url,
         "latest_status": connection_status.latest_status,
+        "latest_status_label": latest_status_label,
         "latest_job_id": connection_status.latest_job_id,
         "last_sync": connection_status.latest_sync_time or "No syncs found",
         "latest_records": _format_records(connection_status.latest_records_synced),
@@ -628,6 +645,47 @@ def _connection_status_to_row(
         "suggested_tool_call": connection_status.suggested_tool_call,
         "is_problem": connection_status.is_problem,
     }
+
+
+def _status_filter_controls(
+    *,
+    status_pie_rows: list[dict[str, int | str]],
+    rows_by_status: dict[str, list[_ConnectionStatusRow]],
+    rows: list[_ConnectionStatusRow],
+) -> None:
+    """Render controls that filter the table by latest status."""
+    with Row(gap=2, css_class="flex-wrap items-center"):
+        Text("Filter table:", css_class="text-xs font-semibold text-muted-foreground")
+        Button(
+            "All",
+            variant="outline",
+            size="sm",
+            onClick=[
+                SetState("active_status_filter", "All"),
+                SetState("filtered_connection_rows", rows),
+                SetState("selected_connection", rows[0] if rows else None),
+            ],
+        )
+        for status_row in status_pie_rows:
+            status_label = str(status_row["status"])
+            filtered_rows = rows_by_status[status_label]
+            Button(
+                f"{status_label} ({status_row['connections']})",
+                variant=str(status_row["variant"]),
+                size="sm",
+                onClick=[
+                    SetState("active_status_filter", status_label),
+                    SetState("filtered_connection_rows", filtered_rows),
+                    SetState(
+                        "selected_connection",
+                        filtered_rows[0] if filtered_rows else None,
+                    ),
+                ],
+            )
+    Text(
+        "Active table filter: {{ active_status_filter }}",
+        css_class="text-xs text-muted-foreground",
+    )
 
 
 def _status_pie_rows(
