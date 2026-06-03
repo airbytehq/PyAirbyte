@@ -166,7 +166,7 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
     text_content = result.content[0]
     assert isinstance(text_content, TextContent)
     assert "connection-failed" in text_content.text
-    assert "show_sync_history" in text_content.text
+    assert "show_connection_sync_history" in text_content.text
 
     structured_content = result.structured_content
     assert structured_content is not None

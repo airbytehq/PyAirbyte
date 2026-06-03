@@ -282,7 +282,9 @@ def _summarize_connection(
         recent_records_synced=sum(sync_result.records_synced for sync_result in completed_results),
         recent_bytes_synced=sum(sync_result.bytes_synced for sync_result in completed_results),
         running_job_id=running_job_id,
-        suggested_tool_call=(f'show_sync_history(connection_id="{connection.connection_id}")'),
+        suggested_tool_call=(
+            f'show_connection_sync_history(connection_id="{connection.connection_id}")'
+        ),
     )
 
 
@@ -365,7 +367,8 @@ def _build_agent_text(
         return (
             f"{header}\n\n{summary}\n\n"
             "For drill-down, ask the user to select a row or call "
-            "`show_sync_history(connection_id=...)` with a connection ID from the dashboard."
+            "`show_connection_sync_history(connection_id=...)` "
+            "with a connection ID from the dashboard."
         )
 
     if agent_context == "summary":
@@ -549,7 +552,7 @@ def _build_workspace_sync_status_app(
                         onClick=SendMessage(
                             "Show sync history for connection "
                             "{{ selected_connection.connection_id }} using "
-                            '`show_sync_history(connection_id="'
+                            '`show_connection_sync_history(connection_id="'
                             '{{ selected_connection.connection_id }}")`.'
                         ),
                     )
