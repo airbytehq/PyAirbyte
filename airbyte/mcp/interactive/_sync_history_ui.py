@@ -294,11 +294,11 @@ def _build_sync_history_app(
                 DataTable(
                     data=table_rows,
                     columns=[
-                        DataTableColumn(key="job_id", label="Job ID"),
-                        DataTableColumn(key="status", label="Status"),
-                        DataTableColumn(key="records", label="Records"),
-                        DataTableColumn(key="bytes", label="Bytes"),
-                        DataTableColumn(key="date", label="Started"),
+                        DataTableColumn(key="job_id", header="Job ID"),
+                        DataTableColumn(key="status", header="Status"),
+                        DataTableColumn(key="records", header="Records"),
+                        DataTableColumn(key="bytes", header="Bytes"),
+                        DataTableColumn(key="date", header="Started"),
                     ],
                 )
 
