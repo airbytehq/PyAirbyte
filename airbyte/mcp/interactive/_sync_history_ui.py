@@ -159,6 +159,7 @@ def show_sync_history(
 
     chart_data = [{"date": d, **vals} for d, vals in date_groups.items()]
 
+    preview_limit = 10
     agent_summary = {
         "connection_id": connection_id,
         "total_jobs": total_jobs,
@@ -166,7 +167,15 @@ def show_sync_history(
         "success_rate_pct": round(success_rate, 1),
         "total_records": total_records,
         "total_bytes": total_bytes,
-        "jobs_preview": jobs_data[:10],
+        "jobs_preview": jobs_data[:preview_limit],
+        "model_preview_count": min(total_jobs, preview_limit),
+        "model_preview_limit": preview_limit,
+        "model_preview_truncated": total_jobs > preview_limit,
+        "model_preview_omitted_count": max(0, total_jobs - preview_limit),
+        "render_note": (
+            f"The interactive widget renders all {total_jobs} jobs. "
+            f"This text preview shows the most recent {min(total_jobs, preview_limit)}."
+        ),
     }
 
     return ToolResult(
@@ -292,7 +301,7 @@ def _build_sync_history_app(
                 CardTitle("Job History")
             with CardContent():
                 DataTable(
-                    data=table_rows,
+                    rows=table_rows,
                     columns=[
                         DataTableColumn(key="job_id", header="Job ID"),
                         DataTableColumn(key="status", header="Status"),
