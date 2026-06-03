@@ -140,6 +140,46 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
                     ),
                 ],
             ),
+            _ConnectionLike(
+                connection_id="connection-canceled",
+                name="Shopify to Snowflake",
+                connection_url="https://cloud.airbyte.com/connections/connection-canceled",
+                source_id="source-shopify",
+                destination_id="destination-snowflake",
+                source=_ConnectorLike(
+                    name="Shopify",
+                    connector_url="https://cloud.airbyte.com/source/source-shopify",
+                ),
+                destination=_ConnectorLike(
+                    name="Snowflake",
+                    connector_url="https://cloud.airbyte.com/destination/destination-snowflake",
+                ),
+                sync_results=[
+                    _SyncResultLike(
+                        job_id=300,
+                        status=JobStatusEnum.CANCELLED,
+                        start_time=now - timedelta(hours=3),
+                        records_synced=0,
+                        bytes_synced=0,
+                    ),
+                ],
+            ),
+            _ConnectionLike(
+                connection_id="connection-no-syncs",
+                name="Salesforce to Snowflake",
+                connection_url="https://cloud.airbyte.com/connections/connection-no-syncs",
+                source_id="source-salesforce",
+                destination_id="destination-snowflake",
+                source=_ConnectorLike(
+                    name="Salesforce",
+                    connector_url="https://cloud.airbyte.com/source/source-salesforce",
+                ),
+                destination=_ConnectorLike(
+                    name="Snowflake",
+                    connector_url="https://cloud.airbyte.com/destination/destination-snowflake",
+                ),
+                sync_results=[],
+            ),
         ]
     )
     monkeypatch.setattr(
@@ -158,10 +198,10 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
     assert workspace.limit == 10
     assert result.meta is not None
     raw_result = result.meta["airbyte_mcp_raw_result"]
-    assert raw_result["total_connections"] == 2
-    assert raw_result["problem_connections"] == 1
-    assert raw_result["recent_success_rate"] == 50.0
-    assert raw_result["model_preview_count"] == 2
+    assert raw_result["total_connections"] == 4
+    assert raw_result["problem_connections"] == 2
+    assert raw_result["recent_success_rate"] == 33.3
+    assert raw_result["model_preview_count"] == 4
 
     text_content = result.content[0]
     assert isinstance(text_content, TextContent)
@@ -173,5 +213,12 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
     assert "$prefab" in structured_content
     view = str(structured_content["view"])
     assert "Workspace sync status" in view
+    assert "PieChart" in view
+    assert "Succeeded" in view
+    assert "#22c55e" in view
+    assert "Canceled" in view
+    assert "#eab308" in view
+    assert "No syncs" in view
+    assert "#94a3b8" in view
     assert "Ask for sync history" in view
     assert "connection-failed" in view

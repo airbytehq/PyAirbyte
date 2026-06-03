@@ -27,6 +27,7 @@ from prefab_ui.components import (
     DataTable,
     DataTableColumn,
     Div,
+    Dot,
     Grid,
     Heading,
     If,
@@ -34,7 +35,7 @@ from prefab_ui.components import (
     Row,
     Text,
 )
-from prefab_ui.components.charts import BarChart, ChartSeries
+from prefab_ui.components.charts import PieChart
 from pydantic import Field
 
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -53,6 +54,23 @@ WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT = 25
 _SUCCESS_HIGH = 90
 _SUCCESS_LOW = 50
 _RECENT_HOURS_DEFAULT = 24
+_STATUS_PIE_CATEGORIES = (
+    ("Succeeded", "#22c55e", "success"),
+    ("Canceled", "#eab308", "warning"),
+    ("No syncs", "#94a3b8", "muted"),
+    ("Failed", "#ef4444", "destructive"),
+    ("Running", "#3b82f6", "info"),
+    ("Other", "#64748b", "secondary"),
+)
+_STATUS_PIE_STYLE_BY_STATUS = {
+    "succeeded": ("Succeeded", "#22c55e", "success"),
+    "cancelled": ("Canceled", "#eab308", "warning"),
+    "canceled": ("Canceled", "#eab308", "warning"),
+    "no syncs": ("No syncs", "#94a3b8", "muted"),
+    "failed": ("Failed", "#ef4444", "destructive"),
+    "error": ("Failed", "#ef4444", "destructive"),
+    "running": ("Running", "#3b82f6", "info"),
+}
 
 
 @dataclass
@@ -405,7 +423,7 @@ def _build_workspace_sync_status_app(
     rows = [
         _connection_status_to_row(connection_status) for connection_status in connection_statuses
     ]
-    status_chart_rows = _status_chart_rows(connection_statuses)
+    status_pie_rows = _status_pie_rows(connection_statuses)
     problem_rows = [row for row in rows if row["is_problem"]]
 
     with (
@@ -477,17 +495,30 @@ def _build_workspace_sync_status_app(
                 label="Recent Bytes Synced",
                 value=_format_bytes(int(metric_summary["recent_bytes_synced"])),
             )
-        if status_chart_rows:
-            BarChart(
-                data=status_chart_rows,
-                series=[
-                    ChartSeries(data_key="connections", label="Connections", color="#3b82f6"),
-                ],
-                x_axis="status",
+        if connection_statuses:
+            PieChart(
+                data=status_pie_rows,
+                data_key="connections",
+                name_key="status",
                 height=240,
-                show_legend=False,
+                inner_radius=58,
+                padding_angle=2,
+                show_label=True,
+                show_legend=True,
                 show_tooltip=True,
             )
+            with Row(gap=3, css_class="flex-wrap"):
+                for status_row in status_pie_rows:
+                    with Row(gap=1, css_class="items-center"):
+                        Dot(
+                            variant=str(status_row["variant"]),
+                            shape="square",
+                            css_class=f"bg-[{status_row['color']}]",
+                        )
+                        Text(
+                            f"{status_row['status']}: {status_row['connections']}",
+                            css_class="text-xs text-muted-foreground",
+                        )
         if problem_rows:
             with Alert(variant="warning", icon="triangle-alert"):
                 AlertTitle("Connections needing attention")
@@ -588,18 +619,30 @@ def _connection_status_to_row(
     }
 
 
-def _status_chart_rows(
+def _status_pie_rows(
     connection_statuses: list[WorkspaceConnectionSyncStatus],
 ) -> list[dict[str, int | str]]:
-    """Build connection counts by latest status for a chart."""
-    status_counts: dict[str, int] = {}
+    """Build connection counts by latest status for a pie chart."""
+    status_counts = {label: 0 for label, _, _ in _STATUS_PIE_CATEGORIES}
     for connection_status in connection_statuses:
-        status_counts[connection_status.latest_status] = (
-            status_counts.get(connection_status.latest_status, 0) + 1
-        )
+        label, _, _ = _status_pie_style(connection_status.latest_status)
+        status_counts[label] += 1
     return [
-        {"status": status, "connections": count} for status, count in sorted(status_counts.items())
+        {
+            "status": label,
+            "connections": status_counts[label],
+            "color": color,
+            "fill": color,
+            "variant": variant,
+        }
+        for label, color, variant in _STATUS_PIE_CATEGORIES
+        if status_counts[label] or label in {"Succeeded", "Canceled", "No syncs"}
     ]
+
+
+def _status_pie_style(status: str) -> tuple[str, str, str]:
+    """Return the display label, color, and dot variant for a sync status."""
+    return _STATUS_PIE_STYLE_BY_STATUS.get(status, ("Other", "#64748b", "secondary"))
 
 
 def _connection_detail(label: str, value: str) -> None:
