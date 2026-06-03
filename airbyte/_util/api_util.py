@@ -896,7 +896,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         try:
             job_type_value = models.JobTypeEnum(job_type)
         except ValueError:
-            valid_job_types = ", ".join(job_type.value for job_type in models.JobTypeEnum)
+            valid_job_types = ", ".join(job_type_enum.value for job_type_enum in models.JobTypeEnum)
             raise PyAirbyteInputError(
                 message=f"`job_type` must be one of: {valid_job_types}.",
                 input_value=job_type,
@@ -1688,7 +1688,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
     configurations: models.StreamConfigurationsInput | None = None,
     schedule: models.AirbyteAPIConnectionSchedule | None = None,
     prefix: str | None = None,
-    status: models.ConnectionStatusEnum | None = None,
+    status: str | models.ConnectionStatusEnum | None = None,
 ) -> models.ConnectionResponse:
     """Update/patch a connection configuration.
 
@@ -1716,6 +1716,20 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         bearer_token=bearer_token,
         api_root=api_root,
     )
+    if isinstance(status, str):
+        try:
+            status_value = models.ConnectionStatusEnum(status)
+        except ValueError:
+            valid_statuses = ", ".join(
+                connection_status.value for connection_status in models.ConnectionStatusEnum
+            )
+            raise PyAirbyteInputError(
+                message=f"`status` must be one of: {valid_statuses}.",
+                input_value=status,
+            ) from None
+    else:
+        status_value = status
+
     response = airbyte_instance.connections.patch_connection(
         api.PatchConnectionRequest(
             connection_id=connection_id,
@@ -1724,7 +1738,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
                 configurations=configurations,
                 schedule=schedule,
                 prefix=prefix,
-                status=status,
+                status=status_value,
             ),
         ),
     )

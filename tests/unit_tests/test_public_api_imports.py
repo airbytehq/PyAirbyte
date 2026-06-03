@@ -57,6 +57,24 @@ def _attribute_references(path: Path) -> list[str]:
     return references
 
 
+def _api_util_model_reference_aliases(path: Path) -> tuple[str, ...]:
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except SyntaxError as exc:
+        pytest.fail(f"Syntax error parsing {path}: {exc}")
+    aliases: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "airbyte._util.api_util":
+                    aliases.add(f"{alias.asname or alias.name}.models")
+        elif isinstance(node, ast.ImportFrom) and node.module == "airbyte._util":
+            for alias in node.names:
+                if alias.name == "api_util":
+                    aliases.add(f"{alias.asname or alias.name}.models")
+    return tuple(sorted(aliases))
+
+
 def _attribute_reference(node: ast.Attribute) -> str:
     parts: list[str] = []
     current: ast.AST = node
@@ -72,6 +90,34 @@ def _is_restricted_import(imported_module: str, restricted_import: str) -> bool:
     return imported_module == restricted_import or imported_module.startswith(
         f"{restricted_import}."
     )
+
+
+@pytest.mark.linting
+@pytest.mark.parametrize(
+    ("source", "expected_reference"),
+    [
+        pytest.param(
+            "from airbyte._util import api_util as au\nvalue = au.models.JobTypeEnum.SYNC\n",
+            "au.models",
+            id="from_import_alias",
+        ),
+        pytest.param(
+            "import airbyte._util.api_util as au\nvalue = au.models.JobTypeEnum.SYNC\n",
+            "au.models",
+            id="import_alias",
+        ),
+    ],
+)
+def test_api_util_model_reference_aliases(
+    tmp_path: Path,
+    source: str,
+    expected_reference: str,
+) -> None:
+    """Verify aliases for `api_util.models` references are restricted."""
+    file_path = tmp_path / "module.py"
+    file_path.write_text(source, encoding="utf-8")
+
+    assert expected_reference in _api_util_model_reference_aliases(file_path)
 
 
 @pytest.mark.linting
@@ -118,8 +164,12 @@ def test_public_modules_do_not_reference_generated_api_model_namespaces(
     """Check that public modules don't reach through internal model namespaces."""
     violations: list[str] = []
     for file_path in _python_files(REPO_ROOT / relative_path):
+        file_restricted_references = (
+            *restricted_references,
+            *_api_util_model_reference_aliases(file_path),
+        )
         for reference in _attribute_references(file_path):
-            for restricted_reference in restricted_references:
+            for restricted_reference in file_restricted_references:
                 if _is_restricted_import(reference, restricted_reference):
                     violations.append(
                         f"{file_path.relative_to(REPO_ROOT)} references {reference}"

@@ -315,7 +315,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         limit: int = 20,
         offset: int | None = None,
         from_tail: bool = True,
-        job_type: JobTypeEnum | None = None,
+        job_type: str | JobTypeEnum | None = None,
     ) -> list[SyncResult]:
         """Get previous sync jobs for a connection with pagination support.
 

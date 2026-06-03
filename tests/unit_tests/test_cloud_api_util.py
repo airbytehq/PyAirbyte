@@ -196,6 +196,73 @@ def test_rename_workspace_forwards_request(
     assert captured_request.workspace_update_request.name == "Renamed workspace"
 
 
+def test_patch_connection_normalizes_status_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify string connection statuses are normalized for the generated SDK."""
+    captured_request = None
+
+    def patch_connection(
+        request: api.PatchConnectionRequest,
+    ) -> api.PatchConnectionResponse:
+        nonlocal captured_request
+        captured_request = request
+        raw_response = requests.Response()
+        raw_response.url = "https://api.airbyte.com/v1/connections/connection-1"
+        return api.PatchConnectionResponse(
+            content_type="application/json",
+            status_code=200,
+            raw_response=raw_response,
+            connection_response=_connection_response("Connection", 1),
+        )
+
+    airbyte_instance = SimpleNamespace(
+        connections=SimpleNamespace(patch_connection=patch_connection)
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    api_util.patch_connection(
+        connection_id="connection-1",
+        api_root="https://api.airbyte.com/v1",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+        status="inactive",
+    )
+
+    assert captured_request is not None
+    assert (
+        captured_request.connection_patch_request.status
+        == models.ConnectionStatusEnum.INACTIVE
+    )
+
+
+def test_patch_connection_rejects_invalid_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify invalid string connection statuses produce PyAirbyte errors."""
+    airbyte_instance = SimpleNamespace(connections=SimpleNamespace())
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(PyAirbyteInputError, match="`status` must be one of"):
+        api_util.patch_connection(
+            connection_id="connection-1",
+            api_root="https://api.airbyte.com/v1",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+            status="paused",
+        )
+
+
 @pytest.mark.parametrize(
     "workspace_name,should_delete",
     [
