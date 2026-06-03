@@ -168,8 +168,7 @@ def show_sync_history(
         "total_records": total_records,
         "total_bytes": total_bytes,
         "jobs_preview": [
-            {k: v for k, v in j.items() if k != "start_time_dt"}
-            for j in jobs_data[:preview_limit]
+            {k: v for k, v in j.items() if k != "start_time_dt"} for j in jobs_data[:preview_limit]
         ],
         "model_preview_count": min(total_jobs, preview_limit),
         "model_preview_limit": preview_limit,
