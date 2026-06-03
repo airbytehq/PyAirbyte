@@ -11,15 +11,14 @@ from fastmcp.apps import PrefabAppConfig
 from fastmcp.tools.base import ToolResult
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
-    Card,
-    CardContent,
-    CardHeader,
-    CardTitle,
+    Accordion,
+    AccordionItem,
     Column,
     DataTable,
     DataTableColumn,
     Grid,
     Heading,
+    Link,
     Metric,
     Tab,
     Tabs,
@@ -83,7 +82,7 @@ def _time_label(dt: datetime, *, include_date: bool = False) -> str:
     app=PrefabAppConfig(),
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def show_sync_history(
+def show_sync_history(  # noqa: PLR0914
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -141,6 +140,10 @@ def show_sync_history(
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     connection = workspace.get_connection(connection_id=connection_id)
+    resolved_name = connection.name or connection_id
+    job_history_url = connection.job_history_url
+    source = connection.source
+    destination = connection.destination
 
     sync_results = connection.get_previous_sync_logs(
         limit=max_jobs,
@@ -185,6 +188,7 @@ def show_sync_history(
     agent_text = _build_agent_text(
         agent_context=agent_context,
         connection_id=connection_id,
+        connection_name=resolved_name,
         total_jobs=total_jobs,
         succeeded=succeeded,
         success_rate=success_rate,
@@ -199,7 +203,12 @@ def show_sync_history(
     return ToolResult(
         content=agent_text,
         structured_content=_build_sync_history_app(
-            connection_id=connection_id,
+            connection_name=resolved_name,
+            job_history_url=job_history_url,
+            source_name=source.name,
+            source_url=source.connector_url,
+            destination_name=destination.name,
+            destination_url=destination.connector_url,
             jobs_data=jobs_data,
             chart_data=chart_data,
             succeeded=succeeded,
@@ -210,10 +219,11 @@ def show_sync_history(
     )
 
 
-def _build_agent_text(
+def _build_agent_text(  # noqa: PLR0913
     *,
     agent_context: Literal["verbose", "summary", "min"],
     connection_id: str,
+    connection_name: str,
     total_jobs: int,
     succeeded: int,
     success_rate: float,
@@ -228,8 +238,8 @@ def _build_agent_text(
     """
     header = (
         f"The user has already been shown an interactive sync history dashboard "
-        f"for connection {connection_id}. Do not re-summarize or reprint this data — "
-        f"the user can already see it."
+        f"for connection '{connection_name}' ({connection_id}). "
+        f"Do not re-summarize or reprint this data — the user can already see it."
     )
 
     if agent_context == "min":
@@ -271,9 +281,14 @@ def _build_agent_text(
     return f"{header}\n\n{summary}{detail}"
 
 
-def _build_sync_history_app(
+def _build_sync_history_app(  # noqa: PLR0913
     *,
-    connection_id: str,
+    connection_name: str,
+    job_history_url: str,
+    source_name: str,
+    source_url: str,
+    destination_name: str,
+    destination_url: str,
     jobs_data: list[dict[str, object]],
     chart_data: list[dict[str, int | str]],
     succeeded: int,
@@ -296,13 +311,21 @@ def _build_sync_history_app(
 
     with (
         PrefabApp(
-            title=f"Sync History \u2014 {connection_id[:8]}\u2026",
-            state={"connection_id": connection_id},
+            title=f"Sync History \u2014 {connection_name}",
+            state={"connection_name": connection_name},
         ) as app,
         Column(gap=4, css_class="p-6"),
     ):
-        Heading("Sync History")
-        Text(f"Connection: {connection_id}", css_class="text-muted-foreground text-sm")
+        Heading(connection_name)
+        Text(
+            Link(connection_name, href=job_history_url),
+            " (",
+            Link(source_name, href=source_url),
+            " \u2192 ",
+            Link(destination_name, href=destination_url),
+            ")",
+            css_class="text-muted-foreground text-sm",
+        )
 
         with Grid(columns=4, gap=4, css_class="mt-4"):
             Metric(
@@ -374,19 +397,16 @@ def _build_sync_history_app(
                     value_format="compact",
                 )
 
-        with Card(css_class="mt-6"):
-            with CardHeader():
-                CardTitle("Job History")
-            with CardContent():
-                DataTable(
-                    rows=table_rows,
-                    columns=[
-                        DataTableColumn(key="job_id", header="Job ID"),
-                        DataTableColumn(key="status", header="Status"),
-                        DataTableColumn(key="records", header="Records"),
-                        DataTableColumn(key="bytes", header="Bytes"),
-                        DataTableColumn(key="date", header="Started"),
-                    ],
-                )
+        with Accordion(collapsible=True, css_class="mt-6"), AccordionItem("Job History"):
+            DataTable(
+                rows=table_rows,
+                columns=[
+                    DataTableColumn(key="job_id", header="Job ID"),
+                    DataTableColumn(key="status", header="Status"),
+                    DataTableColumn(key="records", header="Records"),
+                    DataTableColumn(key="bytes", header="Bytes"),
+                    DataTableColumn(key="date", header="Started"),
+                ],
+            )
 
     return app
