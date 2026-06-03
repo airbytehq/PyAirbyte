@@ -9,10 +9,21 @@ This module provides:
 
 from __future__ import annotations
 
+import inspect
 import os
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from pathlib import Path
+from typing import TYPE_CHECKING, TypeVar
 
+from fastmcp.apps import UI_EXTENSION_ID
+from fastmcp.server.dependencies import get_context
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
+from fastmcp_extensions import mcp_tool as _mcp_tool
+from fastmcp_extensions.decorators import (
+    _REGISTERED_PROVIDERS,  # noqa: PLC2701
+    _REGISTERED_TOOLS,  # noqa: PLC2701
+)
+from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PLC2701
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,
@@ -49,7 +60,15 @@ from airbyte.constants import (
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
+    from fastmcp.server.context import Context
     from mcp.types import Tool
+
+_MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
+_TOOL_APP_KEY = "_airbyte_tool_app"
+_TOOL_META_KEY = "_airbyte_tool_meta"
+
+INTERACTIVE_UI_ANNOTATION = "interactive-ui"
+"""Annotation indicating the tool requires MCP Apps UI support."""
 
 
 # =============================================================================
@@ -205,6 +224,109 @@ def _parse_csv_config(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def mcp_tool(
+    *,
+    read_only: bool = False,
+    destructive: bool = False,
+    idempotent: bool = False,
+    open_world: bool = False,
+    annotations: Mapping[str, object] | None = None,
+    meta: Mapping[str, object] | None = None,
+    app: object | None = None,
+    extra_help_text: str | None = None,
+) -> Callable[[_MCP_TOOL_FUNC], _MCP_TOOL_FUNC]:
+    """Decorate an MCP tool with deferred Airbyte registration metadata."""
+    base_decorator = _mcp_tool(
+        read_only=read_only,
+        destructive=destructive,
+        idempotent=idempotent,
+        open_world=open_world,
+        extra_help_text=extra_help_text,
+    )
+
+    def decorator(func: _MCP_TOOL_FUNC) -> _MCP_TOOL_FUNC:
+        decorated = base_decorator(func)
+        registered_func, registered_annotations = _REGISTERED_TOOLS[-1]
+        if registered_func is not decorated:
+            raise RuntimeError("Unexpected MCP tool registration state.")
+        registered_annotations[ANNOTATION_MCP_MODULE] = _mcp_module_for_tool(decorated)
+        registered_annotations.update(annotations or {})
+        if meta:
+            registered_annotations[_TOOL_META_KEY] = dict(meta)
+        if app is not None:
+            registered_annotations[_TOOL_APP_KEY] = app
+        return decorated
+
+    return decorator
+
+
+def _mcp_module_for_tool(func: Callable[..., object]) -> str:
+    module_parts = func.__module__.split(".")
+    return next(
+        module_part for module_part in reversed(module_parts) if not module_part.startswith("_")
+    )
+
+
+def _get_caller_file_stem() -> str:
+    for frame_info in inspect.stack():
+        if frame_info.filename != __file__:
+            return Path(frame_info.filename).stem
+    return "unknown"
+
+
+def register_mcp_tools(
+    app: FastMCP,
+    mcp_module: str | None = None,
+    *,
+    exclude_args: list[str] | None = None,
+) -> None:
+    """Register deferred MCP tools with Airbyte-specific metadata support."""
+    if mcp_module is None:
+        mcp_module = _get_caller_file_stem()
+    mcp_module = _normalize_mcp_module(mcp_module)
+    matching_tools = [
+        (func, tool_annotations)
+        for func, tool_annotations in _REGISTERED_TOOLS
+        if tool_annotations.get(ANNOTATION_MCP_MODULE) == mcp_module
+    ]
+
+    for func, tool_annotations in matching_tools:
+        tool_exclude_args: list[str] | None = None
+        if exclude_args:
+            params = set(inspect.signature(func).parameters.keys())
+            excluded = [name for name in exclude_args if name in params]
+            tool_exclude_args = excluded or None
+
+        app.tool(
+            func,
+            annotations={
+                key: value
+                for key, value in tool_annotations.items()
+                if key not in {_TOOL_APP_KEY, _TOOL_META_KEY}
+            },
+            exclude_args=tool_exclude_args,
+            meta=tool_annotations.get(_TOOL_META_KEY),
+            app=tool_annotations.get(_TOOL_APP_KEY),
+        )
+
+    matching_providers = [
+        (provider_factory, tool_annotations)
+        for provider_factory, tool_annotations in _REGISTERED_PROVIDERS
+        if _normalize_mcp_module(str(tool_annotations.get(ANNOTATION_MCP_MODULE))) == mcp_module
+    ]
+    for provider_factory, tool_annotations in matching_providers:
+        provider = provider_factory()
+        provider.add_transform(_ProviderToolAnnotations(tool_annotations))
+        app.add_provider(provider)
+
+
+def _normalize_mcp_module(mcp_module: str) -> str:
+    for module_part in reversed(mcp_module.split(".")):
+        if not module_part.startswith("_"):
+            return module_part
+    return mcp_module
+
+
 def airbyte_readonly_mode_filter(tool: Tool, app: FastMCP) -> bool:
     """Filter tools based on legacy AIRBYTE_CLOUD_MCP_READONLY_MODE env var.
 
@@ -237,3 +359,22 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
         return bool(tool_module and tool_module in include_modules)
 
     return True
+
+
+def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
+    """Filter tools that require MCP Apps UI support."""
+    if not get_annotation(tool, INTERACTIVE_UI_ANNOTATION, default=False):
+        return True
+    return _client_supports_ui()
+
+
+def _client_supports_ui() -> bool:
+    try:
+        context = get_context()
+    except RuntimeError:
+        return False
+    return _fastmcp_context_supports_ui(context)
+
+
+def _fastmcp_context_supports_ui(context: Context) -> bool:
+    return context.client_supports_extension(UI_EXTENSION_ID)

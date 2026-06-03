@@ -80,6 +80,18 @@ class ConnectorMetadata(BaseModel):
     name: str
     """Connector name. For example, "source-google-sheets"."""
 
+    display_name: str | None = None
+    """Human-readable connector name."""
+
+    connector_type: str | None = None
+    """Connector type: `source` or `destination`."""
+
+    definition_id: str | None = None
+    """Source or destination definition ID."""
+
+    docker_repository: str | None = None
+    """Docker repository for the connector image."""
+
     latest_available_version: str | None
     """The latest available version of the connector."""
 
@@ -94,6 +106,24 @@ class ConnectorMetadata(BaseModel):
 
     suggested_streams: list[str] | None = None
     """A list of suggested streams for the connector, if available."""
+
+    support_level: str | None = None
+    """Connector support level."""
+
+    release_stage: str | None = None
+    """Connector release stage."""
+
+    source_type: str | None = None
+    """Connector subtype."""
+
+    documentation_url: str | None = None
+    """Connector documentation URL."""
+
+    release_date: str | None = None
+    """Connector release date."""
+
+    github_issue_label: str | None = None
+    """GitHub issue label for the connector."""
 
     @property
     def default_install_type(self) -> InstallType:
@@ -122,6 +152,8 @@ def _is_registry_disabled(url: str) -> bool:
 def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
     name = entry["dockerRepository"].replace("airbyte/", "")
     latest_version: str | None = entry.get("dockerImageTag")
+    connector_type = "source" if name.startswith("source-") else "destination"
+    definition_id = entry.get("sourceDefinitionId") or entry.get("destinationDefinitionId")
     tags = entry.get("tags", [])
     language: Language | None = None
 
@@ -158,11 +190,21 @@ def _registry_entry_to_connector_metadata(entry: dict) -> ConnectorMetadata:
 
     return ConnectorMetadata(
         name=name,
+        display_name=entry.get("name"),
+        connector_type=connector_type,
+        definition_id=definition_id,
+        docker_repository=entry.get("dockerRepository"),
         latest_available_version=latest_version,
         pypi_package_name=pypi_package_name if pypi_enabled else None,
         language=language,
         install_types=install_types,
         suggested_streams=entry.get("suggestedStreams", {}).get("streams", None),
+        support_level=entry.get("supportLevel"),
+        release_stage=entry.get("releaseStage"),
+        source_type=entry.get("sourceType"),
+        documentation_url=entry.get("documentationUrl"),
+        release_date=entry.get("releaseDate"),
+        github_issue_label=entry.get("githubIssueLabel"),
     )
 
 
