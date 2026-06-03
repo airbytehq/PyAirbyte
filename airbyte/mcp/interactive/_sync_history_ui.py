@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from typing import TYPE_CHECKING, Annotated
 
 from fastmcp import Context  # noqa: TC002 - required at runtime for FastMCP tool registration
@@ -67,9 +66,11 @@ def _format_records(n: int) -> str:
     return str(n)
 
 
-def _date_key(dt: datetime) -> str:
-    """Extract date string from datetime for grouping."""
-    return dt.strftime("%m/%d")
+def _time_label(dt: datetime, *, include_date: bool = False) -> str:
+    """Format a datetime as a concise chart axis label."""
+    if include_date:
+        return dt.strftime("%m/%d %H:%M")
+    return dt.strftime("%H:%M")
 
 
 @mcp_tool(
@@ -133,7 +134,7 @@ def show_sync_history(
                 "bytes_synced": sr.bytes_synced,
                 "records_synced": sr.records_synced,
                 "start_time": sr.start_time.isoformat(),
-                "date": _date_key(sr.start_time),
+                "start_time_dt": sr.start_time,
                 "job_url": sr.job_url,
             }
         )
@@ -144,20 +145,19 @@ def show_sync_history(
     total_records = sum(int(j["records_synced"]) for j in jobs_data)  # type: ignore[arg-type]
     total_bytes = sum(int(j["bytes_synced"]) for j in jobs_data)  # type: ignore[arg-type]
 
-    # Group by date for charts (oldest first)
-    date_groups: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"succeeded": 0, "failed": 0, "records": 0, "bytes": 0}
-    )
-    for j in reversed(jobs_data):
-        d = str(j["date"])
-        if "succeeded" in str(j["status"]).lower():
-            date_groups[d]["succeeded"] += 1
-        else:
-            date_groups[d]["failed"] += 1
-        date_groups[d]["records"] += int(j["records_synced"])  # type: ignore[arg-type]
-        date_groups[d]["bytes"] += int(j["bytes_synced"])  # type: ignore[arg-type]
-
-    chart_data = [{"date": d, **vals} for d, vals in date_groups.items()]
+    # Per-job chart data (oldest first) for continuous timeline
+    jobs_chronological = list(reversed(jobs_data))
+    multi_day = len({str(j["start_time_dt"])[:10] for j in jobs_chronological}) > 1  # type: ignore[index]
+    chart_data: list[dict[str, int | str]] = [
+        {
+            "time": _time_label(j["start_time_dt"], include_date=multi_day),  # type: ignore[arg-type]
+            "succeeded": 1 if "succeeded" in str(j["status"]).lower() else 0,
+            "failed": 0 if "succeeded" in str(j["status"]).lower() else 1,
+            "records": int(j["records_synced"]),  # type: ignore[arg-type]
+            "bytes": int(j["bytes_synced"]),  # type: ignore[arg-type]
+        }
+        for j in jobs_chronological
+    ]
 
     preview_limit = 10
     agent_summary = {
@@ -167,7 +167,10 @@ def show_sync_history(
         "success_rate_pct": round(success_rate, 1),
         "total_records": total_records,
         "total_bytes": total_bytes,
-        "jobs_preview": jobs_data[:preview_limit],
+        "jobs_preview": [
+            {k: v for k, v in j.items() if k != "start_time_dt"}
+            for j in jobs_data[:preview_limit]
+        ],
         "model_preview_count": min(total_jobs, preview_limit),
         "model_preview_limit": preview_limit,
         "model_preview_truncated": total_jobs > preview_limit,
@@ -263,7 +266,7 @@ def _build_sync_history_app(
                         ChartSeries(data_key="succeeded", label="Succeeded", color="#22c55e"),
                         ChartSeries(data_key="failed", label="Failed", color="#ef4444"),
                     ],
-                    x_axis="date",
+                    x_axis="time",
                     stacked=True,
                     height=280,
                     show_legend=True,
@@ -275,7 +278,7 @@ def _build_sync_history_app(
                     series=[
                         ChartSeries(data_key="records", label="Records", color="#3b82f6"),
                     ],
-                    x_axis="date",
+                    x_axis="time",
                     height=280,
                     show_dots=True,
                     show_legend=True,
@@ -288,7 +291,7 @@ def _build_sync_history_app(
                     series=[
                         ChartSeries(data_key="bytes", label="Bytes", color="#8b5cf6"),
                     ],
-                    x_axis="date",
+                    x_axis="time",
                     height=280,
                     show_dots=True,
                     show_legend=True,
