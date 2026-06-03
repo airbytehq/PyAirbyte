@@ -27,7 +27,6 @@ from prefab_ui.components import (
     DataTable,
     DataTableColumn,
     Div,
-    Dot,
     Grid,
     Heading,
     If,
@@ -62,9 +61,12 @@ _STATUS_PIE_CATEGORIES = (
     ("Canceled", "#eab308", "warning"),
     ("No syncs", "#94a3b8", "muted"),
     ("Failed", "#ef4444", "destructive"),
-    ("Running", "#3b82f6", "info"),
     ("Other", "#64748b", "secondary"),
 )
+_STATUS_PIE_CHART_STYLE = {
+    f"--color-chart-{index}": color
+    for index, (_, color, _) in enumerate(_STATUS_PIE_CATEGORIES, start=1)
+}
 _STATUS_PIE_STYLE_BY_STATUS = {
     "succeeded": ("Succeeded", "#22c55e", "success"),
     "cancelled": ("Canceled", "#eab308", "warning"),
@@ -72,7 +74,7 @@ _STATUS_PIE_STYLE_BY_STATUS = {
     "no syncs": ("No syncs", "#94a3b8", "muted"),
     "failed": ("Failed", "#ef4444", "destructive"),
     "error": ("Failed", "#ef4444", "destructive"),
-    "running": ("Running", "#3b82f6", "info"),
+    "running": ("Other", "#64748b", "secondary"),
 }
 
 
@@ -499,24 +501,29 @@ def _build_workspace_sync_status_app(
                 value=_format_bytes(int(metric_summary["recent_bytes_synced"])),
             )
         if connection_statuses:
-            PieChart(
-                data=status_pie_rows,
-                data_key="connections",
-                name_key="status",
-                height=240,
-                inner_radius=58,
-                padding_angle=2,
-                show_label=True,
-                show_legend=True,
-                show_tooltip=True,
-            )
+            with Div(style=_STATUS_PIE_CHART_STYLE):
+                PieChart(
+                    data=status_pie_rows,
+                    data_key="connections",
+                    name_key="status",
+                    height=240,
+                    inner_radius=58,
+                    padding_angle=2,
+                    show_label=True,
+                    show_legend=True,
+                    show_tooltip=True,
+                )
             with Row(gap=3, css_class="flex-wrap"):
                 for status_row in status_pie_rows:
                     with Row(gap=1, css_class="items-center"):
-                        Dot(
-                            variant=str(status_row["variant"]),
-                            shape="square",
-                            css_class=f"bg-[{status_row['color']}]",
+                        Div(
+                            style={
+                                "width": "0.5rem",
+                                "height": "0.5rem",
+                                "borderRadius": "0.125rem",
+                                "backgroundColor": str(status_row["color"]),
+                                "flexShrink": "0",
+                            },
                         )
                         Text(
                             f"{status_row['status']}: {status_row['connections']}",
