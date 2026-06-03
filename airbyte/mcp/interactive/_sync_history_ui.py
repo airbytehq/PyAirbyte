@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from fastmcp import Context  # noqa: TC002 - required at runtime for FastMCP tool registration
 from fastmcp.apps import PrefabAppConfig
@@ -109,6 +109,18 @@ def show_sync_history(
             le=100,
         ),
     ] = 30,
+    agent_visibility: Annotated[
+        Literal["verbose", "default", "min"],
+        Field(
+            description=(
+                "Controls how much context is returned to the agent in the text response. "
+                "'verbose': full job-level data for detailed follow-up analysis. "
+                "'default': aggregates and key observations only. "
+                "'min': one-liner confirmation that the dashboard rendered."
+            ),
+            default="default",
+        ),
+    ] = "default",
 ) -> ToolResult:
     """Show interactive sync history dashboard for an Airbyte Cloud connection.
 
@@ -159,29 +171,19 @@ def show_sync_history(
         for j in jobs_chronological
     ]
 
-    preview_limit = 10
-    agent_summary = {
-        "connection_id": connection_id,
-        "total_jobs": total_jobs,
-        "succeeded": succeeded,
-        "success_rate_pct": round(success_rate, 1),
-        "total_records": total_records,
-        "total_bytes": total_bytes,
-        "jobs_preview": [
-            {k: v for k, v in j.items() if k != "start_time_dt"} for j in jobs_data[:preview_limit]
-        ],
-        "model_preview_count": min(total_jobs, preview_limit),
-        "model_preview_limit": preview_limit,
-        "model_preview_truncated": total_jobs > preview_limit,
-        "model_preview_omitted_count": max(0, total_jobs - preview_limit),
-        "render_note": (
-            f"The interactive widget renders all {total_jobs} jobs. "
-            f"This text preview shows the most recent {min(total_jobs, preview_limit)}."
-        ),
-    }
+    agent_text = _build_agent_text(
+        agent_visibility=agent_visibility,
+        connection_id=connection_id,
+        total_jobs=total_jobs,
+        succeeded=succeeded,
+        success_rate=success_rate,
+        total_records=total_records,
+        total_bytes=total_bytes,
+        jobs_data=jobs_data,
+    )
 
     return ToolResult(
-        content=json.dumps(agent_summary, indent=2),
+        content=agent_text,
         structured_content=_build_sync_history_app(
             connection_id=connection_id,
             jobs_data=jobs_data,
@@ -191,8 +193,58 @@ def show_sync_history(
             total_records=total_records,
             total_bytes=total_bytes,
         ),
-        meta={"airbyte_mcp_raw_result": agent_summary},
     )
+
+
+def _build_agent_text(
+    *,
+    agent_visibility: Literal["verbose", "default", "min"],
+    connection_id: str,
+    total_jobs: int,
+    succeeded: int,
+    success_rate: float,
+    total_records: int,
+    total_bytes: int,
+    jobs_data: list[dict[str, object]],
+) -> str:
+    """Build the text response returned to the agent (not shown to the user).
+
+    The user has already been shown the interactive dashboard. This text is
+    strictly for the agent's own context when answering follow-up questions.
+    """
+    header = (
+        f"The user has already been shown an interactive sync history dashboard "
+        f"for connection {connection_id}. Do not re-summarize or reprint this data — "
+        f"the user can already see it."
+    )
+
+    if agent_visibility == "min":
+        return (
+            f"{header}\n\n" f"Summary: {total_jobs} jobs, {round(success_rate, 1)}% success rate."
+        )
+
+    summary = (
+        f"What the user sees: {total_jobs} total sync jobs, "
+        f"{succeeded} succeeded, {round(success_rate, 1)}% success rate, "
+        f"{_format_records(total_records)} records synced, "
+        f"{_format_bytes(total_bytes)} bytes synced. "
+        f"Charts show per-job success/failure, records over time, and bytes over time. "
+        f"A data table lists all {total_jobs} jobs with IDs, statuses, and timestamps."
+    )
+
+    if agent_visibility == "default":
+        return f"{header}\n\n{summary}"
+
+    # verbose: include per-job data for detailed follow-up analysis
+    preview_limit = 10
+    jobs_preview = [
+        {k: v for k, v in j.items() if k != "start_time_dt"} for j in jobs_data[:preview_limit]
+    ]
+    detail = (
+        f"\n\nAgent-only context (first {min(total_jobs, preview_limit)} jobs "
+        f"for follow-up analysis):\n{json.dumps(jobs_preview, indent=2)}"
+    )
+    return f"{header}\n\n{summary}{detail}"
 
 
 def _build_sync_history_app(
