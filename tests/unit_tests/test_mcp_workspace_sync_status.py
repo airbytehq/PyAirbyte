@@ -117,6 +117,37 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
                 ],
             ),
             _ConnectionLike(
+                connection_id="connection-running",
+                name="Postgres to Snowflake",
+                connection_url="https://cloud.airbyte.com/connections/connection-running",
+                source_id="source-postgres",
+                destination_id="destination-snowflake",
+                source=_ConnectorLike(
+                    name="Postgres",
+                    connector_url="https://cloud.airbyte.com/source/source-postgres",
+                ),
+                destination=_ConnectorLike(
+                    name="Snowflake",
+                    connector_url="https://cloud.airbyte.com/destination/destination-snowflake",
+                ),
+                sync_results=[
+                    _SyncResultLike(
+                        job_id=400,
+                        status=JobStatusEnum.RUNNING,
+                        start_time=now - timedelta(minutes=5),
+                        records_synced=0,
+                        bytes_synced=0,
+                    ),
+                    _SyncResultLike(
+                        job_id=399,
+                        status=JobStatusEnum.SUCCEEDED,
+                        start_time=now - timedelta(hours=4),
+                        records_synced=500,
+                        bytes_synced=1_000,
+                    ),
+                ],
+            ),
+            _ConnectionLike(
                 connection_id="connection-failed",
                 name="Stripe to Snowflake",
                 connection_url="https://cloud.airbyte.com/connections/connection-failed",
@@ -198,10 +229,19 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
     assert workspace.limit == 10
     assert result.meta is not None
     raw_result = result.meta["airbyte_mcp_raw_result"]
-    assert raw_result["total_connections"] == 4
+    assert raw_result["total_connections"] == 5
     assert raw_result["problem_connections"] == 2
-    assert raw_result["recent_success_rate"] == 33.3
-    assert raw_result["model_preview_count"] == 4
+    assert raw_result["running_connections"] == 1
+    assert raw_result["recent_success_rate"] == 50.0
+    assert raw_result["model_preview_count"] == 5
+    running_connection = next(
+        connection
+        for connection in raw_result["connections"]
+        if connection["connection_id"] == "connection-running"
+    )
+    assert running_connection["running_job_id"] == 400
+    assert running_connection["latest_job_id"] == 399
+    assert running_connection["latest_status"] == "succeeded"
 
     text_content = result.content[0]
     assert isinstance(text_content, TextContent)
@@ -222,3 +262,14 @@ def test_show_workspace_sync_status_summarizes_real_workspace_shape(
     assert "#94a3b8" in view
     assert "Ask for sync history" in view
     assert "connection-failed" in view
+
+    text_only_result = show_workspace_sync_status(
+        ctx=cast(Context, object()),
+        workspace_id="workspace-id",
+        max_connections=10,
+        max_jobs_per_connection=2,
+        suppress_ui=True,
+    )
+    assert text_only_result.structured_content is None
+    assert text_only_result.meta is not None
+    assert text_only_result.meta["airbyte_mcp_raw_result"]["suppress_ui"] is True

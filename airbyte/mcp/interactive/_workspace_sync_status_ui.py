@@ -63,10 +63,6 @@ _STATUS_PIE_CATEGORIES = (
     ("Failed", "#ef4444", "destructive"),
     ("Other", "#64748b", "secondary"),
 )
-_STATUS_PIE_CHART_STYLE = {
-    f"--color-chart-{index}": color
-    for index, (_, color, _) in enumerate(_STATUS_PIE_CATEGORIES, start=1)
-}
 _STATUS_PIE_STYLE_BY_STATUS = {
     "succeeded": ("Succeeded", "#22c55e", "success"),
     "cancelled": ("Canceled", "#eab308", "warning"),
@@ -215,9 +211,28 @@ def show_workspace_sync_status(
         connection_statuses=connection_statuses,
         metric_summary=metric_summary,
     )
+    raw_result = {
+        **metric_summary,
+        "connections": [
+            asdict(connection_status)
+            for connection_status in connection_statuses[:WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT]
+        ],
+        "model_preview_count": min(
+            len(connection_statuses),
+            WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT,
+        ),
+        "model_preview_truncated": (
+            len(connection_statuses) > WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT
+        ),
+        "full_count_rendered_to_user": len(connection_statuses),
+        "suppress_ui": suppress_ui,
+    }
 
     if suppress_ui:
-        return ToolResult(content=agent_text)
+        return ToolResult(
+            content=agent_text,
+            meta={"airbyte_mcp_raw_result": raw_result},
+        )
 
     return ToolResult(
         content=agent_text,
@@ -228,25 +243,7 @@ def show_workspace_sync_status(
             metric_summary=metric_summary,
             recent_hours=recent_hours,
         ),
-        meta={
-            "airbyte_mcp_raw_result": {
-                **metric_summary,
-                "connections": [
-                    asdict(connection_status)
-                    for connection_status in connection_statuses[
-                        :WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT
-                    ]
-                ],
-                "model_preview_count": min(
-                    len(connection_statuses),
-                    WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT,
-                ),
-                "model_preview_truncated": (
-                    len(connection_statuses) > WORKSPACE_SYNC_STATUS_AGENT_PREVIEW_LIMIT
-                ),
-                "full_count_rendered_to_user": len(connection_statuses),
-            }
-        },
+        meta={"airbyte_mcp_raw_result": raw_result},
     )
 
 
@@ -265,7 +262,11 @@ def _summarize_connection(
     ]
     latest_result = sync_results[0] if sync_results else None
     latest_completed_result = completed_results[0] if completed_results else None
-    latest_display_result = latest_result or latest_completed_result
+    latest_display_result = (
+        latest_result
+        if latest_result is not None and latest_result.is_job_complete()
+        else latest_completed_result or latest_result
+    )
     latest_status = (
         _sync_status_value(latest_display_result) if latest_display_result else "no syncs"
     )
@@ -501,7 +502,7 @@ def _build_workspace_sync_status_app(
                 value=_format_bytes(int(metric_summary["recent_bytes_synced"])),
             )
         if connection_statuses:
-            with Div(style=_STATUS_PIE_CHART_STYLE):
+            with Div(style=_status_pie_chart_style(status_pie_rows)):
                 PieChart(
                     data=status_pie_rows,
                     data_key="connections",
@@ -648,6 +649,14 @@ def _status_pie_rows(
         for label, color, variant in _STATUS_PIE_CATEGORIES
         if status_counts[label] or label in {"Succeeded", "Canceled", "No syncs"}
     ]
+
+
+def _status_pie_chart_style(status_pie_rows: list[dict[str, int | str]]) -> dict[str, str]:
+    """Build chart palette variables in the rendered slice order."""
+    return {
+        f"--color-chart-{index}": str(status_row["color"])
+        for index, status_row in enumerate(status_pie_rows, start=1)
+    }
 
 
 def _status_pie_style(status: str) -> tuple[str, str, str]:
