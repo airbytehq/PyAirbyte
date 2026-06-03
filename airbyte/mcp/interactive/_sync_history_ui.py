@@ -82,7 +82,7 @@ def _time_label(dt: datetime, *, include_date: bool = False) -> str:
     app=PrefabAppConfig(),
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def show_sync_history(  # noqa: PLR0914
+def show_connection_sync_history(  # noqa: PLR0914
     ctx: Context,
     connection_id: Annotated[
         str,
