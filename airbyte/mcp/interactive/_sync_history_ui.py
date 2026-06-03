@@ -109,7 +109,7 @@ def show_sync_history(
             le=100,
         ),
     ] = 30,
-    agent_visibility: Annotated[
+    agent_context: Annotated[
         Literal["verbose", "default", "min"],
         Field(
             description=(
@@ -172,7 +172,7 @@ def show_sync_history(
     ]
 
     agent_text = _build_agent_text(
-        agent_visibility=agent_visibility,
+        agent_context=agent_context,
         connection_id=connection_id,
         total_jobs=total_jobs,
         succeeded=succeeded,
@@ -198,7 +198,7 @@ def show_sync_history(
 
 def _build_agent_text(
     *,
-    agent_visibility: Literal["verbose", "default", "min"],
+    agent_context: Literal["verbose", "default", "min"],
     connection_id: str,
     total_jobs: int,
     succeeded: int,
@@ -218,7 +218,7 @@ def _build_agent_text(
         f"the user can already see it."
     )
 
-    if agent_visibility == "min":
+    if agent_context == "min":
         return (
             f"{header}\n\n" f"Summary: {total_jobs} jobs, {round(success_rate, 1)}% success rate."
         )
@@ -232,7 +232,7 @@ def _build_agent_text(
         f"A data table lists all {total_jobs} jobs with IDs, statuses, and timestamps."
     )
 
-    if agent_visibility == "default":
+    if agent_context == "default":
         return f"{header}\n\n{summary}"
 
     # verbose: include per-job data for detailed follow-up analysis
