@@ -232,12 +232,11 @@ def _build_agent_text(
         f"the user can already see it."
     )
 
-    followup_hint = (
-        "To retrieve more detail without re-rendering the UI, call this tool again "
-        "with agent_context='verbose' and suppress_ui=True."
-    )
-
     if agent_context == "min":
+        followup_hint = (
+            "To retrieve more detail without re-rendering the UI, call this tool again "
+            "with suppress_ui=True and agent_context='verbose' or agent_context='summary'."
+        )
         return (
             f"{header}\n\n"
             f"Summary: {total_jobs} jobs, {round(success_rate, 1)}% success rate.\n\n"
@@ -254,7 +253,11 @@ def _build_agent_text(
     )
 
     if agent_context == "summary":
-        return f"{header}\n\n{summary}"
+        followup_hint = (
+            "To retrieve more detail without re-rendering the UI, call this tool again "
+            "with suppress_ui=True and agent_context='verbose'."
+        )
+        return f"{header}\n\n{summary}\n\n{followup_hint}"
 
     # verbose: include per-job data for detailed follow-up analysis
     preview_limit = 10
