@@ -41,7 +41,10 @@ from pydantic import Field
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.mcp._tool_utils import INTERACTIVE_UI_ANNOTATION, mcp_tool
 from airbyte.mcp.cloud import CLOUD_AUTH_TIP_TEXT, WORKSPACE_ID_TIP_TEXT, _get_cloud_workspace
-from airbyte.mcp.interactive._sync_history_ui import _format_bytes, _format_records
+from airbyte.mcp.interactive._connection_sync_history_ui import (
+    _format_bytes,
+    _format_records,
+)
 
 
 if TYPE_CHECKING:

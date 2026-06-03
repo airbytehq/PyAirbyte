@@ -7,8 +7,10 @@ from typing import TYPE_CHECKING
 
 from airbyte.mcp._tool_utils import register_mcp_tools
 from airbyte.mcp.interactive import _prefab as _prefab_module  # noqa: F401
+from airbyte.mcp.interactive._connection_sync_history_ui import (
+    show_connection_sync_history,
+)
 from airbyte.mcp.interactive._registry_ui import show_connectors_list
-from airbyte.mcp.interactive._sync_history_ui import show_connection_sync_history
 from airbyte.mcp.interactive._workspace_sync_status_ui import show_workspace_sync_status
 
 
