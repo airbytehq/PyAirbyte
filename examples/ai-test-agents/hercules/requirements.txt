@@ -1,0 +1,5 @@
+# Requirements for running Hercules AI test agent
+# Note: Install these in a separate virtual environment due to dependency conflicts with PyAirbyte
+
+testzeus-hercules>=0.2.0
+playwright>=1.40.0
