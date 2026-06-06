@@ -2,6 +2,7 @@
 #
 # Triggers:
 # - release: published - When user clicks "Publish" on a draft release (downloads pre-built assets)
+# - workflow_dispatch - On-demand prerelease builds from a PR branch
 #
 # Authentication: This workflow expects GitHub OIDC for passwordless PyPI publishing.
 # For more info: https://docs.pypi.org/trusted-publishers/
@@ -11,6 +12,21 @@ name: Publish Package
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: 'Git ref to build from (e.g., refs/pull/123/head)'
+        type: string
+        required: true
+      version_override:
+        description: 'Version string to publish (overrides dynamic versioning)'
+        type: string
+        required: true
+      publish:
+        description: 'Whether to publish to PyPI'
+        type: string
+        required: false
+        default: 'true'
 
 env:
   AIRBYTE_ANALYTICS_ID: ${{ vars.AIRBYTE_ANALYTICS_ID }}
@@ -26,13 +42,40 @@ jobs:
       name: PyPi
       url: https://pypi.org/p/airbyte
     steps:
+      # For release events: download pre-built assets
       - name: Download release assets
+        if: github.event_name == 'release'
         uses: robinraju/release-downloader@v1.12
         with:
           tag: ${{ github.event.release.tag_name }}
           fileName: "*"
           out-file-path: dist
 
+      # For workflow_dispatch (prereleases): checkout, override version, and build
+      - name: Checkout code
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install uv
+        if: github.event_name == 'workflow_dispatch'
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: false
+
+      - name: Build package with version override
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          # Override dynamic versioning with the prerelease version
+          export UV_DYNAMIC_VERSIONING_BYPASS="$VERSION_OVERRIDE"
+          uv build
+        env:
+          VERSION_OVERRIDE: ${{ inputs.version_override }}
+
       # Uses GitHub OIDC for passwordless authentication (see header comment)
       - name: Publish to PyPI
+        if: github.event_name == 'release' || inputs.publish == 'true'
         uses: pypa/gh-action-pypi-publish@v1.13.0
