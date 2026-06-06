@@ -54,15 +54,15 @@ jobs:
       # For workflow_dispatch (prereleases): checkout, override version, and build
       - name: Checkout code
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/checkout@v4
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6
         with:
-          ref: ${{ inputs.git_ref }}
+          ref: ${{ github.event.inputs.git_ref }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Install uv
         if: github.event_name == 'workflow_dispatch'
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
         with:
           enable-cache: false
 
@@ -73,9 +73,9 @@ jobs:
           export UV_DYNAMIC_VERSIONING_BYPASS="$VERSION_OVERRIDE"
           uv build
         env:
-          VERSION_OVERRIDE: ${{ inputs.version_override }}
+          VERSION_OVERRIDE: ${{ github.event.inputs.version_override }}
 
       # Uses GitHub OIDC for passwordless authentication (see header comment)
       - name: Publish to PyPI
-        if: github.event_name == 'release' || inputs.publish == 'true'
+        if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
         uses: pypa/gh-action-pypi-publish@v1.13.0
