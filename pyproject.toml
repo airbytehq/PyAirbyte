@@ -11,7 +11,7 @@ dependencies = [
     "airbyte-api>=0.53.0,<1.0",
     "airbyte-cdk>=7.21.0.post4.dev27052511259,<8.0.0",
     "airbyte-protocol-models-pdv2>=0.13.0,<1.0",
-    "cryptography>=44.0.0,<47.0.0,!=45.0.0,!=45.0.1",
+    "cryptography>=44.0.0,<47.0.0,!=45.0.0,!=45.0.1",  # 45.0.0/45.0.1 broke load_pem_private_key()
     "cyclopts>=4.0,<5.0",
     # TODO: Restore broader version constraints after verifying compatibility
     # "duckdb>=1.4.0,<2.0",
