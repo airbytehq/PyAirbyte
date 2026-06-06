@@ -193,7 +193,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "airbyte-api", specifier = ">=0.53.0,<1.0" },
-    { name = "airbyte-cdk", specifier = ">=7.21.0.post4.dev27051402174,<8.0.0" },
+    { name = "airbyte-cdk", specifier = ">=7.21.0.post4.dev27052511259,<8.0.0" },
     { name = "airbyte-protocol-models-pdv2", specifier = ">=0.13.0,<1.0" },
     { name = "cryptography", specifier = ">=44.0.0,!=45.0.0,!=45.0.1,<47.0.0" },
     { name = "cyclopts", specifier = ">=4.0,<5.0" },
@@ -283,7 +283,7 @@ wheels = [
 
 [[package]]
 name = "airbyte-cdk"
-version = "7.21.0.post4.dev27051402174"
+version = "7.21.0.post4.dev27052511259"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "airbyte-protocol-models-dataclasses" },
@@ -327,9 +327,9 @@ dependencies = [
     { name = "whenever" },
     { name = "xmltodict" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/72/4d/291b246f336e98f863e9e13629fb8efa3ec3dc44b4ce0f46bf16bce72a5d/airbyte_cdk-7.21.0.post4.dev27051402174.tar.gz", hash = "sha256:17667839b9678aa5890686a601144b58273e9c2848412e7b650f3946a44db6b4", size = 569682, upload-time = "2026-06-06T03:32:18.848Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/77/5e384ae7d4a9038ee3f6f7b8554a08f6088ed0ae4c21b143b4defcf45272/airbyte_cdk-7.21.0.post4.dev27052511259.tar.gz", hash = "sha256:5ca86faa05852f2f9460b29a3f5b44e13b1769b584ccc985fb2cfce667fdeb6f", size = 569767, upload-time = "2026-06-06T04:26:19.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/f4/6208792a64bdc6f3389af3f2dd7f53c59bebb263274445537a2c92f350e3/airbyte_cdk-7.21.0.post4.dev27051402174-py3-none-any.whl", hash = "sha256:2521033a43f1b3640236e6211ecfbfe3e5ce910cd93906776e38960f34c69ad0", size = 799695, upload-time = "2026-06-06T03:32:16.261Z" },
+    { url = "https://files.pythonhosted.org/packages/95/58/5b01fd2f0512ee8b64cd8aec31652f1f04955bc3071a8afb0ffede31fd52/airbyte_cdk-7.21.0.post4.dev27052511259-py3-none-any.whl", hash = "sha256:be495ce37bc41a0e301e5936773960b9d033f19238ef9d240b2ee124c8da3992", size = 799693, upload-time = "2026-06-06T04:26:16.458Z" },
 ]
 
 [[package]]
