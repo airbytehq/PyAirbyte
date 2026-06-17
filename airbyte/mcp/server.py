@@ -1,13 +1,12 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """MCP (Model Context Protocol) server for PyAirbyte connector management.
 
-Supports three transport modes:
+Supports two transport modes:
 
 - **stdio** (default): For local MCP clients (Claude Desktop, etc.)
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
-  `poe mcp-serve-http`.
-- **HTTP + OIDC**: When `OIDC_CONFIG_URL` and `OIDC_CLIENT_SECRET` are set,
-  the HTTP server enables Keycloak OIDC authentication via `OIDCProxy`.
+  `poe mcp-serve-http`. When `OIDC_CONFIG_URL` and `OIDC_CLIENT_SECRET` are set,
+  enables Keycloak OIDC authentication via `OIDCProxy`.
 """
 
 from __future__ import annotations
@@ -90,8 +89,8 @@ OIDC_CLIENT_ID_ENV = "OIDC_CLIENT_ID"
 OIDC_CLIENT_SECRET_ENV = "OIDC_CLIENT_SECRET"
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 
-DEFAULT_HTTP_HOST = "127.0.0.1"
-DEFAULT_HTTP_PORT = 8000
+DEFAULT_HTTP_HOST = "0.0.0.0"
+DEFAULT_HTTP_PORT = 8080
 
 
 def _create_oidc_auth() -> OIDCProxy | None:
@@ -105,15 +104,13 @@ def _create_oidc_auth() -> OIDCProxy | None:
     client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
     client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
 
-    if not config_url or not client_secret:
+    if not config_url or not client_id or not client_secret:
         return None
 
-    server_url = os.getenv(MCP_SERVER_URL_ENV, "")
-    if not server_url:
-        host = os.getenv("MCP_HTTP_HOST", DEFAULT_HTTP_HOST)
-        port = os.getenv("MCP_HTTP_PORT", str(DEFAULT_HTTP_PORT))
-        display_host = "localhost" if host == "0.0.0.0" else host
-        server_url = f"http://{display_host}:{port}"
+    server_url = os.getenv(
+        MCP_SERVER_URL_ENV,
+        f"http://localhost:{DEFAULT_HTTP_PORT}",
+    )
 
     logger.info(
         "OIDC auth enabled (issuer=%s, client_id=%s, base_url=%s)",

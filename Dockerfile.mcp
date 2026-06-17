@@ -13,10 +13,13 @@ COPY airbyte/ /app/airbyte/
 
 RUN uv sync --frozen --no-dev
 
+RUN useradd -m -u 10001 appuser \
+    && chown -R appuser:appuser /app
+
 ENV PATH="/app/.venv/bin:$PATH"
-ENV MCP_HTTP_HOST="0.0.0.0"
-ENV MCP_HTTP_PORT="8080"
 
 EXPOSE 8080
+
+USER appuser
 
 CMD ["airbyte-mcp-http"]
