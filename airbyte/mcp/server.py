@@ -5,8 +5,9 @@ Supports two transport modes:
 
 - **stdio** (default): For local MCP clients (Claude Desktop, etc.)
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
-  `poe mcp-serve-http`. When `OIDC_CONFIG_URL` and `OIDC_CLIENT_SECRET` are set,
-  enables Keycloak OIDC authentication via `OIDCProxy`.
+  `poe mcp-serve-http`. When `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
+  `OIDC_CLIENT_SECRET` are all set, enables Keycloak OIDC authentication
+  via `OIDCProxy`.
 """
 
 from __future__ import annotations
@@ -96,9 +97,9 @@ DEFAULT_HTTP_PORT = 8080
 def _create_oidc_auth() -> OIDCProxy | None:
     """Create an `OIDCProxy` auth provider when OIDC env vars are configured.
 
-    When `OIDC_CONFIG_URL` and `OIDC_CLIENT_SECRET` are both set, returns an
-    `OIDCProxy` that handles the Keycloak Authorization Code + PKCE flow.
-    Otherwise returns `None` (no auth, standard local behavior).
+    When `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are all
+    set, returns an `OIDCProxy` that handles the Keycloak Authorization Code +
+    PKCE flow. Otherwise returns `None` (no auth, standard local behavior).
     """
     config_url = os.getenv(OIDC_CONFIG_URL_ENV, "")
     client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
