@@ -81,6 +81,7 @@ dev = [
 pyairbyte = "airbyte.cli.pyab:cli"
 pyab = "airbyte.cli.pyab:cli"
 airbyte-mcp = "airbyte.mcp.server:main"
+airbyte-mcp-http = "airbyte.mcp.http_main:main"
 source-smoke-test = "airbyte.cli.smoke_test_source.run:run"
 
 [build-system]

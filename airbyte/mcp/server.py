@@ -1,12 +1,30 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Experimental MCP (Model Context Protocol) server for PyAirbyte connector management."""
+"""MCP (Model Context Protocol) server for PyAirbyte connector management.
+
+Supports three transport modes:
+
+- **stdio** (default): For local MCP clients (Claude Desktop, etc.)
+- **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
+  `poe mcp-serve-http`.
+- **HTTP + OIDC**: When `OIDC_CONFIG_URL` and `OIDC_CLIENT_SECRET` are set,
+  the HTTP server enables Keycloak OIDC authentication via `OIDCProxy`.
+"""
 
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 import sys
+from typing import TYPE_CHECKING
 
+from fastmcp.server.auth.oidc_proxy import OIDCProxy
 from fastmcp_extensions import mcp_server
+from starlette.responses import JSONResponse
+
+
+if TYPE_CHECKING:
+    from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
@@ -65,6 +83,52 @@ Safety features:
 - Read-only mode: Disables all write operations for cloud resources
 """.strip()
 
+logger = logging.getLogger(__name__)
+
+OIDC_CONFIG_URL_ENV = "OIDC_CONFIG_URL"
+OIDC_CLIENT_ID_ENV = "OIDC_CLIENT_ID"
+OIDC_CLIENT_SECRET_ENV = "OIDC_CLIENT_SECRET"
+MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
+
+DEFAULT_HTTP_HOST = "127.0.0.1"
+DEFAULT_HTTP_PORT = 8000
+
+
+def _create_oidc_auth() -> OIDCProxy | None:
+    """Create an `OIDCProxy` auth provider when OIDC env vars are configured.
+
+    When `OIDC_CONFIG_URL` and `OIDC_CLIENT_SECRET` are both set, returns an
+    `OIDCProxy` that handles the Keycloak Authorization Code + PKCE flow.
+    Otherwise returns `None` (no auth, standard local behavior).
+    """
+    config_url = os.getenv(OIDC_CONFIG_URL_ENV, "")
+    client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
+    client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
+
+    if not config_url or not client_secret:
+        return None
+
+    server_url = os.getenv(MCP_SERVER_URL_ENV, "")
+    if not server_url:
+        host = os.getenv("MCP_HTTP_HOST", DEFAULT_HTTP_HOST)
+        port = os.getenv("MCP_HTTP_PORT", str(DEFAULT_HTTP_PORT))
+        display_host = "localhost" if host == "0.0.0.0" else host
+        server_url = f"http://{display_host}:{port}"
+
+    logger.info(
+        "OIDC auth enabled (issuer=%s, client_id=%s, base_url=%s)",
+        config_url,
+        client_id,
+        server_url,
+    )
+    return OIDCProxy(
+        config_url=config_url,
+        client_id=client_id,
+        client_secret=client_secret,
+        base_url=server_url,
+    )
+
+
 set_mcp_mode()
 load_secrets_to_env_vars()
 
@@ -89,6 +153,7 @@ app = mcp_server(
         airbyte_module_filter,
         airbyte_ui_support_filter,
     ],
+    auth=_create_oidc_auth(),
 )
 """The Airbyte MCP Server application instance."""
 
@@ -98,6 +163,12 @@ register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
 register_prompts(app)
+
+
+@app.custom_route("/health", methods=["GET"])
+async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF029
+    """Health check endpoint for load balancer probes."""
+    return JSONResponse({"status": "ok"})
 
 
 def main() -> None:
