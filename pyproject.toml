@@ -207,3 +207,6 @@ DEP002 = [
   # Used as subprocess tool, not imported directly:
   "uv",
 ]
+DEP003 = [
+  "starlette",  # Transitive dep of fastmcp, imported for custom_route handlers
+]
