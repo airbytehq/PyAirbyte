@@ -6,7 +6,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-import requests
+import httpx
 from airbyte._util import api_util
 from airbyte.exceptions import AirbyteWorkspaceNotEmptyError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
@@ -30,8 +30,9 @@ def _list_jobs_response(
     next_page: str | None,
 ) -> api.ListJobsResponse:
     """Create a paginated jobs API response."""
-    raw_response = requests.Response()
-    raw_response.url = "https://api.airbyte.com/v1/jobs"
+    raw_response = httpx.Response(
+        200, request=httpx.Request("GET", "https://api.airbyte.com/v1/jobs")
+    )
     return api.ListJobsResponse(
         content_type="application/json",
         status_code=200,
@@ -51,7 +52,9 @@ def _connection_response(name: str, index: int) -> models.ConnectionResponse:
         created_at=index,
         destination_id=f"destination-{index}",
         name=name,
-        schedule={},
+        schedule=models.ConnectionScheduleResponse(
+            schedule_type=models.ScheduleTypeWithBasicEnum.MANUAL,
+        ),
         source_id=f"source-{index}",
         status=models.ConnectionStatusEnum.ACTIVE,
         tags=[],
@@ -75,8 +78,9 @@ def _list_connections_response(
     next_page: str | None,
 ) -> api.ListConnectionsResponse:
     """Create a paginated connections API response."""
-    raw_response = requests.Response()
-    raw_response.url = "https://api.airbyte.com/v1/connections"
+    raw_response = httpx.Response(
+        200, request=httpx.Request("GET", "https://api.airbyte.com/v1/connections")
+    )
     return api.ListConnectionsResponse(
         content_type="application/json",
         status_code=200,
@@ -94,8 +98,9 @@ def _list_workspaces_response(
     next_page: str | None,
 ) -> api.ListWorkspacesResponse:
     """Create a paginated workspaces API response."""
-    raw_response = requests.Response()
-    raw_response.url = "https://api.airbyte.com/v1/workspaces"
+    raw_response = httpx.Response(
+        200, request=httpx.Request("GET", "https://api.airbyte.com/v1/workspaces")
+    )
     return api.ListWorkspacesResponse(
         content_type="application/json",
         status_code=200,
@@ -118,8 +123,9 @@ def test_create_workspace_forwards_request(
     ) -> api.CreateWorkspaceResponse:
         nonlocal captured_request
         captured_request = request
-        raw_response = requests.Response()
-        raw_response.url = "https://api.airbyte.com/v1/workspaces"
+        raw_response = httpx.Response(
+            200, request=httpx.Request("GET", "https://api.airbyte.com/v1/workspaces")
+        )
         return api.CreateWorkspaceResponse(
             content_type="application/json",
             status_code=200,
@@ -163,8 +169,12 @@ def test_rename_workspace_forwards_request(
     ) -> api.UpdateWorkspaceResponse:
         nonlocal captured_request
         captured_request = request
-        raw_response = requests.Response()
-        raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-1"
+        raw_response = httpx.Response(
+            200,
+            request=httpx.Request(
+                "GET", "https://api.airbyte.com/v1/workspaces/workspace-1"
+            ),
+        )
         return api.UpdateWorkspaceResponse(
             content_type="application/json",
             status_code=200,
@@ -207,8 +217,12 @@ def test_patch_connection_normalizes_status_string(
     ) -> api.PatchConnectionResponse:
         nonlocal captured_request
         captured_request = request
-        raw_response = requests.Response()
-        raw_response.url = "https://api.airbyte.com/v1/connections/connection-1"
+        raw_response = httpx.Response(
+            200,
+            request=httpx.Request(
+                "GET", "https://api.airbyte.com/v1/connections/connection-1"
+            ),
+        )
         return api.PatchConnectionResponse(
             content_type="application/json",
             status_code=200,
@@ -292,8 +306,12 @@ def test_permanently_delete_workspace_requires_safe_name(
         nonlocal delete_calls
         delete_calls += 1
         assert request.workspace_id == "workspace-1"
-        raw_response = requests.Response()
-        raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-1"
+        raw_response = httpx.Response(
+            204,
+            request=httpx.Request(
+                "DELETE", "https://api.airbyte.com/v1/workspaces/workspace-1"
+            ),
+        )
         return api.DeleteWorkspaceResponse(
             content_type="",
             status_code=204,
@@ -342,8 +360,12 @@ def test_permanently_delete_workspace_requires_empty_workspace(
     ) -> api.DeleteWorkspaceResponse:
         nonlocal delete_calls
         delete_calls += 1
-        raw_response = requests.Response()
-        raw_response.url = "https://api.airbyte.com/v1/workspaces/workspace-1"
+        raw_response = httpx.Response(
+            204,
+            request=httpx.Request(
+                "DELETE", "https://api.airbyte.com/v1/workspaces/workspace-1"
+            ),
+        )
         return api.DeleteWorkspaceResponse(
             content_type="",
             status_code=204,
