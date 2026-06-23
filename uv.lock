@@ -192,7 +192,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "airbyte-api", specifier = "==1.0.0rc3" },
+    { name = "airbyte-api", specifier = "==1.0.1" },
     { name = "airbyte-cdk", specifier = ">=7.21.1,<8.0.0" },
     { name = "airbyte-protocol-models-pdv2", specifier = ">=0.13.0,<1.0" },
     { name = "cryptography", specifier = ">=44.0.0,!=45.0.0,!=45.0.1,<47.0.0" },
@@ -258,16 +258,16 @@ dev = [
 
 [[package]]
 name = "airbyte-api"
-version = "1.0.0rc3"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpcore" },
     { name = "httpx" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/20/2bfcf1552ccec88ef4bcc7dad64503541b9962ab05cf47264177b1d55e9b/airbyte_api-1.0.0rc3.tar.gz", hash = "sha256:e20a99031159d785c138cae2499744993a32b76b19a34bbb5c63e805395c8ced", size = 500622, upload-time = "2026-06-23T05:59:39.84Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/0a/94/9dee92bac34428e28e403f0863e1fd2db14450dc72ad9a58294c94af71e4/airbyte_api-1.0.1.tar.gz", hash = "sha256:4c40e49b94a62b21836aea126d373365e1002b424022c8e7e262fd0a3d7a4fc6", size = 500468, upload-time = "2026-06-23T07:02:39.109Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/1b/14e7f1dcbe0aa81d3231dd1d99a1d3ae0fe2b52588988bd934a0a8e446ec/airbyte_api-1.0.0rc3-py3-none-any.whl", hash = "sha256:bf21433fdd3f24e42c98ec679e50655c1bf917c99000df00cfe59eda8b2bdf2b", size = 1060893, upload-time = "2026-06-23T05:59:37.935Z" },
+    { url = "https://files.pythonhosted.org/packages/24/fa/472753b8a2d38264a1643c27f10bd0b4d0a38f4912918ee943b1e69c7ea7/airbyte_api-1.0.1-py3-none-any.whl", hash = "sha256:edaad71bb9ed123f15cf9f91f78704b88d449584c734b14c4ec8c13ad435516f", size = 1060335, upload-time = "2026-06-23T07:02:37.503Z" },
 ]
 
 [[package]]
