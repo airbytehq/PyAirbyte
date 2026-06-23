@@ -13,7 +13,7 @@ from airbyte_api.models import (
     DestinationDuckdb,
     DestinationPostgres,
     DestinationSnowflake,
-    UsernameAndPassword,
+    DestinationSnowflakeUsernameAndPassword as UsernameAndPassword,
 )
 
 from airbyte.secrets.base import SecretString
