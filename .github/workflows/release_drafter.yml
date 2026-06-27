@@ -30,26 +30,26 @@ jobs:
           # Shallow clone is sufficient since we bypass dynamic versioning
           fetch-depth: 1
 
-      - name: Get release version (dry-run)
-        uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
-        id: dry-run
+      - name: Create draft release (not ready)
+        uses: aaronsteers/semantic-pr-release-drafter@v2.1.0
+        id: not-ready-draft
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          dry-run: true
+          not-ready: true
 
       - name: Build package
         env:
-          VERSION: ${{ steps.dry-run.outputs.tag-name }}
+          VERSION: ${{ steps.not-ready-draft.outputs.tag-name }}
         # Standardize by removing preceding 'v' char:
         run: UV_DYNAMIC_VERSIONING_BYPASS="${VERSION#v}" uv build
 
-      - name: Create or update draft release
-        uses: aaronsteers/semantic-pr-release-drafter@v1.0.0
+      - name: Attach assets and finalize draft
+        uses: aaronsteers/semantic-pr-release-drafter@v2.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          version: ${{ steps.dry-run.outputs.tag-name }}
+          version: ${{ steps.not-ready-draft.outputs.tag-name }}
           attach-files: |
             dist/*.whl
             dist/*.tar.gz
