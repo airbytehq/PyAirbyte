@@ -79,3 +79,39 @@ jobs:
       - name: Publish to PyPI
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
         uses: pypa/gh-action-pypi-publish@v1.13.0
+
+  deploy_cloud_mcp:
+    name: Deploy Cloud MCP
+    needs: publish_to_pypi
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Wait for PyPI availability
+        run: sleep 120
+
+      - name: Trigger cloud-mcp production deploy
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+        with:
+          token: ${{ secrets.GITHUB_CI_WORKFLOW_TRIGGER_PAT }}
+          repository: airbytehq/airbyte-ops-mcp
+          event-type: deploy-cloud-mcp
+          client-payload: '{"mcp-server": "cloud-mcp"}'
+
+  deploy_cloud_mcp_preview:
+    name: Deploy Cloud MCP (Preview)
+    needs: publish_to_pypi
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Wait for PyPI availability
+        run: sleep 120
+
+      - name: Trigger cloud-mcp preview deploy
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+        with:
+          token: ${{ secrets.GITHUB_CI_WORKFLOW_TRIGGER_PAT }}
+          repository: airbytehq/airbyte-ops-mcp
+          event-type: deploy-cloud-mcp
+          client-payload: '{"mcp-server": "cloud-mcp", "preview": "true"}'
