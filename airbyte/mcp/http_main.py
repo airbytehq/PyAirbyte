@@ -7,7 +7,9 @@ handled by `OIDCProxy` (configured in `server.py`).
 
 Environment variables:
 
-- `MCP_SERVER_URL`: Public base URL (for OIDC redirect callbacks)
+- `MCP_SERVER_URL`: Public base URL. Used for OIDC redirect callbacks and to
+  derive the MCP endpoint mount path (serves at `/` when the URL has a path
+  prefix, otherwise defaults to `/mcp`).
 - `OIDC_CONFIG_URL`: Keycloak OIDC discovery URL (enables auth with all three OIDC vars)
 - `OIDC_CLIENT_ID`: OIDC client identifier
 - `OIDC_CLIENT_SECRET`: OIDC client secret
