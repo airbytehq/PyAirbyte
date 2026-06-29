@@ -122,6 +122,7 @@ def _get_mcp_source(
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def validate_connector_config(
@@ -201,6 +202,7 @@ def validate_connector_config(
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
 )
 def list_connector_config_secrets(
     connector_name: Annotated[
@@ -230,6 +232,7 @@ def list_connector_config_secrets(
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def list_dotenv_secrets() -> dict[str, list[str]]:
@@ -249,6 +252,7 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def list_source_streams(
@@ -315,6 +319,7 @@ def list_source_streams(
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def get_source_stream_json_schema(
@@ -381,6 +386,7 @@ def get_source_stream_json_schema(
 
 @mcp_tool(
     read_only=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def read_source_stream_records(
@@ -471,6 +477,7 @@ def read_source_stream_records(
 
 @mcp_tool(
     read_only=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def get_stream_previews(
@@ -583,6 +590,7 @@ def get_stream_previews(
 
 @mcp_tool(
     destructive=False,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def sync_source_to_cache(
@@ -692,6 +700,7 @@ class CachedDatasetInfo(BaseModel):
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def list_cached_streams() -> list[CachedDatasetInfo]:
@@ -712,6 +721,7 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def describe_default_cache() -> dict[str, Any]:
@@ -763,6 +773,7 @@ def _is_safe_sql(sql_query: str) -> bool:
 @mcp_tool(
     read_only=True,
     idempotent=True,
+    requires_client_filesystem=True,
     extra_help_text=_CONFIG_HELP,
 )
 def run_sql_query(
@@ -820,6 +831,7 @@ def run_sql_query(
 
 @mcp_tool(
     destructive=True,
+    requires_client_filesystem=True,
 )
 def destination_smoke_test(  # noqa: PLR0913, PLR0917
     destination_connector_name: Annotated[
