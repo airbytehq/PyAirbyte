@@ -201,7 +201,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.5.0,<1.0.0" },
+    { name = "fastmcp-extensions", specifier = ">=0.7.0,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1129,14 +1129,18 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.5.0"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
+    { name = "mcp" },
+    { name = "segment-analytics-python" },
+    { name = "sentry-sdk" },
+    { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/48/62/b2b9f395d41051f723b8cd29e99851bf45a7c81c3d13ce295dd260b60c4e/fastmcp_extensions-0.5.0.tar.gz", hash = "sha256:3a925573a51a653fbc63dc1a7ca9170be63ebbc537c3d224209a83a70a0071d2", size = 172924, upload-time = "2026-05-31T06:47:25.279Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bd/62/8ff5abef165be10811847900d33b4b101d14f54fa2cc537c3b7be8a2e933/fastmcp_extensions-0.7.0.tar.gz", hash = "sha256:bab24601c9fe48c9e5ef9c4704bbb3553192ee05815740bac0faaa40fefd99b1", size = 183069, upload-time = "2026-06-29T18:16:00.393Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cb/4c/7e1fadd08710363b634e8a889ef9050b01773d907b6da09e15078b132546/fastmcp_extensions-0.5.0-py3-none-any.whl", hash = "sha256:0eb8fa3b53009d5ff5d4c59753410d88ad2015b1320c080554e54cd12dcb8635", size = 44539, upload-time = "2026-05-31T06:47:24.131Z" },
+    { url = "https://files.pythonhosted.org/packages/7c/bd/a4b801ed298c11b30595f188fdffecaff0f3a01cab04e0cedc25c2f225c6/fastmcp_extensions-0.7.0-py3-none-any.whl", hash = "sha256:374a227d682e4fbdce948c1e255110dcb2dc76aafc9581c90e502e6eeacb3fe2", size = 51956, upload-time = "2026-06-29T18:15:59.052Z" },
 ]
 
 [[package]]
@@ -3714,6 +3718,34 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1c/03/e834bcd866f2f8a49a85eaff47340affa3bfa391ee9912a952a1faa68c7b/secretstorage-3.5.0.tar.gz", hash = "sha256:f04b8e4689cbce351744d5537bf6b1329c6fc68f91fa666f60a380edddcd11be", size = 19884, upload-time = "2025-11-23T19:02:53.191Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/46/f5af3402b579fd5e11573ce652019a67074317e18c1935cc0b4ba9b35552/secretstorage-3.5.0-py3-none-any.whl", hash = "sha256:0ce65888c0725fcb2c5bc0fdb8e5438eece02c523557ea40ce0703c266248137", size = 15554, upload-time = "2025-11-23T19:02:51.545Z" },
+]
+
+[[package]]
+name = "segment-analytics-python"
+version = "2.3.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "backoff" },
+    { name = "pyjwt" },
+    { name = "python-dateutil" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/81/a2/e0e3df581c10e400ac1026fbc28047ca00b6abc190f8b7df44c653c768b3/segment_analytics_python-2.3.5.tar.gz", hash = "sha256:eedaf6290e95025adf11cb73769dac662370ca2187fecdc6c66ddd96c508255a", size = 35950, upload-time = "2025-12-02T19:56:56.34Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dd/ba/2b4873bc72240e6d59285147e3e1f32e00b55af81040dd30899bdb65b438/segment_analytics_python-2.3.5-py2.py3-none-any.whl", hash = "sha256:139f111ce0d6f5ec04ac881014f62ac238b8a74d8dacb81ab69822d428f8219e", size = 33478, upload-time = "2025-12-02T19:56:55.372Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.63.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ba/c8/b3c970a5b186722d276cd40a05b3254e03bccc0208560aff20f612e018e8/sentry_sdk-2.63.0.tar.gz", hash = "sha256:2a1502bf864769275dbc8c2c9fc7a0f7f5e18358180b615d262d13a31ffba216", size = 912449, upload-time = "2026-06-16T12:45:57.553Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/57/cb205f7d93373120f666b9c5736dc0815524d96a9b278e7a728f018dc22a/sentry_sdk-2.63.0-py3-none-any.whl", hash = "sha256:3a9b5ddd403f79eb73bd670f75f04485819db53d28f76ced7bc09041cb0dfd6a", size = 495950, upload-time = "2026-06-16T12:45:55.819Z" },
 ]
 
 [[package]]
