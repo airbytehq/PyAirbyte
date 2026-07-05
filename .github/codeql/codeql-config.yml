@@ -1,0 +1,6 @@
+name: "CodeQL Config"
+
+# Run the extended "security-and-quality" query suite (a superset of the
+# default security queries) for every analyzed language.
+queries:
+  - uses: security-and-quality
