@@ -104,7 +104,7 @@ def is_jupyter() -> bool:
     Will return False in Colab (use is_colab() instead).
     """
     try:
-        shell = get_ipython().__class__.__name__  # type: ignore
+        shell = get_ipython().__class__.__name__  # type: ignore  # noqa: PGH003
     except NameError:
         return False  # If 'get_ipython' undefined, we're probably in a standard Python interpreter.
 
@@ -123,7 +123,7 @@ def get_notebook_name() -> str | None:
         session_info: dict | None = None
         with suppress(Exception):
             response = requests.get(COLAB_SESSION_URL)
-            if response.status_code == 200:  # Magic number
+            if response.status_code == 200:  # noqa: PLR2004  # Magic number
                 session_info = response.json()[0]
 
         if session_info and "name" in session_info:
@@ -135,7 +135,7 @@ def get_notebook_name() -> str | None:
 @lru_cache
 def get_vscode_notebook_name() -> str | None:
     with suppress(Exception):
-        import IPython  # pyrefly: ignore[missing-import]
+        import IPython  # noqa: PLC0415  # pyrefly: ignore[missing-import]
 
         return Path(
             IPython.extract_module_locals()[1]["__vsc_ipynb_file__"],

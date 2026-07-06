@@ -267,7 +267,7 @@ class CloudSource(CloudConnector):
             workspace=workspace,
             connector_id=source_info.source_id,
         )
-        result._connector_info = source_info  # Accessing Non-Public API
+        result._connector_info = source_info  # noqa: SLF001  # Accessing Non-Public API
         return result
 
 
@@ -355,7 +355,7 @@ class CloudDestination(CloudConnector):
             workspace=workspace,
             connector_id=destination_info.destination_id,
         )
-        result._connector_info = destination_info  # Accessing Non-Public API
+        result._connector_info = destination_info  # noqa: SLF001  # Accessing Non-Public API
         return result
 
 
@@ -723,7 +723,7 @@ class CustomCloudSourceDefinition:
 
     def rename(
         self,
-        new_name: str,
+        new_name: str,  # noqa: ARG002
     ) -> CustomCloudSourceDefinition:
         """Rename this custom source definition.
 
@@ -771,7 +771,7 @@ class CustomCloudSourceDefinition:
             definition_id=definition_info.definition_id,
             definition_type="yaml",
         )
-        result._definition_info = definition_info
+        result._definition_info = definition_info  # noqa: SLF001
         return result
 
     def deploy_source(
@@ -822,7 +822,7 @@ class CustomCloudSourceDefinition:
             client_secret=self.workspace.client_secret,
             bearer_token=self.workspace.bearer_token,
         )
-        return CloudSource._from_source_response(  # Accessing Non-Public API
+        return CloudSource._from_source_response(  # noqa: SLF001  # Accessing Non-Public API
             workspace=self.workspace,
             source_response=result,
         )

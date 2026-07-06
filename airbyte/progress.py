@@ -127,15 +127,15 @@ def _get_elapsed_time_str(seconds: float) -> str:
     Minutes are always included after 1 minute elapsed.
     Hours are always included after 1 hour elapsed.
     """
-    if seconds <= 2:  # Magic numbers OK here.
+    if seconds <= 2:  # noqa: PLR2004  # Magic numbers OK here.
         # Less than 1 minute elapsed
         return f"{seconds:.2f} seconds"
 
-    if seconds < 10:  # Magic numbers OK here.
+    if seconds < 10:  # noqa: PLR2004  # Magic numbers OK here.
         # Less than 10 seconds elapsed
         return f"{seconds:.1f} seconds"
 
-    if seconds <= 60:  # Magic numbers OK here.
+    if seconds <= 60:  # noqa: PLR2004  # Magic numbers OK here.
         # Less than 1 minute elapsed
         return f"{seconds:.0f} seconds"
 
@@ -157,7 +157,7 @@ def _get_elapsed_time_str(seconds: float) -> str:
     return f"{hours}hr {minutes}min"
 
 
-class ProgressTracker:  # Too many public methods
+class ProgressTracker:  # noqa: PLR0904  # Too many public methods
     """A simple progress bar for the command line and IPython notebooks."""
 
     def __init__(
@@ -406,10 +406,10 @@ class ProgressTracker:  # Too many public methods
         A thin wrapper around `send_telemetry` that includes the job description.
         """
         send_telemetry(
-            source=self._source._get_connector_runtime_info() if self._source else None,
-            cache=self._cache._get_writer_runtime_info() if self._cache else None,
+            source=self._source._get_connector_runtime_info() if self._source else None,  # noqa: SLF001
+            cache=self._cache._get_writer_runtime_info() if self._cache else None,  # noqa: SLF001
             destination=(
-                self._destination._get_connector_runtime_info()
+                self._destination._get_connector_runtime_info()  # noqa: SLF001
                 if self._destination
                 else None
             ),
@@ -470,13 +470,13 @@ class ProgressTracker:  # Too many public methods
             "description": self.job_description,
         }
         if self._source:
-            job_info["source"] = self._source._get_connector_runtime_info().to_dict()
+            job_info["source"] = self._source._get_connector_runtime_info().to_dict()  # noqa: SLF001
 
         if self._cache:
-            job_info["cache"] = self._cache._get_writer_runtime_info().to_dict()
+            job_info["cache"] = self._cache._get_writer_runtime_info().to_dict()  # noqa: SLF001
 
         if self._destination:
-            job_info["destination"] = self._destination._get_connector_runtime_info().to_dict()
+            job_info["destination"] = self._destination._get_connector_runtime_info().to_dict()  # noqa: SLF001
 
         return job_info
 
@@ -844,7 +844,7 @@ class ProgressTracker:  # Too many public methods
         if (
             not force_refresh
             and self._last_update_time  # if not set, then we definitely need to update
-            and cast("float", self.elapsed_seconds_since_last_update) < 0.8
+            and cast("float", self.elapsed_seconds_since_last_update) < 0.8  # noqa: PLR2004
         ):
             return
 

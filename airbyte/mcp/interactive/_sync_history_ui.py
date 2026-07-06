@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from fastmcp import Context
+from fastmcp import Context  # noqa: TC002 - required at runtime for FastMCP tool registration
 from fastmcp.apps import PrefabAppConfig
 from fastmcp.tools.base import ToolResult
 from prefab_ui.app import PrefabApp
@@ -82,7 +82,7 @@ def _time_label(dt: datetime, *, include_date: bool = False) -> str:
     app=PrefabAppConfig(),
     extra_help_text=CLOUD_AUTH_TIP_TEXT,
 )
-def show_connection_sync_history(
+def show_connection_sync_history(  # noqa: PLR0914
     ctx: Context,
     connection_id: Annotated[
         str,
@@ -219,7 +219,7 @@ def show_connection_sync_history(
     )
 
 
-def _build_agent_text(
+def _build_agent_text(  # noqa: PLR0913
     *,
     agent_context: Literal["verbose", "summary", "min"],
     connection_id: str,
@@ -281,7 +281,7 @@ def _build_agent_text(
     return f"{header}\n\n{summary}{detail}"
 
 
-def _build_sync_history_app(
+def _build_sync_history_app(  # noqa: PLR0913
     *,
     connection_name: str,
     job_history_url: str,

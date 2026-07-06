@@ -20,10 +20,10 @@ from fastmcp.server.dependencies import get_context
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (
-    _REGISTERED_PROVIDERS,
-    _REGISTERED_TOOLS,
+    _REGISTERED_PROVIDERS,  # noqa: PLC2701
+    _REGISTERED_TOOLS,  # noqa: PLC2701
 )
-from fastmcp_extensions.registration import _ProviderToolAnnotations
+from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PLC2701
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,

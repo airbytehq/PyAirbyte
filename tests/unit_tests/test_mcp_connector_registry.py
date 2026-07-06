@@ -499,7 +499,7 @@ def test_interactive_tools_include_prefab_metadata() -> None:
     interactive.register_interactive_tools(app)
 
     provider = getattr(app, "_local_provider")
-    tool = provider._components["tool:show_connectors_list@"]
+    tool = provider._components["tool:show_connectors_list@"]  # noqa: SLF001
 
     assert tool.meta is not None
     assert tool.meta["ui"]["resourceUri"] == "ui://prefab/renderer.html"

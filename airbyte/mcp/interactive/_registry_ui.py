@@ -96,7 +96,7 @@ def show_connectors_list(
             ),
         ),
     ] = "",
-    certified: Annotated[
+    certified: Annotated[  # noqa: FBT002 - FastMCP tool parameter.
         bool,
         Field(
             description=(

@@ -73,7 +73,7 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
-def resolve_connector_config(
+def resolve_connector_config(  # noqa: PLR0912
     config: dict | str | None = None,
     config_file: str | Path | None = None,
     config_secret_name: str | None = None,

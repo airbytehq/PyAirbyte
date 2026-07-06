@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 from airbyte import get_source
 from airbyte.exceptions import PyAirbyteInputError
-from airbyte.shared.sql_processor import TableStatistics  # Pydantic needs at runtime
+from airbyte.shared.sql_processor import TableStatistics  # noqa: TC001  # Pydantic needs at runtime
 
 
 logger = logging.getLogger(__name__)
@@ -451,7 +451,7 @@ def _run_preflight(
     return True, None
 
 
-def run_destination_smoke_test(
+def run_destination_smoke_test(  # noqa: PLR0914
     *,
     destination: Destination,
     scenarios: str | list[str] = "fast",

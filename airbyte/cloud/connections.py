@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from airbyte.cloud.workspaces import CloudWorkspace
 
 
-class CloudConnection:  # Too many public methods
+class CloudConnection:  # noqa: PLR0904  # Too many public methods
     """A connection is an extract-load (EL) pairing of a source and destination in Airbyte Cloud.
 
     You can use a connection object to run sync jobs, retrieve logs, and manage the connection.
@@ -180,7 +180,7 @@ class CloudConnection:  # Too many public methods
             source=connection_info.source_id,
             destination=connection_info.destination_id,
         )
-        result._connection_info = connection_info  # Accessing Non-Public API
+        result._connection_info = connection_info  # noqa: SLF001 # Accessing Non-Public API
         return result
 
     # Properties

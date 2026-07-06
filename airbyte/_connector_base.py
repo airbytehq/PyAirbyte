@@ -246,7 +246,7 @@ class ConnectorBase(abc.ABC):
 
     def print_config_spec(
         self,
-        format: Literal["yaml", "json"] = "yaml",
+        format: Literal["yaml", "json"] = "yaml",  # noqa: A002
         *,
         output_file: Path | str | None = None,
         stderr: bool = False,

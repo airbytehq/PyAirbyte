@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import requests
 import yaml
-from rich import print  # Allow shadowing the built-in
+from rich import print  # noqa: A004  # Allow shadowing the built-in
 
 from airbyte import exceptions as exc
 from airbyte._executors.declarative import DeclarativeExecutor
@@ -102,7 +102,7 @@ def _try_get_manifest_connector_files(
         headers={"User-Agent": f"PyAirbyte/{get_version()}"},
     )
 
-    if response.status_code == 404:
+    if response.status_code == 404:  # noqa: PLR2004
         return manifest_dict, None, None
 
     try:
@@ -171,7 +171,7 @@ def _get_local_executor(
     )
 
 
-def get_connector_executor(  # Too complex
+def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # Too complex
     name: str,
     *,
     version: str | None = None,

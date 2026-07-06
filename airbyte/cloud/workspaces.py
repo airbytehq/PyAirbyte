@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from airbyte.sources.base import Source
 
 
-@dataclass(init=False, kw_only=True)  # Core cloud API facade.
+@dataclass(init=False, kw_only=True)  # noqa: PLR0904  # Core cloud API facade.
 class CloudWorkspace:
     """A remote workspace on the Airbyte Cloud.
 
@@ -384,7 +384,7 @@ class CloudWorkspace:
                 are not allowed. Defaults to `True`.
             random_name_suffix: Whether to append a random suffix to the name.
         """
-        source_config_dict = source._hydrated_config.copy()
+        source_config_dict = source._hydrated_config.copy()  # noqa: SLF001 (non-public API)
         source_config_dict["sourceType"] = source.name.replace("source-", "")
 
         if random_name_suffix:
@@ -433,7 +433,7 @@ class CloudWorkspace:
             random_name_suffix: Whether to append a random suffix to the name.
         """
         if isinstance(destination, Destination):
-            destination_conf_dict = destination._hydrated_config.copy()
+            destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
             # raise ValueError(destination_conf_dict)
         else:
@@ -719,7 +719,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudConnection._from_connection_response(
+            CloudConnection._from_connection_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 connection_response=connection,
             )
@@ -745,7 +745,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudSource._from_source_response(
+            CloudSource._from_source_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 source_response=source,
             )
@@ -771,7 +771,7 @@ class CloudWorkspace:
             bearer_token=self.bearer_token,
         )
         return [
-            CloudDestination._from_destination_response(
+            CloudDestination._from_destination_response(  # noqa: SLF001 (non-public API)
                 workspace=self,
                 destination_response=destination,
             )
@@ -870,7 +870,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            custom_definition = CustomCloudSourceDefinition._from_yaml_response(
+            custom_definition = CustomCloudSourceDefinition._from_yaml_response(  # noqa: SLF001
                 self, result
             )
 
@@ -907,7 +907,7 @@ class CloudWorkspace:
                 bearer_token=self.bearer_token,
             )
             return [
-                CustomCloudSourceDefinition._from_yaml_response(self, d)
+                CustomCloudSourceDefinition._from_yaml_response(self, d)  # noqa: SLF001
                 for d in yaml_definitions
             ]
 
@@ -940,7 +940,7 @@ class CloudWorkspace:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
             )
-            return CustomCloudSourceDefinition._from_yaml_response(self, result)
+            return CustomCloudSourceDefinition._from_yaml_response(self, result)  # noqa: SLF001
 
         raise NotImplementedError(
             "Docker custom source definitions are not yet supported. "

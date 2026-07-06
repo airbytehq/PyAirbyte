@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from fastmcp import Context
+from fastmcp import Context  # noqa: TC002 - required at runtime for FastMCP tool registration
 from fastmcp.apps import PrefabAppConfig
 from fastmcp.tools.base import ToolResult
 from prefab_ui.actions import OpenLink, SendMessage, SetState

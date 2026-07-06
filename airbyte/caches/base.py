@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from airbyte.strategies import WriteStrategy
 
 
-class CacheBase(SqlConfig, AirbyteWriterInterface):
+class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
     """Base configuration for a cache.
 
     Caches inherit from the matching `SqlConfig` class, which provides the SQL config settings
@@ -71,14 +71,14 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
     paired_destination_config_class: ClassVar[type | None] = None
 
     @property
-    def paired_destination_config(self) -> Any | dict[str, Any]:  # Allow Any return type
+    def paired_destination_config(self) -> Any | dict[str, Any]:  # noqa: ANN401  # Allow Any return type
         """Return a dictionary of destination configuration values."""
         raise NotImplementedError(
             f"The type '{type(self).__name__}' does not define an equivalent destination "
             "configuration."
         )
 
-    def __init__(self, **data: Any) -> None:
+    def __init__(self, **data: Any) -> None:  # noqa: ANN401
         """Initialize the cache and backends."""
         super().__init__(**data)
 
@@ -90,7 +90,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             temp_dir=self.cache_dir,
             temp_file_cleanup=self.cleanup,
         )
-        temp_processor._ensure_schema_exists()  # Accessing non-public member
+        temp_processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
 
         # Initialize the catalog and state backends
         self._catalog_backend = SqlCatalogBackend(
@@ -129,10 +129,10 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
             self._read_processor.sql_config.dispose_engine()
 
         if self._catalog_backend is not None:
-            self._catalog_backend._sql_config.dispose_engine()
+            self._catalog_backend._sql_config.dispose_engine()  # noqa: SLF001
 
         if self._state_backend is not None:
-            self._state_backend._sql_config.dispose_engine()
+            self._state_backend._sql_config.dispose_engine()  # noqa: SLF001
 
         self.dispose_engine()
 
@@ -416,11 +416,11 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):
         )
 
         # Ensure schema exists
-        self.processor._ensure_schema_exists()  # Accessing non-public member
+        self.processor._ensure_schema_exists()  # noqa: SLF001  # Accessing non-public member
 
         # Create tables for each stream if they don't exist
         for stream_name in catalog_provider.stream_names:
-            self.processor._ensure_final_table_exists(
+            self.processor._ensure_final_table_exists(  # noqa: SLF001
                 stream_name=stream_name,
                 create_if_missing=True,
             )

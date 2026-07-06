@@ -91,7 +91,7 @@ class SQLDataset(DatasetBase):
             for row in conn.execute(self._query_statement):
                 # Access to private member required because SQLAlchemy doesn't expose a public API.
                 # https://pydoc.dev/sqlalchemy/latest/sqlalchemy.engine.row.RowMapping.html
-                yield cast("dict[str, Any]", row._mapping)
+                yield cast("dict[str, Any]", row._mapping)  # noqa: SLF001
 
     def __len__(self) -> int:
         """Return the number of records in the dataset.

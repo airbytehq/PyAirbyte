@@ -10,7 +10,7 @@ import requests
 logger = logging.getLogger("airbyte.registry")
 
 
-def parse_changelog_html(
+def parse_changelog_html(  # noqa: PLR0914
     html_content: str, connector_name: str
 ) -> list[dict[str, str | list[str] | None]]:
     """Parse changelog HTML to extract version history.
@@ -88,7 +88,7 @@ def fetch_registry_version_date(connector_name: str, version: str) -> str | None
 
     Returns the release date string (YYYY-MM-DD) if found, None otherwise.
     """
-    try:
+    try:  # noqa: PLR1702
         registry_url = "https://connectors.airbyte.com/files/registries/v0/oss_registry.json"
         response = requests.get(registry_url, timeout=10)
         response.raise_for_status()

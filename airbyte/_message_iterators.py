@@ -141,7 +141,7 @@ class AirbyteMessageIterator:
                     yield AirbyteMessage.model_validate_json(next_line)
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
-                    raise ValueError("Invalid JSON format")
+                    raise ValueError("Invalid JSON format")  # noqa: B904
 
         return cls(generator())
 
@@ -156,7 +156,7 @@ class AirbyteMessageIterator:
                     yield AirbyteMessage.model_validate_json(line)
                 except pydantic.ValidationError:
                     # Handle JSON decoding errors (optional)
-                    raise ValueError(f"Invalid JSON format in input string: {line}")
+                    raise ValueError(f"Invalid JSON format in input string: {line}")  # noqa: B904
 
         return cls(generator())
 
@@ -186,7 +186,7 @@ class AirbyteMessageIterator:
                         break
 
                 next_line: str = current_file_buffer.readline()
-                if next_line == "":  # EOF produces an empty string
+                if next_line == "":  # noqa: PLC1901  # EOF produces an empty string
                     # Close the current file and open the next one
                     current_file_buffer.close()
                     current_file_buffer = None  # Ensure the buffer is reset
@@ -202,6 +202,6 @@ class AirbyteMessageIterator:
                     # Handle JSON decoding errors
                     current_file_buffer.close()
                     current_file_buffer = None
-                    raise ValueError("Invalid JSON format")
+                    raise ValueError("Invalid JSON format")  # noqa: B904
 
         return cls(generator())

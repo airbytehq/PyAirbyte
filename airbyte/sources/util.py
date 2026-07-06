@@ -44,7 +44,7 @@ def get_connector(
     )
 
 
-def get_source(  # Too many arguments
+def get_source(  # noqa: PLR0913 # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
     *,

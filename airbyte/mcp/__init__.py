@@ -208,7 +208,7 @@ For issues and questions:
 - [PyAirbyte GitHub Issues](https://github.com/airbytehq/pyairbyte/issues)
 - [PyAirbyte Discussions](https://github.com/airbytehq/pyairbyte/discussions)
 
-"""
+"""  # noqa: D415
 
 from airbyte.mcp import cloud, local, registry, server
 
