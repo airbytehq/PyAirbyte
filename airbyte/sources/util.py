@@ -161,7 +161,7 @@ def get_benchmark_source(
 
     Returns:
         Source: The source object for benchmarking.
-    """
+    """  # noqa: DOC501
     if isinstance(num_records, str):
         try:
             num_records = int(Decimal(num_records.replace("_", "")))

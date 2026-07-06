@@ -167,7 +167,7 @@ class FileWriterBase(AirbyteWriterInterface):
         """Write a record to the cache.
 
         This method is called for each record message, before the batch is written.
-        """
+        """  # noqa: DOC501
         stream_name = record_msg.stream
 
         batch_handle: BatchHandle
@@ -212,7 +212,7 @@ class FileWriterBase(AirbyteWriterInterface):
 
         This is not implemented for file writers, as they should be wrapped by another writer that
         handles state tracking and other logic.
-        """
+        """  # noqa: DOC501
         _ = stdin, catalog_provider, write_strategy, state_writer, progress_tracker
         raise exc.PyAirbyteInternalError from NotImplementedError(
             "File writers should be wrapped by another AirbyteWriterInterface."

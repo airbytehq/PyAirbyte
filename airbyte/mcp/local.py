@@ -72,7 +72,7 @@ def _get_mcp_source(
     install_if_missing: bool = True,
     manifest_path: str | Path | None,
 ) -> Source:
-    """Get the MCP source for a connector."""
+    """Get the MCP source for a connector."""  # noqa: DOC501
     if manifest_path:
         override_execution_mode = "yaml"
     elif override_execution_mode == "auto" and is_docker_installed():

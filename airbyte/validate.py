@@ -60,7 +60,7 @@ def _run_subprocess_and_raise_on_failure(args: list[str]) -> None:
 
 
 def full_tests(connector_name: str, sample_config: str) -> None:
-    """Run full tests on the connector."""
+    """Run full tests on the connector."""  # noqa: DOC501
     print("Creating source and validating spec and version...")
     source = ab.get_source(
         connector_name,
@@ -118,7 +118,7 @@ def run() -> None:
 
 
 def validate(connector_dir: str, sample_config: str, *, validate_install_only: bool) -> None:
-    """Validate a connector."""
+    """Validate a connector."""  # noqa: DOC501
     # read metadata.yaml
     metadata_path = Path(connector_dir) / "metadata.yaml"
     metadata = yaml.safe_load(Path(metadata_path).read_text(encoding="utf-8"))["data"]

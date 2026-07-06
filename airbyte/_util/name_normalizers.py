@@ -66,7 +66,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
         - "Average Sales (#)" -> "average_sales____"
         - "+1" -> "_1"
         - "-1" -> "_1"
-        """
+        """  # noqa: DOC501
         result = name
 
         # Replace all non-alphanumeric characters with underscores.

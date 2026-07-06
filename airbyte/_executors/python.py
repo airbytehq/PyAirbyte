@@ -49,7 +49,7 @@ class VenvExecutor(Executor):
                 - False: Use Docker instead (handled by factory)
                 - Path: Use interpreter at this path or interpreter name/command
                 - str: Use uv-managed Python version (semver patterns like "3.12", "3.11.5")
-        """
+        """  # noqa: DOC501
         super().__init__(name=name, metadata=metadata, target_version=target_version)
 
         if not pip_url and metadata and not metadata.pypi_package_name:
@@ -115,7 +115,7 @@ class VenvExecutor(Executor):
         """Install the connector in a virtual environment.
 
         After installation, the installed version will be stored in self.reported_version.
-        """
+        """  # noqa: DOC501
         if not (
             self.use_python is None
             or self.use_python is True
@@ -208,7 +208,7 @@ class VenvExecutor(Executor):
 
         In the venv, we run the following:
         > python -c "from importlib.metadata import version; print(version('<connector-name>'))"
-        """
+        """  # noqa: DOC501
         if not recheck and self.reported_version:
             return self.reported_version
 
@@ -258,7 +258,7 @@ class VenvExecutor(Executor):
 
         Note: Version verification is not supported for connectors installed from a
         local path.
-        """
+        """  # noqa: DOC501
         # Store the installed version (or None if not installed)
         if not self.reported_version:
             self.reported_version = self.get_installed_version()

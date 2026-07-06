@@ -477,7 +477,7 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         Raises:
             AirbyteConnectionSyncActiveError: If a sync is currently running on this
                 connection (HTTP 423). Wait for the sync to complete before retrying.
-        """
+        """  # noqa: DOC501
         api_state: dict[str, Any]
         if isinstance(connection_state, list):
             if not _is_protocol_state_format(connection_state):

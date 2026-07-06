@@ -51,7 +51,7 @@ class SnowflakeConfig(SqlConfig):
     data_retention_time_in_days: int | None = None
 
     def _validate_authentication_config(self) -> None:
-        """Validate that authentication configuration is correct."""
+        """Validate that authentication configuration is correct."""  # noqa: DOC501
         auth_methods = {
             "password": self.password is not None,
             "private_key": self.private_key is not None,
@@ -82,7 +82,7 @@ class SnowflakeConfig(SqlConfig):
             )
 
     def _get_private_key_content(self) -> bytes:
-        """Get the private key content from either private_key or private_key_path."""
+        """Get the private key content from either private_key or private_key_path."""  # noqa: DOC501
         if self.private_key:
             return str(self.private_key).encode("utf-8")
         if self.private_key_path:
@@ -217,7 +217,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
         stream_name: str,
         batch_id: str,
     ) -> str:
-        """Write files to a new table."""
+        """Write files to a new table."""  # noqa: DOC501
         temp_table_name = self._create_table_for_loading(
             stream_name=stream_name,
             batch_id=batch_id,

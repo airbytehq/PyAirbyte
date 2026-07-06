@@ -78,7 +78,7 @@ class WriteMethod(str, Enum):
 
     @property
     def destination_sync_mode(self) -> DestinationSyncMode:
-        """Convert the write method to a destination sync mode."""
+        """Convert the write method to a destination sync mode."""  # noqa: DOC501
         if self == WriteMethod.MERGE:
             return DestinationSyncMode.append_dedup
 

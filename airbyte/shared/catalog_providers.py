@@ -82,7 +82,7 @@ class CatalogProvider:
         self,
         stream_name: str,
     ) -> ConfiguredAirbyteStream:
-        """Return the column definitions for the given stream."""
+        """Return the column definitions for the given stream."""  # noqa: DOC501
         if not self.configured_catalog:
             raise exc.PyAirbyteInternalError(
                 message="Cannot get stream JSON schema without a catalog.",
@@ -147,7 +147,7 @@ class CatalogProvider:
         self,
         stream_name: str,
     ) -> list[str]:
-        """Return the primary keys for the given stream."""
+        """Return the primary keys for the given stream."""  # noqa: DOC501
         pks = self.get_configured_stream_info(stream_name).primary_key
         if not pks:
             return []
@@ -185,7 +185,7 @@ class CatalogProvider:
         stream_name: str,
         write_strategy: WriteStrategy,
     ) -> WriteMethod:
-        """Return the write method for the given stream."""
+        """Return the write method for the given stream."""  # noqa: DOC501
         has_pks: bool = bool(self.get_primary_keys(stream_name))
         has_incremental_key: bool = bool(self.get_cursor_key(stream_name))
         if write_strategy == WriteStrategy.MERGE and not has_pks:

@@ -91,7 +91,7 @@ def _walk_dict(
 
 @lru_cache
 def _get_global_secrets_mask() -> list[str]:
-    """Get the list of properties to mask from the spec mask file."""
+    """Get the list of properties to mask from the spec mask file."""  # noqa: DOC501
     if AIRBYTE_OFFLINE_MODE:
         # In offline mode, we cannot fetch the global mask keys.
         # We return an empty list to avoid masking any keys.

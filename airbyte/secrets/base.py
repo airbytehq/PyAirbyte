@@ -86,7 +86,7 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
         return True
 
     def parse_json(self) -> dict:
-        """Parse the secret string as JSON."""
+        """Parse the secret string as JSON."""  # noqa: DOC501
         try:
             return json.loads(self)
         except json.JSONDecodeError as ex:
@@ -107,7 +107,7 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
         v: Any,  # noqa: ANN401  # Must allow `Any` to match Pydantic signature
         info: ValidationInfo,
     ) -> SecretString:
-        """Validate the input value is valid as a secret string."""
+        """Validate the input value is valid as a secret string."""  # noqa: DOC501
         _ = info  # Unused
         if not isinstance(v, str):
             raise exc.PyAirbyteInputError(

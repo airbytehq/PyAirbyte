@@ -256,7 +256,7 @@ def _get_cloud_workspace(
     The ctx parameter provides access to MCP config values that are resolved
     from HTTP headers or environment variables based on the config args
     defined in server.py.
-    """
+    """  # noqa: DOC501
     resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
     if not resolved_workspace_id:
         raise PyAirbyteInputError(
@@ -1077,7 +1077,7 @@ def get_cloud_sync_logs(
         ),
     ],
 ) -> LogReadResult:
-    """Get the logs from a sync job attempt on Airbyte Cloud."""
+    """Get the logs from a sync job attempt on Airbyte Cloud."""  # noqa: DOC501
     # Validate that line_offset and from_tail are not both set
     if line_offset is not None and from_tail:
         raise PyAirbyteInputError(
@@ -1752,7 +1752,7 @@ def update_custom_source_definition(
 
     Updates the manifest and/or testing values for an existing custom source definition.
     At least one of manifest_yaml, testing_values, or testing_values_secret_name must be provided.
-    """
+    """  # noqa: DOC501
     check_guid_created_in_session(definition_id)
 
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
@@ -1844,7 +1844,7 @@ def permanently_delete_custom_source_definition(
 
     Note: Only YAML (declarative) connectors are currently supported.
     Docker-based custom sources are not yet available.
-    """
+    """  # noqa: DOC501
     check_guid_created_in_session(definition_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     definition = workspace.get_custom_source_definition(
@@ -1901,7 +1901,7 @@ def permanently_delete_cloud_source(
 
     The provided name must match the actual name of the source for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
-    """
+    """  # noqa: DOC501
     check_guid_created_in_session(source_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx)
     source = workspace.get_source(source_id=source_id)
@@ -1957,7 +1957,7 @@ def permanently_delete_cloud_destination(
 
     The provided name must match the actual name of the destination for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
-    """
+    """  # noqa: DOC501
     check_guid_created_in_session(destination_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx)
     destination = workspace.get_destination(destination_id=destination_id)
@@ -2032,7 +2032,7 @@ def permanently_delete_cloud_connection(
 
     The provided name must match the actual name of the connection for the operation to proceed.
     This is a safety measure to ensure you are deleting the correct resource.
-    """
+    """  # noqa: DOC501
     check_guid_created_in_session(connection_id)
     workspace: CloudWorkspace = _get_cloud_workspace(ctx)
     connection = workspace.get_connection(connection_id=connection_id)
@@ -2417,7 +2417,7 @@ def update_cloud_connection(
 
     At least one setting must be provided. The 'cron_expression' and 'manual_schedule'
     parameters are mutually exclusive.
-    """
+    """  # noqa: DOC501
     check_guid_created_in_session(connection_id)
 
     # Validate that at least one setting is provided

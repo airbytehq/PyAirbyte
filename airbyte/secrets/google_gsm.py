@@ -107,7 +107,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
         You can provide either the path to the credentials file or the JSON contents of the
         credentials file. If both are provided, a `PyAirbyteInputError` will be raised.
-        """
+        """  # noqa: DOC501
         if credentials_path and credentials_json:
             raise exc.PyAirbyteInputError(
                 guidance=("You can provide `credentials_path` or `credentials_json` but not both."),
@@ -283,7 +283,7 @@ class GoogleGSMSecretManager(CustomSecretManager):
 
         Returns:
             GSMSecretHandle: A handle for the matching secret.
-        """
+        """  # noqa: DOC501
         results: Iterable[GSMSecretHandle] = self.fetch_connector_secrets(connector_name)
         try:
             result = next(iter(results))

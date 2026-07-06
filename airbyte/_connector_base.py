@@ -134,7 +134,7 @@ class ConnectorBase(abc.ABC):
 
         If secrets are passed by reference (`secret_reference::*`), this will return the raw config
         dictionary without secrets hydrated.
-        """
+        """  # noqa: DOC501
         if self._config_dict is None:
             raise exc.AirbyteConnectorConfigurationMissingError(
                 connector_name=self.name,
@@ -259,7 +259,7 @@ class ConnectorBase(abc.ABC):
                 Otherwise, it will be printed to the console.
             stderr: If True, print to stderr instead of stdout. This is useful when we
                 want to print the spec to the console but not interfere with other output.
-        """
+        """  # noqa: DOC501
         if output_file and stderr:
             raise exc.PyAirbyteInputError(
                 message="You can set output_file or stderr but not both.",
@@ -332,7 +332,7 @@ class ConnectorBase(abc.ABC):
         * execute the connector with check --config <config_file>
         * Listen to the messages and return the first AirbyteCatalog that comes along.
         * Make sure the subprocess is killed when the function returns.
-        """
+        """  # noqa: DOC501
         with as_temp_files([self._hydrated_config]) as [config_file]:
             try:
                 for msg in self._execute(["check", "--config", config_file]):

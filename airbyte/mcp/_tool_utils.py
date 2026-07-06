@@ -116,7 +116,7 @@ def check_guid_created_in_session(guid: str) -> None:
 
     Args:
         guid: The GUID to check
-    """
+    """  # noqa: DOC501
     if AIRBYTE_CLOUD_MCP_SAFE_MODE and guid not in _GUIDS_CREATED_IN_SESSION:
         raise SafeModeError(
             f"Cannot perform destructive operation on '{guid}': "

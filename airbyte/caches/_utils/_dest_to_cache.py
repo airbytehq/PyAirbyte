@@ -55,7 +55,7 @@ def destination_to_cache(
     *,
     schema_name: str | None = None,
 ) -> CacheBase:
-    """Get the destination configuration from the cache."""
+    """Get the destination configuration from the cache."""  # noqa: DOC501
     conversion_fn_map: dict[str, Callable[[Any], CacheBase]] = {
         "bigquery": bigquery_destination_to_cache,
         "duckdb": duckdb_destination_to_cache,
@@ -181,7 +181,7 @@ def duckdb_destination_to_cache(
 def motherduck_destination_to_cache(
     destination_configuration: DestinationDuckdb | dict[str, Any],
 ) -> MotherDuckCache:
-    """Create a new MotherDuck cache from the destination configuration."""
+    """Create a new MotherDuck cache from the destination configuration."""  # noqa: DOC501
     if isinstance(destination_configuration, dict):
         filtered = {
             k: v
@@ -203,7 +203,7 @@ def motherduck_destination_to_cache(
 def postgres_destination_to_cache(
     destination_configuration: DestinationPostgres | dict[str, Any],
 ) -> PostgresCache:
-    """Create a new Postgres cache from the destination configuration."""
+    """Create a new Postgres cache from the destination configuration."""  # noqa: DOC501
     if isinstance(destination_configuration, dict):
         # Strip dispatch keys before constructing the model object.
         filtered = {
@@ -235,7 +235,7 @@ def snowflake_destination_to_cache(
 
     We may have to inject credentials, because they are obfuscated when config
     is returned from the REST API.
-    """
+    """  # noqa: DOC501
     if isinstance(destination_configuration, dict):
         filtered = {
             k: v

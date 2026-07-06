@@ -247,7 +247,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             streams: A list of stream names to select. If set to "*", all streams will be selected.
 
         Currently, if this is not set, all streams will be read.
-        """
+        """  # noqa: DOC501
         if self._config_dict is None:
             self._to_be_selected_streams = streams
             self._log_warning_preselected_stream(streams)
@@ -308,7 +308,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         - execute the connector with discover --config <config_file>
         - Listen to the messages and return the first AirbyteCatalog that comes along.
         - Make sure the subprocess is killed when the function returns.
-        """
+        """  # noqa: DOC501
         with as_temp_files([self._hydrated_config]) as [config_file]:
             for msg in self._execute(["discover", "--config", config_file]):
                 if msg.type == Type.CATALOG and msg.catalog:
@@ -338,7 +338,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         * execute the connector with spec
         * Listen to the messages and return the first AirbyteCatalog that comes along.
         * Make sure the subprocess is killed when the function returns.
-        """
+        """  # noqa: DOC501
         if force_refresh or self._spec is None:
             for msg in self._execute(["spec"]):
                 if msg.type == Type.SPEC and msg.spec:
@@ -432,7 +432,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
 
         If force_full_refresh is True, streams will be configured with full_refresh sync mode
         when supported by the stream. Otherwise, incremental sync mode is used when supported.
-        """
+        """  # noqa: DOC501
         selected_streams: list[str] = []
         if streams is None:
             selected_streams = self._selected_stream_names or self.get_available_streams()
@@ -488,7 +488,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         )
 
     def get_stream_json_schema(self, stream_name: str) -> dict[str, Any]:
-        """Return the JSON Schema spec for the specified stream name."""
+        """Return the JSON Schema spec for the specified stream name."""  # noqa: DOC501
         catalog: AirbyteCatalog = self.discovered_catalog
         found: list[AirbyteStream] = [
             stream for stream in catalog.streams if stream.name == stream_name
@@ -541,7 +541,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         * execute the connector with read --config <config_file> --catalog <catalog_file>
         * Listen to the messages and return the first AirbyteRecordMessages that come along.
         * Make sure the subprocess is killed when the function returns.
-        """
+        """  # noqa: DOC501
         stop_event = stop_event or threading.Event()
         configured_catalog = self.get_configured_catalog(streams=[stream])
         if len(configured_catalog.streams) == 0:
@@ -861,7 +861,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 running the connector. This can be helpful in debugging, when you want to send
                 configurations to the connector that otherwise might be rejected by JSON Schema
                 validation rules.
-        """
+        """  # noqa: DOC501
         cache = cache or get_default_cache()
         progress_tracker = ProgressTracker(
             source=self,
@@ -928,7 +928,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         skip_validation: bool = False,
         progress_tracker: ProgressTracker,
     ) -> ReadResult:
-        """Internal read method."""
+        """Internal read method."""  # noqa: DOC501
         if write_strategy == WriteStrategy.REPLACE and not force_full_refresh:
             warnings.warn(
                 message=(

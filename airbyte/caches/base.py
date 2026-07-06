@@ -209,7 +209,7 @@ class CacheBase(SqlConfig, AirbyteWriterInterface):  # noqa: PLR0904
 
         Returns:
             List of dictionaries representing the query results
-        """
+        """  # noqa: DOC501
         # Execute the SQL within a connection context to ensure the connection stays open
         # while we fetch the results
         sql_text = text(sql_query) if isinstance(sql_query, str) else sql_query

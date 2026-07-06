@@ -39,7 +39,7 @@ def _regenerate_mcp_markdown() -> None:
     lives under `scripts/` (not on `sys.path`), and a static import would
     also trip `deptry` into flagging `generate_mcp_markdown` as a missing
     external dependency.
-    """
+    """  # noqa: DOC501
     script = pathlib.Path(__file__).parent.parent / "scripts" / "generate_mcp_markdown.py"
     if not script.exists():
         print(f"[docs-generate] MCP markdown generator not found at {script}; skipping.")

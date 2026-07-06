@@ -157,7 +157,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         If the cache has tracked state, this will be used for the sync. Otherwise, if there is
         a known destination state, the destination-specific state will be used. If neither are
         available, a full refresh will be performed.
-        """
+        """  # noqa: DOC501
         if not isinstance(source_data, ReadResult | Source):
             raise exc.PyAirbyteInputError(
                 message="Invalid source_data type for `source_data` arg.",
@@ -316,7 +316,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         state_writer: StateWriterBase | None = None,
         progress_tracker: ProgressTracker,
     ) -> None:
-        """Read from the connector and write to the cache."""
+        """Read from the connector and write to the cache."""  # noqa: DOC501
         # Run optional validation step
         if state_writer is None:
             state_writer = StdOutStateWriter()

@@ -23,7 +23,7 @@ AIRBYTE_MCP_DOTENV_PATH_ENVVAR = "AIRBYTE_MCP_ENV_FILE"
 
 
 def _load_dotenv_file(dotenv_path: Path | str) -> None:
-    """Load environment variables from a .env file."""
+    """Load environment variables from a .env file."""  # noqa: DOC501
     if isinstance(dotenv_path, str):
         dotenv_path = Path(dotenv_path)
     if not dotenv_path.exists():
