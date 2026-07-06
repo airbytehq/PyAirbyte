@@ -251,12 +251,9 @@ class SqlProcessorBase(abc.ABC):
         ] = defaultdict(list, {})
 
         self._setup()
-        self.file_writer = (
-            file_writer
-            or self.file_writer_class(
-                cache_dir=cast("Path", temp_dir),
-                cleanup=temp_file_cleanup,
-            )
+        self.file_writer = file_writer or self.file_writer_class(
+            cache_dir=cast("Path", temp_dir),
+            cleanup=temp_file_cleanup,
         )
         self.type_converter = self.type_converter_class()
         self._cached_table_definitions: dict[str, sqlalchemy.Table] = {}

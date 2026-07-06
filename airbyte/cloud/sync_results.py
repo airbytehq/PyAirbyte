@@ -202,9 +202,7 @@ class SyncAttempt:
                     timestamp = event.get("timestamp", "")
                     level = event.get("level", "INFO")
                     message = event.get("message", "")
-                    log_lines.append(
-                        f"[{timestamp}] {level}: {message}"
-                    )
+                    log_lines.append(f"[{timestamp}] {level}: {message}")
                 result = "\n".join(log_lines)
         elif "logLines" in logs_data:
             log_lines = logs_data["logLines"]

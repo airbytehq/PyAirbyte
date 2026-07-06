@@ -1318,9 +1318,9 @@ def get_destination(
         }
 
         if destination_type in destination_mapping and raw_configuration is not None:
-            response.destination_response.configuration = destination_mapping[
-                destination_type
-            ](**raw_configuration)
+            response.destination_response.configuration = destination_mapping[destination_type](
+                **raw_configuration
+            )
         return response.destination_response
 
     raise AirbyteMissingResourceError(

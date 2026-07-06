@@ -204,9 +204,7 @@ class SnowflakeSqlProcessor(SqlProcessorBase):
     """A Snowflake implementation of the cache."""
 
     file_writer_class = JsonlWriter
-    type_converter_class: type[SnowflakeTypeConverter] = (
-        SnowflakeTypeConverter
-    )
+    type_converter_class: type[SnowflakeTypeConverter] = SnowflakeTypeConverter
     supports_merge_insert = True
     sql_config: SnowflakeConfig
 

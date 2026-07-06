@@ -178,9 +178,7 @@ class AirbyteMessageIterator:
                 if current_file_buffer is None:
                     try:
                         current_file = next(file_iterator)
-                        current_file_buffer = file_opener(
-                            current_file
-                        )
+                        current_file_buffer = file_opener(current_file)
                     except StopIteration:
                         # No more files to read; Exit the loop
                         break
