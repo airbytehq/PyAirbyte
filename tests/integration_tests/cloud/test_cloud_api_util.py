@@ -282,7 +282,7 @@ def test_get_bearer_token(
     "connector_id, connector_type, expect_success",
     [
         ("f45dd701-d1f0-4e8e-97c4-2b89c40ac928", "source", True),
-        # ("......-....-....-............", "destination", True),
+        # ("......-....-....-............", "destination", True),  # noqa: ERA001
     ],
 )
 def test_check_connector(

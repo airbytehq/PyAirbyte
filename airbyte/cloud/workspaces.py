@@ -435,7 +435,7 @@ class CloudWorkspace:
         if isinstance(destination, Destination):
             destination_conf_dict = destination._hydrated_config.copy()  # noqa: SLF001 (non-public API)
             destination_conf_dict["destinationType"] = destination.name.replace("destination-", "")
-            # raise ValueError(destination_conf_dict)
+            # raise ValueError(destination_conf_dict)  # noqa: ERA001
         else:
             destination_conf_dict = destination.copy()
             if "destinationType" not in destination_conf_dict:

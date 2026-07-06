@@ -386,7 +386,7 @@ def test_dataset_list_and_len(
 
     # Test the lazy dataset implementation
     lazy_dataset = source.get_records("stream1")
-    # assert len(stream_1) == 2  # This is not supported by the lazy dataset
+    # assert len(stream_1) == 2  # This is not supported by the lazy dataset  # noqa: ERA001
     lazy_dataset_list = list(lazy_dataset)
     # Make sure counts are correct
     assert len(list(lazy_dataset_list)) == 2

@@ -39,7 +39,7 @@ def new_duckdb_destination_executor() -> Executor:
     return get_connector_executor(
         name="destination-duckdb",
         docker_image="airbyte/destination-duckdb:latest",
-        # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
+        # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",  # noqa: ERA001
     )
 
 

@@ -2506,7 +2506,7 @@ def get_connection_artifact(
             return {"ERROR": "No state is set for this connection (stateType: not_set)"}
         return state
 
-    # artifact_type == "catalog"
+    # artifact_type == "catalog"  # noqa: ERA001
     catalog = connection.dump_raw_catalog()
     if catalog is None:
         return {"ERROR": "No catalog found for this connection"}

@@ -44,8 +44,8 @@ class DocumentRenderer(BaseModel):
 
     # TODO: Add primary key and cursor key support:
     # https://github.com/airbytehq/pyairbyte/issues/319
-    # primary_key_properties: list[str]
-    # cursor_property: str | None
+    # primary_key_properties: list[str]  # noqa: ERA001
+    # cursor_property: str | None  # noqa: ERA001
 
     def render_document(self, record: dict[str, Any]) -> Document:
         """Render a record as a document.
@@ -85,7 +85,7 @@ class DocumentRenderer(BaseModel):
             )
 
         return Document(
-            # id=doc_id,  # TODD: Add support for primary key and doc ID generation.
+            # id=doc_id,  # TODD: Add support for primary key and doc ID generation.  # noqa: ERA001
             content=content,
             metadata={key: record[key] for key in self.metadata_properties},
         )

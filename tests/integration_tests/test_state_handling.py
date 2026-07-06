@@ -175,15 +175,15 @@ def test_destination_state(
     e2e_test_destination: ab.Destination,
 ) -> None:
     """Test destination state handling."""
-    # config_a = source_faker_seed_a.get_config()
-    # config_a["always_updated"] = False  # disable ensuring new `updated_at` timestamps
-    # source_faker_seed_a.set_config(config_a)
+    # config_a = source_faker_seed_a.get_config()  # noqa: ERA001
+    # config_a["always_updated"] = False  # disable ensuring new `updated_at` timestamps  # noqa: ERA001
+    # source_faker_seed_a.set_config(config_a)  # noqa: ERA001
 
     cache = ab.new_local_cache("aj_test05")
 
     source_faker_seed_a.select_streams(["products", "users"])
     read_result = source_faker_seed_a.read(cache)
-    # assert read_result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
+    # assert read_result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2  # noqa: ERA001
 
     cache_state_provider = cache.get_state_provider("source-faker")
     assert cache_state_provider.known_stream_names == {
@@ -198,7 +198,7 @@ def test_destination_state(
         read_result,
         state_cache=cache,
     )
-    # assert write_result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2
+    # assert write_result.processed_records == NUM_PRODUCTS + FAKER_SCALE_A * 2  # noqa: ERA001
     write_result_state_provider = write_result.get_state_provider()
     assert write_result_state_provider.known_stream_names == {
         "users",

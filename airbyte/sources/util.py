@@ -175,7 +175,7 @@ def get_benchmark_source(
     return get_source(
         name="source-e2e-test",
         docker_image=True,
-        # docker_image="airbyte/source-e2e-test:latest",
+        # docker_image="airbyte/source-e2e-test:latest",  # noqa: ERA001
         config={
             "type": "BENCHMARK",
             "schema": "FIVE_STRING_COLUMNS",
