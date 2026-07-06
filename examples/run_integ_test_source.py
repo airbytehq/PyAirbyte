@@ -80,7 +80,7 @@ def main(
 if __name__ == "__main__":
     # Get first arg from CLI
     connector_name = sys.argv[1]
-    streams_csv = sys.argv[2] if len(sys.argv) > 2 else None  # noqa: PLR2004
+    streams_csv = sys.argv[2] if len(sys.argv) > 2 else None
     streams = None
     if streams_csv:
         streams = streams_csv.split(",")

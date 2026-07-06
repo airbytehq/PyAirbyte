@@ -76,7 +76,7 @@ def get_connector_spec_from_registry(
             f"Spec for connector '{connector_name}' (version {version}, platform {platform}) "
             f"does not contain 'spec.connectionSpecification'."
         )
-        return None  # noqa: TRY300
+        return None
 
     except requests.exceptions.Timeout:
         logger.warning(

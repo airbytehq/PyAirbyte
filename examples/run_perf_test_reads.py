@@ -145,7 +145,7 @@ def get_cache(
             credentials_path=temp.name,
         )
 
-    raise ValueError(f"Unknown cache type: {cache_type}")  # noqa: TRY003
+    raise ValueError(f"Unknown cache type: {cache_type}")
 
 
 def get_source(
@@ -175,7 +175,7 @@ def get_source(
             },
         )
 
-    raise ValueError(f"Unknown source alias: {source_alias}")  # noqa: TRY003
+    raise ValueError(f"Unknown source alias: {source_alias}")
 
 
 def get_destination(destination_type: str) -> ab.Destination:
@@ -196,7 +196,7 @@ def get_destination(destination_type: str) -> ab.Destination:
             docker_image=True,
         )
 
-    raise ValueError(f"Unknown destination type: {destination_type}")  # noqa: TRY003
+    raise ValueError(f"Unknown destination type: {destination_type}")
 
 
 def main(

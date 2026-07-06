@@ -80,7 +80,7 @@ class SourceSmokeTest(Source):
 
     def spec(
         self,
-        logger: logging.Logger,  # noqa: ARG002
+        logger: logging.Logger,
     ) -> ConnectorSpecification:
         """Return the connector specification."""
         return ConnectorSpecification(
@@ -364,7 +364,7 @@ class SourceSmokeTest(Source):
         logger: logging.Logger,
         config: Mapping[str, Any],
         catalog: ConfiguredAirbyteCatalog,
-        state: list[Any] | None = None,  # noqa: ARG002
+        state: list[Any] | None = None,
     ) -> Iterable[AirbyteMessage]:
         """Read records from selected smoke test streams."""
         selected_streams = {stream.stream.name for stream in catalog.streams}

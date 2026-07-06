@@ -48,7 +48,7 @@ def _regenerate_mcp_markdown() -> None:
         spec = importlib.util.spec_from_file_location("_mcp_markdown_gen", script)
         if spec is None or spec.loader is None:
             msg = f"Could not load spec for {script}"
-            raise RuntimeError(msg)  # noqa: TRY301
+            raise RuntimeError(msg)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         print("[docs-generate] Regenerating docs/mcp-generated/ ...")

@@ -163,9 +163,9 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
         # Import private lists from fastmcp_extensions: these are the only
         # place `mcp_module` is recorded for prompts/resources, so we accept
         # the private-name coupling.
-        from fastmcp_extensions.decorators import (  # noqa: PLC0415
-            _REGISTERED_PROMPTS,  # noqa: PLC2701
-            _REGISTERED_RESOURCES,  # noqa: PLC2701
+        from fastmcp_extensions.decorators import (
+            _REGISTERED_PROMPTS,
+            _REGISTERED_RESOURCES,
         )
 
         for _fn, ann in _REGISTERED_PROMPTS:
@@ -243,7 +243,7 @@ def _frontmatter(title: str, sidebar_label: str, description: str) -> str:
     )
 
 
-def _json_block(label: str, obj: Any) -> str:  # noqa: ANN401
+def _json_block(label: str, obj: Any) -> str:
     """Render an object inside a collapsible `<details>` JSON code block."""
     return (
         f"<details>\n<summary>{label}</summary>\n\n"

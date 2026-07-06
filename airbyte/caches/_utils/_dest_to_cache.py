@@ -167,7 +167,7 @@ def duckdb_destination_to_cache(
     # actually live at `<project_dir>/destination-duckdb/foo.duckdb` on the
     # host.  Resolve the host-side path so the cache can open the file.
     if db_path.startswith(("/local/", "/local\\")):
-        from airbyte.constants import DEFAULT_PROJECT_DIR  # noqa: PLC0415
+        from airbyte.constants import DEFAULT_PROJECT_DIR
 
         host_path = str(DEFAULT_PROJECT_DIR / "destination-duckdb" / db_path[len("/local/") :])
         db_path = host_path

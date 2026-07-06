@@ -630,7 +630,7 @@ def sync(
 
 
 @cli.command(name="destination-smoke-test")
-def destination_smoke_test(  # noqa: PLR0913
+def destination_smoke_test(
     *,
     destination: Annotated[
         str,

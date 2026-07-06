@@ -55,7 +55,7 @@ JOB_ORDER_BY_CREATED_AT_ASC = "createdAt|ASC"
 
 def status_ok(status_code: int) -> bool:
     """Check if a status code is OK."""
-    return status_code >= 200 and status_code < 300  # noqa: PLR2004  # allow inline magic numbers
+    return status_code >= 200 and status_code < 300  # allow inline magic numbers
 
 
 def _validate_pagination_params(
@@ -843,7 +843,7 @@ def run_connection(
 # Get job info (logs)
 
 
-def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexibility
+def get_job_logs(  # Too many arguments - needed for auth flexibility
     workspace_id: str,
     connection_id: str,
     limit: int | None = 100,
@@ -1503,7 +1503,7 @@ def build_connection_schedule(
     )
 
 
-def create_connection(  # noqa: PLR0913  # Too many arguments
+def create_connection(  # Too many arguments
     name: str,
     *,
     source_id: str,
@@ -1677,7 +1677,7 @@ def delete_connection(
         )
 
 
-def patch_connection(  # noqa: PLR0913  # Too many arguments
+def patch_connection(  # Too many arguments
     connection_id: str,
     *,
     api_root: str,
@@ -1895,7 +1895,7 @@ def check_connector(
 
 
 def validate_yaml_manifest(
-    manifest: Any,  # noqa: ANN401
+    manifest: Any,
     *,
     raise_on_error: bool = True,
 ) -> tuple[bool, str | None]:
@@ -2262,7 +2262,7 @@ def get_connector_builder_project(
     )
 
 
-def update_connector_builder_project_testing_values(  # noqa: PLR0913
+def update_connector_builder_project_testing_values(
     *,
     workspace_id: str,
     builder_project_id: str,

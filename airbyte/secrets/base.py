@@ -35,7 +35,7 @@ class SecretSourceEnum(str, Enum):
         return self.value
 
 
-class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of UserStr
+class SecretString(str):  # Allow subclass from str instead of UserStr
     """A string that represents a secret.
 
     This class is used to mark a string as a secret. When a secret is printed, it
@@ -104,7 +104,7 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
     @classmethod
     def validate(
         cls,
-        v: Any,  # noqa: ANN401  # Must allow `Any` to match Pydantic signature
+        v: Any,  # Must allow `Any` to match Pydantic signature
         info: ValidationInfo,
     ) -> SecretString:
         """Validate the input value is valid as a secret string."""
@@ -116,9 +116,9 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
         return cls(v)
 
     @classmethod
-    def __get_pydantic_core_schema__(  # noqa: PLW3201  # Pydantic dunder
+    def __get_pydantic_core_schema__(  # Pydantic dunder
         cls,
-        source_type: Any,  # noqa: ANN401  # Must allow `Any` to match Pydantic signature
+        source_type: Any,  # Must allow `Any` to match Pydantic signature
         handler: GetCoreSchemaHandler,
     ) -> CoreSchema:
         """Return a modified core schema for the secret string."""
@@ -127,7 +127,7 @@ class SecretString(str):  # noqa: FURB189  # Allow subclass from str instead of 
         )
 
     @classmethod
-    def __get_pydantic_json_schema__(  # noqa: PLW3201  # Pydantic dunder method
+    def __get_pydantic_json_schema__(  # Pydantic dunder method
         cls, core_schema_: core_schema.CoreSchema, handler: GetJsonSchemaHandler
     ) -> JsonSchemaValue:
         """Return a modified JSON schema for the secret string.

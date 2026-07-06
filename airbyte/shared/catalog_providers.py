@@ -137,7 +137,7 @@ class CatalogProvider:
         return cls(
             ConfiguredAirbyteCatalog(
                 streams=[
-                    dataset._stream_metadata  # noqa: SLF001  # Non-public API
+                    dataset._stream_metadata  # Non-public API
                     for dataset in read_result.values()
                 ]
             )

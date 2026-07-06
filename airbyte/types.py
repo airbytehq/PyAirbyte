@@ -1,4 +1,4 @@
-# noqa: A005  # Allow shadowing the built-in 'types' module
+# Allow shadowing the built-in 'types' module
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
 
 """Type conversion methods for SQL Caches."""
@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import cast
 
 import sqlalchemy
-from rich import print  # noqa: A004  # Allow shadowing the built-in
+from rich import print  # Allow shadowing the built-in
 
 
 # Compare to documentation here: https://docs.airbyte.com/understanding-airbyte/supported-data-types
@@ -34,7 +34,7 @@ class SQLTypeConversionError(Exception):
     """An exception to be raised when a type conversion fails."""
 
 
-def _get_airbyte_type(  # noqa: PLR0911  # Too many return statements
+def _get_airbyte_type(  # Too many return statements
     json_schema_property_def: dict[str, str | dict | list],
 ) -> tuple[str, str | None]:
     """Get the airbyte type and subtype from a JSON schema property definition.
@@ -121,7 +121,7 @@ class SQLTypeConverter:
         """Get the type to use for nested JSON data."""
         return sqlalchemy.types.JSON()
 
-    def to_sql_type(  # noqa: PLR0911  # Too many return statements
+    def to_sql_type(  # Too many return statements
         self,
         json_schema_property_def: dict[str, str | dict | list],
     ) -> sqlalchemy.types.TypeEngine:

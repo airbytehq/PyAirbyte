@@ -314,7 +314,7 @@ class SyncResult:
             return ab_datetime_parse(self._fetch_latest_job_info().start_time)
         except (ValueError, TypeError) as e:
             if "Invalid isoformat string" in str(e):
-                job_info_raw = api_util._make_config_api_request(  # noqa: SLF001
+                job_info_raw = api_util._make_config_api_request(
                     api_root=self.workspace.api_root,
                     config_api_root=self.workspace.config_api_root,
                     path="/jobs/get",
@@ -333,7 +333,7 @@ class SyncResult:
         if self._job_with_attempts_info is not None:
             return self._job_with_attempts_info
 
-        self._job_with_attempts_info = api_util._make_config_api_request(  # noqa: SLF001  # Config API helper
+        self._job_with_attempts_info = api_util._make_config_api_request(  # Config API helper
             api_root=self.workspace.api_root,
             config_api_root=self.workspace.config_api_root,
             path="/jobs/get",

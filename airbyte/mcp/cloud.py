@@ -936,7 +936,7 @@ def describe_cloud_source(
         source_id=source.source_id,
         source_name=source_name,
         source_url=source.connector_url,
-        connector_definition_id=source._connector_info.definition_id,  # noqa: SLF001  # type: ignore[union-attr]
+        connector_definition_id=source._connector_info.definition_id,  # type: ignore[union-attr]
     )
 
 
@@ -972,7 +972,7 @@ def describe_cloud_destination(
         destination_id=destination.destination_id,
         destination_name=destination_name,
         destination_url=destination.connector_url,
-        connector_definition_id=destination._connector_info.definition_id,  # noqa: SLF001  # type: ignore[union-attr]
+        connector_definition_id=destination._connector_info.definition_id,  # type: ignore[union-attr]
     )
 
 
@@ -2527,10 +2527,10 @@ def _add_defaults_for_exclude_args(
     Args:
         exclude_args: List of argument names that will be excluded from the tool schema.
     """
-    import inspect  # noqa: PLC0415  # Local import for optional patching logic
+    import inspect  # Local import for optional patching logic
 
-    from fastmcp_extensions.decorators import (  # noqa: PLC0415
-        _REGISTERED_TOOLS,  # noqa: PLC2701
+    from fastmcp_extensions.decorators import (
+        _REGISTERED_TOOLS,
     )
 
     for func, _annotations in _REGISTERED_TOOLS:

@@ -122,7 +122,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
 
         return destination_to_cache(config, schema_name=schema_name)
 
-    def write(  # noqa: PLR0912, PLR0915 # Too many arguments/statements
+    def write(  # Too many arguments/statements
         self,
         source_data: Source | ReadResult,
         *,
@@ -254,7 +254,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
         if source:
             if cache is False:
                 # Get message iterator for source (caching disabled)
-                message_iterator: AirbyteMessageIterator = source._get_airbyte_message_iterator(  # noqa: SLF001 # Non-public API
+                message_iterator: AirbyteMessageIterator = source._get_airbyte_message_iterator(  # Non-public API
                     streams=streams,
                     state_provider=source_state_provider,
                     progress_tracker=progress_tracker,
@@ -263,7 +263,7 @@ class Destination(ConnectorBase, AirbyteWriterInterface):
             else:
                 # Caching enabled and we are reading from a source.
                 # Read the data to cache if caching is enabled.
-                read_result = source._read_to_cache(  # noqa: SLF001  # Non-public API
+                read_result = source._read_to_cache(  # Non-public API
                     cache=cache,
                     state_provider=source_state_provider,
                     state_writer=cache_state_writer,

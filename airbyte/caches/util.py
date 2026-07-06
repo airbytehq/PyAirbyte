@@ -137,7 +137,7 @@ def get_colab_cache(
     ```
     """
     try:
-        from google.colab import drive  # noqa: PLC0415 # type: ignore[reportMissingImports]
+        from google.colab import drive  # type: ignore[reportMissingImports]
     except ImportError:
         drive = None
         msg = (

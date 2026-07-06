@@ -833,7 +833,7 @@ def run_sql_query(
     destructive=True,
     requires_client_filesystem=True,
 )
-def destination_smoke_test(  # noqa: PLR0913, PLR0917
+def destination_smoke_test(
     destination_connector_name: Annotated[
         str,
         Field(

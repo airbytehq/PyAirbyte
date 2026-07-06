@@ -119,7 +119,7 @@ has its own documentation and code samples related to effectively using the rela
 
 ----------------------
 
-"""  # noqa: D415
+"""
 
 from __future__ import annotations
 
@@ -152,7 +152,7 @@ if TYPE_CHECKING:
         datasets,
         destinations,
         documents,
-        exceptions,  # noqa: ICN001  # No 'exc' alias for top-level module
+        exceptions,  # No 'exc' alias for top-level module
         experimental,
         logs,
         mcp,

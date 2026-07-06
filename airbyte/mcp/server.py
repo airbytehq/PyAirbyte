@@ -164,7 +164,7 @@ register_prompts(app)
 
 
 @app.custom_route("/health", methods=["GET"])
-async def health_check(request: Request) -> JSONResponse:  # noqa: ARG001, RUF029
+async def health_check(request: Request) -> JSONResponse:
     """Health check endpoint for load balancer probes."""
     return JSONResponse({"status": "ok"})
 

@@ -11,7 +11,7 @@ from itertools import islice
 from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from rich import print  # noqa: A004  # Allow shadowing the built-in
+from rich import print  # Allow shadowing the built-in
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.markup import escape
@@ -64,7 +64,7 @@ from airbyte.constants import (
 )
 
 
-class Source(ConnectorBase):  # noqa: PLR0904
+class Source(ConnectorBase):
     """A class representing a source that can be called."""
 
     connector_type = "source"
@@ -797,7 +797,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
             )
             for message in progress_tracker.tally_records_read(message_generator):
                 if stop_event and stop_event.is_set():
-                    progress_tracker._log_sync_cancel()  # noqa: SLF001
+                    progress_tracker._log_sync_cancel()
                     time.sleep(0.1)
                     return
 
@@ -915,7 +915,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         progress_tracker.log_success()
         return result
 
-    def _read_to_cache(  # noqa: PLR0913  # Too many arguments
+    def _read_to_cache(  # Too many arguments
         self,
         cache: CacheBase,
         *,
@@ -978,7 +978,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                 progress_tracker=progress_tracker,
             )
         )
-        cache._write_airbyte_message_stream(  # noqa: SLF001  # Non-public API
+        cache._write_airbyte_message_stream(  # Non-public API
             stdin=airbyte_message_iterator,
             catalog_provider=catalog_provider,
             write_strategy=write_strategy,
@@ -987,7 +987,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
         )
 
         # Flush the WAL, if applicable
-        cache.processor._do_checkpoint()  # noqa: SLF001  # Non-public API
+        cache.processor._do_checkpoint()  # Non-public API
 
         return ReadResult(
             source_name=self.name,

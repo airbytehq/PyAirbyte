@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 import yaml
-from rich import print  # noqa: A004  # Allow shadowing the built-in
+from rich import print  # Allow shadowing the built-in
 
 import airbyte as ab
 from airbyte import exceptions as exc
@@ -95,7 +95,7 @@ def install_only_test(connector_name: str) -> None:
     """Test that the connector can be installed and spec can be printed."""
     print("Creating source and validating spec is returned successfully...")
     source = ab.get_source(connector_name)
-    source._get_spec(force_refresh=True)  # noqa: SLF001  # Member is private until we have a public API for it.
+    source._get_spec(force_refresh=True)  # Member is private until we have a public API for it.
 
 
 def run() -> None:

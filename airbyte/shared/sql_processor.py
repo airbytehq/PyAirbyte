@@ -400,7 +400,7 @@ class SqlProcessorBase(abc.ABC):
                 state_message=state_messages[-1],
             )
 
-    def _setup(self) -> None:  # noqa: B027  # Intentionally empty, not abstract
+    def _setup(self) -> None:  # Intentionally empty, not abstract
         """Create the database.
 
         By default this is a no-op but subclasses can override this method to prepare
@@ -408,7 +408,7 @@ class SqlProcessorBase(abc.ABC):
         """
         pass
 
-    def _do_checkpoint(  # noqa: B027  # Intentionally empty, not abstract
+    def _do_checkpoint(  # Intentionally empty, not abstract
         self,
         connection: Connection | None = None,
     ) -> None:
@@ -499,7 +499,7 @@ class SqlProcessorBase(abc.ABC):
 
     # Protected members (non-public interface):
 
-    def _init_connection_settings(self, connection: Connection) -> None:  # noqa: B027  # Intentionally empty, not abstract
+    def _init_connection_settings(self, connection: Connection) -> None:  # Intentionally empty, not abstract
         """This is called automatically whenever a new connection is created.
 
         By default this is a no-op. Subclasses can use this to set connection settings, such as
@@ -603,7 +603,7 @@ class SqlProcessorBase(abc.ABC):
         # limiting the table name suffix to 10 characters, including the underscore.
         suffix = (
             f"{batch_id[:6]}{batch_id[-3:]}"
-            if len(batch_id) > 9  # noqa: PLR2004  # Allow magic int value
+            if len(batch_id) > 9  # Allow magic int value
             else batch_id
         )
 

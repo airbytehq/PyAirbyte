@@ -256,14 +256,14 @@ class StreamRecord(dict[str, Any]):
             extracted_at=datetime.fromtimestamp(record_message.emitted_at / 1000, tz=timezone.utc),
         )
 
-    def __getitem__(self, key: str) -> Any:  # noqa: ANN401
+    def __getitem__(self, key: str) -> Any:
         """Return the item with the given key."""
         try:
             return super().__getitem__(key)
         except KeyError:
             return super().__getitem__(self._stream_handler.to_index_case(key))
 
-    def __setitem__(self, key: str, value: Any) -> None:  # noqa: ANN401
+    def __setitem__(self, key: str, value: Any) -> None:
         """Set the item with the given key to the given value."""
         index_case_key = self._stream_handler.to_index_case(key)
         if (

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from airbyte.callbacks import ConfigChangeCallback
 
 
-def get_destination(  # noqa: PLR0913 # Too many arguments
+def get_destination(  # Too many arguments
     name: str,
     config: dict[str, Any] | None = None,
     *,

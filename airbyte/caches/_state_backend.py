@@ -136,9 +136,9 @@ class SqlStateWriter(StateWriterBase):
                 context={"state_message": state_message},
             )
 
-        self._state_backend._ensure_internal_tables()  # noqa: SLF001  # Non-public member access
-        table_prefix = self._state_backend._table_prefix  # noqa: SLF001
-        engine = self._state_backend._sql_config.get_sql_engine()  # noqa: SLF001
+        self._state_backend._ensure_internal_tables()  # Non-public member access
+        table_prefix = self._state_backend._table_prefix
+        engine = self._state_backend._sql_config.get_sql_engine()
 
         # Calculate the new state model to write.
         new_state = (

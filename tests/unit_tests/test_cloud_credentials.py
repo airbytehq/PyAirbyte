@@ -445,7 +445,7 @@ def test_mcp_resolve_organization_id_skips_lookup_when_id_provided() -> None:
         def get_organization(self, **_: object) -> object:
             pytest.fail("get_organization should not be called")
 
-    resolved_organization_id = mcp_cloud._resolve_organization_id(  # noqa: SLF001
+    resolved_organization_id = mcp_cloud._resolve_organization_id(
         organization_id="organization-id",
         organization_name=None,
         client=FailingClient(),
@@ -471,7 +471,7 @@ def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(
     monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
     organization = CloudOrganization("organization-id", bearer_token="token")
 
-    assert organization._fetch_organization_info() == {"organizationName": "cached"}  # noqa: SLF001
-    assert organization._fetch_organization_info(force_refresh=True) == {  # noqa: SLF001
+    assert organization._fetch_organization_info() == {"organizationName": "cached"}
+    assert organization._fetch_organization_info(force_refresh=True) == {
         "organizationName": "cached"
     }
