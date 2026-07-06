@@ -486,7 +486,7 @@ class ConnectorBase(abc.ABC):
                     self._peek_airbyte_message(message)
                     yield message
 
-                except Exception:
+                except Exception:  # noqa: PERF203
                     # This is likely a log message, so log it as INFO.
                     self._print_info_message(line)
 
