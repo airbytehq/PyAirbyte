@@ -13,7 +13,7 @@ from airbyte import get_source
 
 yaml_connectors: list[str] = ab.get_available_connectors(install_type="yaml")
 
-print(
+print(  # noqa: T201
     f"Downloadable yaml sources ({len(yaml_connectors)}): \n- "
     + "\n- ".join(yaml_connectors)
 )
@@ -32,13 +32,13 @@ for yaml_connector in yaml_connectors:
 
 # Print any connector failures, grouped by the error message
 for error, connectors_failed in failed_installs.items():
-    print(
+    print(  # noqa: T201
         f"\nInstallation Errors ({len(failed_installs)}): {error}\n- "
         + "\n- ".join(connectors_failed)
         + "\n"
     )
 
-print("Running declarative source...")
+print("Running declarative source...")  # noqa: T201
 source = get_source(
     "source-pokeapi",
     config={
@@ -52,4 +52,4 @@ source.select_all_streams()
 result = source.read()
 
 for name, records in result.streams.items():
-    print(f"Stream {name}: {len(records)} records")
+    print(f"Stream {name}: {len(records)} records")  # noqa: T201

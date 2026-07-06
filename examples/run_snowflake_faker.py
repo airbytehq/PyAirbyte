@@ -50,4 +50,4 @@ source.check()
 result = source.read(cache)
 
 for name in ["products"]:
-    print(f"Stream {name}: {len(list(result[name]))} records")
+    print(f"Stream {name}: {len(list(result[name]))} records")  # noqa: T201

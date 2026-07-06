@@ -60,7 +60,7 @@ def main() -> None:
         result = source.read(cache)
 
         for name, records in result.streams.items():
-            print(f"Stream {name}: {len(records)} records")
+            print(f"Stream {name}: {len(records)} records")  # noqa: T201
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ def get_connector_config(self, connector_name: str, index: int = 0) -> dict | No
         None,
     )
 
-    print(f"Found '{connector_name}' credential secret '${first_secret.secret_name}'.")
+    print(f"Found '{connector_name}' credential secret '${first_secret.secret_name}'.")  # noqa: T201
     return first_secret.get_value().parse_json()
 
 

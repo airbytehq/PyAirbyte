@@ -573,7 +573,7 @@ def generate(server_spec: str, output: Path) -> None:
     """Run `fastmcp inspect`, render Markdown, and write files to `output/`."""
     with tempfile.TemporaryDirectory() as tmp:
         report_path = Path(tmp) / "mcp-inspect.json"
-        print(f"Running `fastmcp inspect {server_spec}`...")
+        print(f"Running `fastmcp inspect {server_spec}`...")  # noqa: T201
         report = _run_fastmcp_inspect(server_spec, report_path)
 
     fallback_map = _resolve_extra_module_map(server_spec)
@@ -591,9 +591,9 @@ def generate(server_spec: str, output: Path) -> None:
 
     for name, content in pages.items():
         (resolved_output / name).write_text(content, encoding="utf-8")
-        print(f"  wrote {resolved_output / name}")
+        print(f"  wrote {resolved_output / name}")  # noqa: T201
 
-    print(
+    print(  # noqa: T201
         f"Done. {len(buckets)} module(s) documented — "
         f"{sum(len(b.tools) for b in buckets.values())} tool(s), "
         f"{sum(len(b.resources) for b in buckets.values())} resource(s), "
@@ -619,7 +619,7 @@ def main() -> int:
     try:
         generate(server_spec=args.server_spec, output=args.output)
     except (subprocess.CalledProcessError, RuntimeError) as ex:
-        print(f"MCP docs generation failed: {ex}", file=sys.stderr)
+        print(f"MCP docs generation failed: {ex}", file=sys.stderr)  # noqa: T201
         return 1
     return 0
 

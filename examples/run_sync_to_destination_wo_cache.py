@@ -67,7 +67,7 @@ def main() -> None:
         cache=False,
         state_cache=state_cache,
     )
-    print(
+    print(  # noqa: T201
         f"Completed writing {write_result.processed_records:,} records "
         f"to destination at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     )

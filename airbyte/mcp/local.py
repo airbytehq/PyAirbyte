@@ -462,7 +462,7 @@ def read_source_stream_records(
         # Next we load a limited number of records from the generator into our list.
         records: list[dict[str, Any]] = list(islice(record_generator, max_records))
 
-        print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)
+        print(f"Retrieved {len(records)} records from stream '{stream_name}'", sys.stderr)  # noqa: T201
 
     except Exception as ex:
         tb_str = traceback.format_exc()

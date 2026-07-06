@@ -385,9 +385,9 @@ def test_url_construction_with_path_prefix() -> None:
         bearer_token=fake_bearer_token,
     )
 
-    print(f"\nBase URL with path prefix: {base_url_with_path}")
-    print(f"Result type: {type(result)}")
-    print(f"Result: {result}")
+    print(f"\nBase URL with path prefix: {base_url_with_path}")  # noqa: T201
+    print(f"Result type: {type(result)}")  # noqa: T201
+    print(f"Result: {result}")  # noqa: T201
 
     assert result == [], (
         f"Expected empty list from httpbin (no real sources), but got: {result}"

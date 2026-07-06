@@ -43,7 +43,7 @@ def set_mcp_mode() -> None:
     This should be called early in MCP server initialization to ensure
     proper detection and prevent interactive prompts.
     """
-    print(
+    print(  # noqa: T201
         "Running in MCP mode: "
         f"Airbyte Replication MCP v{get_version()} (Python v{python_version()})",
         file=sys.stderr,

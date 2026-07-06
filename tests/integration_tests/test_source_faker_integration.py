@@ -273,7 +273,7 @@ def test_merge_insert_not_supported_for_duckdb(
         if result:
             raise AssertionError("Cache supports merge-insert, but it's set to False.")
     except Exception as e:
-        print(f"An exception occurred: {e}")
+        print(f"An exception occurred: {e}")  # noqa: T201
         if isinstance(e, AssertionError):
             raise e
 
@@ -300,6 +300,6 @@ def test_merge_insert_not_supported_for_postgres(
         if result:
             raise AssertionError("Cache supports merge-insert, but it's set to False.")
     except Exception as e:
-        print(f"An exception occurred: {e}")
+        print(f"An exception occurred: {e}")  # noqa: T201
         if isinstance(e, AssertionError):
             raise e

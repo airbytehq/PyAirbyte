@@ -64,13 +64,13 @@ def main(
     cache = ab.new_local_cache()
     try:
         read_result = source.read(cache=cache)
-        print(
+        print(  # noqa: T201
             f"Read from `{connector_name}` was successful. ",
             f"Cache results were saved to: {cache.cache_dir}",
             f"Streams list: {', '.join(read_result.streams.keys())}",
         )
     except Exception:
-        print(
+        print(  # noqa: T201
             f"Read from `{connector_name}` failed. ",
             f"Cache files are located at: {cache.cache_dir}",
         )

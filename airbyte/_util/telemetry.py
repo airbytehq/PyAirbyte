@@ -102,7 +102,7 @@ def _setup_analytics() -> str | bool:
 
     if not _ANALYTICS_FILE.exists():
         # This is a one-time message to inform the user that we are tracking anonymous usage stats.
-        print(
+        print(  # noqa: T201
             "Thank you for using Airbyte!\n"
             "Anonymous usage reporting is currently enabled. For more information, please"
             " see https://docs.airbyte.com/telemetry",
@@ -127,7 +127,7 @@ def _setup_analytics() -> str | bool:
                 return analytics["anonymous_user_id"]
 
             issues.append("Provided analytics ID did not match the file. Rewriting the file.")
-            print(
+            print(  # noqa: T201
                 f"Received a user-provided analytics ID override in the '{_ENV_ANALYTICS_ID}' "
                 "environment variable.",
                 file=sys.stderr,
@@ -150,7 +150,7 @@ def _setup_analytics() -> str | bool:
 
     if DEBUG and issues:
         nl = "\n"
-        print(
+        print(  # noqa: T201
             f"One or more issues occurred when configuring usage tracking:\n{nl.join(issues)}",
             file=sys.stderr,
         )

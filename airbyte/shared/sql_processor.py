@@ -1200,8 +1200,8 @@ class SqlProcessorBase(abc.ABC):
         )
 
         if DEBUG_MODE:
-            print(str(update_stmt))
-            print(str(insert_new_records_stmt))
+            print(str(update_stmt))  # noqa: T201
+            print(str(insert_new_records_stmt))  # noqa: T201
 
         with self.get_sql_connection() as conn:
             conn.execute(update_stmt)

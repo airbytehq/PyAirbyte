@@ -52,7 +52,7 @@ def main() -> None:
         source_data=source,
         cache=ab.new_local_cache(),
     )
-    print(
+    print(  # noqa: T201
         f"Completed writing {write_result.processed_records:,} records "
         f"to destination at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     )

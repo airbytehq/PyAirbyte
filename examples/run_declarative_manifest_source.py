@@ -166,7 +166,7 @@ schemas:
 
 source_manifest_dict = cast(dict, yaml.safe_load(SOURCE_MANIFEST_TEXT))
 
-print("Installing declarative source...")
+print("Installing declarative source...")  # noqa: T201
 source = get_source(
     "source-rick-and-morty",
     config={},
@@ -178,4 +178,4 @@ source.select_all_streams()
 result = source.read()
 
 for name, records in result.streams.items():
-    print(f"Stream {name}: {len(records)} records")
+    print(f"Stream {name}: {len(records)} records")  # noqa: T201

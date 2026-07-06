@@ -32,7 +32,7 @@ source.select_streams([
 ])
 
 result = source.read(cache=ab.new_local_cache("github"))
-print(result.processed_records)
+print(result.processed_records)  # noqa: T201
 
 for name, records in result.streams.items():
-    print(f"Stream {name}: {len(records)} records")
+    print(f"Stream {name}: {len(records)} records")  # noqa: T201

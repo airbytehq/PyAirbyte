@@ -177,16 +177,16 @@ def main() -> None:
     It should not be called directly; instead, consult the MCP client documentation
     for instructions on how to connect to the server.
     """
-    print("Starting Airbyte MCP server.", file=sys.stderr)
+    print("Starting Airbyte MCP server.", file=sys.stderr)  # noqa: T201
     try:
         asyncio.run(app.run_stdio_async())
     except KeyboardInterrupt:
-        print("Airbyte MCP server interrupted by user.", file=sys.stderr)
+        print("Airbyte MCP server interrupted by user.", file=sys.stderr)  # noqa: T201
     except Exception as ex:
-        print(f"Error running Airbyte MCP server: {ex}", file=sys.stderr)
+        print(f"Error running Airbyte MCP server: {ex}", file=sys.stderr)  # noqa: T201
         sys.exit(1)
 
-    print("Airbyte MCP server stopped.", file=sys.stderr)
+    print("Airbyte MCP server stopped.", file=sys.stderr)  # noqa: T201
 
 
 if __name__ == "__main__":

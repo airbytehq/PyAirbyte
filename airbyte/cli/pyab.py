@@ -420,11 +420,11 @@ def validate(
             use_python=use_python,
         )
 
-    print("Getting `spec` output from connector...", file=sys.stderr)
+    print("Getting `spec` output from connector...", file=sys.stderr)  # noqa: T201
     connector_obj.print_config_spec(stderr=True)
 
     if config:
-        print("Running connector check...")
+        print("Running connector check...")  # noqa: T201
         config_dict: dict[str, Any] = _resolve_config(config)
         connector_obj.set_config(config_dict)
         connector_obj.check()
@@ -526,7 +526,7 @@ def benchmark(
         else get_noop_destination()
     )
 
-    print("Running benchmarks...", file=sys.stderr)
+    print("Running benchmarks...", file=sys.stderr)  # noqa: T201
     destination_obj.write(
         source_data=source_obj,
         cache=False,
@@ -621,7 +621,7 @@ def sync(
         use_python=use_python,
     )
 
-    print("Running sync...")
+    print("Running sync...")  # noqa: T201
     destination_obj.write(
         source_data=source_obj,
         cache=False,
@@ -749,7 +749,7 @@ def destination_smoke_test(  # noqa: PLR0913
     --config=./secrets/snowflake.json
     --reuse-namespace=zz_deleteme_20260318_2256`
     """
-    print("Resolving destination...", file=sys.stderr)
+    print("Resolving destination...", file=sys.stderr)  # noqa: T201
     destination_obj = _resolve_destination_job(
         destination=destination,
         config=config,
@@ -757,7 +757,7 @@ def destination_smoke_test(  # noqa: PLR0913
         use_python=use_python,
     )
 
-    print("Running destination smoke test...", file=sys.stderr)
+    print("Running destination smoke test...", file=sys.stderr)  # noqa: T201
     result = run_destination_smoke_test(
         destination=destination_obj,
         scenarios=scenarios,
@@ -767,11 +767,11 @@ def destination_smoke_test(  # noqa: PLR0913
         skip_preflight=skip_preflight,
     )
 
-    print(json.dumps(result.model_dump(), indent=2))
+    print(json.dumps(result.model_dump(), indent=2))  # noqa: T201
 
     if not result.success:
         if result.error:
-            print(f"Smoke test FAILED: {result.error}", file=sys.stderr)
+            print(f"Smoke test FAILED: {result.error}", file=sys.stderr)  # noqa: T201
         sys.exit(1)
 
 
