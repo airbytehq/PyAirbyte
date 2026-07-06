@@ -22,7 +22,7 @@ class SupportLevel(str, Enum):
 
     @classmethod
     def parse(cls, value: str) -> SupportLevel:
-        """Parse a support level keyword or legacy integer precedence value."""
+        """Parse a support level keyword or legacy integer precedence value."""  # noqa: DOC501
         try:
             return cls(value)
         except ValueError:
@@ -52,7 +52,7 @@ class ConnectorType(str, Enum):
 
     @classmethod
     def parse(cls, value: str) -> ConnectorType:
-        """Parse a connector type value."""
+        """Parse a connector type value."""  # noqa: DOC501
         try:
             return cls(value)
         except ValueError:

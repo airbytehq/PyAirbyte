@@ -55,7 +55,7 @@ def _try_get_manifest_connector_files(
         - `PyAirbyteInputError`: If `source_name` is `None`.
         - `AirbyteConnectorInstallationError`: If the manifest cannot be downloaded or parsed,
           or if components.zip cannot be downloaded or extracted (excluding 404 errors).
-    """
+    """  # noqa: DOC501
     if source_name is None:
         raise exc.PyAirbyteInputError(
             message="Param 'source_name' is required.",
@@ -136,7 +136,7 @@ def _get_local_executor(
     local_executable: Path | str | Literal[True],
     version: str | None,
 ) -> Executor:
-    """Get a local executor for a connector."""
+    """Get a local executor for a connector."""  # noqa: DOC501
     if version:
         raise exc.PyAirbyteInputError(
             message="Param 'version' is not supported when 'local_executable' is set."
@@ -188,7 +188,7 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     """This factory function creates an executor for a connector.
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
-    """
+    """  # noqa: DOC501
     install_method_count = sum(
         [
             bool(local_executable),

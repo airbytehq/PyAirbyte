@@ -40,7 +40,7 @@ def resolve_list_of_strings(value: str | list[str] | set[str] | None) -> list[st
 
     Args:
         value: A string or list of strings.
-    """
+    """  # noqa: DOC501
     if value is None:
         return None
 
@@ -88,7 +88,7 @@ def resolve_connector_config(  # noqa: PLR0912
         ValueError: If JSON parsing fails or a provided input is invalid
 
     We reject hardcoded secrets in a config dict if we detect them.
-    """
+    """  # noqa: DOC501
     config_dict: dict[str, Any] = {}
 
     if config is None and config_file is None and config_secret_name is None:

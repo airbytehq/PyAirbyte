@@ -130,7 +130,7 @@ class AirbyteMessageIterator:
         """Create a iterator that reads messages from a buffer."""
 
         def generator() -> Generator[AirbyteMessage, None, None]:
-            """Yields AirbyteMessage objects read from STDIN."""
+            """Yields AirbyteMessage objects read from STDIN."""  # noqa: DOC501
             while True:
                 next_line: str | None = next(buffer, None)  # Read the next line from STDIN
                 if next_line is None:

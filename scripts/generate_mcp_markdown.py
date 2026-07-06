@@ -101,7 +101,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
-    """Invoke `fastmcp inspect` and return the parsed JSON report."""
+    """Invoke `fastmcp inspect` and return the parsed JSON report."""  # noqa: DOC501
     fastmcp_bin = shutil.which("fastmcp")
     if fastmcp_bin is None:
         raise RuntimeError(
@@ -555,7 +555,7 @@ def _prepare_output_dir(output: Path) -> Path:
     footgun where preparing a resolved dir but writing via the raw `output`
     would silently target a different, non-existent path when cwd differs
     from the repo root.
-    """
+    """  # noqa: DOC501
     resolved = _resolve_output_dir(output)
     if resolved == _REPO_ROOT or not resolved.is_relative_to(_REPO_ROOT):
         raise RuntimeError(

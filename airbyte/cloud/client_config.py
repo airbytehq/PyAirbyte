@@ -93,7 +93,7 @@ class CloudClientConfig:
     """The Config API root URL."""
 
     def __post_init__(self) -> None:
-        """Validate credentials and ensure secrets are properly wrapped."""
+        """Validate credentials and ensure secrets are properly wrapped."""  # noqa: DOC501
         # Wrap secrets in SecretString if they aren't already
         if self.client_id is not None:
             self.client_id = SecretString(self.client_id)

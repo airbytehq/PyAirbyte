@@ -229,7 +229,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         """Return true if the given table exists.
 
         We override the default implementation because BigQuery is very slow at scanning tables.
-        """
+        """  # noqa: DOC501
         client = self.sql_config.get_vendor_client()
         table_id = f"{self.sql_config.project_name}.{self.sql_config.dataset_name}.{table_name}"
         try:
@@ -286,7 +286,7 @@ class BigQuerySqlProcessor(SqlProcessorBase):
         For example, BigQuery expects this format:
 
         ALTER TABLE my_schema.my_old_table_name RENAME TO my_new_table_name;
-        """
+        """  # noqa: DOC501
         if final_table_name is None:
             raise exc.PyAirbyteInternalError(message="Arg 'final_table_name' cannot be None.")
         if temp_table_name is None:

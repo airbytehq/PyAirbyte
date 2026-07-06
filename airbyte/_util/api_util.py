@@ -62,7 +62,7 @@ def _validate_pagination_params(
     *,
     limit: int | None,
 ) -> None:
-    """Validate common pagination parameters."""
+    """Validate common pagination parameters."""  # noqa: DOC501
     if limit is not None and limit <= 0:
         raise PyAirbyteInputError(message="`limit` must be greater than 0.")
 
@@ -255,7 +255,7 @@ def get_workspace(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.WorkspaceResponse:
-    """Get a workspace object."""
+    """Get a workspace object."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -295,7 +295,7 @@ def create_workspace(
     organization_id: str | None = None,
     region_id: str | None = None,
 ) -> models.WorkspaceResponse:
-    """Create a workspace."""
+    """Create a workspace."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -342,7 +342,7 @@ def rename_workspace(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.WorkspaceResponse:
-    """Rename a workspace."""
+    """Rename a workspace."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -405,7 +405,7 @@ def permanently_delete_workspace(
         PyAirbyteInputError: If safe mode is True and the workspace name does not meet
             the safety requirements.
         AirbyteWorkspaceNotEmptyError: If the workspace contains connections.
-    """
+    """  # noqa: DOC501
     if safe_mode:
         if workspace_name is None:
             workspace_info = get_workspace(
@@ -486,7 +486,7 @@ def list_connections(
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
 ) -> list[models.ConnectionResponse]:
-    """List connections."""
+    """List connections."""  # noqa: DOC501
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
@@ -555,7 +555,7 @@ def list_workspaces(
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
 ) -> list[models.WorkspaceResponse]:
-    """List workspaces."""
+    """List workspaces."""  # noqa: DOC501
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
@@ -623,7 +623,7 @@ def list_sources(
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
 ) -> list[models.SourceResponse]:
-    """List sources."""
+    """List sources."""  # noqa: DOC501
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
@@ -690,7 +690,7 @@ def list_destinations(
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
 ) -> list[models.DestinationResponse]:
-    """List destinations."""
+    """List destinations."""  # noqa: DOC501
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
@@ -762,7 +762,7 @@ def get_connection(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.ConnectionResponse:
-    """Get a connection."""
+    """Get a connection."""  # noqa: DOC501
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -812,7 +812,7 @@ def run_connection(
     If block is True, this will block until the connection is finished running.
 
     If raise_on_failure is True, this will raise an exception if the connection fails.
-    """
+    """  # noqa: DOC501
     _ = workspace_id  # Not used (yet)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -876,7 +876,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
 
     Returns:
         A list of JobResponse objects.
-    """
+    """  # noqa: DOC501
     _validate_pagination_params(limit=limit)
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
@@ -974,7 +974,7 @@ def get_job_info(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.JobResponse:
-    """Get a job."""
+    """Get a job."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1017,7 +1017,7 @@ def create_source(
     """Create a source connector instance.
 
     Either `definition_id` or `config[sourceType]` must be provided.
-    """
+    """  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1054,7 +1054,7 @@ def get_source(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.SourceResponse:
-    """Get a connection."""
+    """Get a connection."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1108,7 +1108,7 @@ def delete_source(
     Raises:
         PyAirbyteInputError: If safe_mode is True and the source name does not meet
             the safety requirements.
-    """
+    """  # noqa: DOC501
     _ = workspace_id  # Not used (yet)
 
     if safe_mode:
@@ -1184,7 +1184,7 @@ def patch_source(
 
     Returns:
         Updated SourceResponse object
-    """
+    """  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1249,7 +1249,7 @@ def create_destination(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DestinationResponse:
-    """Get a connection."""
+    """Get a connection."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1290,7 +1290,7 @@ def get_destination(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DestinationResponse:
-    """Get a connection."""
+    """Get a connection."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1362,7 +1362,7 @@ def delete_destination(
     Raises:
         PyAirbyteInputError: If safe_mode is True and the destination name does not meet
             the safety requirements.
-    """
+    """  # noqa: DOC501
     _ = workspace_id  # Not used (yet)
 
     if safe_mode:
@@ -1439,7 +1439,7 @@ def patch_destination(
 
     Returns:
         Updated DestinationResponse object
-    """
+    """  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1555,7 +1555,7 @@ def get_connection_by_name(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.ConnectionResponse:
-    """Get a connection."""
+    """Get a connection."""  # noqa: DOC501
     connections = list_connections(
         workspace_id=workspace_id,
         api_root=api_root,
@@ -1626,7 +1626,7 @@ def delete_connection(
     Raises:
         PyAirbyteInputError: If safe_mode is True and the connection name does not meet
             the safety requirements.
-    """
+    """  # noqa: DOC501
     if safe_mode:
         if connection_name is None:
             connection_info = get_connection(
@@ -1709,7 +1709,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
 
     Returns:
         Updated ConnectionResponse object
-    """
+    """  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         client_id=client_id,
         client_secret=client_secret,
@@ -1863,7 +1863,7 @@ def check_connector(
 
     - /v1/sources/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1409
     - /v1/destinations/check_connection: https://github.com/airbytehq/airbyte-platform-internal/blob/10bb92e1745a282e785eedfcbed1ba72654c4e4e/oss/airbyte-api/server-api/src/main/openapi/config.yaml#L1995
-    """
+    """  # noqa: DOC501
     _ = workspace_id  # Not used (yet)
 
     json_result = _make_config_api_request(
@@ -1909,7 +1909,7 @@ def validate_yaml_manifest(
 
     Returns:
         Tuple of (is_valid, error_message)
-    """
+    """  # noqa: DOC501
     if not isinstance(manifest, dict):
         error = "Manifest must be a dictionary"
         if raise_on_error:
@@ -1943,7 +1943,7 @@ def create_custom_yaml_source_definition(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DeclarativeSourceDefinitionResponse:
-    """Create a custom YAML source definition."""
+    """Create a custom YAML source definition."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -1978,7 +1978,7 @@ def list_custom_yaml_source_definitions(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> list[models.DeclarativeSourceDefinitionResponse]:
-    """List all custom YAML source definitions in a workspace."""
+    """List all custom YAML source definitions in a workspace."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -2016,7 +2016,7 @@ def get_custom_yaml_source_definition(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DeclarativeSourceDefinitionResponse:
-    """Get a specific custom YAML source definition."""
+    """Get a specific custom YAML source definition."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -2057,7 +2057,7 @@ def update_custom_yaml_source_definition(
     client_secret: SecretString | None,
     bearer_token: SecretString | None,
 ) -> models.DeclarativeSourceDefinitionResponse:
-    """Update a custom YAML source definition."""
+    """Update a custom YAML source definition."""  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -2117,7 +2117,7 @@ def delete_custom_yaml_source_definition(
     Raises:
         PyAirbyteInputError: If safe_mode is True and the connector name does not meet
             the safety requirements.
-    """
+    """  # noqa: DOC501
     if safe_mode:
         definition_info = get_custom_yaml_source_definition(
             workspace_id=workspace_id,
@@ -2335,7 +2335,7 @@ def list_organizations_for_user(
 
     Returns:
         List of OrganizationResponse objects containing organization_id, organization_name, email
-    """
+    """  # noqa: DOC501
     airbyte_instance = get_airbyte_server_instance(
         api_root=api_root,
         client_id=client_id,
@@ -2550,7 +2550,7 @@ def replace_connection_state(
 
     Returns:
         Dictionary containing the updated ConnectionState object.
-    """
+    """  # noqa: DOC501
     try:
         return _make_config_api_request(
             path="/state/create_or_update_safe",

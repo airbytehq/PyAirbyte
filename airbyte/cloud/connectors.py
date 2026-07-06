@@ -162,7 +162,7 @@ class CloudConnector(abc.ABC):
             A `CheckResult` object containing the result. The object is truthy if the check was
             successful and falsy otherwise. The error message is available in the `error_message`
             or by converting the object to a string.
-        """
+        """  # noqa: DOC501
         result = api_util.check_connector(
             workspace_id=self.workspace.workspace_id,
             connector_type=self.connector_type,
@@ -794,7 +794,7 @@ class CustomCloudSourceDefinition:
 
         Returns:
             A `CloudSource` object representing the newly created source.
-        """
+        """  # noqa: DOC501
         if self.definition_type != "yaml":
             raise NotImplementedError(
                 "Only YAML custom source definitions can be used to deploy new sources. "

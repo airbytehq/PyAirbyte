@@ -171,7 +171,7 @@ class SyncAttempt:
         return ab_datetime_parse(timestamp)
 
     def _get_attempt_data(self) -> dict[str, Any]:
-        """Get attempt data from the provided attempt data."""
+        """Get attempt data from the provided attempt data."""  # noqa: DOC501
         if self._attempt_data is None:
             raise ValueError(
                 "Attempt data not provided. SyncAttempt should be created via "
@@ -309,7 +309,7 @@ class SyncResult:
 
     @property
     def start_time(self) -> datetime:
-        """Return the start time of the sync job in UTC."""
+        """Return the start time of the sync job in UTC."""  # noqa: DOC501
         try:
             return ab_datetime_parse(self._fetch_latest_job_info().start_time)
         except (ValueError, TypeError) as e:
@@ -374,7 +374,7 @@ class SyncResult:
         method will raise a `AirbyteConnectionSyncError`.
 
         Otherwise, do nothing.
-        """
+        """  # noqa: DOC501
         if not refresh_status and self._latest_job_info:
             latest_status = self._latest_job_info.status
         else:
@@ -395,7 +395,7 @@ class SyncResult:
         raise_timeout: bool = True,
         raise_failure: bool = False,
     ) -> JobStatusEnum:
-        """Wait for a job to finish running."""
+        """Wait for a job to finish running."""  # noqa: DOC501
         start_time = time.time()
         while True:
             latest_status = self.get_job_status()

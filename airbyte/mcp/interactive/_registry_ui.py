@@ -140,7 +140,7 @@ def show_connectors_list(
         ),
     ] = 0,
 ) -> ToolResult:
-    """Show an interactive public connector catalog from the OSS registry."""
+    """Show an interactive public connector catalog from the OSS registry."""  # noqa: DOC501
     if limit < 0:
         raise exc.PyAirbyteInputError(
             message="Limit parameter must be non-negative.",

@@ -122,7 +122,7 @@ class CloudClient:
         )
 
     def get_workspace(self, workspace_id: str | None = None) -> CloudWorkspace:
-        """Create a `CloudWorkspace` using this client's credentials."""
+        """Create a `CloudWorkspace` using this client's credentials."""  # noqa: DOC501
         resolved_workspace_id = workspace_id or self._credentials.workspace_id
         if not resolved_workspace_id:
             raise exc.PyAirbyteInputError(
@@ -233,7 +233,7 @@ class CloudClient:
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
     ) -> list[CloudWorkspaceInfo]:
-        """List workspaces available to this client."""
+        """List workspaces available to this client."""  # noqa: DOC501
         if organization_id is not None or self.organization_id is not None:
             resolved_organization_id = organization_id or self.organization_id
             if not resolved_organization_id:
@@ -291,7 +291,7 @@ class CloudClient:
         *,
         organization_name: str | None = None,
     ) -> CloudOrganization:
-        """Resolve an organization by ID or exact name."""
+        """Resolve an organization by ID or exact name."""  # noqa: DOC501
         resolved_organization_id = organization_id or self.organization_id
         if resolved_organization_id and organization_name:
             raise exc.PyAirbyteInputError(

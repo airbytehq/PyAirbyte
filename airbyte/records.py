@@ -275,7 +275,7 @@ class StreamRecord(dict[str, Any]):
         super().__setitem__(index_case_key, value)
 
     def __delitem__(self, key: str) -> None:
-        """Delete the item with the given key."""
+        """Delete the item with the given key."""  # noqa: DOC501
         try:
             super().__delitem__(key)
         except KeyError:

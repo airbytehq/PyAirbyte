@@ -58,7 +58,7 @@ class _AirbyteCredentials:
 
         When `env_vars` is True (default), environment variables are checked as a
         fallback after explicit inputs.
-        """
+        """  # noqa: DOC501
         resolved_bearer_token = _first_value(
             str(bearer_token) if bearer_token is not None else None,
             _env_value(BEARER_TOKEN_ENV_VAR, CLOUD_BEARER_TOKEN_ENV_VAR) if env_vars else None,

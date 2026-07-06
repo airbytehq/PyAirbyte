@@ -138,7 +138,7 @@ USE_PYTHON_HELP = (
 def _resolve_config(
     config: str,
 ) -> dict[str, Any]:
-    """Resolve the configuration file into a dictionary."""
+    """Resolve the configuration file into a dictionary."""  # noqa: DOC501
 
     def _inject_secrets(config_dict: dict[str, Any]) -> None:
         """Inject secrets into the configuration dictionary."""
@@ -231,7 +231,7 @@ def _resolve_source_job(
             all streams will be selected. If not provided, all streams will be selected.
         pip_url: Optional. A location from which to install the connector.
         use_python: Optional. Python interpreter specification.
-    """
+    """  # noqa: DOC501
     config_dict = _resolve_config(config) if config else None
     streams_list: str | list[str] = streams or "*"
     if isinstance(streams, str) and streams != "*":
@@ -313,7 +313,7 @@ def _resolve_destination_job(
         config: The path to a configuration file for the named source or destination.
         pip_url: Optional. A location from which to install the connector.
         use_python: Optional. Python interpreter specification.
-    """
+    """  # noqa: DOC501
     config_dict = _resolve_config(config) if config else {}
     use_python_parsed = _parse_use_python(use_python)
 
@@ -397,7 +397,7 @@ def validate(
 
     If 'config' is provided, we will also run a `check` on the connector
     with the provided config.
-    """
+    """  # noqa: DOC501
     if not connector:
         raise PyAirbyteInputError(
             message="No connector provided.",
@@ -496,7 +496,7 @@ def benchmark(
 
     If a source is being benchmarked, you can provide a configuration file or a job
     definition file to run the source job.
-    """
+    """  # noqa: DOC501
     if source and destination:
         raise PyAirbyteInputError(
             message="For benchmarking, source or destination can be provided, but not both.",

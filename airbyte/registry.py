@@ -263,7 +263,7 @@ def get_connector_metadata(name: str) -> ConnectorMetadata | None:
     """Check the cache for the connector.
 
     If the cache is empty, populate by calling update_cache.
-    """
+    """  # noqa: DOC501
     registry_url = _get_registry_url()
 
     if _is_registry_disabled(registry_url):
@@ -299,7 +299,7 @@ def get_available_connectors(
     Args:
         install_type: The type of installation for the connector.
             Defaults to `InstallType.INSTALLABLE`.
-    """
+    """  # noqa: DOC501
     if install_type is None or install_type == InstallType.INSTALLABLE:
         # Filter for installable connectors (default behavior).
         if is_docker_installed():

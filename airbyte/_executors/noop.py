@@ -70,7 +70,7 @@ class NoOpExecutor(Executor):
         """Execute a command and return an iterator of STDOUT lines.
 
         Only the 'spec' command is supported. Other commands will raise an error.
-        """
+        """  # noqa: DOC501
         _ = stdin, suppress_stderr  # Unused
 
         if args == ["spec"]:

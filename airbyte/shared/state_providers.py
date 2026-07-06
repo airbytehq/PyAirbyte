@@ -45,7 +45,7 @@ class StateProviderBase(abc.ABC):
 
         This is just a type guard around the private variable `_stream_state_artifacts` and the
         cast to `AirbyteStreamState` objects.
-        """
+        """  # noqa: DOC501
         if self._state_message_artifacts is None:
             raise exc.PyAirbyteInternalError(message="No state artifacts were declared.")
 
@@ -62,7 +62,7 @@ class StateProviderBase(abc.ABC):
         """Return all state artifacts.
 
         This is just a type guard around the private variable `_state_message_artifacts`.
-        """
+        """  # noqa: DOC501
         result = self._state_message_artifacts
         if result is None:
             raise exc.PyAirbyteInternalError(message="No state artifacts were declared.")
@@ -98,7 +98,7 @@ class StateProviderBase(abc.ABC):
         stream_name: str,
         not_found: AirbyteStateMessage | Literal["raise"] | None = "raise",
     ) -> AirbyteStateMessage:
-        """Return the state message for the specified stream name."""
+        """Return the state message for the specified stream name."""  # noqa: DOC501
         for state_message in self.state_message_artifacts:
             if (
                 state_message.stream.stream_descriptor.name  # pyrefly: ignore[missing-attribute]

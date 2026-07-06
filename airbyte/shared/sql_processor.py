@@ -231,7 +231,7 @@ class SqlProcessorBase(abc.ABC):
         temp_dir: Path | None = None,
         temp_file_cleanup: bool,
     ) -> None:
-        """Create a new SQL processor."""
+        """Create a new SQL processor."""  # noqa: DOC501
         if not temp_dir and not file_writer:
             raise exc.PyAirbyteInternalError(
                 message="Either `temp_dir` or `file_writer` must be provided.",
@@ -313,7 +313,7 @@ class SqlProcessorBase(abc.ABC):
         """Process a stream of Airbyte messages.
 
         This method assumes that the catalog is already registered with the processor.
-        """
+        """  # noqa: DOC501
         if not isinstance(write_strategy, WriteStrategy):
             raise exc.AirbyteInternalError(  # pyrefly: ignore[missing-attribute]
                 message="Invalid `write_strategy` argument. Expected instance of WriteStrategy.",
@@ -532,7 +532,7 @@ class SqlProcessorBase(abc.ABC):
 
         To prevent unnecessary round-trips to the database, the table is cached after the first
         query. To ignore the cache and force a refresh, set 'force_refresh' to True.
-        """
+        """  # noqa: DOC501
         if force_refresh and shallow_okay:
             raise exc.PyAirbyteInternalError(
                 message="Cannot force refresh and use shallow query at the same time."
@@ -763,7 +763,7 @@ class SqlProcessorBase(abc.ABC):
         TODO: Add a dedupe step here to remove duplicates from the temp table.
               Some sources will send us duplicate records within the same stream,
               although this is a fairly rare edge case we can ignore in V1.
-        """
+        """  # noqa: DOC501
         if write_method and write_strategy and write_strategy != WriteStrategy.AUTO:
             raise exc.PyAirbyteInternalError(
                 message=(
@@ -858,7 +858,7 @@ class SqlProcessorBase(abc.ABC):
         self._finalized_state_messages[stream_name] += state_messages_to_finalize
 
     def _execute_sql(self, sql: str | TextClause | Executable) -> CursorResult:
-        """Execute the given SQL statement."""
+        """Execute the given SQL statement."""  # noqa: DOC501
         if isinstance(sql, str):
             sql = text(sql)
 
@@ -894,7 +894,7 @@ class SqlProcessorBase(abc.ABC):
 
         This is a generic implementation, which can be overridden by subclasses
         to improve performance.
-        """
+        """  # noqa: DOC501
         temp_table_name = self._create_table_for_loading(stream_name, batch_id)
         for file_path in files:
             dataframe = pd.read_json(file_path, lines=True)
@@ -988,7 +988,7 @@ class SqlProcessorBase(abc.ABC):
         final_table_name: str,
         write_method: WriteMethod,
     ) -> None:
-        """Write the temp table into the final table using the provided write strategy."""
+        """Write the temp table into the final table using the provided write strategy."""  # noqa: DOC501
         if write_method == WriteMethod.REPLACE:
             # Note: No need to check for schema compatibility
             # here, because we are fully replacing the table.
@@ -1068,7 +1068,7 @@ class SqlProcessorBase(abc.ABC):
 
         This implementation requires MERGE support in the SQL DB.
         Databases that do not support this syntax can override this method.
-        """
+        """  # noqa: DOC501
         if final_table_name is None:
             raise exc.PyAirbyteInternalError(message="Arg 'final_table_name' cannot be None.")
         if temp_table_name is None:
@@ -1130,7 +1130,7 @@ class SqlProcessorBase(abc.ABC):
         """Return the column object for the given column name.
 
         This method is case-insensitive.
-        """
+        """  # noqa: DOC501
         if isinstance(table, str):
             table = self._get_table_by_name(table)
         try:

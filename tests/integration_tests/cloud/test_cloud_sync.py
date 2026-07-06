@@ -69,7 +69,7 @@ def test_deploy_and_run_connection(
     *,
     use_docker: bool,
 ) -> None:
-    """Test deploying a source and cache to a workspace as a new connection."""
+    """Test deploying a source and cache to a workspace as a new connection."""  # noqa: DOC501
     source = ab.get_source(
         "source-faker",
         config={"count": 100},

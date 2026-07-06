@@ -41,7 +41,7 @@ class DockerExecutor(Executor):
         """Ensure that the connector executable can be found.
 
         The auto_fix parameter is ignored for this executor type.
-        """
+        """  # noqa: DOC501
         _ = auto_fix
         try:
             assert (

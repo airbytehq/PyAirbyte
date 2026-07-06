@@ -75,7 +75,7 @@ def _stream_from_subprocess(
     in a separate thread while output is read concurrently. This avoids a
     potential deadlock where the subprocess blocks on stdout (buffer full)
     while we're waiting for input to finish before reading stdout.
-    """
+    """  # noqa: DOC501
     input_thread: Thread | None = None
     exception_holder = ExceptionHolder()
     if isinstance(stdin, AirbyteMessageIterator):
@@ -180,7 +180,7 @@ class Executor(ABC):
         """Initialize a connector executor.
 
         The 'name' param is required if 'metadata' is None.
-        """
+        """  # noqa: DOC501
         if not name and not metadata:
             raise exc.PyAirbyteInternalError(message="Either name or metadata must be provided.")
 

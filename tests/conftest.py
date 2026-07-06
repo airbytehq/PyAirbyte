@@ -166,7 +166,7 @@ def new_postgres_db():
 
     This fixture will start a new PostgreSQL container before the tests run and stop it after the
     tests are done. The host of the PostgreSQL database will be returned to the tests.
-    """
+    """  # noqa: DOC501
     client = docker.from_env()
     try:
         client.images.get(PYTEST_POSTGRES_IMAGE)

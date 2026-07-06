@@ -257,7 +257,7 @@ def test_merge_insert_not_supported_for_duckdb(
     duckdb_cache: DuckDBCache,
     mocker: pytest_mock.MockFixture,
 ) -> None:
-    """Confirm that duckdb does not support merge insert natively"""
+    """Confirm that duckdb does not support merge insert natively"""  # noqa: DOC501
     if DuckDBSqlProcessor.supports_merge_insert:
         return  # Skip this test if the cache supports merge-insert.
 
@@ -287,7 +287,7 @@ def test_merge_insert_not_supported_for_postgres(
     new_postgres_cache: PostgresCache,
     mocker: pytest_mock.MockFixture,
 ):
-    """Confirm that postgres does not support merge insert natively"""
+    """Confirm that postgres does not support merge insert natively"""  # noqa: DOC501
     # TODO - This test keeps getting skipped, investigate why.
     #        It appears to be due to the fixture `new_postgres_cache` not detecting docker properly.
     if PostgresSqlProcessor.supports_merge_insert:

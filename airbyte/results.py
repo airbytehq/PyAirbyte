@@ -56,7 +56,7 @@ class ReadResult(Mapping[str, CachedDataset]):
         self._processed_streams = processed_streams
 
     def __getitem__(self, stream: str) -> CachedDataset:
-        """Return the cached dataset for a given stream name."""
+        """Return the cached dataset for a given stream name."""  # noqa: DOC501
         if stream not in self._processed_streams:
             raise KeyError(stream)
 

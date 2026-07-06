@@ -158,7 +158,7 @@ def get_smoke_test_source(
     `custom_scenarios_file` is an optional path to a JSON or YAML file containing
     additional scenario definitions. Each scenario should have `name`, `json_schema`,
     and optionally `records` and `primary_key`.
-    """
+    """  # noqa: DOC501
     # Normalize empty list to "fast" (default)
     if isinstance(scenarios, list) and not scenarios:
         scenarios = "fast"

@@ -55,7 +55,7 @@ def new_local_cache(
 
     Cache files are stored in the `.cache` directory, relative to the current
     working directory.
-    """
+    """  # noqa: DOC501
     if cache_name:
         if " " in cache_name:
             raise exc.PyAirbyteInputError(
@@ -135,7 +135,7 @@ def get_colab_cache(
         drive_name="My Company Drive",
     )
     ```
-    """
+    """  # noqa: DOC501
     try:
         from google.colab import drive  # noqa: PLC0415 # type: ignore[reportMissingImports]
     except ImportError:

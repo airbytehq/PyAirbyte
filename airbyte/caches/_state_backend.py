@@ -211,7 +211,7 @@ class SqlStateBackend(StateBackendBase):
         refresh: bool = True,
         destination_name: str | None = None,
     ) -> StateProviderBase:
-        """Return the state provider."""
+        """Return the state provider."""  # noqa: DOC501
         if destination_name and table_prefix:
             raise PyAirbyteInputError(
                 message="Both 'destination_name' and 'table_prefix' cannot be set at the same time."
