@@ -23,8 +23,8 @@ def main() -> None:
         title_property="title",
         content_properties=["body"],
         metadata_properties=["state", "url", "number"],
-        # primary_key_properties=["id"],
-        # cursor_property="updated_at",
+        # primary_key_properties=["id"],  # noqa: ERA001
+        # cursor_property="updated_at",  # noqa: ERA001
         render_metadata=True,
     ):
         rich.print(rich.markdown.Markdown(str(doc) + "\n\n" + str("-" * 40)))

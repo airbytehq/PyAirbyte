@@ -41,7 +41,7 @@ def as_temp_files(files_contents: list[dict | str]) -> Generator[list[str], Any,
             Path(temp_file.name).chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
 
             # Don't close the file yet (breaks Windows)
-            # temp_file.close()
+            # temp_file.close()  # noqa: ERA001
             temp_files.append(temp_file)
         yield [file.name for file in temp_files]
     finally:

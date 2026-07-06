@@ -82,7 +82,7 @@ def run() -> None:
     # individual tools / prompts / resources show up in the left nav. This
     # monkey-patches the module-level `markdown_extensions` dict because pdoc
     # 16's `configure()` does not expose markdown extension options.
-    # pyrefly: ignore[unsupported-operation]
+    # pyrefly: ignore[unsupported-operation]  # noqa: ERA001
     pdoc.render_helpers.markdown_extensions["toc"] = {"depth": 3}
 
     pdoc.render.configure(

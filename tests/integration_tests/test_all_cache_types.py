@@ -169,7 +169,7 @@ def test_faker_read(
         assert sum(1 for _ in arrow_dataset.to_batches()) == FAKER_SCALE_A / 10
 
     # TODO: Uncomment this line after resolving https://github.com/airbytehq/PyAirbyte/issues/165
-    # assert len(result["users"].to_pandas()) == FAKER_SCALE_A
+    # assert len(result["users"].to_pandas()) == FAKER_SCALE_A  # noqa: ERA001
 
 
 @pytest.mark.requires_creds

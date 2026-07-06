@@ -139,7 +139,7 @@ def _normalize_state_to_protocol(
             }
         ]
 
-    # state_type == "stream"
+    # state_type == "stream"  # noqa: ERA001
     if not parsed.stream_state:
         return []
 

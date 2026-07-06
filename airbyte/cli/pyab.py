@@ -349,7 +349,7 @@ def _resolve_destination_job(
             use_python=use_python_parsed,
         )
 
-    # else: # Treat the destination as a name.
+    # else: # Treat the destination as a name.  # noqa: ERA001
 
     return get_destination(
         name=destination,

@@ -134,7 +134,7 @@ class ConnectorMetadata(BaseModel):
         if InstallType.PYTHON in self.install_types:
             return InstallType.PYTHON
 
-        # Else: Java or Docker
+        # Else: Java or Docker  # noqa: ERA001
         return InstallType.DOCKER
 
 

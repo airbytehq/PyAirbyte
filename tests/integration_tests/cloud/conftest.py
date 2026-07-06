@@ -114,7 +114,7 @@ def deployable_dummy_source(*, use_docker: bool) -> Source:
         config={
             "count": 100,
         },
-        # install_if_missing=False,
+        # install_if_missing=False,  # noqa: ERA001
         docker_image=use_docker,
     )
 
@@ -150,8 +150,8 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     """
     deployable_destination_fixtures: dict[str, str] = {
         # Ordered by priority (fastest first)
-        # "MotherDuck": "new_motherduck_destination",
-        # "Postgres": "new_remote_postgres_cache",
+        # "MotherDuck": "new_motherduck_destination",  # noqa: ERA001
+        # "Postgres": "new_remote_postgres_cache",  # noqa: ERA001
         "BigQuery": "new_bigquery_destination",
         "Snowflake": "new_snowflake_destination",
     }

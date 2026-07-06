@@ -51,7 +51,7 @@ def main() -> None:
         )
         write_result = destination.write(
             source,
-            # cache=False,  # Toggle comment to test with/without caching
+            # cache=False,  # Toggle comment to test with/without caching  # noqa: ERA001
         )
 
 

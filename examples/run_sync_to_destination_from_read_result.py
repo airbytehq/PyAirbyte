@@ -38,7 +38,7 @@ def get_my_destination() -> ab.Destination:
         },
         docker_image="airbyte/destination-duckdb:latest",
         # OR:
-        # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",
+        # pip_url="git+https://github.com/airbytehq/airbyte.git#subdirectory=airbyte-integrations/connectors/destination-duckdb",  # noqa: ERA001
     )
 
 

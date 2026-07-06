@@ -13,7 +13,7 @@ def test_bigquery_props(
     new_bigquery_cache: ab.BigQueryCache,
 ) -> None:
     """Test that the BigQueryCache properties are set correctly."""
-    # assert new_bigquery_cache.credentials_path.endswith(".json")
+    # assert new_bigquery_cache.credentials_path.endswith(".json")  # noqa: ERA001
     assert new_bigquery_cache.dataset_name == new_bigquery_cache.schema_name, (
         "Dataset name should be the same as schema name."
     )
