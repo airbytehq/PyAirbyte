@@ -466,7 +466,8 @@ class ConnectorBase(abc.ABC):
                         "stream": "",
                         "data": {},
                         "emitted_at": 1234567890,
-                        # "namespace": "",  # We're knowingly omitting this to keep perf impact low.  # noqa: ERA001
+                        # Omitting "namespace" key to keep perf impact low.
+                        # "namespace": "",  # noqa: ERA001
                     },
                 }
             )
