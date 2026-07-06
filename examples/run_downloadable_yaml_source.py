@@ -23,7 +23,7 @@ failed_installs: dict[str, list[str]] = {}
 for yaml_connector in yaml_connectors:
     try:
         _ = get_source(yaml_connector, source_manifest=True)
-    except Exception as ex:
+    except Exception as ex:  # noqa: PERF203
         exception_type = type(ex).__name__
         if exception_type in failed_installs:
             failed_installs[exception_type].append(yaml_connector)

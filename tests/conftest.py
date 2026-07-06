@@ -139,7 +139,7 @@ def test_pg_connection(host) -> bool:
             conn = psycopg.connect(pg_url)
             conn.close()
             return True
-        except psycopg.OperationalError:
+        except psycopg.OperationalError:  # noqa: PERF203
             logger.info(
                 f"Waiting for postgres to start (attempt {attempt + 1}/{max_attempts})"
             )
@@ -199,7 +199,7 @@ def new_postgres_db():
         try:
             postgres.reload()
             postgres_is_running = postgres.status == "running"
-        except docker.errors.NotFound:
+        except docker.errors.NotFound:  # noqa: PERF203
             attempts -= 1
             time.sleep(3)
     if not postgres_is_running:
