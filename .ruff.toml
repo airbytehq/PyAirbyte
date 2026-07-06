@@ -86,7 +86,7 @@ ignore = [
     "INP001",  # Dir 'examples' is part of an implicit namespace package. Add an __init__.py.
 
     # TODO: Consider re-enabling these before release:
-    "A003",    # Class attribute 'type' is shadowing a Python builtin
+    # "A003",  # Class attribute 'type' is shadowing a Python builtin (now enforced)
     "BLE001",  # Do not catch blind exception: Exception
     "ERA001",  # Remove commented-out code
     "FIX002",  # Allow "TODO:" until release (then switch to requiring links via TDO003)
