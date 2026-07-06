@@ -59,7 +59,7 @@ dev = [
     "docker>=7.1.0,<8.0",
     "faker>=21.0.0,<22.0",
     "freezegun>=1.4.0,<2.0",
-    "pyrefly>=0.38.0,<0.39.0",
+    "ty>=0.0.56",
     "pandas-stubs>=2.1.4.231218",
     "pdoc>=16.0.0,<17.0",
     "poethepoet>=0.26.1,<0.32.0",
@@ -140,11 +140,11 @@ filterwarnings = [ # syntax: "action:message_regex:category:module:line"
 # [tool.ruff]
 # Ruff moved to dedicated config file: `.ruff.toml`
 
-# [tool.pyrefly]
-# Pyrefly moved to dedicated config file: `pyrefly.toml`
+# [tool.ty]
+# ty moved to dedicated config file: `ty.toml`
 
 [tool.mypy]
-# Disable all mypy checks for this project since we use pyrefly instead
+# Disable all mypy checks for this project since we use ty instead
 ignore_errors = true
 
 [tool.pyright]
@@ -162,7 +162,7 @@ coverage-report = { shell = "coverage report" }
 coverage-html = { shell = "coverage html -d htmlcov && open htmlcov/index.html" }
 coverage-reset = { shell = "coverage erase" }
 
-check = { shell = "ruff check . && pyrefly check && pytest --collect-only -qq" }
+check = { shell = "ruff check . && ty check && pytest --collect-only -qq" }
 
 docs-generate = {env = {PDOC_ALLOW_EXEC = "1"}, cmd = "python -m docs.generate run"}
 docs-preview = {shell = "poe docs-generate && open docs/generated/index.html"}

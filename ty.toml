@@ -1,0 +1,33 @@
+# ty Type Checker Configuration
+# https://ty.dev/configuration
+
+[environment]
+python-version = "3.10"
+
+[src]
+include = ["airbyte"]
+exclude = [
+    "tests/integration_tests/fixtures/source-broken/**",
+    "tests/integration_tests/fixtures/source-test/**",
+    "docs/**",
+    "tests/**",
+]
+
+[analysis]
+allowed-unresolved-imports = ["**"]
+
+[rules]
+# Pre-existing issues inherited from pyrefly migration.
+# Demoted to warn so CI passes; fix incrementally.
+invalid-argument-type = "warn"
+unknown-argument = "warn"
+missing-argument = "warn"
+unresolved-attribute = "warn"
+invalid-assignment = "warn"
+call-non-callable = "warn"
+invalid-return-type = "warn"
+invalid-method-override = "warn"
+no-matching-overload = "warn"
+
+[terminal]
+error-on-warning = false

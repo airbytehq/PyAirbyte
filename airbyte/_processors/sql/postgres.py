@@ -71,5 +71,5 @@ class PostgresSqlProcessor(SqlProcessorBase):
     file_writer_class = JsonlWriter
     sql_config: PostgresConfig
 
-    normalizer = PostgresNormalizer  # pyrefly: ignore[bad-override]
+    normalizer = PostgresNormalizer  # ty: ignore[invalid-method-override]
     """A Postgres-specific name normalizer for table and column name normalization."""

@@ -1319,7 +1319,7 @@ def get_destination(
 
         if destination_type in destination_mapping and raw_configuration is not None:
             response.destination_response.configuration = destination_mapping[
-                destination_type  # pyrefly: ignore[index-error]
+                destination_type  # ty: ignore[index-out-of-bounds]
             ](**raw_configuration)
         return response.destination_response
 

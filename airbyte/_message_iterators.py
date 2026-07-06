@@ -179,7 +179,7 @@ class AirbyteMessageIterator:
                     try:
                         current_file = next(file_iterator)
                         current_file_buffer = file_opener(
-                            current_file  # pyrefly: ignore[bad-argument-type]
+                            current_file  # ty: ignore[invalid-argument-type]
                         )
                     except StopIteration:
                         # No more files to read; Exit the loop
@@ -194,7 +194,7 @@ class AirbyteMessageIterator:
 
                 try:
                     # Let Pydantic handle the JSON decoding from the raw string
-                    yield (  # pyrefly: ignore[invalid-yield]
+                    yield (  # ty: ignore[invalid-yield]
                         AirbyteMessage.model_validate_json(next_line),
                         current_file,
                     )

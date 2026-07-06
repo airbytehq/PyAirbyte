@@ -951,7 +951,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                         "write_strategy": write_strategy,
                         "available_strategies": [
                             s.value
-                            for s in WriteStrategy  # pyrefly: ignore[not-iterable]
+                            for s in WriteStrategy  # ty: ignore[not-iterable]
                         ],
                     },
                 ) from None
