@@ -30,6 +30,6 @@ result = source.read(
     force_full_refresh=FORCE_FULL_REFRESH,
 )
 
-print("Read complete. Validating results...")
+print("Read complete. Validating results...")  # noqa: T201
 for name, records in result.streams.items():
-    print(f"Stream {name}: {len(records)} records")
+    print(f"Stream {name}: {len(records)} records")  # noqa: T201

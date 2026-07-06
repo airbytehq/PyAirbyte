@@ -26,7 +26,7 @@ source.select_streams(["launches", "rockets", "capsules"])
 
 result = source.read(cache)
 
-print(islice(source.get_records("capsules"), 10))
+print(islice(source.get_records("capsules"), 10))  # noqa: T201
 
 for name, records in result.cache.streams.items():
-    print(f"Stream {name}: {len(list(records))} records")
+    print(f"Stream {name}: {len(list(records))} records")  # noqa: T201

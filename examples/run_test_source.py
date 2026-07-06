@@ -21,12 +21,12 @@ cache = ab.new_local_cache("cache_test")
 
 source.check()
 
-print(source.get_available_streams())
+print(source.get_available_streams())  # noqa: T201
 
 result = source.read(cache)
 
-print(result.processed_records)
-print(list(result["stream1"]))
+print(result.processed_records)  # noqa: T201
+print(list(result["stream1"]))  # noqa: T201
 
 different_cache = ab.new_local_cache("cache_test")
-print(list(different_cache["stream1"]))
+print(list(different_cache["stream1"]))  # noqa: T201

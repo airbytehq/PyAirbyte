@@ -317,7 +317,7 @@ class CloudWorkspace:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
         )
-        print(f"Successfully connected to workspace: {self.workspace_url}")
+        print(f"Successfully connected to workspace: {self.workspace_url}")  # noqa: T201
 
     # Get sources, destinations, and connections
 

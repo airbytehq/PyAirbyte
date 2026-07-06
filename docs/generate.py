@@ -42,7 +42,7 @@ def _regenerate_mcp_markdown() -> None:
     """
     script = pathlib.Path(__file__).parent.parent / "scripts" / "generate_mcp_markdown.py"
     if not script.exists():
-        print(f"[docs-generate] MCP markdown generator not found at {script}; skipping.")
+        print(f"[docs-generate] MCP markdown generator not found at {script}; skipping.")  # noqa: T201
         return
     try:
         spec = importlib.util.spec_from_file_location("_mcp_markdown_gen", script)
@@ -51,13 +51,13 @@ def _regenerate_mcp_markdown() -> None:
             raise RuntimeError(msg)  # noqa: TRY301
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
-        print("[docs-generate] Regenerating docs/mcp-generated/ ...")
+        print("[docs-generate] Regenerating docs/mcp-generated/ ...")  # noqa: T201
         module.generate(
             server_spec=module.DEFAULT_SERVER_SPEC,
             output=module.DEFAULT_OUTPUT,
         )
     except Exception as ex:
-        print(
+        print(  # noqa: T201
             f"[docs-generate] WARNING: failed to regenerate MCP Markdown docs: {ex}. "
             "pdoc will continue, but module pages may show missing include warnings.",
             file=sys.stderr,

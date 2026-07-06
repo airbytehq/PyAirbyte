@@ -157,7 +157,7 @@ def get_global_file_logger() -> logging.Logger | None:
         return None
 
     logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
-    print(f"Writing PyAirbyte logs to file: {logfile_path!s}", file=sys.stderr)
+    print(f"Writing PyAirbyte logs to file: {logfile_path!s}", file=sys.stderr)  # noqa: T201
 
     file_handler = logging.FileHandler(
         filename=logfile_path,
@@ -246,7 +246,7 @@ def get_global_stats_logger() -> structlog.BoundLogger:
         # No temp directory available, so return no-op logger without handlers
         return structlog.get_logger("airbyte.stats")
 
-    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}", file=sys.stderr)
+    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}", file=sys.stderr)  # noqa: T201
 
     # Remove any existing handlers
     for handler in logger.handlers:
@@ -303,7 +303,7 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     global_logger = get_global_file_logger()
     logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
     logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
-    print(logfile_msg, file=sys.stderr)
+    print(logfile_msg, file=sys.stderr)  # noqa: T201
     if global_logger:
         global_logger.info(logfile_msg)
 

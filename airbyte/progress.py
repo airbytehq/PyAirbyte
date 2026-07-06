@@ -432,7 +432,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
 
     def _log_sync_cancel(self) -> None:
-        print(
+        print(  # noqa: T201
             f"Canceled `{self.job_description}` sync at `{ab_datetime_now().strftime('%H:%M:%S')}`."
         )
         self._send_telemetry(
@@ -441,7 +441,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         )
 
     def _log_stream_read_start(self, stream_name: str) -> None:
-        print(
+        print(  # noqa: T201
             f"Read started on stream `{stream_name}` at "
             f"`{ab_datetime_now().strftime('%H:%M:%S')}`..."
         )
@@ -618,7 +618,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         else:
             streams_str = f" ({len(streams)} streams)"
 
-        print(
+        print(  # noqa: T201
             f"Completed `{self.job_description}` sync at "
             f"`{ab_datetime_now().strftime('%H:%M:%S')}`{streams_str}."
         )

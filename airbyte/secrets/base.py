@@ -257,7 +257,7 @@ class SecretHandle:
         This method is a convenience method that writes the secret to a file as text.
         """
         if not silent:
-            print(
+            print(  # noqa: T201
                 f"Writing secret '{self.secret_name.split('/')[-1]}' to '{file_path.absolute()!s}'"
             )
 

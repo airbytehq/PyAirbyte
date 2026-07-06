@@ -19,4 +19,4 @@ os.environ["AIRBYTE_LOCAL_REGISTRY"] = (
 
 source = ab.get_source("source-test", config={"apiKey": "test"})
 
-print(list(source.read(streams=["stream1"])))
+print(list(source.read(streams=["stream1"])))  # noqa: T201

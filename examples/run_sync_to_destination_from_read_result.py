@@ -52,7 +52,7 @@ def main() -> None:
     read_result: ab.ReadResult = source.read(
         cache=ab.new_local_cache(),
     )
-    print(
+    print(  # noqa: T201
         "Completed reading from source at "
         f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}. "
         "Writing to destination..."
@@ -60,7 +60,7 @@ def main() -> None:
     write_result: ab.WriteResult = destination.write(
         source_data=read_result,
     )
-    print(
+    print(  # noqa: T201
         f"Completed writing {write_result.processed_records:,} records "
         f"to destination at {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}."
     )

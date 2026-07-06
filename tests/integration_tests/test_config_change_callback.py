@@ -20,7 +20,7 @@ from airbyte_protocol.models import (
 
 
 def config_change_callback(config: dict[str, Any]) -> None:
-    print(f"Updated config: {config}")
+    print(f"Updated config: {config}")  # noqa: T201
 
 
 @pytest.fixture

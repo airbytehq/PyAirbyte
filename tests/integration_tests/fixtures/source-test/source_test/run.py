@@ -186,21 +186,21 @@ def get_json_file(path):
 def run():
     args = sys.argv[1:]
     if args[0] == "spec":
-        print(json.dumps(sample_connection_specification))
+        print(json.dumps(sample_connection_specification))  # noqa: T201
     elif args[0] == "discover":
-        print(json.dumps(sample_catalog))
+        print(json.dumps(sample_catalog))  # noqa: T201
     elif args[0] == "check":
         args = parse_args()
         config = get_json_file(args["--config"])
         if config.get("apiKey").startswith("test"):
-            print(json.dumps(sample_connection_check_success))
+            print(json.dumps(sample_connection_check_success))  # noqa: T201
         else:
-            print(json.dumps(sample_connection_check_failure))
+            print(json.dumps(sample_connection_check_failure))  # noqa: T201
     elif args[0] == "read":
         args = parse_args()
         catalog = get_json_file(args["--catalog"])
         config = get_json_file(args["--config"])
-        print(
+        print(  # noqa: T201
             json.dumps({
                 "type": "LOG",
                 "log": {"level": "INFO", "message": "Starting sync"},
@@ -208,11 +208,11 @@ def run():
         )
         for stream in catalog["streams"]:
             if stream["stream"]["name"] == "stream1":
-                print(json.dumps(sample_record1_stream1))
+                print(json.dumps(sample_record1_stream1))  # noqa: T201
                 if config.get("apiKey") == "test_fail_during_sync":
                     raise Exception("An error")
-                print(json.dumps(sample_record2_stream1))
+                print(json.dumps(sample_record2_stream1))  # noqa: T201
             elif stream["stream"]["name"] == "stream2":
-                print(json.dumps(sample_record_stream2))
+                print(json.dumps(sample_record_stream2))  # noqa: T201
             elif stream["stream"]["name"] == "primary-key-with-dot":
-                print(json.dumps(sample_record_primary_key_with_dot))
+                print(json.dumps(sample_record_primary_key_with_dot))  # noqa: T201
