@@ -321,8 +321,8 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
 
         update_period = 1  # Reset the update period to 1 before start.
 
-        for count, message in enumerate(  # ty: ignore[invalid-assignment]
-            messages,  # ty: ignore[invalid-argument-type]
+        for count, message in enumerate(
+            messages,
             start=1,
         ):
             yield message  # ty: ignore[invalid-yield]
@@ -585,7 +585,7 @@ class ProgressTracker:  # noqa: PLR0904  # Too many public methods
         perf_metrics["stream_metrics"] = stream_metrics
         log_dict["performance_metrics"] = perf_metrics
 
-        self._file_logger.info(json.dumps(log_dict))  # ty: ignore[unresolved-attribute]
+        self._file_logger.info(json.dumps(log_dict))
 
         perf_logger: BoundLogger = logs.get_global_stats_logger()
         perf_logger.info(**log_dict)

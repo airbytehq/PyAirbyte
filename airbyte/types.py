@@ -135,7 +135,6 @@ class SQLTypeConverter:
         except SQLTypeConversionError:
             print(f"Could not determine airbyte type from JSON schema: {json_schema_property_def}")
         except KeyError:
-            # ty: ignore[possibly-unresolved-reference]
             print(f"Could not find SQL type for airbyte type: {airbyte_type}")
         else:
             # No exceptions were raised, so we can return the SQL type.

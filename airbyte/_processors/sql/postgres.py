@@ -71,5 +71,5 @@ class PostgresSqlProcessor(SqlProcessorBase):
     file_writer_class = JsonlWriter
     sql_config: PostgresConfig
 
-    normalizer = PostgresNormalizer  # ty: ignore[invalid-method-override]
+    normalizer = PostgresNormalizer
     """A Postgres-specific name normalizer for table and column name normalization."""

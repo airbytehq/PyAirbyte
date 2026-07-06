@@ -50,7 +50,7 @@ class LowerCaseNormalizer(NameNormalizerBase):
 
     @staticmethod
     @functools.cache
-    def normalize(name: str) -> str:  # ty: ignore[invalid-method-override]
+    def normalize(name: str) -> str:
         """Return the normalized name.
 
         - All non-alphanumeric characters are replaced with underscores.

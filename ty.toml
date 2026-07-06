@@ -17,6 +17,7 @@ exclude = [
 allowed-unresolved-imports = ["**"]
 
 [rules]
+unused-ignore-comment = "error"
 # Pre-existing issues inherited from pyrefly migration.
 # Demoted to warn so CI passes; fix incrementally.
 invalid-argument-type = "warn"

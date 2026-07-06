@@ -179,7 +179,7 @@ class AirbyteMessageIterator:
                     try:
                         current_file = next(file_iterator)
                         current_file_buffer = file_opener(
-                            current_file  # ty: ignore[invalid-argument-type]
+                            current_file
                         )
                     except StopIteration:
                         # No more files to read; Exit the loop

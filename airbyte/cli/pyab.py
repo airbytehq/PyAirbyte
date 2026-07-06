@@ -360,10 +360,10 @@ def _resolve_destination_job(
 
 
 cli = App(
-    name="pyab",  # ty: ignore[unknown-argument]
-    help="PyAirbyte CLI.",  # ty: ignore[unknown-argument]
-    help_format="plaintext",  # ty: ignore[unknown-argument]
-    version_flags=[],  # ty: ignore[unknown-argument]
+    name="pyab",
+    help="PyAirbyte CLI.",
+    help_format="plaintext",
+    version_flags=[],
 )
 
 

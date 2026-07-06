@@ -283,10 +283,10 @@ class ConnectorBase(abc.ABC):
             content = json.dumps(self.config_spec, indent=2)
 
         if output_file:
-            output_file.write_text(content)  # ty: ignore[possibly-unresolved-reference]
+            output_file.write_text(content)
             return
 
-        syntax_highlighted = Syntax(content, format)  # ty: ignore[possibly-unresolved-reference]
+        syntax_highlighted = Syntax(content, format)
         rich.print(syntax_highlighted, file=sys.stderr if stderr else None)
 
     @property
