@@ -75,7 +75,7 @@ ignore = [
     "ISC001",  # Conflicts with ruff auto-format
     "NPY",     # NumPy-specific rules
     "PIE790",  # Allow unnecssary 'pass' (sometimes useful for readability)
-    "PERF203", # exception handling in loop
+    # "PERF203", # exception handling in loop (now enforced)
     "PLR6301", # Allow class methods that don't use 'self' (otherwise noisy)
     "RUF022",  # Allow unsorted __all__ (sometimes useful for grouping by type with pdoc)
     "S",       # flake8-bandit (noisy, security related)
