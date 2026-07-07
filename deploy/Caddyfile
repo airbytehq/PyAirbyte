@@ -1,0 +1,23 @@
+# Caddy reverse proxy for the Airbyte Replication MCP server.
+#
+# Usage (with docker-compose.mcp.yml):
+#   MCP_PUBLIC_HOST=mcp.example.com docker compose -f deploy/docker-compose.mcp.yml up -d
+#
+# Caddy obtains and renews TLS certificates automatically for MCP_PUBLIC_HOST.
+
+{$MCP_PUBLIC_HOST} {
+	# Health checks for load balancers and uptime monitors.
+	handle /health {
+		reverse_proxy mcp:8080
+	}
+
+	# Streamable HTTP MCP endpoint (default mount path is /mcp).
+	handle /mcp* {
+		reverse_proxy mcp:8080
+	}
+
+	# Fallback for path-stripped deployments (MCP_SERVER_URL with a path prefix).
+	handle {
+		reverse_proxy mcp:8080
+	}
+}

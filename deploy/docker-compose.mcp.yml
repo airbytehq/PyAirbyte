@@ -1,0 +1,57 @@
+# Self-hosted Airbyte Replication MCP server with automatic HTTPS via Caddy.
+#
+# Prerequisites:
+#   - DNS for MCP_PUBLIC_HOST must point to this host
+#   - A dotenv secrets file at ~/.mcp/airbyte_mcp.env (or override MCP_ENV_FILE)
+#
+# Usage:
+#   export MCP_PUBLIC_HOST=mcp.example.com
+#   docker compose -f deploy/docker-compose.mcp.yml up -d --build
+#
+# Public MCP endpoint (default mount): https://$MCP_PUBLIC_HOST/mcp
+
+services:
+  mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile.mcp
+    restart: unless-stopped
+    environment:
+      AIRBYTE_MCP_ENV_FILE: /secrets/airbyte_mcp.env
+      MCP_SERVER_URL: https://${MCP_PUBLIC_HOST:-localhost}
+      MCP_CORS_ORIGINS: ${MCP_CORS_ORIGINS:-}
+      OIDC_CONFIG_URL: ${OIDC_CONFIG_URL:-}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      AIRBYTE_CLOUD_MCP_SAFE_MODE: ${AIRBYTE_CLOUD_MCP_SAFE_MODE:-1}
+      AIRBYTE_CLOUD_MCP_READONLY_MODE: ${AIRBYTE_CLOUD_MCP_READONLY_MODE:-0}
+    volumes:
+      - ${MCP_ENV_FILE:-${HOME}/.mcp/airbyte_mcp.env}:/secrets/airbyte_mcp.env:ro
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MCP_PUBLIC_HOST: ${MCP_PUBLIC_HOST:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      mcp:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+  caddy_config:

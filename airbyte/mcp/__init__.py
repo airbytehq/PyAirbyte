@@ -19,6 +19,29 @@ To get started with the Airbyte Replication MCP server, follow these steps:
 2. Register the MCP server with your MCP client.
 3. Test the MCP server connection using your MCP client.
 
+### Hosted HTTPS deployment (remote MCP clients)
+
+Remote MCP clients require a public **HTTPS** endpoint. They cannot use the local
+stdio transport.
+
+Use the **`airbyte-mcp-http`** entry point instead, which serves Streamable HTTP on port
+8080. Terminate TLS at a reverse proxy or load balancer in front of the server.
+
+```bash
+# Docker (production transport)
+docker build -f Dockerfile.mcp -t airbyte-mcp .
+docker run --rm -p 8080:8080 \
+  -e AIRBYTE_MCP_ENV_FILE=/secrets/airbyte_mcp.env \
+  -v "/path/to/airbyte_mcp.env:/secrets/airbyte_mcp.env:ro" \
+  airbyte-mcp
+
+# Local dev with the same transport as production
+poe mcp-serve-streamable-http
+```
+
+For a full deployment guide (HTTPS, remote client integration, OIDC, CORS), see
+[docs/MCP_HTTP_DEPLOYMENT.md](https://github.com/airbytehq/PyAirbyte/blob/main/docs/MCP_HTTP_DEPLOYMENT.md).
+
 ### Step 1: Generate a Dotenv Secrets File
 
 To get started with the Airbyte Replication MCP server, you will need to create a dotenv

@@ -137,12 +137,16 @@ poe mcp-tool-test list_deployed_cloud_connections '{}'
 You can also invoke the server using one of these helper tasks:
 
 ```bash
-poe mcp-serve-local    # STDIO transport (default)
-poe mcp-serve-http     # HTTP transport on localhost:8000
-poe mcp-serve-sse      # Server-Sent Events transport on localhost:8000
+poe mcp-serve-local           # STDIO transport (default)
+poe mcp-serve-http            # HTTP transport on localhost:8000
+poe mcp-serve-sse             # Server-Sent Events transport on localhost:8000
+poe mcp-serve-streamable-http # Streamable HTTP on localhost:8080 (production transport)
 
 poe mcp-inspect        # Show all available MCP tools and their schemas
 ```
+
+For hosted HTTPS deployment (remote MCP clients), see
+[docs/MCP_HTTP_DEPLOYMENT.md](./MCP_HTTP_DEPLOYMENT.md).
 
 ### Generating Markdown docs for the MCP Server
 
