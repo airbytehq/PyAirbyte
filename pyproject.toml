@@ -175,6 +175,7 @@ fix-and-check = { shell = "poe fix && poe check" }
 mcp-serve-local = { cmd = "airbyte-mcp", help = "Start the MCP server with STDIO transport" }
 mcp-serve-http = { cmd = "python -c \"from airbyte.mcp.server import app; app.run(transport='http', host='127.0.0.1', port=8000)\"", help = "Start the MCP server with HTTP transport" }
 mcp-serve-sse = { cmd = "python -c \"from airbyte.mcp.server import app; app.run(transport='sse', host='127.0.0.1', port=8000)\"", help = "Start the MCP server with SSE transport" }
+mcp-serve-streamable-http = { cmd = "airbyte-mcp-http", help = "Start the MCP server with Streamable HTTP transport on localhost:8080 (production transport)" }
 mcp-inspect = { cmd = "fastmcp inspect airbyte/mcp/server.py:app", help = "Inspect MCP tools and resources (supports --tools, --health, etc.)" }
 mcp-tool-test = { cmd = "python -m fastmcp_extensions.utils.test_tool --app airbyte.mcp.server:app", help = "Test MCP tools directly with JSON arguments: poe mcp-tool-test <tool_name> '<json_args>'" }
 mcp-docs-md = { cmd = "python scripts/generate_mcp_markdown.py", help = "Generate Markdown docs for the MCP server into docs/mcp-generated/ (Docusaurus- and pdoc-compatible)" }
