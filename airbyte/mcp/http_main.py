@@ -98,13 +98,17 @@ def _render_mcp_landing_html(endpoint_url: str, docs_url: str) -> str:
 """
 
 
-async def mcp_landing_page(request: Request) -> HTMLResponse:  # noqa: ARG001, RUF029
-    """Serve a human-friendly landing page for browser `GET`s to the MCP endpoint."""
-    server_url = os.getenv(
+def _get_server_url() -> str:
+    """Return the public base URL from `MCP_SERVER_URL`, defaulting to localhost."""
+    return os.getenv(
         MCP_SERVER_URL_ENV,
         f"http://localhost:{DEFAULT_HTTP_PORT}",
     )
-    return HTMLResponse(_render_mcp_landing_html(server_url, MCP_LANDING_DOCS_URL))
+
+
+async def mcp_landing_page(request: Request) -> HTMLResponse:  # noqa: ARG001, RUF029
+    """Serve a human-friendly landing page for browser `GET`s to the MCP endpoint."""
+    return HTMLResponse(_render_mcp_landing_html(_get_server_url(), MCP_LANDING_DOCS_URL))
 
 
 def main() -> None:
@@ -114,11 +118,7 @@ def main() -> None:
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the
     # public URL is just the base path. Otherwise keep the FastMCP default.
-    server_url = os.getenv(
-        MCP_SERVER_URL_ENV,
-        f"http://localhost:{DEFAULT_HTTP_PORT}",
-    )
-    mcp_path = "/" if urlparse(server_url).path.strip("/") else "/mcp"
+    mcp_path = "/" if urlparse(_get_server_url()).path.strip("/") else "/mcp"
 
     # Serve a browser-friendly landing page on GET at the MCP path. In stateless
     # mode FastMCP only binds POST/DELETE there, so this GET route does not
