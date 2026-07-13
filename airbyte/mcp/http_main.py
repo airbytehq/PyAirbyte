@@ -53,7 +53,12 @@ def main() -> None:
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the
     # public URL is just the base path. Otherwise keep the FastMCP default.
-    mcp_path = "/" if urlparse(_get_server_url()).path.strip("/") else "/mcp"
+    server_url = _get_server_url()
+    mcp_path = "/" if urlparse(server_url).path.strip("/") else "/mcp"
+
+    # The advertised endpoint must match where the MCP route is actually mounted:
+    # the bare server URL when mounted at root, otherwise the server URL + mcp_path.
+    endpoint_url = server_url if mcp_path == "/" else server_url.rstrip("/") + mcp_path
 
     # Serve a browser-friendly landing page on GET at the MCP path. In stateless
     # mode FastMCP only binds POST/DELETE there, so this GET route does not
@@ -62,7 +67,7 @@ def main() -> None:
         app,
         path=mcp_path,
         title=MCP_LANDING_TITLE,
-        endpoint_url=_get_server_url(),
+        endpoint_url=endpoint_url,
         docs_url=MCP_LANDING_DOCS_URL,
     )
 
