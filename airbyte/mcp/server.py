@@ -5,9 +5,18 @@ Supports two transport modes:
 
 - **stdio** (default): For local MCP clients (Claude Desktop, etc.)
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
-  `poe mcp-serve-http`. When `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
-  `OIDC_CLIENT_SECRET` are all set, enables Keycloak OIDC authentication
-  via `OIDCProxy`.
+  `poe mcp-serve-http`. Transport auth is assembled by
+  `fastmcp_extensions.build_mcp_auth`, which supports two client shapes on the
+  same deployment:
+    - **Interactive** (humans in a browser): Keycloak Authorization Code + PKCE
+      via `OIDCProxy`, enabled when `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
+      `OIDC_CLIENT_SECRET` are all set.
+    - **Headless** (agents, CI): the client mints its own short-lived bearer
+      token via the OAuth 2.0 client credentials grant and sends it as
+      `Authorization: Bearer <token>`. The server verifies it with a
+      `JWTVerifier` (no browser, no stored/rotating refresh token), enabled
+      when `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`) is set.
+  When both are configured they are combined via `MultiAuth`.
 """
 
 from __future__ import annotations
@@ -18,12 +27,17 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
-from fastmcp.server.auth.oidc_proxy import OIDCProxy
-from fastmcp_extensions import mcp_server
+from fastmcp_extensions import (
+    JWTAuthConfig,
+    OIDCAuthConfig,
+    build_mcp_auth,
+    mcp_server,
+)
 from starlette.responses import JSONResponse
 
 
 if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
@@ -85,46 +99,83 @@ Safety features:
 
 logger = logging.getLogger(__name__)
 
+# OIDC environment variable names (interactive Authorization Code + PKCE)
 OIDC_CONFIG_URL_ENV = "OIDC_CONFIG_URL"
 OIDC_CLIENT_ID_ENV = "OIDC_CLIENT_ID"
 OIDC_CLIENT_SECRET_ENV = "OIDC_CLIENT_SECRET"
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 
+# Headless bearer-token verification environment variable names.
+# Agents/CI mint a short-lived token via the client credentials grant and the
+# server verifies it here — no interactive flow, no refresh token to rotate.
+MCP_AUTH_JWKS_URI_ENV = "MCP_AUTH_JWKS_URI"
+MCP_AUTH_JWT_PUBLIC_KEY_ENV = "MCP_AUTH_JWT_PUBLIC_KEY"
+MCP_AUTH_ISSUER_ENV = "MCP_AUTH_ISSUER"
+MCP_AUTH_AUDIENCE_ENV = "MCP_AUTH_AUDIENCE"
+MCP_AUTH_ALGORITHM_ENV = "MCP_AUTH_ALGORITHM"
+
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
 
 
-def _create_oidc_auth() -> OIDCProxy | None:
-    """Create an `OIDCProxy` auth provider when OIDC env vars are configured.
+def _create_auth() -> AuthProvider | None:
+    """Assemble the transport auth provider from environment configuration.
 
-    When `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are all
-    set, returns an `OIDCProxy` that handles the Keycloak Authorization Code +
-    PKCE flow. Otherwise returns `None` (no auth, standard local behavior).
+    Supports two client shapes on the same deployment, combined via `MultiAuth`
+    when both are configured (see `fastmcp_extensions.build_mcp_auth`):
+
+    - **Interactive** `OIDCProxy` (Keycloak Authorization Code + PKCE) when
+      `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are set.
+    - **Headless** `JWTVerifier` for pre-minted bearer tokens when
+      `MCP_AUTH_JWKS_URI` or `MCP_AUTH_JWT_PUBLIC_KEY` is set.
+
+    Returns `None` when neither is configured, so the server falls back to
+    standard local (no-auth) behavior.
     """
-    config_url = os.getenv(OIDC_CONFIG_URL_ENV, "")
-    client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
-    client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
-
-    if not config_url or not client_id or not client_secret:
-        return None
-
     server_url = os.getenv(
         MCP_SERVER_URL_ENV,
         f"http://localhost:{DEFAULT_HTTP_PORT}",
     )
 
-    logger.info(
-        "OIDC auth enabled (issuer=%s, client_id=%s, base_url=%s)",
-        config_url,
-        client_id,
-        server_url,
-    )
-    return OIDCProxy(
-        config_url=config_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        base_url=server_url,
-    )
+    oidc: OIDCAuthConfig | None = None
+    config_url = os.getenv(OIDC_CONFIG_URL_ENV, "")
+    oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
+    oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
+    if config_url and oidc_client_id and oidc_client_secret:
+        logger.info(
+            "Interactive OIDC auth enabled (issuer=%s, client_id=%s, base_url=%s)",
+            config_url,
+            oidc_client_id,
+            server_url,
+        )
+        oidc = OIDCAuthConfig(
+            config_url=config_url,
+            client_id=oidc_client_id,
+            client_secret=oidc_client_secret,
+            base_url=server_url,
+        )
+
+    jwt: JWTAuthConfig | None = None
+    jwks_uri = os.getenv(MCP_AUTH_JWKS_URI_ENV, "")
+    jwt_public_key = os.getenv(MCP_AUTH_JWT_PUBLIC_KEY_ENV, "")
+    if jwks_uri or jwt_public_key:
+        issuer = os.getenv(MCP_AUTH_ISSUER_ENV) or None
+        audience = os.getenv(MCP_AUTH_AUDIENCE_ENV) or None
+        logger.info(
+            "Headless bearer-token auth enabled (jwks_uri=%s, issuer=%s, audience=%s)",
+            jwks_uri or "<static public key>",
+            issuer,
+            audience,
+        )
+        jwt = JWTAuthConfig(
+            jwks_uri=jwks_uri or None,
+            public_key=jwt_public_key or None,
+            issuer=issuer,
+            audience=audience,
+            algorithm=os.getenv(MCP_AUTH_ALGORITHM_ENV) or None,
+        )
+
+    return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=server_url)
 
 
 set_mcp_mode()
@@ -151,7 +202,7 @@ app = mcp_server(
         airbyte_module_filter,
         airbyte_ui_support_filter,
     ],
-    auth=_create_oidc_auth(),
+    auth=_create_auth(),
 )
 """The Airbyte MCP Server application instance."""
 
