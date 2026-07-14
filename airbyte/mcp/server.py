@@ -5,9 +5,27 @@ Supports two transport modes:
 
 - **stdio** (default): For local MCP clients (Claude Desktop, etc.)
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
-  `poe mcp-serve-http`. When `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
-  `OIDC_CLIENT_SECRET` are all set, enables Keycloak OIDC authentication
-  via `OIDCProxy`.
+  `poe mcp-serve-http`. Transport auth is assembled by
+  `fastmcp_extensions.resolve_mcp_auth`, which supports two client shapes on the
+  same deployment:
+    - **Interactive** (humans in a browser): Keycloak Authorization Code + PKCE
+      via `OIDCProxy`, enabled when `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
+      `OIDC_CLIENT_SECRET` are all set.
+    - **Headless** (agents, CI): the client mints its own short-lived bearer
+      token via the OAuth 2.0 client credentials grant and sends it as
+      `Authorization: Bearer <token>`. The server verifies it with a
+      `JWTVerifier` (no browser, no stored/rotating refresh token), enabled
+      when `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`) is set.
+  When both are configured they are combined via `MultiAuth`.
+
+For Airbyte Cloud, set `MCP_AUTH_AIRBYTE_CLOUD=true` to verify against Airbyte
+Cloud's application-client realm without hand-configuring URLs. An agent then
+mints an Airbyte Cloud access token from its `AIRBYTE_CLOUD_CLIENT_ID` /
+`AIRBYTE_CLOUD_CLIENT_SECRET` (the `<api_root>/applications/token` endpoint) and
+sends it as `Authorization: Bearer`. That single token both authenticates
+transport (verified here) and authorizes downstream Cloud API calls (the same
+header feeds the Cloud bearer token), because an Airbyte-Cloud-issued JWT is
+itself a valid Cloud API bearer.
 """
 
 from __future__ import annotations
@@ -18,12 +36,16 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
-from fastmcp.server.auth.oidc_proxy import OIDCProxy
-from fastmcp_extensions import mcp_server
+from fastmcp_extensions import (
+    JWTAuthConfig,
+    mcp_server,
+    resolve_mcp_auth,
+)
 from starlette.responses import JSONResponse
 
 
 if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
@@ -85,46 +107,52 @@ Safety features:
 
 logger = logging.getLogger(__name__)
 
-OIDC_CONFIG_URL_ENV = "OIDC_CONFIG_URL"
-OIDC_CLIENT_ID_ENV = "OIDC_CLIENT_ID"
-OIDC_CLIENT_SECRET_ENV = "OIDC_CLIENT_SECRET"
+# Public base URL of this deployment; consumed by `http_main` to derive the
+# mounted MCP path. All other transport auth env vars (`OIDC_*` interactive,
+# `MCP_AUTH_*` headless) are read by `fastmcp_extensions.resolve_mcp_auth`.
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
+
+# Flag that opts headless verification into Airbyte Cloud's application-client
+# realm; this server owns only this provider literal.
+MCP_AUTH_AIRBYTE_CLOUD_ENV = "MCP_AUTH_AIRBYTE_CLOUD"
+
+# Airbyte Cloud's application-client realm. Tokens minted from an Airbyte Cloud
+# `client_id`/`client_secret` via `<api_root>/applications/token` are RS256 JWTs
+# issued by this realm, and the same token is a valid Airbyte Cloud API bearer.
+# Verifying against this realm lets one token both authenticate transport and
+# authorize downstream Cloud calls. Enable with `MCP_AUTH_AIRBYTE_CLOUD=true`.
+AIRBYTE_CLOUD_REALM_ISSUER = "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
+AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_REALM_ISSUER}/protocol/openid-connect/certs"
+AIRBYTE_CLOUD_JWT_AUDIENCE = "account"
+AIRBYTE_CLOUD_JWT_ALGORITHM = "RS256"
 
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
 
 
-def _create_oidc_auth() -> OIDCProxy | None:
-    """Create an `OIDCProxy` auth provider when OIDC env vars are configured.
+def _create_auth() -> AuthProvider | None:
+    """Assemble the transport auth provider from environment configuration.
 
-    When `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are all
-    set, returns an `OIDCProxy` that handles the Keycloak Authorization Code +
-    PKCE flow. Otherwise returns `None` (no auth, standard local behavior).
+    Delegates env parsing to `fastmcp_extensions.resolve_mcp_auth`, which wires
+    up interactive `OIDCProxy` (from `OIDC_*`) and/or headless `JWTVerifier`
+    (from `MCP_AUTH_*`), combining them via `MultiAuth` when both are set and
+    returning `None` when neither is — so the server falls back to standard
+    local (no-auth) behavior.
+
+    When `MCP_AUTH_AIRBYTE_CLOUD` is truthy, the headless verifier defaults to
+    Airbyte Cloud's application-client realm (JWKS / issuer / audience /
+    algorithm); individual `MCP_AUTH_*` vars still override those fields. This
+    is the only provider literal the server owns.
     """
-    config_url = os.getenv(OIDC_CONFIG_URL_ENV, "")
-    client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
-    client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
-
-    if not config_url or not client_id or not client_secret:
-        return None
-
-    server_url = os.getenv(
-        MCP_SERVER_URL_ENV,
-        f"http://localhost:{DEFAULT_HTTP_PORT}",
-    )
-
-    logger.info(
-        "OIDC auth enabled (issuer=%s, client_id=%s, base_url=%s)",
-        config_url,
-        client_id,
-        server_url,
-    )
-    return OIDCProxy(
-        config_url=config_url,
-        client_id=client_id,
-        client_secret=client_secret,
-        base_url=server_url,
-    )
+    jwt_defaults: JWTAuthConfig | None = None
+    if os.getenv(MCP_AUTH_AIRBYTE_CLOUD_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        jwt_defaults = JWTAuthConfig(
+            jwks_uri=AIRBYTE_CLOUD_JWKS_URI,
+            issuer=AIRBYTE_CLOUD_REALM_ISSUER,
+            audience=AIRBYTE_CLOUD_JWT_AUDIENCE,
+            algorithm=AIRBYTE_CLOUD_JWT_ALGORITHM,
+        )
+    return resolve_mcp_auth(jwt_defaults=jwt_defaults)
 
 
 set_mcp_mode()
@@ -151,7 +179,7 @@ app = mcp_server(
         airbyte_module_filter,
         airbyte_ui_support_filter,
     ],
-    auth=_create_oidc_auth(),
+    auth=_create_auth(),
 )
 """The Airbyte MCP Server application instance."""
 

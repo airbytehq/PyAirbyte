@@ -144,6 +144,75 @@ are not considered to be modifications of the Airbyte Cloud workspace.
 
 Set the environment variable `AIRBYTE_CLOUD_MCP_READONLY_MODE=1` to enable read-only mode.
 
+## Authentication for Remote (HTTP) Servers
+
+The steps above run the MCP server over **stdio** — the client launches the
+server process locally, so there is no transport-layer auth and the only
+credentials that matter are your Airbyte Cloud creds in the dotenv file.
+
+When the server is instead exposed over **HTTP** (`airbyte-mcp-http` /
+`poe mcp-serve-http`), it verifies an `Authorization: Bearer <token>` on every
+request. Two client shapes are supported on the same deployment (combined
+automatically when both are configured):
+
+### Humans → interactive OIDC
+
+Set `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`. Interactive
+clients open a browser (Keycloak Authorization Code + PKCE) and the resulting
+token is verified by the server. No bearer token to manage by hand.
+
+### Machines / agents → headless bearer token
+
+There is **no** transport mode that accepts a raw `client_id` + `client_secret`
+in a header. A headless agent **mints its own short-lived bearer token** and
+sends it as `Authorization: Bearer <token>`; the server verifies the signature
+(no browser, no stored/rotating refresh token).
+
+For Airbyte Cloud, set `MCP_AUTH_AIRBYTE_CLOUD=true` on the server so it verifies
+tokens against Airbyte Cloud's application-client realm without hand-configuring
+URLs. The agent mints an Airbyte Cloud access token from its
+`AIRBYTE_CLOUD_CLIENT_ID` / `AIRBYTE_CLOUD_CLIENT_SECRET` (the
+`https://api.airbyte.com/v1/applications/token` endpoint) and sends it as the
+bearer. That single token both authenticates transport (verified by the server)
+and authorizes downstream Cloud API calls, because an Airbyte-Cloud-issued token
+is itself a valid Cloud API bearer. Tokens are short-lived (~15 min), so
+re-mint on expiry / on a `401` rather than pinning a static token.
+
+Clients that support HTTP transports can pass the token via a `headers` block in
+their MCP config:
+
+```json
+{
+  "mcpServers": {
+    "airbyte": {
+      "url": "https://<host>/mcp",
+      "headers": {
+        "Authorization": "Bearer ${AIRBYTE_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+### Server environment variables (HTTP mode)
+
+- `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
+  callbacks); defaults to `http://localhost:8080`.
+- `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` — enable interactive
+  OIDC (all three required).
+- `MCP_AUTH_AIRBYTE_CLOUD` — set truthy to verify headless tokens against Airbyte
+  Cloud's realm (fills JWKS URI / issuer / audience / algorithm with Airbyte
+  Cloud defaults; each stays overridable).
+- `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or static public key
+  for verifying headless tokens.
+- `MCP_AUTH_ISSUER` / `MCP_AUTH_AUDIENCE` / `MCP_AUTH_ALGORITHM` — expected `iss`
+  / `aud` claims and signing algorithm (recommended for headless).
+
+If no transport auth variables are set, the HTTP server starts
+**unauthenticated** and logs a warning — acceptable only behind a trusted
+network boundary. The verifier assembly is provided by
+[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions).
+
 ## Troubleshooting
 
 ### Troubleshooting Local Connector Installation Issues

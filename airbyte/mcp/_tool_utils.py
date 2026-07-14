@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from fastmcp.apps import UI_EXTENSION_ID
-from fastmcp.server.dependencies import get_context
+from fastmcp.server.dependencies import get_access_token, get_context
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (
@@ -166,14 +166,53 @@ WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
 )
 """Config arg for workspace ID, supporting both HTTP header and env var."""
 
+
+def _normalize_bearer_token(value: str) -> str | None:
+    """Strip an optional `Bearer ` prefix from an `Authorization` value.
+
+    Accepts either a full `Authorization` header value (`Bearer <token>`,
+    case-insensitive prefix) or a bare token, and returns the bare token so it
+    can be forwarded downstream. Returns `None` for an empty value so config
+    resolution falls through to the next source.
+    """
+    stripped = value.strip()
+    if stripped.lower().startswith("bearer "):
+        stripped = stripped[len("bearer ") :].strip()
+    return stripped or None
+
+
+def _resolve_transport_bearer_token() -> str:
+    """Resolve the verified transport bearer token for downstream Cloud calls.
+
+    FastMCP stores the access token of the current request after the transport
+    auth provider verifies it — the interactive `OIDCProxy` token or the
+    headless client-minted JWT. Both are Airbyte Cloud tokens when the server
+    verifies against Airbyte Cloud's realm, so reusing the token as the
+    downstream Cloud API bearer gives the caller delegated access without a
+    second credential. Returns an empty string when no verified token is
+    present (for example, stdio mode).
+    """
+    access_token = get_access_token()
+    if access_token and access_token.token:
+        return access_token.token
+    return ""
+
+
 BEARER_TOKEN_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_BEARER_TOKEN,
     http_header_key=MCP_BEARER_TOKEN_HEADER,
     env_var=CLOUD_BEARER_TOKEN_ENV_VAR,
+    normalize_fn=_normalize_bearer_token,
+    default=_resolve_transport_bearer_token,
     required=False,
     sensitive=True,
 )
-"""Config arg for bearer token, supporting Authorization header and env var."""
+"""Config arg for bearer token, supporting Authorization header and env var.
+
+Reads the transport `Authorization` header (stripping the `Bearer ` prefix)
+or `AIRBYTE_CLOUD_BEARER_TOKEN`, then falls back to the verified transport
+token so an interactive-OIDC or headless-JWT caller's token passes through to
+the downstream Airbyte Cloud API without a second credential."""
 
 CLIENT_ID_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CLIENT_ID,
