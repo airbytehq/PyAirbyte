@@ -3,7 +3,7 @@
 
 Starts the MCP server with HTTP transport, suitable for hosted deployment
 behind a load balancer. Transport auth is assembled in `server.py` via
-`fastmcp_extensions.build_mcp_auth`, which supports interactive OIDC and
+`fastmcp_extensions.resolve_mcp_auth`, which supports interactive OIDC and
 headless bearer-token verification (combined via `MultiAuth` when both are
 configured). See `server.py` for details.
 

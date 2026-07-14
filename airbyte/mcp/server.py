@@ -6,7 +6,7 @@ Supports two transport modes:
 - **stdio** (default): For local MCP clients (Claude Desktop, etc.)
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
   `poe mcp-serve-http`. Transport auth is assembled by
-  `fastmcp_extensions.build_mcp_auth`, which supports two client shapes on the
+  `fastmcp_extensions.resolve_mcp_auth`, which supports two client shapes on the
   same deployment:
     - **Interactive** (humans in a browser): Keycloak Authorization Code + PKCE
       via `OIDCProxy`, enabled when `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
@@ -38,9 +38,8 @@ from typing import TYPE_CHECKING
 
 from fastmcp_extensions import (
     JWTAuthConfig,
-    OIDCAuthConfig,
-    build_mcp_auth,
     mcp_server,
+    resolve_mcp_auth,
 )
 from starlette.responses import JSONResponse
 
@@ -108,20 +107,13 @@ Safety features:
 
 logger = logging.getLogger(__name__)
 
-# OIDC environment variable names (interactive Authorization Code + PKCE)
-OIDC_CONFIG_URL_ENV = "OIDC_CONFIG_URL"
-OIDC_CLIENT_ID_ENV = "OIDC_CLIENT_ID"
-OIDC_CLIENT_SECRET_ENV = "OIDC_CLIENT_SECRET"
+# Public base URL of this deployment; consumed by `http_main` to derive the
+# mounted MCP path. All other transport auth env vars (`OIDC_*` interactive,
+# `MCP_AUTH_*` headless) are read by `fastmcp_extensions.resolve_mcp_auth`.
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 
-# Headless bearer-token verification environment variable names.
-# Agents/CI mint a short-lived token via the client credentials grant and the
-# server verifies it here — no interactive flow, no refresh token to rotate.
-MCP_AUTH_JWKS_URI_ENV = "MCP_AUTH_JWKS_URI"
-MCP_AUTH_JWT_PUBLIC_KEY_ENV = "MCP_AUTH_JWT_PUBLIC_KEY"
-MCP_AUTH_ISSUER_ENV = "MCP_AUTH_ISSUER"
-MCP_AUTH_AUDIENCE_ENV = "MCP_AUTH_AUDIENCE"
-MCP_AUTH_ALGORITHM_ENV = "MCP_AUTH_ALGORITHM"
+# Flag that opts headless verification into Airbyte Cloud's application-client
+# realm; this server owns only this provider literal.
 MCP_AUTH_AIRBYTE_CLOUD_ENV = "MCP_AUTH_AIRBYTE_CLOUD"
 
 # Airbyte Cloud's application-client realm. Tokens minted from an Airbyte Cloud
@@ -141,81 +133,26 @@ DEFAULT_HTTP_PORT = 8080
 def _create_auth() -> AuthProvider | None:
     """Assemble the transport auth provider from environment configuration.
 
-    Supports two client shapes on the same deployment, combined via `MultiAuth`
-    when both are configured (see `fastmcp_extensions.build_mcp_auth`):
+    Delegates env parsing to `fastmcp_extensions.resolve_mcp_auth`, which wires
+    up interactive `OIDCProxy` (from `OIDC_*`) and/or headless `JWTVerifier`
+    (from `MCP_AUTH_*`), combining them via `MultiAuth` when both are set and
+    returning `None` when neither is — so the server falls back to standard
+    local (no-auth) behavior.
 
-    - **Interactive** `OIDCProxy` (Keycloak Authorization Code + PKCE) when
-      `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` are set.
-    - **Headless** `JWTVerifier` for pre-minted bearer tokens when
-      `MCP_AUTH_JWKS_URI` or `MCP_AUTH_JWT_PUBLIC_KEY` is set.
-
-    Returns `None` when neither is configured, so the server falls back to
-    standard local (no-auth) behavior.
+    When `MCP_AUTH_AIRBYTE_CLOUD` is truthy, the headless verifier defaults to
+    Airbyte Cloud's application-client realm (JWKS / issuer / audience /
+    algorithm); individual `MCP_AUTH_*` vars still override those fields. This
+    is the only provider literal the server owns.
     """
-    server_url = os.getenv(
-        MCP_SERVER_URL_ENV,
-        f"http://localhost:{DEFAULT_HTTP_PORT}",
-    )
-
-    oidc: OIDCAuthConfig | None = None
-    config_url = os.getenv(OIDC_CONFIG_URL_ENV, "")
-    oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
-    oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
-    if config_url and oidc_client_id and oidc_client_secret:
-        logger.info(
-            "Interactive OIDC auth enabled (config_url=%s, client_id=%s, base_url=%s)",
-            config_url,
-            oidc_client_id,
-            server_url,
+    jwt_defaults: JWTAuthConfig | None = None
+    if os.getenv(MCP_AUTH_AIRBYTE_CLOUD_ENV, "").strip().lower() in {"1", "true", "yes"}:
+        jwt_defaults = JWTAuthConfig(
+            jwks_uri=AIRBYTE_CLOUD_JWKS_URI,
+            issuer=AIRBYTE_CLOUD_REALM_ISSUER,
+            audience=AIRBYTE_CLOUD_JWT_AUDIENCE,
+            algorithm=AIRBYTE_CLOUD_JWT_ALGORITHM,
         )
-        oidc = OIDCAuthConfig(
-            config_url=config_url,
-            client_id=oidc_client_id,
-            client_secret=oidc_client_secret,
-            base_url=server_url,
-        )
-    elif config_url or oidc_client_id or oidc_client_secret:
-        logger.warning(
-            "Incomplete interactive OIDC configuration: set all of "
-            "OIDC_CONFIG_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET to enable "
-            "it. Interactive OIDC auth is disabled."
-        )
-
-    jwt: JWTAuthConfig | None = None
-    use_cloud_defaults = os.getenv(MCP_AUTH_AIRBYTE_CLOUD_ENV, "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    jwks_uri = os.getenv(MCP_AUTH_JWKS_URI_ENV, "")
-    jwt_public_key = os.getenv(MCP_AUTH_JWT_PUBLIC_KEY_ENV, "")
-    if use_cloud_defaults and not jwks_uri and not jwt_public_key:
-        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
-    if jwks_uri or jwt_public_key:
-        issuer = os.getenv(MCP_AUTH_ISSUER_ENV) or (
-            AIRBYTE_CLOUD_REALM_ISSUER if use_cloud_defaults else None
-        )
-        audience = os.getenv(MCP_AUTH_AUDIENCE_ENV) or (
-            AIRBYTE_CLOUD_JWT_AUDIENCE if use_cloud_defaults else None
-        )
-        algorithm = os.getenv(MCP_AUTH_ALGORITHM_ENV) or (
-            AIRBYTE_CLOUD_JWT_ALGORITHM if use_cloud_defaults else None
-        )
-        logger.info(
-            "Headless bearer-token auth enabled (jwks_uri=%s, issuer=%s, audience=%s)",
-            jwks_uri or "<static public key>",
-            issuer,
-            audience,
-        )
-        jwt = JWTAuthConfig(
-            jwks_uri=jwks_uri or None,
-            public_key=jwt_public_key or None,
-            issuer=issuer,
-            audience=audience,
-            algorithm=algorithm,
-        )
-
-    return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=server_url)
+    return resolve_mcp_auth(jwt_defaults=jwt_defaults)
 
 
 set_mcp_mode()
