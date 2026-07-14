@@ -291,11 +291,25 @@ def _secret_or_none(value: SecretString | None) -> str | None:
             "client-secret",
             id="falls_back_to_client_credentials_without_bearer_token",
         ),
+        pytest.param(
+            SecretString(""),
+            None,
+            "client-id",
+            "client-secret",
+            id="empty_secret_string_bearer_falls_back_to_client_credentials",
+        ),
+        pytest.param(
+            SecretString("transport-jwt"),
+            "transport-jwt",
+            None,
+            None,
+            id="secret_string_bearer_wins_over_client_credentials",
+        ),
     ],
 )
 def test_get_cloud_client_prefers_bearer_token_over_client_credentials(
     monkeypatch: pytest.MonkeyPatch,
-    bearer_token: str,
+    bearer_token: str | SecretString,
     expected_bearer: str | None,
     expected_client_id: str | None,
     expected_client_secret: str | None,
@@ -303,7 +317,9 @@ def test_get_cloud_client_prefers_bearer_token_over_client_credentials(
     """Verify `_get_cloud_client` uses the bearer token when present, else client creds.
 
     An empty bearer token models stdio mode, where `_resolve_transport_bearer_token`
-    yields `""` and client credentials remain the fallback.
+    yields `""` and client credentials remain the fallback. The `SecretString`
+    cases guard the empty-string comparison against `SecretString.__bool__`, which
+    is always `True` and would otherwise treat an empty secret as present.
     """
     config = {
         MCP_CONFIG_BEARER_TOKEN: bearer_token,

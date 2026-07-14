@@ -267,6 +267,16 @@ def _get_cloud_workspace(
     return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
 
 
+def _none_if_empty(value: str) -> str | None:
+    """Return `value` unless it is empty, in which case return `None`.
+
+    Emptiness is checked with `len` rather than truthiness because a
+    `SecretString` overrides `__bool__` to always be truthy, so an empty secret
+    would otherwise be mistaken for a present value.
+    """
+    return value if len(value) > 0 else None
+
+
 def _get_cloud_client(
     ctx: Context,
     *,
@@ -283,20 +293,23 @@ def _get_cloud_client(
     receiving both at once, so the client credentials are dropped when a bearer
     token is available.
     """
-    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN) or None
-    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID) or None
-    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET) or None
+    bearer_token = _none_if_empty(get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN))
+    client_id = _none_if_empty(get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID))
+    client_secret = _none_if_empty(get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET))
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
     config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
 
-    if bearer_token:
-        client_id = None
-        client_secret = None
+    if bearer_token is not None:
+        return CloudClient(
+            bearer_token=bearer_token,
+            public_api_root=api_url,
+            config_api_root=config_api_url,
+            organization_id=organization_id,
+        )
 
     return CloudClient(
         client_id=client_id,
         client_secret=client_secret,
-        bearer_token=bearer_token,
         public_api_root=api_url,
         config_api_root=config_api_url,
         organization_id=organization_id,
