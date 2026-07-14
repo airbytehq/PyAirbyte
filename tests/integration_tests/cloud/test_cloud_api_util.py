@@ -7,9 +7,12 @@ These tests are designed to be run against a running instance of the Airbyte API
 
 from __future__ import annotations
 
+import re
 from typing import Literal
+from urllib.parse import parse_qs, urlparse
 
 import pytest
+import responses
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import (
     CLOUD_API_ROOT,
@@ -305,6 +308,7 @@ def test_check_connector(
         pytest.fail(f"API call failed: {e}")
 
 
+@responses.activate
 def test_404_error_includes_request_url_context() -> None:
     """Test that 404 API errors include the full request URL in context.
 
@@ -312,14 +316,19 @@ def test_404_error_includes_request_url_context() -> None:
     includes the full request URL that was attempted. This helps debug URL
     construction issues like those seen with custom API roots.
 
-    Uses httpbin.org which returns 404 for /sources endpoint, allowing us
-    to verify the error context contains the expected URL information.
+    The HTTP layer is mocked with `responses` so the assertions exercise the
+    SDK's real URL construction without depending on a live external service.
     """
-    from urllib.parse import parse_qs, urlparse
-
-    api_root = "https://httpbin.org"
+    api_root = "https://api.airbyte.example"
     workspace_id = "00000000-0000-0000-0000-000000000000"
     fake_bearer_token = SecretString("fake-token-for-testing")
+
+    responses.add(
+        responses.GET,
+        re.compile(r"https://api\.airbyte\.example/sources.*"),
+        json={"message": "Not Found"},
+        status=404,
+    )
 
     with pytest.raises(AirbyteError) as exc_info:
         api_util.list_sources(
@@ -348,8 +357,8 @@ def test_404_error_includes_request_url_context() -> None:
     request_url = str(error.context["request_url"])
     parsed = urlparse(request_url)
 
-    assert parsed.netloc == "httpbin.org", (
-        f"Expected host 'httpbin.org', got '{parsed.netloc}'"
+    assert parsed.netloc == "api.airbyte.example", (
+        f"Expected host 'api.airbyte.example', got '{parsed.netloc}'"
     )
     assert parsed.path.endswith("/sources"), (
         f"Expected path ending with '/sources', got '{parsed.path}'"
@@ -363,19 +372,28 @@ def test_404_error_includes_request_url_context() -> None:
     )
 
 
+@responses.activate
 def test_url_construction_with_path_prefix() -> None:
     """Test that the SDK correctly preserves path prefixes in the base URL.
-
-    This test uses httpbin.org/anything which echoes back the request details,
-    allowing us to verify the actual URL that was constructed and sent.
 
     This test validates that when using a custom API root with a path prefix
     (like https://host/api/public/v1), the SDK correctly appends endpoints
     to that path rather than replacing it.
+
+    The HTTP layer is mocked with `responses` so we can inspect the URL the
+    SDK actually sent, verifying path-prefix preservation without depending
+    on a live external service.
     """
-    base_url_with_path = "https://httpbin.org/anything/api/public/v1"
+    base_url_with_path = "https://api.airbyte.example/api/public/v1"
     fake_bearer_token = SecretString("fake-token-for-testing")
     fake_workspace_id = "00000000-0000-0000-0000-000000000000"
+
+    responses.add(
+        responses.GET,
+        re.compile(r"https://api\.airbyte\.example/api/public/v1/sources.*"),
+        json={"data": [], "next": None, "previous": None},
+        status=200,
+    )
 
     result = api_util.list_sources(
         workspace_id=fake_workspace_id,
@@ -385,10 +403,11 @@ def test_url_construction_with_path_prefix() -> None:
         bearer_token=fake_bearer_token,
     )
 
-    print(f"\nBase URL with path prefix: {base_url_with_path}")
-    print(f"Result type: {type(result)}")
-    print(f"Result: {result}")
+    assert result == [], f"Expected empty list, but got: {result}"
 
-    assert result == [], (
-        f"Expected empty list from httpbin (no real sources), but got: {result}"
+    assert len(responses.calls) == 1, "Expected exactly one request to be sent"
+    sent_url = responses.calls[0].request.url
+    sent_path = urlparse(sent_url).path
+    assert sent_path == "/api/public/v1/sources", (
+        f"Expected path '/api/public/v1/sources', got '{sent_path}'"
     )
