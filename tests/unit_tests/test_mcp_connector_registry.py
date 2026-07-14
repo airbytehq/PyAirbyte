@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 from mcp.types import TextContent
@@ -17,7 +17,7 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls
+from airbyte.mcp.registry import get_api_docs_urls, get_connector_info
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -569,3 +569,96 @@ def test_prefab_generative_tools_include_airbyte_annotations() -> None:
     assert tool.annotations is not None
     assert getattr(tool.annotations, "mcp_module") == "interactive"
     assert getattr(tool.annotations, INTERACTIVE_UI_ANNOTATION) is True
+
+
+def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None:
+    """`get_connector_info` must resolve the config spec over HTTP, never via install.
+
+    The spec is fetched from the public connector registry keyed by version, so it
+    works in a hosted, no-Docker runtime without the unbounded `connector.install()`
+    fallback that previously hung requests for minutes.
+    """
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
+
+    cloud_spec = {"type": "object", "properties": {"count": {"type": "integer"}}}
+
+    with (
+        patch(
+            "airbyte.mcp.registry.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.registry.get_source", return_value=connector),
+        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            return_value=cloud_spec,
+        ) as mock_get_spec,
+    ):
+        result = get_connector_info("source-faker")
+
+    assert not isinstance(result, str)
+    assert result.config_spec_jsonschema == cloud_spec
+    assert result.manifest_url is not None
+    connector.install.assert_not_called()
+    mock_get_spec.assert_called_once_with(
+        "source-faker", version=None, platform="cloud"
+    )
+
+
+def test_get_connector_info_falls_back_to_oss_spec() -> None:
+    """When the `cloud` spec is unavailable, `get_connector_info` uses the `oss` spec."""
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
+
+    oss_spec = {"type": "object", "properties": {"seed": {"type": "integer"}}}
+
+    with (
+        patch(
+            "airbyte.mcp.registry.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.registry.get_source", return_value=connector),
+        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            side_effect=[None, oss_spec],
+        ) as mock_get_spec,
+    ):
+        result = get_connector_info("source-faker")
+
+    assert not isinstance(result, str)
+    assert result.config_spec_jsonschema == oss_spec
+    connector.install.assert_not_called()
+    assert mock_get_spec.call_args_list == [
+        call("source-faker", version=None, platform="cloud"),
+        call("source-faker", version=None, platform="oss"),
+    ]
+
+
+def test_get_connector_info_spec_none_when_registry_has_no_spec() -> None:
+    """`config_spec_jsonschema` is `None` when the registry has no spec for either platform."""
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
+
+    with (
+        patch(
+            "airbyte.mcp.registry.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.registry.get_source", return_value=connector),
+        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.registry.get_connector_spec_from_registry",
+            return_value=None,
+        ),
+    ):
+        result = get_connector_info("source-faker")
+
+    assert not isinstance(result, str)
+    assert result.config_spec_jsonschema is None
+    assert result.manifest_url is not None
+    connector.install.assert_not_called()
