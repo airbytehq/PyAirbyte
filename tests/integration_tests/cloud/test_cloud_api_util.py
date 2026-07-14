@@ -407,6 +407,7 @@ def test_url_construction_with_path_prefix() -> None:
 
     assert len(responses.calls) == 1, "Expected exactly one request to be sent"
     sent_url = responses.calls[0].request.url
-    assert "/api/public/v1/sources" in sent_url, (
-        f"Expected path prefix '/api/public/v1' to be preserved, got '{sent_url}'"
+    sent_path = urlparse(sent_url).path
+    assert sent_path == "/api/public/v1/sources", (
+        f"Expected path '/api/public/v1/sources', got '{sent_path}'"
     )
