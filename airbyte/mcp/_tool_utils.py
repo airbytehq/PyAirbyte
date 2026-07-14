@@ -37,12 +37,10 @@ from airbyte.constants import (
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
-    MCP_API_URL_HEADER,
     MCP_BEARER_TOKEN_HEADER,
     MCP_CLIENT_ID_HEADER,
     MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
-    MCP_CONFIG_API_URL_HEADER,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
@@ -234,21 +232,29 @@ CLIENT_SECRET_CONFIG_ARG = MCPServerConfigArg(
 
 API_URL_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_API_URL,
-    http_header_key=MCP_API_URL_HEADER,
     env_var=CLOUD_API_ROOT_ENV_VAR,
     required=False,
     sensitive=False,
 )
-"""Config arg for API URL, supporting HTTP header and env var."""
+"""Config arg for API URL, supporting env var only.
+
+Deliberately has no `http_header_key`: each hosted deployment is paired to a
+single backend, so the API root must not be caller-controllable via an HTTP
+header. Accepting it from a header would let a caller redirect the server's
+credentialed requests to an arbitrary URL and exfiltrate them. The base URLs
+are still configurable via env var for local (stdio) deployments.
+"""
 
 CONFIG_API_URL_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CONFIG_API_URL,
-    http_header_key=MCP_CONFIG_API_URL_HEADER,
     env_var=CLOUD_CONFIG_API_ROOT_ENV_VAR,
     required=False,
     sensitive=False,
 )
-"""Config arg for Config API URL, supporting HTTP header and env var."""
+"""Config arg for Config API URL, supporting env var only.
+
+See `API_URL_CONFIG_ARG` for why no `http_header_key` is exposed.
+"""
 
 
 # =============================================================================
