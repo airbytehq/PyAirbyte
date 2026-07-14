@@ -170,13 +170,18 @@ def get_connector_info(
     # Resolve the config spec from the public registry endpoint keyed by version,
     # which works in any runtime (hosted or local) without installing the
     # connector. Prefer the `cloud` spec and fall back to `oss`.
+    version = connector_metadata.latest_available_version if connector_metadata else None
     config_spec_jsonschema: dict[str, Any] | None = get_connector_spec_from_registry(
         connector_name,
+        version=version,
         platform="cloud",
-    ) or get_connector_spec_from_registry(
-        connector_name,
-        platform="oss",
     )
+    if config_spec_jsonschema is None:
+        config_spec_jsonschema = get_connector_spec_from_registry(
+            connector_name,
+            version=version,
+            platform="oss",
+        )
 
     manifest_url = _DEFAULT_MANIFEST_URL.format(
         source_name=connector_name,

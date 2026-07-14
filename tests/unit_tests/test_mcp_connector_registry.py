@@ -602,7 +602,9 @@ def test_get_connector_info_resolves_spec_from_registry_without_docker() -> None
     assert result.config_spec_jsonschema == cloud_spec
     assert result.manifest_url is not None
     connector.install.assert_not_called()
-    mock_get_spec.assert_called_once_with("source-faker", platform="cloud")
+    mock_get_spec.assert_called_once_with(
+        "source-faker", version=None, platform="cloud"
+    )
 
 
 def test_get_connector_info_falls_back_to_oss_spec() -> None:
@@ -631,8 +633,8 @@ def test_get_connector_info_falls_back_to_oss_spec() -> None:
     assert result.config_spec_jsonschema == oss_spec
     connector.install.assert_not_called()
     assert mock_get_spec.call_args_list == [
-        call("source-faker", platform="cloud"),
-        call("source-faker", platform="oss"),
+        call("source-faker", version=None, platform="cloud"),
+        call("source-faker", version=None, platform="oss"),
     ]
 
 
