@@ -201,7 +201,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.9.0.dev202607140130,<1.0.0" },
+    { name = "fastmcp-extensions", specifier = ">=0.9.0.dev202607140144,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1129,7 +1129,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.9.0.dev202607140130"
+version = "0.9.0.dev202607140144"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -1140,9 +1140,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/85/3a/a8e1985da885231be0f76a39ea55bbf29157f9b6d24d6abdcddd1a25f1cd/fastmcp_extensions-0.9.0.dev202607140130.tar.gz", hash = "sha256:4c562e1d690f20dce0eda8e50183234eb6b561e39da1587e40c8333f4737e113", size = 192948, upload-time = "2026-07-14T01:30:21.624Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/52/61/a855a6fa4ee6094a562225282c5e45b80a8b93c333c0d53408d76d722e26/fastmcp_extensions-0.9.0.dev202607140144.tar.gz", hash = "sha256:b76fd30dc6e2f62995e51ae26e56ab1473e2dd4e3763f00afee85ee0df9a939b", size = 193511, upload-time = "2026-07-14T01:44:42.278Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/7b/55/7a9b071f3a5c08c0c5c66422c2c99bb5f703585efbcc22bee8c5ab99c679/fastmcp_extensions-0.9.0.dev202607140130-py3-none-any.whl", hash = "sha256:1a035c095675a72801946138dd64da1b4d3bc7bc73df7c2e12e0116c8ad40b5a", size = 59939, upload-time = "2026-07-14T01:30:20.435Z" },
+    { url = "https://files.pythonhosted.org/packages/39/b4/cced31d77bec7748a549ba52fc9059c27ce7201720c11eb7b1fed93b7067/fastmcp_extensions-0.9.0.dev202607140144-py3-none-any.whl", hash = "sha256:2242a37c86cd3537538f2e169038f654d817585b1496822bc200d30672622a04", size = 60266, upload-time = "2026-07-14T01:44:39.009Z" },
 ]
 
 [[package]]
