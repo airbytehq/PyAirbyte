@@ -10,6 +10,7 @@ import pytest
 from airbyte.mcp._tool_utils import (
     SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
+    _resolve_transport_bearer_token,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
@@ -66,3 +67,40 @@ def test_duplicate_guid_registration_is_idempotent() -> None:
     register_guid_created_in_session("duplicate-guid")
     register_guid_created_in_session("duplicate-guid")
     assert "duplicate-guid" in _GUIDS_CREATED_IN_SESSION
+
+
+class _FakeAccessToken:
+    """Minimal stand-in for a FastMCP `AccessToken` carrying a token string."""
+
+    def __init__(self, token: str) -> None:
+        """Store the token value exposed via the `token` attribute."""
+        self.token = token
+
+
+@pytest.mark.parametrize(
+    "access_token, expected",
+    [
+        pytest.param(None, "", id="stdio_mode_returns_empty_string"),
+        pytest.param(_FakeAccessToken(""), "", id="empty_token_returns_empty_string"),
+        pytest.param(
+            _FakeAccessToken("verified-jwt"),
+            "verified-jwt",
+            id="verified_token_is_returned",
+        ),
+    ],
+)
+def test_resolve_transport_bearer_token(
+    access_token: _FakeAccessToken | None,
+    expected: str,
+) -> None:
+    """Verify the transport-token resolver returns the verified token or `""`.
+
+    `get_access_token` returns `None` outside a request (stdio mode), so the
+    resolver yields `""` and downstream config resolution falls back to client
+    credentials.
+    """
+    with patch(
+        "airbyte.mcp._tool_utils.get_access_token",
+        return_value=access_token,
+    ):
+        assert _resolve_transport_bearer_token() == expected

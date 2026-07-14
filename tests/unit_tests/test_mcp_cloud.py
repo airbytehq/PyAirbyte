@@ -9,12 +9,21 @@ from typing import Callable, cast
 
 import pytest
 from airbyte.cloud.models import JobStatusEnum
+from airbyte.constants import (
+    MCP_CONFIG_API_URL,
+    MCP_CONFIG_BEARER_TOKEN,
+    MCP_CONFIG_CLIENT_ID,
+    MCP_CONFIG_CLIENT_SECRET,
+    MCP_CONFIG_CONFIG_API_URL,
+)
 from airbyte.mcp import cloud as cloud_mcp
 from airbyte.mcp.cloud import (
     CloudConnectionResult,
     CloudDestinationResult,
     CloudSourceResult,
+    _get_cloud_client,
 )
+from airbyte.secrets.base import SecretString
 from fastmcp import Context
 
 
@@ -258,3 +267,59 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
     assert workspace.limits["connections"] is None
     assert len(results) == 1
     assert results[0].id == "connection-2"
+
+
+def _secret_or_none(value: SecretString | None) -> str | None:
+    """Return the plain string of a `SecretString`, or `None`."""
+    return None if value is None else str(value)
+
+
+@pytest.mark.parametrize(
+    "bearer_token, expected_bearer, expected_client_id, expected_client_secret",
+    [
+        pytest.param(
+            "transport-jwt",
+            "transport-jwt",
+            None,
+            None,
+            id="bearer_token_wins_over_client_credentials",
+        ),
+        pytest.param(
+            "",
+            None,
+            "client-id",
+            "client-secret",
+            id="falls_back_to_client_credentials_without_bearer_token",
+        ),
+    ],
+)
+def test_get_cloud_client_prefers_bearer_token_over_client_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+    bearer_token: str,
+    expected_bearer: str | None,
+    expected_client_id: str | None,
+    expected_client_secret: str | None,
+) -> None:
+    """Verify `_get_cloud_client` uses the bearer token when present, else client creds.
+
+    An empty bearer token models stdio mode, where `_resolve_transport_bearer_token`
+    yields `""` and client credentials remain the fallback.
+    """
+    config = {
+        MCP_CONFIG_BEARER_TOKEN: bearer_token,
+        MCP_CONFIG_CLIENT_ID: "client-id",
+        MCP_CONFIG_CLIENT_SECRET: "client-secret",
+        MCP_CONFIG_API_URL: None,
+        MCP_CONFIG_CONFIG_API_URL: None,
+    }
+    monkeypatch.setattr(
+        cloud_mcp,
+        "get_mcp_config",
+        lambda _ctx, key: config.get(key),
+    )
+
+    client = _get_cloud_client(cast(Context, object()))
+
+    assert _secret_or_none(client.bearer_token) == expected_bearer
+    assert _secret_or_none(client.client_id) == expected_client_id
+    assert _secret_or_none(client.client_secret) == expected_client_secret

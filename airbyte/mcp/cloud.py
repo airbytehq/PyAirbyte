@@ -272,12 +272,26 @@ def _get_cloud_client(
     *,
     organization_id: str | None = None,
 ) -> CloudClient:
-    """Get an authenticated `CloudClient` from MCP config."""
-    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN)
-    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID)
-    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET)
+    """Get an authenticated `CloudClient` from MCP config.
+
+    A bearer token takes precedence over `client_id`/`client_secret`. When the
+    server verifies transport against Airbyte Cloud's realm, the verified
+    transport token (surfaced through `BEARER_TOKEN_CONFIG_ARG`) is itself a
+    valid Cloud API bearer, so reusing it delegates downstream Cloud calls to the
+    caller's identity. Client credentials remain the fallback when no bearer
+    token is present (for example, stdio/local mode). `CloudClient` rejects
+    receiving both at once, so the client credentials are dropped when a bearer
+    token is available.
+    """
+    bearer_token = get_mcp_config(ctx, MCP_CONFIG_BEARER_TOKEN) or None
+    client_id = get_mcp_config(ctx, MCP_CONFIG_CLIENT_ID) or None
+    client_secret = get_mcp_config(ctx, MCP_CONFIG_CLIENT_SECRET) or None
     api_url = get_mcp_config(ctx, MCP_CONFIG_API_URL)
     config_api_url = get_mcp_config(ctx, MCP_CONFIG_CONFIG_API_URL)
+
+    if bearer_token:
+        client_id = None
+        client_secret = None
 
     return CloudClient(
         client_id=client_id,
