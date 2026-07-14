@@ -949,10 +949,7 @@ class Source(ConnectorBase):  # noqa: PLR0904
                     message="Invalid strategy",
                     context={
                         "write_strategy": write_strategy,
-                        "available_strategies": [
-                            s.value
-                            for s in WriteStrategy  # pyrefly: ignore[not-iterable]
-                        ],
+                        "available_strategies": [s.value for s in WriteStrategy],
                     },
                 ) from None
 

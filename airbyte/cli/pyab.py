@@ -360,10 +360,10 @@ def _resolve_destination_job(
 
 
 cli = App(
-    name="pyab",  # pyrefly: ignore[unexpected-keyword]
-    help="PyAirbyte CLI.",  # pyrefly: ignore[unexpected-keyword]
-    help_format="plaintext",  # pyrefly: ignore[unexpected-keyword]
-    version_flags=[],  # pyrefly: ignore[unexpected-keyword]
+    name="pyab",
+    help="PyAirbyte CLI.",
+    help_format="plaintext",
+    version_flags=[],
 )
 
 
