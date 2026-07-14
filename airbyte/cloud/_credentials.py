@@ -72,20 +72,19 @@ class _AirbyteCredentials:
             _env_value(CLIENT_SECRET_ENV_VAR, CLOUD_CLIENT_SECRET_ENV_VAR) if env_vars else None,
         )
 
-        if resolved_bearer_token and (resolved_client_id or resolved_client_secret):
-            raise PyAirbyteInputError(
-                message="Cannot use both client credentials and bearer token authentication.",
-                guidance=(
-                    "Provide either client_id and client_secret together, "
-                    "or bearer_token alone, but not both."
-                ),
-            )
-        if bool(resolved_client_id) != bool(resolved_client_secret):
+        if resolved_bearer_token:
+            # A bearer token takes precedence over client credentials. When a caller
+            # supplies both (for example, a passthrough bearer alongside static
+            # fallback client credentials), authenticate as the bearer's identity and
+            # drop the credentials rather than rejecting the combination.
+            resolved_client_id = None
+            resolved_client_secret = None
+        elif bool(resolved_client_id) != bool(resolved_client_secret):
             raise PyAirbyteInputError(
                 message="Client ID and client secret are both required.",
                 guidance="Provide both client ID and client secret, or use a bearer token.",
             )
-        if not resolved_bearer_token and not resolved_client_id:
+        elif not resolved_client_id:
             guidance = (
                 "Set Airbyte Cloud credentials in environment variables."
                 if env_vars

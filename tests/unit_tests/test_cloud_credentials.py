@@ -92,14 +92,17 @@ def test_airbyte_credentials_missing_credentials_guidance_matches_resolution_mod
     assert exc_info.value.guidance == expected_guidance
 
 
-def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
-    with pytest.raises(PyAirbyteInputError, match="Cannot use both"):
-        cloud_credentials._AirbyteCredentials.from_auth(
-            bearer_token="token",
-            client_id="client-id",
-            client_secret="client-secret",
-            env_vars=False,
-        )
+def test_airbyte_credentials_prefers_bearer_token_over_client_credentials() -> None:
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(
+        bearer_token="token",
+        client_id="client-id",
+        client_secret="client-secret",
+        env_vars=False,
+    )
+
+    assert credentials.bearer_token == "token"
+    assert credentials.client_id is None
+    assert credentials.client_secret is None
 
 
 @pytest.mark.parametrize(
@@ -111,13 +114,6 @@ def test_airbyte_credentials_rejects_mixed_auth_methods() -> None:
             None,
             "Client ID and client secret are both required.",
             id="missing_client_secret",
-        ),
-        pytest.param(
-            "client-id",
-            "client-secret",
-            "token",
-            "Cannot use both client credentials and bearer token authentication.",
-            id="mixed_auth_methods",
         ),
     ],
 )
@@ -133,6 +129,18 @@ def test_cloud_client_init_validates_auth_inputs(
             client_secret=client_secret,
             bearer_token=bearer_token,
         )
+
+
+def test_cloud_client_init_prefers_bearer_token_over_client_credentials() -> None:
+    client = CloudClient(
+        client_id="client-id",
+        client_secret="client-secret",
+        bearer_token="token",
+    )
+
+    assert client.bearer_token == "token"
+    assert client.client_id is None
+    assert client.client_secret is None
 
 
 def test_cloud_client_list_workspaces_forwards_limit(
