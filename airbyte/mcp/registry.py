@@ -22,7 +22,7 @@ from fastmcp_extensions import mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import exceptions as exc
-from airbyte._util.meta import is_docker_installed
+from airbyte._util.registry_spec import get_connector_spec_from_registry
 from airbyte.mcp._arg_resolvers import resolve_list_of_strings
 from airbyte.registry import (
     _DEFAULT_MANIFEST_URL,
@@ -148,20 +148,18 @@ def get_connector_info(
         Field(description="The name of the connector to get information for."),
     ],
 ) -> ConnectorInfo | Literal["Connector not found."]:
-    """Get metadata, documentation URL, and config spec for a connector.
+    """Get metadata, documentation URL, config spec, and manifest URL for a connector.
 
-    `config_spec_jsonschema` is populated only when Docker is available, since
-    resolving it requires installing and running the connector. In a hosted,
-    no-Docker runtime it is returned as `None` to avoid an unbounded install.
+    `config_spec_jsonschema` is fetched from the public connector registry over
+    HTTP (no Docker or local install required), preferring the `cloud` spec and
+    falling back to `oss`. It is `None` when the registry has no spec available
+    for the connector.
     """
     if connector_name not in get_available_connectors():
         return "Connector not found."
 
-    docker_available = is_docker_installed()
-
     connector = get_source(
         connector_name,
-        docker_image=docker_available,
         install_if_missing=False,  # Defer to avoid failing entirely if it can't be installed.
     )
 
@@ -169,15 +167,16 @@ def get_connector_info(
     with contextlib.suppress(Exception):
         connector_metadata = get_connector_metadata(connector_name)
 
-    config_spec_jsonschema: dict[str, Any] | None = None
-    if docker_available:
-        # Populating `config_spec` requires installing and running the connector.
-        # Only attempt it when Docker is available (a fast image pull). In a hosted,
-        # no-Docker runtime the fallback is a fresh pip/venv install on every call,
-        # which is unbounded and has hung requests for minutes, so leave it as `None`.
-        with contextlib.suppress(Exception):
-            connector.install()
-            config_spec_jsonschema = connector.config_spec
+    # Resolve the config spec from the public registry endpoint keyed by version,
+    # which works in any runtime (hosted or local) without installing the
+    # connector. Prefer the `cloud` spec and fall back to `oss`.
+    config_spec_jsonschema: dict[str, Any] | None = get_connector_spec_from_registry(
+        connector_name,
+        platform="cloud",
+    ) or get_connector_spec_from_registry(
+        connector_name,
+        platform="oss",
+    )
 
     manifest_url = _DEFAULT_MANIFEST_URL.format(
         source_name=connector_name,
