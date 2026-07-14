@@ -157,9 +157,11 @@ def get_connector_info(
     if connector_name not in get_available_connectors():
         return "Connector not found."
 
+    docker_available = is_docker_installed()
+
     connector = get_source(
         connector_name,
-        docker_image=is_docker_installed() or False,
+        docker_image=docker_available,
         install_if_missing=False,  # Defer to avoid failing entirely if it can't be installed.
     )
 
@@ -168,7 +170,7 @@ def get_connector_info(
         connector_metadata = get_connector_metadata(connector_name)
 
     config_spec_jsonschema: dict[str, Any] | None = None
-    if is_docker_installed():
+    if docker_available:
         # Populating `config_spec` requires installing and running the connector.
         # Only attempt it when Docker is available (a fast image pull). In a hosted,
         # no-Docker runtime the fallback is a fresh pip/venv install on every call,
