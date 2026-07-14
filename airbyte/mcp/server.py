@@ -176,11 +176,9 @@ def _create_auth() -> AuthProvider | None:
         )
     elif config_url or oidc_client_id or oidc_client_secret:
         logger.warning(
-            "Incomplete interactive OIDC configuration: set all of `%s`, `%s`, "
-            "and `%s` to enable it. Interactive OIDC auth is disabled.",
-            OIDC_CONFIG_URL_ENV,
-            OIDC_CLIENT_ID_ENV,
-            OIDC_CLIENT_SECRET_ENV,
+            "Incomplete interactive OIDC configuration: set all of "
+            "OIDC_CONFIG_URL, OIDC_CLIENT_ID, and OIDC_CLIENT_SECRET to enable "
+            "it. Interactive OIDC auth is disabled."
         )
 
     jwt: JWTAuthConfig | None = None
