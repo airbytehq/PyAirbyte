@@ -61,6 +61,15 @@ def main() -> None:
     )
     mcp_path = "/" if urlparse(server_url).path.strip("/") else "/mcp"
 
+    if getattr(app, "auth", None) is None:
+        logger.warning(
+            "HTTP transport starting without authentication: no interactive "
+            "OIDC or headless bearer-token auth is configured, so every "
+            "request is unauthenticated. Set `OIDC_CONFIG_URL`/`OIDC_CLIENT_ID`/"
+            "`OIDC_CLIENT_SECRET` (interactive) or `MCP_AUTH_JWKS_URI`/"
+            "`MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
+        )
+
     logger.info(
         "Starting Airbyte MCP HTTP server on %s:%d (mcp_path=%r)",
         DEFAULT_HTTP_HOST,

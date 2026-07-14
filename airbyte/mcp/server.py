@@ -174,6 +174,14 @@ def _create_auth() -> AuthProvider | None:
             client_secret=oidc_client_secret,
             base_url=server_url,
         )
+    elif config_url or oidc_client_id or oidc_client_secret:
+        logger.warning(
+            "Incomplete interactive OIDC configuration: set all of `%s`, `%s`, "
+            "and `%s` to enable it. Interactive OIDC auth is disabled.",
+            OIDC_CONFIG_URL_ENV,
+            OIDC_CLIENT_ID_ENV,
+            OIDC_CLIENT_SECRET_ENV,
+        )
 
     jwt: JWTAuthConfig | None = None
     use_cloud_defaults = os.getenv(MCP_AUTH_AIRBYTE_CLOUD_ENV, "").strip().lower() in {
