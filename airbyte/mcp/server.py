@@ -17,6 +17,15 @@ Supports two transport modes:
       `JWTVerifier` (no browser, no stored/rotating refresh token), enabled
       when `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`) is set.
   When both are configured they are combined via `MultiAuth`.
+
+For Airbyte Cloud, set `MCP_AUTH_AIRBYTE_CLOUD=true` to verify against Airbyte
+Cloud's application-client realm without hand-configuring URLs. An agent then
+mints an Airbyte Cloud access token from its `AIRBYTE_CLOUD_CLIENT_ID` /
+`AIRBYTE_CLOUD_CLIENT_SECRET` (the `<api_root>/applications/token` endpoint) and
+sends it as `Authorization: Bearer`. That single token both authenticates
+transport (verified here) and authorizes downstream Cloud API calls (the same
+header feeds the Cloud bearer token), because an Airbyte-Cloud-issued JWT is
+itself a valid Cloud API bearer.
 """
 
 from __future__ import annotations
@@ -113,6 +122,19 @@ MCP_AUTH_JWT_PUBLIC_KEY_ENV = "MCP_AUTH_JWT_PUBLIC_KEY"
 MCP_AUTH_ISSUER_ENV = "MCP_AUTH_ISSUER"
 MCP_AUTH_AUDIENCE_ENV = "MCP_AUTH_AUDIENCE"
 MCP_AUTH_ALGORITHM_ENV = "MCP_AUTH_ALGORITHM"
+MCP_AUTH_AIRBYTE_CLOUD_ENV = "MCP_AUTH_AIRBYTE_CLOUD"
+
+# Airbyte Cloud's application-client realm. Tokens minted from an Airbyte Cloud
+# `client_id`/`client_secret` via `<api_root>/applications/token` are RS256 JWTs
+# issued by this realm, and the same token is a valid Airbyte Cloud API bearer.
+# Verifying against this realm lets one token both authenticate transport and
+# authorize downstream Cloud calls. Enable with `MCP_AUTH_AIRBYTE_CLOUD=true`.
+AIRBYTE_CLOUD_REALM_ISSUER = (
+    "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
+)
+AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_REALM_ISSUER}/protocol/openid-connect/certs"
+AIRBYTE_CLOUD_JWT_AUDIENCE = "account"
+AIRBYTE_CLOUD_JWT_ALGORITHM = "RS256"
 
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
@@ -143,7 +165,7 @@ def _create_auth() -> AuthProvider | None:
     oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
     if config_url and oidc_client_id and oidc_client_secret:
         logger.info(
-            "Interactive OIDC auth enabled (issuer=%s, client_id=%s, base_url=%s)",
+            "Interactive OIDC auth enabled (config_url=%s, client_id=%s, base_url=%s)",
             config_url,
             oidc_client_id,
             server_url,
@@ -156,11 +178,25 @@ def _create_auth() -> AuthProvider | None:
         )
 
     jwt: JWTAuthConfig | None = None
+    use_cloud_defaults = os.getenv(MCP_AUTH_AIRBYTE_CLOUD_ENV, "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }
     jwks_uri = os.getenv(MCP_AUTH_JWKS_URI_ENV, "")
     jwt_public_key = os.getenv(MCP_AUTH_JWT_PUBLIC_KEY_ENV, "")
+    if use_cloud_defaults and not jwks_uri and not jwt_public_key:
+        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
     if jwks_uri or jwt_public_key:
-        issuer = os.getenv(MCP_AUTH_ISSUER_ENV) or None
-        audience = os.getenv(MCP_AUTH_AUDIENCE_ENV) or None
+        issuer = os.getenv(MCP_AUTH_ISSUER_ENV) or (
+            AIRBYTE_CLOUD_REALM_ISSUER if use_cloud_defaults else None
+        )
+        audience = os.getenv(MCP_AUTH_AUDIENCE_ENV) or (
+            AIRBYTE_CLOUD_JWT_AUDIENCE if use_cloud_defaults else None
+        )
+        algorithm = os.getenv(MCP_AUTH_ALGORITHM_ENV) or (
+            AIRBYTE_CLOUD_JWT_ALGORITHM if use_cloud_defaults else None
+        )
         logger.info(
             "Headless bearer-token auth enabled (jwks_uri=%s, issuer=%s, audience=%s)",
             jwks_uri or "<static public key>",
@@ -172,7 +208,7 @@ def _create_auth() -> AuthProvider | None:
             public_key=jwt_public_key or None,
             issuer=issuer,
             audience=audience,
-            algorithm=os.getenv(MCP_AUTH_ALGORITHM_ENV) or None,
+            algorithm=algorithm,
         )
 
     return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=server_url)
