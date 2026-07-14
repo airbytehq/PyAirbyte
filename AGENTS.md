@@ -26,11 +26,30 @@ MCP_AUTH_AIRBYTE_CLOUD=true MCP_SERVER_URL=http://localhost:8080 \
   uv run airbyte-mcp-http    # serves on http://localhost:8080/mcp
 ```
 
-Mint a short-lived app token from `AIRBYTE_CLOUD_CLIENT_ID`/`AIRBYTE_CLOUD_CLIENT_SECRET`
-via `POST https://api.airbyte.com/v1/applications/token`, then POST a
-`tools/list` JSON-RPC body to `/mcp`. Expected: no token → `401`, valid token →
-`200`, tampered token → `401`. In stdio mode there is no transport auth, so no
-bearer is required.
+Then run the matrix (mints a short-lived app token from
+`AIRBYTE_CLOUD_CLIENT_ID`/`AIRBYTE_CLOUD_CLIENT_SECRET` and exercises the `/mcp`
+endpoint). Expected: no token → `401`, valid token → `200`, tampered → `401`:
+
+```bash
+TOKEN=$(curl -s -X POST https://api.airbyte.com/v1/applications/token \
+  -H 'Content-Type: application/json' \
+  -d "{\"client_id\":\"$AIRBYTE_CLOUD_CLIENT_ID\",\"client_secret\":\"$AIRBYTE_CLOUD_CLIENT_SECRET\"}" \
+  | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+
+req() {  # $1 = optional Authorization header value
+  curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8080/mcp \
+    -H 'Content-Type: application/json' \
+    -H 'Accept: application/json, text/event-stream' \
+    ${1:+-H "Authorization: $1"} \
+    -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+}
+
+req                              # no token   -> 401
+req "Bearer $TOKEN"              # valid       -> 200
+req "Bearer ${TOKEN%????}XXXX"   # tampered    -> 401
+```
+
+In stdio mode there is no transport auth, so no bearer is required.
 
 ## MCP UI Development
 
