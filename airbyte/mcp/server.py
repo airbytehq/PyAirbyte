@@ -129,9 +129,7 @@ MCP_AUTH_AIRBYTE_CLOUD_ENV = "MCP_AUTH_AIRBYTE_CLOUD"
 # issued by this realm, and the same token is a valid Airbyte Cloud API bearer.
 # Verifying against this realm lets one token both authenticate transport and
 # authorize downstream Cloud calls. Enable with `MCP_AUTH_AIRBYTE_CLOUD=true`.
-AIRBYTE_CLOUD_REALM_ISSUER = (
-    "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
-)
+AIRBYTE_CLOUD_REALM_ISSUER = "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
 AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_REALM_ISSUER}/protocol/openid-connect/certs"
 AIRBYTE_CLOUD_JWT_AUDIENCE = "account"
 AIRBYTE_CLOUD_JWT_ALGORITHM = "RS256"
