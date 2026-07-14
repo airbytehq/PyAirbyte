@@ -17,7 +17,7 @@ from airbyte.mcp.interactive._registry_ui import (
     _list_public_registry_connectors,
 )
 from airbyte.mcp.interactive._shared_models import ConnectorType, SupportLevel
-from airbyte.mcp.registry import get_api_docs_urls
+from airbyte.mcp.registry import get_api_docs_urls, get_connector_info
 from airbyte.registry import (
     ApiDocsUrl,
     ConnectorMetadata,
@@ -569,3 +569,49 @@ def test_prefab_generative_tools_include_airbyte_annotations() -> None:
     assert tool.annotations is not None
     assert getattr(tool.annotations, "mcp_module") == "interactive"
     assert getattr(tool.annotations, INTERACTIVE_UI_ANNOTATION) is True
+
+
+@pytest.mark.parametrize(
+    ("docker_installed", "expects_install"),
+    [
+        pytest.param(True, True, id="docker_installs_and_reads_config_spec"),
+        pytest.param(False, False, id="no_docker_skips_unbounded_install"),
+    ],
+)
+def test_get_connector_info_only_installs_when_docker_available(
+    docker_installed: bool,
+    expects_install: bool,
+) -> None:
+    """`get_connector_info` must not run the unbounded install path without Docker.
+
+    In a hosted, no-Docker runtime `connector.install()` falls back to a fresh
+    pip/venv install per call, which is unbounded and has hung requests. The tool
+    should skip it and leave `config_spec_jsonschema` as `None` there, while still
+    returning the fast registry metadata.
+    """
+    connector = MagicMock()
+    connector.name = "source-faker"
+    connector.docs_url = "https://docs.airbyte.com/integrations/sources/faker"
+    connector.config_spec = {"type": "object"}
+
+    with (
+        patch(
+            "airbyte.mcp.registry.get_available_connectors",
+            return_value=["source-faker"],
+        ),
+        patch("airbyte.mcp.registry.get_source", return_value=connector),
+        patch("airbyte.mcp.registry.get_connector_metadata", return_value=None),
+        patch(
+            "airbyte.mcp.registry.is_docker_installed",
+            return_value=docker_installed,
+        ),
+    ):
+        result = get_connector_info("source-faker")
+
+    assert not isinstance(result, str)
+    assert connector.install.called is expects_install
+    if expects_install:
+        assert result.config_spec_jsonschema == {"type": "object"}
+    else:
+        assert result.config_spec_jsonschema is None
+    assert result.manifest_url is not None

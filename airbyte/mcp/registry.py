@@ -148,7 +148,12 @@ def get_connector_info(
         Field(description="The name of the connector to get information for."),
     ],
 ) -> ConnectorInfo | Literal["Connector not found."]:
-    """Get the documentation URL for a connector."""
+    """Get metadata, documentation URL, and config spec for a connector.
+
+    `config_spec_jsonschema` is populated only when Docker is available, since
+    resolving it requires installing and running the connector. In a hosted,
+    no-Docker runtime it is returned as `None` to avoid an unbounded install.
+    """
     if connector_name not in get_available_connectors():
         return "Connector not found."
 
@@ -163,10 +168,14 @@ def get_connector_info(
         connector_metadata = get_connector_metadata(connector_name)
 
     config_spec_jsonschema: dict[str, Any] | None = None
-    with contextlib.suppress(Exception):
-        # This requires running the connector. Install it if it isn't already installed.
-        connector.install()
-        config_spec_jsonschema = connector.config_spec
+    if is_docker_installed():
+        # Populating `config_spec` requires installing and running the connector.
+        # Only attempt it when Docker is available (a fast image pull). In a hosted,
+        # no-Docker runtime the fallback is a fresh pip/venv install on every call,
+        # which is unbounded and has hung requests for minutes, so leave it as `None`.
+        with contextlib.suppress(Exception):
+            connector.install()
+            config_spec_jsonschema = connector.config_spec
 
     manifest_url = _DEFAULT_MANIFEST_URL.format(
         source_name=connector_name,
