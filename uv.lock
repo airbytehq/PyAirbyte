@@ -201,7 +201,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.8.0,<1.0.0" },
+    { name = "fastmcp-extensions", specifier = ">=0.9.0.dev202607140130,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1129,7 +1129,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.8.0"
+version = "0.9.0.dev202607140130"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -1137,11 +1137,12 @@ dependencies = [
     { name = "mcp" },
     { name = "segment-analytics-python" },
     { name = "sentry-sdk" },
+    { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/dc/06/45a95610e89672b195b7fcc1472a0c15e0afd8adf5946c011e7a4f792a48/fastmcp_extensions-0.8.0.tar.gz", hash = "sha256:c208bdff5f2cb806ef4b43335540a15be4c21aa3953b98f22e376a658e882ec1", size = 189660, upload-time = "2026-07-14T01:04:20.487Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/85/3a/a8e1985da885231be0f76a39ea55bbf29157f9b6d24d6abdcddd1a25f1cd/fastmcp_extensions-0.9.0.dev202607140130.tar.gz", hash = "sha256:4c562e1d690f20dce0eda8e50183234eb6b561e39da1587e40c8333f4737e113", size = 192948, upload-time = "2026-07-14T01:30:21.624Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/30/39ffeb3635557dd3b9f2c97aaa8408254acf56899c63fe1ea4334fc54dd8/fastmcp_extensions-0.8.0-py3-none-any.whl", hash = "sha256:e11c9f28ffbcb42d268245b97b3d7a8c9572059ca49cb784cc779d1d6e4169cd", size = 56751, upload-time = "2026-07-14T01:04:19.116Z" },
+    { url = "https://files.pythonhosted.org/packages/7b/55/7a9b071f3a5c08c0c5c66422c2c99bb5f703585efbcc22bee8c5ab99c679/fastmcp_extensions-0.9.0.dev202607140130-py3-none-any.whl", hash = "sha256:1a035c095675a72801946138dd64da1b4d3bc7bc73df7c2e12e0116c8ad40b5a", size = 59939, upload-time = "2026-07-14T01:30:20.435Z" },
 ]
 
 [[package]]
