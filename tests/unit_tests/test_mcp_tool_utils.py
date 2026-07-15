@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from unittest.mock import patch
 
 import pytest
@@ -10,9 +11,73 @@ import pytest
 from airbyte.mcp._tool_utils import (
     SafeModeError,
     _GUIDS_CREATED_IN_SESSION,
+    _resolve_transport_bearer_token,
     check_guid_created_in_session,
     register_guid_created_in_session,
 )
+
+
+@dataclass
+class _FakeAccessToken:
+    """Minimal stand-in for a FastMCP `AccessToken` (only `token` is read)."""
+
+    token: str
+
+
+@pytest.mark.parametrize(
+    ("verified_token", "headers", "expected"),
+    [
+        pytest.param(
+            "upstream-airbyte-token",
+            {"authorization": "Bearer minted-mcp-reference-jwt"},
+            "upstream-airbyte-token",
+            id="verified_token_wins_over_authorization_header",
+        ),
+        pytest.param(
+            None,
+            {"authorization": "Bearer real-airbyte-token"},
+            "real-airbyte-token",
+            id="falls_back_to_bearer_prefixed_header",
+        ),
+        pytest.param(
+            None,
+            {"Authorization": "bare-token-no-prefix"},
+            "bare-token-no-prefix",
+            id="header_lookup_is_case_insensitive_and_accepts_bare_token",
+        ),
+        pytest.param(
+            "",
+            {"authorization": "Bearer header-token"},
+            "header-token",
+            id="empty_verified_token_falls_back_to_header",
+        ),
+        pytest.param(
+            None,
+            {},
+            "",
+            id="no_verified_token_and_no_header_returns_empty",
+        ),
+    ],
+)
+def test_resolve_transport_bearer_token(
+    verified_token: str | None,
+    headers: dict[str, str],
+    expected: str,
+) -> None:
+    """The downstream bearer prefers the verified token over the raw header.
+
+    Regression guard for the `OAuthProxy` `401`: the raw `Authorization` header
+    carries the proxy's minted reference JWT, so it must never win over the
+    upstream token exposed by `get_access_token`.
+    """
+    access_token = (
+        _FakeAccessToken(verified_token) if verified_token is not None else None
+    )
+    with (
+        patch("airbyte.mcp._tool_utils.get_access_token", return_value=access_token),
+        patch("airbyte.mcp._tool_utils.get_http_headers", return_value=headers),
+    ):
+        assert _resolve_transport_bearer_token() == expected
 
 
 @pytest.fixture(autouse=True)

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from fastmcp.apps import UI_EXTENSION_ID
-from fastmcp.server.dependencies import get_access_token, get_context
+from fastmcp.server.dependencies import get_access_token, get_context, get_http_headers
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (
@@ -182,37 +182,49 @@ def _normalize_bearer_token(value: str) -> str | None:
 
 
 def _resolve_transport_bearer_token() -> str:
-    """Resolve the verified transport bearer token for downstream Cloud calls.
+    """Resolve the bearer token to forward to the downstream Airbyte Cloud API.
 
-    FastMCP stores the access token of the current request after the transport
-    auth provider verifies it — the interactive `OIDCProxy` token or the
-    headless client-minted JWT. Both are Airbyte Cloud tokens when the server
-    verifies against Airbyte Cloud's realm, so reusing the token as the
-    downstream Cloud API bearer gives the caller delegated access without a
-    second credential. Returns an empty string when no verified token is
-    present (for example, stdio mode).
+    Prefers the token the transport auth provider *verified* for the request,
+    exposed by `get_access_token`. Behind a token-swapping proxy (`OAuthProxy`/
+    `OIDCProxy`) this is the upstream Airbyte access token, not the reference
+    JWT the proxy minted for the MCP client and put in the raw `Authorization`
+    header — forwarding that reference JWT downstream yields a `401` because
+    Airbyte never issued it.
+
+    Falls back to the raw `Authorization` header only when there is no verified
+    token (a server with no transport auth provider, where the client passes a
+    real Airbyte token directly), and to an empty string when neither is present
+    (for example stdio mode), so config resolution can reach client-credentials.
     """
     access_token = get_access_token()
     if access_token and access_token.token:
         return access_token.token
+
+    headers = get_http_headers()
+    header_lower = MCP_BEARER_TOKEN_HEADER.lower()
+    for key, value in headers.items():
+        if key.lower() == header_lower:
+            normalized = _normalize_bearer_token(value)
+            if normalized:
+                return normalized
     return ""
 
 
 BEARER_TOKEN_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_BEARER_TOKEN,
-    http_header_key=MCP_BEARER_TOKEN_HEADER,
     env_var=CLOUD_BEARER_TOKEN_ENV_VAR,
     normalize_fn=_normalize_bearer_token,
     default=_resolve_transport_bearer_token,
     required=False,
     sensitive=True,
 )
-"""Config arg for bearer token, supporting Authorization header and env var.
+"""Config arg for the downstream Airbyte Cloud bearer token.
 
-Reads the transport `Authorization` header (stripping the `Bearer ` prefix)
-or `AIRBYTE_CLOUD_BEARER_TOKEN`, then falls back to the verified transport
-token so an interactive-OIDC or headless-JWT caller's token passes through to
-the downstream Airbyte Cloud API without a second credential."""
+Resolves an explicit `AIRBYTE_CLOUD_BEARER_TOKEN` override first, then defers to
+`_resolve_transport_bearer_token`. The raw `Authorization` header is
+deliberately *not* a first-class source: behind `OAuthProxy`/`OIDCProxy` it
+carries the proxy's self-minted reference JWT, which Airbyte Cloud rejects with
+`401`; the resolver consults it only as a last-resort fallback."""
 
 CLIENT_ID_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CLIENT_ID,
