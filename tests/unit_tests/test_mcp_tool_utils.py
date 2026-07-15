@@ -75,9 +75,16 @@ def test_resolve_transport_bearer_token(
     )
     with (
         patch("airbyte.mcp._tool_utils.get_access_token", return_value=access_token),
-        patch("airbyte.mcp._tool_utils.get_http_headers", return_value=headers),
+        patch(
+            "airbyte.mcp._tool_utils.get_http_headers", return_value=headers
+        ) as mock_get_http_headers,
     ):
         assert _resolve_transport_bearer_token() == expected
+
+    if verified_token:
+        mock_get_http_headers.assert_not_called()
+    else:
+        mock_get_http_headers.assert_called_once_with(include={"authorization"})
 
 
 @pytest.fixture(autouse=True)

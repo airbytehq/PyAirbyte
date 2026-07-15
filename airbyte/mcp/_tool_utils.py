@@ -200,7 +200,7 @@ def _resolve_transport_bearer_token() -> str:
     if access_token and access_token.token:
         return access_token.token
 
-    headers = get_http_headers()
+    headers = get_http_headers(include={MCP_BEARER_TOKEN_HEADER.lower()})
     header_lower = MCP_BEARER_TOKEN_HEADER.lower()
     for key, value in headers.items():
         if key.lower() == header_lower:
