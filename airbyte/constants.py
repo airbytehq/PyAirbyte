@@ -327,7 +327,7 @@ MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
 MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
 """HTTP header key for client secret."""
 
-# Note: The API root and Config API root are intentionally NOT exposed as HTTP
+# Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing
 # a caller to override these URLs per-request would let them redirect the
 # server's credentialed requests to an arbitrary host and exfiltrate secrets.
