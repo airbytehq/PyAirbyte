@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 
 
 if TYPE_CHECKING:
-    import requests
+    import httpx
 
 
 class AirbyteApiResponseDuckType(Protocol):
@@ -17,5 +17,5 @@ class AirbyteApiResponseDuckType(Protocol):
     r"""HTTP response content type for this operation"""
     status_code: int
     r"""HTTP response status code for this operation"""
-    raw_response: requests.Response
+    raw_response: httpx.Response
     r"""Raw HTTP response; suitable for custom response parsing"""
