@@ -2,10 +2,10 @@
 """HTTP transport entry point for the Airbyte MCP server.
 
 Starts the MCP server with HTTP transport, suitable for hosted deployment
-behind a load balancer. Transport auth is assembled in `server.py` via
-`fastmcp_extensions.resolve_mcp_auth`, which supports interactive OIDC and
-headless bearer-token verification (combined via `MultiAuth` when both are
-configured). See `server.py` for details.
+behind a load balancer. Transport auth is assembled in `server.py`, which
+defaults every setting to Airbyte Cloud's public Keycloak realms and supports
+interactive OIDC plus headless bearer-token verification (combined via
+`MultiAuth`). See `server.py` for details.
 
 Environment variables:
 
@@ -13,22 +13,22 @@ Environment variables:
   derive the MCP endpoint mount path (serves at `/` when the URL has a path
   prefix, otherwise defaults to `/mcp`).
 
-Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when all three
-are set:
+Interactive OIDC (Keycloak Authorization Code + PKCE), active once the client
+credentials are supplied:
 
-- `OIDC_CONFIG_URL`: Keycloak OIDC discovery URL
-- `OIDC_CLIENT_ID`: OIDC client identifier
-- `OIDC_CLIENT_SECRET`: OIDC client secret
+- `AIRBYTE_MCP_OIDC_CLIENT_ID`: OIDC client identifier
+- `AIRBYTE_MCP_OIDC_CLIENT_SECRET`: OIDC client secret
+- `AIRBYTE_MCP_OIDC_CONFIG_URL`: Keycloak OIDC discovery URL (defaults to
+  Airbyte Cloud)
 
 Headless bearer-token verification (for agents/CI that mint their own
-short-lived token via the client credentials grant), enabled when
-`MCP_AUTH_JWKS_URI` or `MCP_AUTH_JWT_PUBLIC_KEY` is set:
+short-lived token via the client credentials grant); on by default against
+Airbyte Cloud, overridable for self-hosted deployments:
 
-- `MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
-- `MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to `MCP_AUTH_JWKS_URI`)
-- `MCP_AUTH_ISSUER`: expected token issuer
-- `MCP_AUTH_AUDIENCE`: expected token audience
-- `MCP_AUTH_ALGORITHM`: signing algorithm override
+- `AIRBYTE_MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
+- `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
+- `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
+- `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm
 """
 
 from __future__ import annotations
@@ -89,11 +89,11 @@ def main() -> None:
 
     if getattr(app, "auth", None) is None:
         logger.warning(
-            "HTTP transport starting without authentication: no interactive "
-            "OIDC or headless bearer-token auth is configured, so every "
-            "request is unauthenticated. Set `OIDC_CONFIG_URL`/`OIDC_CLIENT_ID`/"
-            "`OIDC_CLIENT_SECRET` (interactive) or `MCP_AUTH_JWKS_URI`/"
-            "`MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
+            "HTTP transport starting without authentication: no bearer-token or "
+            "interactive OIDC auth resolved, so every request is "
+            "unauthenticated. This is unexpected for the default Airbyte Cloud "
+            "configuration; check that the `AIRBYTE_MCP_AUTH_*` overrides were "
+            "not blanked out."
         )
 
     logger.info(
