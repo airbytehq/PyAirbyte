@@ -16,7 +16,10 @@ from airbyte.exceptions import (
 )
 from airbyte.mcp import local
 from airbyte.mcp._arg_resolvers import resolve_connector_config
-from airbyte.mcp._guards import is_trusted_execution_enabled, require_trusted_execution
+from airbyte.mcp._guards import (
+    is_trusted_execution_enabled,
+    raise_if_untrusted_execution_context,
+)
 
 
 if TYPE_CHECKING:
@@ -63,22 +66,22 @@ def test_is_trusted_execution_enabled_defaults_off(monkeypatch: MonkeyPatch) -> 
     assert is_trusted_execution_enabled() is False
 
 
-def test_require_trusted_execution_raises_when_disabled(
+def test_raise_if_untrusted_execution_context_raises_when_disabled(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    """`require_trusted_execution` hard-fails and records the feature when disabled."""
+    """`raise_if_untrusted_execution_context` hard-fails and records the feature when disabled."""
     _set_trusted(monkeypatch, enabled=False)
     with pytest.raises(PyAirbyteTrustedExecutionRequiredError) as exc_info:
-        require_trusted_execution("some feature")
+        raise_if_untrusted_execution_context("some feature")
     assert exc_info.value.feature == "some feature"
 
 
-def test_require_trusted_execution_passes_when_enabled(
+def test_raise_if_untrusted_execution_context_passes_when_enabled(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    """`require_trusted_execution` is a no-op when trusted execution is enabled."""
+    """`raise_if_untrusted_execution_context` is a no-op when trusted execution is enabled."""
     _set_trusted(monkeypatch, enabled=True)
-    require_trusted_execution("some feature")
+    raise_if_untrusted_execution_context("some feature")
 
 
 def test_resolve_connector_config_allows_inline_config_when_untrusted(

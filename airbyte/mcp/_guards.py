@@ -9,7 +9,7 @@ environment variable (`airbyte.constants.MCP_TRUSTED_EXECUTION_ENV_VAR`) and def
 
 `fastmcp_extensions` already hides trusted-machine tools from the tool listing when the
 gate is off, but that is a *visibility* control. The guards here are an independent
-*function-layer* control: backend helpers call `require_trusted_execution` so a direct
+*function-layer* control: backend helpers call `raise_if_untrusted_execution_context` so a direct
 call hard-fails when the gate is disabled, even if a future registration mistake left the
 tool visible. Because the two layers are independent, a mistake in either one alone cannot
 expose a trusted-machine capability to an untrusted (for example hosted HTTP) caller.
@@ -36,7 +36,7 @@ def is_trusted_execution_enabled() -> bool:
     return os.environ.get(MCP_TRUSTED_EXECUTION_ENV_VAR, "0").strip().lower() in _TRUTHY_VALUES
 
 
-def require_trusted_execution(feature: str) -> None:
+def raise_if_untrusted_execution_context(feature: str) -> None:
     """Hard-fail when `feature` is invoked while trusted execution is disabled.
 
     Call this from any backend helper that exposes a trusted-machine capability (local

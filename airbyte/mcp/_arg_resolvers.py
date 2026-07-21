@@ -14,7 +14,7 @@ from typing import Any, overload
 import yaml
 
 from airbyte.constants import SECRETS_HYDRATION_PREFIX
-from airbyte.mcp._guards import require_trusted_execution
+from airbyte.mcp._guards import raise_if_untrusted_execution_context
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret
 
@@ -103,7 +103,7 @@ def resolve_connector_config(  # noqa: PLR0912
     We reject hardcoded secrets in a config dict if we detect them.
 
     The trusted-machine inputs are gated by trusted execution
-    (`airbyte.mcp._guards.require_trusted_execution`): reading a local `config_file`,
+    (`airbyte.mcp._guards.raise_if_untrusted_execution_context`): reading a local `config_file`,
     resolving a server-side `config_secret_name`, and hydrating inline
     `secret_reference::` values each hard-fail when trusted execution is disabled. Passing
     an already-resolved inline `config` dict remains available to untrusted callers (for
@@ -116,7 +116,9 @@ def resolve_connector_config(  # noqa: PLR0912
         return {}
 
     if config_file is not None:
-        require_trusted_execution("Reading connector config from a local file (`config_file`)")
+        raise_if_untrusted_execution_context(
+            "Reading connector config from a local file (`config_file`)"
+        )
         if isinstance(config_file, str):
             config_file = Path(config_file)
 
@@ -160,7 +162,7 @@ def resolve_connector_config(  # noqa: PLR0912
             raise ValueError(f"Config must be a dict or JSON string, got: {type(config).__name__}")
 
     if _contains_secret_reference(config_dict):
-        require_trusted_execution(
+        raise_if_untrusted_execution_context(
             "Resolving inline secret references (`secret_reference::`) in connector config"
         )
 
@@ -183,7 +185,7 @@ def resolve_connector_config(  # noqa: PLR0912
             raise ValueError(error_msg)
 
     if config_secret_name is not None:
-        require_trusted_execution(
+        raise_if_untrusted_execution_context(
             "Resolving connector config from a server-side secret (`config_secret_name`)"
         )
         # Assume this is a secret name that points to a JSON/YAML config.
