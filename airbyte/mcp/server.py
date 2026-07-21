@@ -190,10 +190,12 @@ def _warn_on_legacy_oidc_env() -> None:
     the old contract is silently ignored. Surfacing it turns a silent
     no-interactive-OIDC misconfiguration into a visible migration hint.
     """
+    # Membership checks (not `os.getenv`) so the secret *values* are never read;
+    # only the env var *names* are ever surfaced in the log.
     ignored = [
         f"`{legacy}` (rename to `{branded}`)"
         for legacy, branded in _LEGACY_OIDC_ENV.items()
-        if os.getenv(legacy) and not os.getenv(branded)
+        if legacy in os.environ and branded not in os.environ
     ]
     if ignored:
         logger.warning(
