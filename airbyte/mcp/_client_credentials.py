@@ -91,7 +91,20 @@ class ClientCredentialsExchangeMiddleware:
         self._expiry_margin_seconds = expiry_margin_seconds
         # Maps a per-credential cache key to `(access_token, expiry_epoch)`.
         self._token_cache: dict[str, tuple[str, float]] = {}
-        self._lock = asyncio.Lock()
+        # A lock per credential so a slow/unreachable token endpoint stalls only
+        # the affected credential, not all Basic-auth traffic. `_locks_guard`
+        # serializes creation of the per-credential locks themselves.
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._locks_guard = asyncio.Lock()
+
+    async def _lock_for(self, cache_key: str) -> asyncio.Lock:
+        """Return the lock dedicated to `cache_key`, creating it on first use."""
+        async with self._locks_guard:
+            lock = self._locks.get(cache_key)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._locks[cache_key] = lock
+            return lock
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Rewrite a Basic-auth HTTP request to Bearer, then delegate downstream."""
@@ -120,7 +133,8 @@ class ClientCredentialsExchangeMiddleware:
         cache_key = _cache_key(client_id, client_secret)
         now = time.monotonic()
 
-        async with self._lock:
+        lock = await self._lock_for(cache_key)
+        async with lock:
             cached = self._token_cache.get(cache_key)
             if cached is not None and cached[1] > now:
                 return cached[0]
@@ -140,12 +154,24 @@ class ClientCredentialsExchangeMiddleware:
         Returns `None` when the token endpoint rejects the credentials or omits
         an access token; never logs the credentials or the minted token.
         """
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                self._token_url,
-                json={"client_id": client_id, "client_secret": client_secret},
-                headers={"Content-Type": "application/json"},
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    self._token_url,
+                    json={"client_id": client_id, "client_secret": client_secret},
+                    headers={"Content-Type": "application/json"},
+                )
+        except httpx.HTTPError as exc:
+            # Unreachable endpoint, timeout, or transport error: fail closed by
+            # passing the request through for the verifier to reject with a 401
+            # rather than surfacing a 500. The exception type is safe to log; the
+            # credentials are not.
+            logger.warning(
+                "Client-credentials token exchange request failed (%s); passing "
+                "request through for the verifier to reject.",
+                type(exc).__name__,
             )
+            return None
 
         if response.status_code != httpx.codes.OK:
             logger.warning(
@@ -155,7 +181,14 @@ class ClientCredentialsExchangeMiddleware:
             )
             return None
 
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            logger.warning(
+                "Client-credentials token endpoint returned a non-JSON body; "
+                "passing request through for the verifier to reject."
+            )
+            return None
         access_token = payload.get("access_token")
         if not access_token:
             logger.warning(
