@@ -227,7 +227,7 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
 
 @dataclass
 class AirbyteMCPError(PyAirbyteError):
-    """An error occurred in the PyAirbyte MCP server."""
+    """An error occurred in the Airbyte MCP server."""
 
 
 @dataclass
