@@ -59,10 +59,12 @@ from airbyte.mcp._tool_utils import (
     CLIENT_ID_CONFIG_ARG,
     CLIENT_SECRET_CONFIG_ARG,
     CONFIG_API_URL_CONFIG_ARG,
+    TRUSTED_EXECUTION_CONFIG_ARG,
     WORKSPACE_ID_CONFIG_ARG,
     airbyte_module_filter,
     airbyte_readonly_mode_filter,
     airbyte_ui_support_filter,
+    validate_airbyte_domains,
 )
 from airbyte.mcp.cloud import register_cloud_tools
 from airbyte.mcp.interactive import register_interactive_tools
@@ -173,6 +175,7 @@ app = mcp_server(
         CLIENT_SECRET_CONFIG_ARG,
         API_URL_CONFIG_ARG,
         CONFIG_API_URL_CONFIG_ARG,
+        TRUSTED_EXECUTION_CONFIG_ARG,
     ],
     tool_filters=[
         airbyte_readonly_mode_filter,
@@ -189,6 +192,8 @@ register_local_tools(app)
 register_registry_tools(app)
 register_interactive_tools(app)
 register_prompts(app)
+
+validate_airbyte_domains(app)
 
 
 @app.custom_route("/health", methods=["GET"])

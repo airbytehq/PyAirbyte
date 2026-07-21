@@ -222,6 +222,34 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
     available_streams: list[str] | None = None
 
 
+# MCP Server Errors
+
+
+@dataclass
+class PyAirbyteMCPError(PyAirbyteError):
+    """An error occurred in the PyAirbyte MCP server."""
+
+
+@dataclass
+class PyAirbyteTrustedExecutionRequiredError(PyAirbyteMCPError):
+    """A trusted-execution-only capability was invoked while trusted execution is disabled.
+
+    Trusted execution grants the MCP server its trusted-machine capabilities: local
+    filesystem access, local connector installation/execution, and server-side secret
+    resolution. It defaults to *off* on every transport and is permanently unavailable
+    over the HTTP transport, so a backend helper that exposes one of those capabilities
+    hard-fails when the gate is disabled -- independently of whether the corresponding
+    tool was hidden from the tool listing.
+    """
+
+    guidance = (
+        "Set `AIRBYTE_MCP_TRUSTED_EXECUTION=1` on the MCP server process and restart it. "
+        "Trusted execution is only available on the stdio transport; it can never be "
+        "enabled for an HTTP/hosted deployment."
+    )
+    feature: str | None = None
+
+
 # Normalization Errors
 
 

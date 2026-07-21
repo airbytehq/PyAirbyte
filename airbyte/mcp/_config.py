@@ -9,6 +9,7 @@ from pathlib import Path
 import dotenv
 
 from airbyte._util.meta import is_interactive
+from airbyte.mcp._guards import is_trusted_execution_enabled
 from airbyte.secrets import (
     DotenvSecretManager,
     GoogleGSMSecretManager,
@@ -39,25 +40,39 @@ def load_secrets_to_env_vars() -> None:
     from the loaded environment variables.
 
     Note: Later secret manager registrations have higher priority than earlier ones.
+
+    When trusted execution is disabled (`airbyte.mcp._guards.is_trusted_execution_enabled`),
+    the dotenv and Google Secret Manager backends are *not* registered as secret sources.
+    This prevents an untrusted (for example hosted HTTP) deployment from resolving
+    server-side secrets into connector config via `config_secret_name` /
+    `secret_reference::`. Ordinary environment variables are still loaded from any
+    referenced dotenv file so that safe, non-secret-manager configuration continues to
+    work.
     """
+    trusted = is_trusted_execution_enabled()
+
     # Load the .env file from the current working directory.
     envrc_path = Path.cwd() / ".envrc"
     if envrc_path.exists():
-        envrc_secret_mgr = DotenvSecretManager(envrc_path)
         _load_dotenv_file(envrc_path)
-        register_secret_manager(
-            envrc_secret_mgr,
-        )
+        if trusted:
+            register_secret_manager(
+                DotenvSecretManager(envrc_path),
+            )
 
     if AIRBYTE_MCP_DOTENV_PATH_ENVVAR in os.environ:
         dotenv_path = Path(os.environ[AIRBYTE_MCP_DOTENV_PATH_ENVVAR]).absolute()
-        custom_dotenv_secret_mgr = DotenvSecretManager(dotenv_path)
         _load_dotenv_file(dotenv_path)
-        register_secret_manager(
-            custom_dotenv_secret_mgr,
-        )
+        if trusted:
+            register_secret_manager(
+                DotenvSecretManager(dotenv_path),
+            )
 
-    if is_secret_available("GCP_GSM_CREDENTIALS") and is_secret_available("GCP_GSM_PROJECT_ID"):
+    if (
+        trusted
+        and is_secret_available("GCP_GSM_CREDENTIALS")
+        and is_secret_available("GCP_GSM_PROJECT_ID")
+    ):
         # Initialize the GoogleGSMSecretManager if the credentials and project are set.
         register_secret_manager(
             GoogleGSMSecretManager(

@@ -29,6 +29,7 @@ from airbyte._util.meta import is_docker_installed
 from airbyte.caches.util import get_default_cache
 from airbyte.destinations.util import get_destination
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
+from airbyte.mcp._guards import require_trusted_execution
 from airbyte.registry import get_connector_metadata
 from airbyte.secrets.config import _get_secret_sources
 from airbyte.secrets.env_vars import DotenvSecretManager
@@ -72,7 +73,13 @@ def _get_mcp_source(
     install_if_missing: bool = True,
     manifest_path: str | Path | None,
 ) -> Source:
-    """Get the MCP source for a connector."""
+    """Get the MCP source for a connector.
+
+    This installs and executes a connector on the server, so it is gated by trusted
+    execution and hard-fails when trusted execution is disabled, independently of whether
+    the calling tool was hidden from the tool listing.
+    """
+    require_trusted_execution("Local connector execution (`_get_mcp_source`)")
     if manifest_path:
         override_execution_mode = "yaml"
     elif override_execution_mode == "auto" and is_docker_installed():
@@ -216,6 +223,7 @@ def list_connector_config_secrets(
     for a given connector. The return value is a list of secret names, but it will not
     return the actual secret values.
     """
+    require_trusted_execution("Listing connector config secrets (`list_connector_config_secrets`)")
     secrets_names: list[str] = []
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, GoogleGSMSecretManager):
@@ -241,6 +249,7 @@ def list_dotenv_secrets() -> dict[str, list[str]]:
     This returns a dictionary mapping the .env file name to a list of environment
     variable names. The values of the environment variables are not returned.
     """
+    require_trusted_execution("Listing dotenv secret names (`list_dotenv_secrets`)")
     result: dict[str, list[str]] = {}
     for secrets_mgr in _get_secret_sources():
         if isinstance(secrets_mgr, DotenvSecretManager) and secrets_mgr.dotenv_path:
@@ -705,6 +714,7 @@ class CachedDatasetInfo(BaseModel):
 )
 def list_cached_streams() -> list[CachedDatasetInfo]:
     """List all streams available in the default DuckDB cache."""
+    require_trusted_execution("Reading the local default cache (`list_cached_streams`)")
     cache: DuckDBCache = get_default_cache()
     result = [
         CachedDatasetInfo(
@@ -726,6 +736,7 @@ def list_cached_streams() -> list[CachedDatasetInfo]:
 )
 def describe_default_cache() -> dict[str, Any]:
     """Describe the currently configured default cache."""
+    require_trusted_execution("Describing the local default cache (`describe_default_cache`)")
     cache = get_default_cache()
     return {
         "cache_type": type(cache).__name__,
@@ -800,6 +811,7 @@ def run_sql_query(
 
     For security reasons, only read-only operations are allowed: SELECT, DESCRIBE, SHOW, EXPLAIN.
     """
+    require_trusted_execution("Querying the local default cache (`run_sql_query`)")
     # Check if the query is safe to execute
     if not _is_safe_sql(sql_query):
         return [
@@ -949,6 +961,7 @@ def destination_smoke_test(  # noqa: PLR0913, PLR0917
     per-column null/non-null counts. Results are included in the response
     as `table_statistics` and `tables_not_found`.
     """
+    require_trusted_execution("Destination smoke test (`destination_smoke_test`)")
     # Resolve destination config
     config_dict = resolve_connector_config(
         config=config,

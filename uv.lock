@@ -1129,7 +1129,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.10.0"
+version = "0.10.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -1140,9 +1140,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d7/0d/609ea92685e25443c3b23fa1fa5ae8b5b90dc5a5af07ad1082a4f6b7d134/fastmcp_extensions-0.10.0.tar.gz", hash = "sha256:8a3350ae6728e1fbe04d57c355133641a529367bca0c7ed718c7b098062966b5", size = 196638, upload-time = "2026-07-14T06:07:11.119Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/30/90/8198eef9c4d8429fb76f00dbe9bb3b9a097bbfcb9adf7c41f4f26223e8a2/fastmcp_extensions-0.10.3.tar.gz", hash = "sha256:dc40edd91e52ca59d252f25c767f76654de34d2a1793aa3e756cbb76e0d9adba", size = 201916, upload-time = "2026-07-21T00:49:04.478Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/66/02a5c9e1a5614096392f07aa961945fbb789747885ca8755f911921bcc42/fastmcp_extensions-0.10.0-py3-none-any.whl", hash = "sha256:c856fc7992ff99ea42839fd32043b5ac400914e2e21b8e57b1b0cac08b145240", size = 63268, upload-time = "2026-07-14T06:07:09.408Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/62/4fd614321d5083e94375f07b3388f56f071fd16e25efe37451363c92a411/fastmcp_extensions-0.10.3-py3-none-any.whl", hash = "sha256:2932107823d3d11f73784bd5ab3cd4c7a07181335579017b14554c16e0023cd1", size = 66106, upload-time = "2026-07-21T00:49:02.714Z" },
 ]
 
 [[package]]
