@@ -226,12 +226,12 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
 
 
 @dataclass
-class PyAirbyteMCPError(PyAirbyteError):
+class AirbyteMCPError(PyAirbyteError):
     """An error occurred in the PyAirbyte MCP server."""
 
 
 @dataclass
-class PyAirbyteTrustedExecutionRequiredError(PyAirbyteMCPError):
+class AirbyteTrustedExecutionRequiredError(AirbyteMCPError):
     """A trusted-execution-only capability was invoked while trusted execution is disabled.
 
     Trusted execution grants the MCP server its trusted-machine capabilities: local

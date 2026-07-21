@@ -20,7 +20,7 @@ from __future__ import annotations
 import os
 
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
-from airbyte.exceptions import PyAirbyteTrustedExecutionRequiredError
+from airbyte.exceptions import AirbyteTrustedExecutionRequiredError
 
 
 _TRUTHY_VALUES = frozenset({"1", "true", "yes"})
@@ -41,9 +41,9 @@ def raise_if_untrusted_execution_context(feature: str) -> None:
 
     Call this from any backend helper that exposes a trusted-machine capability (local
     filesystem access, connector installation/execution, or server-side secret
-    resolution). It raises `airbyte.exceptions.PyAirbyteTrustedExecutionRequiredError`
+    resolution). It raises `airbyte.exceptions.AirbyteTrustedExecutionRequiredError`
     when the gate is off, independently of whether the corresponding tool was hidden from
     the listing.
     """
     if not is_trusted_execution_enabled():
-        raise PyAirbyteTrustedExecutionRequiredError(feature=feature)
+        raise AirbyteTrustedExecutionRequiredError(feature=feature)

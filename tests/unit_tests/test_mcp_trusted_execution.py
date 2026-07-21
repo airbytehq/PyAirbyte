@@ -12,7 +12,7 @@ import pytest
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 from airbyte.exceptions import (
     PyAirbyteInputError,
-    PyAirbyteTrustedExecutionRequiredError,
+    AirbyteTrustedExecutionRequiredError,
 )
 from airbyte.mcp import local
 from airbyte.mcp._arg_resolvers import resolve_connector_config
@@ -71,7 +71,7 @@ def test_raise_if_untrusted_execution_context_raises_when_disabled(
 ) -> None:
     """`raise_if_untrusted_execution_context` hard-fails and records the feature when disabled."""
     _set_trusted(monkeypatch, enabled=False)
-    with pytest.raises(PyAirbyteTrustedExecutionRequiredError) as exc_info:
+    with pytest.raises(AirbyteTrustedExecutionRequiredError) as exc_info:
         raise_if_untrusted_execution_context("some feature")
     assert exc_info.value.feature == "some feature"
 
@@ -110,7 +110,7 @@ def test_resolve_connector_config_rejects_config_file_when_untrusted(
     _set_trusted(monkeypatch, enabled=False)
     config_file = tmp_path / "config.json"
     config_file.write_text(json.dumps({"host": "example.com"}))
-    with pytest.raises(PyAirbyteTrustedExecutionRequiredError):
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
         resolve_connector_config(config_file=config_file)
 
 
@@ -130,7 +130,7 @@ def test_resolve_connector_config_rejects_config_secret_name_when_untrusted(
 ) -> None:
     """Resolving config from a server-side secret is gated behind trusted execution."""
     _set_trusted(monkeypatch, enabled=False)
-    with pytest.raises(PyAirbyteTrustedExecutionRequiredError):
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
         resolve_connector_config(config_secret_name="MY_SECRET_CONFIG")
 
 
@@ -139,7 +139,7 @@ def test_resolve_connector_config_rejects_secret_reference_when_untrusted(
 ) -> None:
     """Inline `secret_reference::` values are gated behind trusted execution."""
     _set_trusted(monkeypatch, enabled=False)
-    with pytest.raises(PyAirbyteTrustedExecutionRequiredError):
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
         resolve_connector_config(config={"password": "secret_reference::MY_ENV_VAR"})
 
 
@@ -196,7 +196,7 @@ def test_local_helpers_reject_when_untrusted(
     though a registration mistake could leave the tool listed.
     """
     _set_trusted(monkeypatch, enabled=False)
-    with pytest.raises(PyAirbyteTrustedExecutionRequiredError):
+    with pytest.raises(AirbyteTrustedExecutionRequiredError):
         call_helper()
 
 
