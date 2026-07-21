@@ -27,6 +27,7 @@ from fastmcp_extensions.registration import _ProviderToolAnnotations  # noqa: PL
 from fastmcp_extensions.tool_filters import (
     ANNOTATION_MCP_MODULE,
     ANNOTATION_READ_ONLY_HINT,
+    CONFIG_TRUSTED_EXECUTION,
     get_annotation,
 )
 
@@ -52,8 +53,10 @@ from airbyte.constants import (
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
     MCP_READONLY_MODE_ENV_VAR,
+    MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
 )
+from airbyte.exceptions import PyAirbyteInputError
 
 
 if TYPE_CHECKING:
@@ -154,6 +157,20 @@ AIRBYTE_INCLUDE_MODULES_CONFIG_ARG = MCPServerConfigArg(
     required=False,
 )
 """Config arg for legacy AIRBYTE_MCP_DOMAINS env var."""
+
+TRUSTED_EXECUTION_CONFIG_ARG = MCPServerConfigArg(
+    name=CONFIG_TRUSTED_EXECUTION,
+    env_var=MCP_TRUSTED_EXECUTION_ENV_VAR,
+    default="0",
+    required=False,
+)
+"""Config arg mapping the generic `trusted_execution` gate to `AIRBYTE_MCP_TRUSTED_EXECUTION`.
+
+Registering this lets `fastmcp_extensions` resolve the trusted-execution gate from the
+Airbyte-specific env var while keeping the generic library Airbyte-agnostic. It
+deliberately has no `http_header_key`: the gate *widens* the tool surface, so it must never
+be caller-controllable.
+"""
 
 WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_WORKSPACE_ID,
@@ -416,6 +433,77 @@ def airbyte_module_filter(tool: Tool, app: FastMCP) -> bool:
         return bool(tool_module and tool_module in include_modules)
 
     return True
+
+
+def _known_mcp_modules() -> set[str]:
+    """Return the set of Airbyte MCP domain (module) names that have registered tools."""
+    modules: set[str] = set()
+    for _func, tool_annotations in _REGISTERED_TOOLS:
+        module = tool_annotations.get(ANNOTATION_MCP_MODULE)
+        if module:
+            modules.add(_normalize_mcp_module(str(module)))
+    for _provider_factory, tool_annotations in _REGISTERED_PROVIDERS:
+        module = tool_annotations.get(ANNOTATION_MCP_MODULE)
+        if module:
+            modules.add(_normalize_mcp_module(str(module)))
+    return modules
+
+
+def validate_airbyte_domains(app: FastMCP) -> None:
+    """Validate the `AIRBYTE_MCP_DOMAINS` / `AIRBYTE_MCP_DOMAINS_DISABLED` selection.
+
+    Hard-fails at startup instead of silently dropping a domain that was explicitly
+    requested. Two incompatibilities are rejected:
+
+    1. Setting both `AIRBYTE_MCP_DOMAINS` (include) and `AIRBYTE_MCP_DOMAINS_DISABLED`
+       (exclude), which are mutually exclusive -- `airbyte_module_filter` would otherwise
+       silently honor only the exclude list and drop the requested includes.
+    2. Naming a domain that has no registered tools (typically a typo), which would
+       otherwise silently expose or hide nothing for that name.
+
+    Call this once at startup, after all tools are registered.
+
+    Args:
+        app: The FastMCP app instance.
+
+    Raises:
+        PyAirbyteInputError: If the domain configuration is incompatible.
+    """
+    exclude_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_EXCLUDE_MODULES) or "")
+    include_modules = _parse_csv_config(get_mcp_config(app, MCP_CONFIG_INCLUDE_MODULES) or "")
+
+    if include_modules and exclude_modules:
+        raise PyAirbyteInputError(
+            message=(
+                "AIRBYTE_MCP_DOMAINS and AIRBYTE_MCP_DOMAINS_DISABLED are mutually exclusive."
+            ),
+            guidance=(
+                "Clear one of `AIRBYTE_MCP_DOMAINS` (include) or `AIRBYTE_MCP_DOMAINS_DISABLED` "
+                "(exclude) so only one is set, then restart the MCP server process."
+            ),
+            context={
+                "include_domains": include_modules,
+                "exclude_domains": exclude_modules,
+            },
+        )
+
+    known_modules = _known_mcp_modules()
+    unknown_modules = sorted(
+        {module for module in (*include_modules, *exclude_modules) if module not in known_modules}
+    )
+    if unknown_modules:
+        raise PyAirbyteInputError(
+            message="One or more requested MCP domains are not recognized.",
+            guidance=(
+                "Correct the unknown domain name(s) in `AIRBYTE_MCP_DOMAINS` / "
+                "`AIRBYTE_MCP_DOMAINS_DISABLED` (or clear the variable), then restart the MCP "
+                "server process."
+            ),
+            context={
+                "unknown_domains": unknown_modules,
+                "known_domains": sorted(known_modules),
+            },
+        )
 
 
 def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:

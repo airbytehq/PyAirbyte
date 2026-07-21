@@ -37,7 +37,10 @@ import logging
 import os
 from urllib.parse import urlparse
 
-from fastmcp_extensions import register_landing_page
+from fastmcp_extensions import (
+    assert_http_trusted_execution_disabled,
+    register_landing_page,
+)
 
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
@@ -102,6 +105,12 @@ def main() -> None:
         DEFAULT_HTTP_PORT,
         mcp_path,
     )
+
+    # Trusted execution grants local filesystem, connector-execution, and
+    # server-side secret-resolution capability, which must never be reachable
+    # over HTTP. Hard-fail startup if it was explicitly enabled on this hosted
+    # entrypoint (a permanent gate; the per-request filter also forces it off).
+    assert_http_trusted_execution_disabled(app)
 
     app.run(
         transport="streamable-http",
