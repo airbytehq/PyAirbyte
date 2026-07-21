@@ -22,8 +22,9 @@ Supports two transport modes:
 All auth settings default to Airbyte Cloud's public (non-secret) Keycloak realms.
 A self-hosted deployment pointing at its own Airbyte instance overrides any of
 them via the matching env var (`AIRBYTE_MCP_OIDC_CONFIG_URL`,
-`AIRBYTE_MCP_AUTH_JWKS_URI`, `AIRBYTE_MCP_AUTH_ISSUER`,
-`AIRBYTE_MCP_AUTH_AUDIENCE`, `AIRBYTE_MCP_AUTH_ALGORITHM`). This module owns those
+`AIRBYTE_MCP_AUTH_JWKS_URI`, `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`,
+`AIRBYTE_MCP_AUTH_ISSUER`, `AIRBYTE_MCP_AUTH_AUDIENCE`,
+`AIRBYTE_MCP_AUTH_ALGORITHM`). This module owns those
 Airbyte-specific names and translates them to the generic names that
 `fastmcp_extensions.resolve_mcp_auth` consumes, so the extensions library stays
 provider-agnostic.
@@ -133,23 +134,89 @@ AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_ISSUER}/protocol/openid-connect/certs"
 AIRBYTE_CLOUD_AUDIENCE = "account"
 AIRBYTE_CLOUD_ALGORITHM = "RS256"
 
-# Maps this server's Airbyte-branded auth env vars to the generic name that
-# `fastmcp_extensions.resolve_mcp_auth` consumes, paired with the Airbyte Cloud
-# default. A blank default means the value is deployment-provided (the OIDC
-# client credentials, which are secret and cannot be baked in). Setting any
+# Default public base URL, mirroring `http_main`'s default so the OIDC redirect
+# base is well-formed even when `MCP_SERVER_URL` is unset (e.g. local dev).
+DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
+
+# Headless JWT verifier claim/algorithm family. Maps this server's
+# Airbyte-branded env vars to the generic names `fastmcp_extensions`
+# consumes, paired with the Airbyte Cloud default. Because these defaults are
+# always present, HTTP transport always verifies bearer tokens. Setting any
 # matching env var overrides the Cloud default — the escape hatch for
-# self-hosted deployments pointing at their own Airbyte instance. `OIDC_*` vars
-# keep the `OIDC` segment (it already denotes auth); the generic JWT verifier
-# vars carry the `AUTH` segment.
-_AUTH_ENV_MAP: dict[str, tuple[str, str]] = {
-    "AIRBYTE_MCP_OIDC_CONFIG_URL": ("OIDC_CONFIG_URL", AIRBYTE_CLOUD_OIDC_CONFIG_URL),
-    "AIRBYTE_MCP_OIDC_CLIENT_ID": ("OIDC_CLIENT_ID", ""),
-    "AIRBYTE_MCP_OIDC_CLIENT_SECRET": ("OIDC_CLIENT_SECRET", ""),
-    "AIRBYTE_MCP_AUTH_JWKS_URI": ("MCP_AUTH_JWKS_URI", AIRBYTE_CLOUD_JWKS_URI),
+# self-hosted deployments pointing at their own Airbyte instance. These carry
+# the `AUTH` segment; `OIDC_*` vars keep `OIDC` alone (it already denotes auth).
+#
+# The signing-key source (`AIRBYTE_MCP_AUTH_JWKS_URI` /
+# `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is resolved separately in `_create_auth`,
+# because the JWKS default must apply only when neither key source is set (see
+# `_resolve_signing_key`).
+_JWT_ENV_MAP: dict[str, tuple[str, str]] = {
     "AIRBYTE_MCP_AUTH_ISSUER": ("MCP_AUTH_ISSUER", AIRBYTE_CLOUD_ISSUER),
     "AIRBYTE_MCP_AUTH_AUDIENCE": ("MCP_AUTH_AUDIENCE", AIRBYTE_CLOUD_AUDIENCE),
     "AIRBYTE_MCP_AUTH_ALGORITHM": ("MCP_AUTH_ALGORITHM", AIRBYTE_CLOUD_ALGORITHM),
 }
+
+# Signing-key sources for the headless JWT verifier. A deployment may point at a
+# JWKS endpoint (`AIRBYTE_MCP_AUTH_JWKS_URI`) or supply a static public key
+# (`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`, for self-hosted realms without a JWKS
+# endpoint). The Airbyte Cloud JWKS default applies only when neither is set.
+JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_JWKS_URI"
+JWT_PUBLIC_KEY_ENV = "AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY"
+
+# Interactive OIDC env vars. The client credentials are secret, so they have no
+# default and must be supplied by the deployment to activate the interactive
+# path. The discovery URL defaults to Airbyte Cloud but is only injected when
+# the credentials are present (see `_create_auth`).
+OIDC_CLIENT_ID_ENV = "AIRBYTE_MCP_OIDC_CLIENT_ID"
+OIDC_CLIENT_SECRET_ENV = "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
+OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
+
+# Pre-rename generic names this server no longer reads, mapped to the branded
+# name that replaced each. Used only to warn about a stale deployment config.
+_LEGACY_OIDC_ENV: dict[str, str] = {
+    "OIDC_CLIENT_ID": OIDC_CLIENT_ID_ENV,
+    "OIDC_CLIENT_SECRET": OIDC_CLIENT_SECRET_ENV,
+    "OIDC_CONFIG_URL": OIDC_CONFIG_URL_ENV,
+}
+
+
+def _warn_on_legacy_oidc_env() -> None:
+    """Warn when a deployment still sets the pre-rename generic `OIDC_*` vars.
+
+    `_create_auth` reads only the `AIRBYTE_MCP_OIDC_*` names now, so a bare
+    `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_CONFIG_URL` carried over from
+    the old contract is silently ignored. Surfacing it turns a silent
+    no-interactive-OIDC misconfiguration into a visible migration hint.
+    """
+    ignored = [
+        f"`{legacy}` (rename to `{branded}`)"
+        for legacy, branded in _LEGACY_OIDC_ENV.items()
+        if os.getenv(legacy) and not os.getenv(branded)
+    ]
+    if ignored:
+        logger.warning(
+            "Ignoring legacy transport-auth env var(s): %s. This server reads the "
+            "Airbyte-branded `AIRBYTE_MCP_OIDC_*` names now.",
+            "; ".join(ignored),
+        )
+
+
+def _resolve_signing_key() -> dict[str, str]:
+    """Resolve the headless JWT verifier's signing-key source.
+
+    Returns the generic `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY` pair.
+    A deployment may set either env var to point at its own realm; the Airbyte
+    Cloud JWKS default applies only when *neither* is set, so a self-hosted
+    static public key isn't shadowed by a leftover Cloud JWKS URI.
+    """
+    jwks_uri = os.getenv(JWKS_URI_ENV, "")
+    public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "")
+    if not jwks_uri and not public_key:
+        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
+    return {
+        "MCP_AUTH_JWKS_URI": jwks_uri,
+        "MCP_AUTH_JWT_PUBLIC_KEY": public_key,
+    }
 
 
 def _create_auth() -> AuthProvider | None:
@@ -159,15 +226,30 @@ def _create_auth() -> AuthProvider | None:
     public realm defaults), translates them to the generic names that
     `fastmcp_extensions.resolve_mcp_auth` consumes, and lets it wire up an
     interactive `OIDCProxy` and/or a headless `JWTVerifier`, combined via
-    `MultiAuth`. Because the JWKS default is always present, HTTP transport
+    `MultiAuth`. Because a JWKS default is always present, HTTP transport
     always verifies bearer tokens; the interactive path additionally activates
     once the OIDC client credentials are supplied.
     """
-    resolved_env = {
+    _warn_on_legacy_oidc_env()
+    resolved_env: dict[str, str] = {
         generic_name: os.getenv(our_name, default)
-        for our_name, (generic_name, default) in _AUTH_ENV_MAP.items()
+        for our_name, (generic_name, default) in _JWT_ENV_MAP.items()
     }
-    resolved_env[MCP_SERVER_URL_ENV] = os.getenv(MCP_SERVER_URL_ENV, "")
+    resolved_env.update(_resolve_signing_key())
+    resolved_env[MCP_SERVER_URL_ENV] = os.getenv(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
+
+    oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
+    oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
+    resolved_env["OIDC_CLIENT_ID"] = oidc_client_id
+    resolved_env["OIDC_CLIENT_SECRET"] = oidc_client_secret
+    # Only advertise the OIDC discovery URL (defaulting to Airbyte Cloud) once
+    # both client credentials are present. Otherwise `resolve_mcp_auth` sees a
+    # config URL with no credentials and logs a spurious "incomplete OIDC"
+    # warning on every headless/bearer-only startup.
+    if oidc_client_id and oidc_client_secret:
+        resolved_env["OIDC_CONFIG_URL"] = os.getenv(
+            OIDC_CONFIG_URL_ENV, AIRBYTE_CLOUD_OIDC_CONFIG_URL
+        )
     return resolve_mcp_auth(env=resolved_env)
 
 
