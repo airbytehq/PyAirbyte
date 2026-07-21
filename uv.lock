@@ -139,6 +139,7 @@ dependencies = [
     { name = "google-cloud-bigquery" },
     { name = "google-cloud-bigquery-storage" },
     { name = "google-cloud-secret-manager" },
+    { name = "httpx" },
     { name = "jsonschema" },
     { name = "orjson" },
     { name = "overrides" },
@@ -163,6 +164,7 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "uuid7" },
     { name = "uv" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -206,6 +208,7 @@ requires-dist = [
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
     { name = "google-cloud-secret-manager", specifier = ">=2.17.0,<3.0" },
+    { name = "httpx", specifier = ">=0.28.0,<1.0" },
     { name = "jsonschema", specifier = ">=3.2.0,<5.0" },
     { name = "orjson", specifier = ">=3.10,<4.0" },
     { name = "overrides", specifier = ">=7.4.0,<8.0" },
@@ -230,6 +233,7 @@ requires-dist = [
     { name = "typing-extensions" },
     { name = "uuid7", specifier = ">=0.1.0,<1.0" },
     { name = "uv", specifier = ">=0.5.0,<0.9.0" },
+    { name = "uvicorn", specifier = ">=0.30.0,<1.0" },
 ]
 
 [package.metadata.requires-dev]
