@@ -26,9 +26,25 @@ short-lived token via the client credentials grant); on by default against
 Airbyte Cloud, overridable for self-hosted deployments:
 
 - `AIRBYTE_MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
+- `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to
+  `AIRBYTE_MCP_AUTH_JWKS_URI` for realms without a JWKS endpoint)
 - `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
 - `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
 - `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm
+
+Opt-in HTTP Basic client-credentials transport auth, for a headless agent that
+can only set a static `Authorization` header and cannot re-mint short-lived
+tokens itself (off by default):
+
+- `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS`: when truthy, accept
+  `Authorization: Basic base64(client_id:client_secret)`, exchange it for a
+  short-lived bearer token server-side, and verify that token via the headless
+  path above
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: token endpoint used for the
+  exchange (defaults to Airbyte Cloud)
+
+Running over HTTP always requires transport auth: startup fails fast if no auth
+provider resolves (e.g. the `AIRBYTE_MCP_AUTH_*` defaults were blanked out).
 """
 
 from __future__ import annotations
@@ -37,8 +53,10 @@ import logging
 import os
 from urllib.parse import urlparse
 
+import uvicorn
 from fastmcp_extensions import register_landing_page
 
+from airbyte.mcp._client_credentials import wrap_if_enabled
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -88,12 +106,15 @@ def main() -> None:
     )
 
     if getattr(app, "auth", None) is None:
-        logger.warning(
-            "HTTP transport starting without authentication: no bearer-token or "
-            "interactive OIDC auth resolved, so every request is "
-            "unauthenticated. This is unexpected for the default Airbyte Cloud "
-            "configuration; check that the `AIRBYTE_MCP_AUTH_*` overrides were "
-            "not blanked out."
+        # HTTP transport is always authenticated by design: launching over HTTP
+        # declares the server needs auth. Auth defaults to Airbyte Cloud, so a
+        # `None` provider means the `AIRBYTE_MCP_AUTH_*` defaults were explicitly
+        # blanked out. Fail fast rather than fall open to unauthenticated serving.
+        raise RuntimeError(
+            "HTTP transport requires transport auth, but none resolved. Auth "
+            "defaults to Airbyte Cloud, so this means the `AIRBYTE_MCP_AUTH_*` "
+            "settings were blanked out. Restore them (or leave them unset to use "
+            "the Airbyte Cloud defaults) to serve over HTTP."
         )
 
     logger.info(
@@ -103,12 +124,21 @@ def main() -> None:
         mcp_path,
     )
 
-    app.run(
+    # Build the ASGI app ourselves (rather than `app.run`) so the optional
+    # client-credentials exchange can wrap it as the *outermost* layer — ahead
+    # of FastMCP's auth middleware — so its Basic-to-Bearer rewrite is what the
+    # verifier sees. When the opt-in flag is unset, `wrap_if_enabled` returns the
+    # app unchanged. The Starlette app owns the session-manager lifespan, so
+    # running it under uvicorn directly is equivalent to `app.run`.
+    http_app = app.http_app(
+        path=mcp_path,
         transport="streamable-http",
+        stateless_http=True,
+    )
+    uvicorn.run(
+        wrap_if_enabled(http_app),
         host=DEFAULT_HTTP_HOST,
         port=DEFAULT_HTTP_PORT,
-        path=mcp_path,
-        stateless_http=True,
     )
 
 

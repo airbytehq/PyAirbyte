@@ -165,10 +165,11 @@ server. No bearer token to manage by hand.
 
 ### Machines / agents → headless bearer token
 
-There is **no** transport mode that accepts a raw `client_id` + `client_secret`
-in a header. A headless agent **mints its own short-lived bearer token** and
-sends it as `Authorization: Bearer <token>`; the server verifies the signature
-(no browser, no stored/rotating refresh token).
+By default there is **no** transport mode that accepts a raw `client_id` +
+`client_secret` in a header (see the opt-in exception below). A headless agent
+**mints its own short-lived bearer token** and sends it as
+`Authorization: Bearer <token>`; the server verifies the signature (no browser,
+no stored/rotating refresh token).
 
 By default the server verifies against Airbyte Cloud's application-client realm,
 so an agent just mints an Airbyte Cloud access token from its
@@ -197,6 +198,26 @@ their MCP config:
 }
 ```
 
+### Opt-in: static client credentials via HTTP Basic
+
+The headless bearer path assumes the client can re-mint a token every ~15 min.
+An agent that can only set a **static** `Authorization` value (no refresh hook)
+can't do that. For this case the server can optionally accept the long-lived
+`client_id` / `client_secret` directly, via standard HTTP Basic
+(`client_secret_basic`):
+
+```http
+Authorization: Basic base64(client_id:client_secret)
+```
+
+When `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` is truthy, the server exchanges
+those credentials for a short-lived token server-side (caching it until shortly
+before expiry) and verifies it via the same headless path, so the agent presents
+one durable credential and the server owns the token churn. This is **off by
+default**, because accepting long-lived credentials at the transport is a
+deliberate escalation; a `Bearer` request is always preferred when the client
+can manage it.
+
 ### Server environment variables (HTTP mode)
 
 All auth settings default to Airbyte Cloud's public (non-secret) Keycloak realms,
@@ -213,10 +234,17 @@ points at its own Airbyte instance:
   `airbyte` realm.
 - `AIRBYTE_MCP_AUTH_JWKS_URI` — JWKS URL for verifying headless bearer tokens;
   defaults to Airbyte Cloud's application-client realm certs.
+- `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` — static public key for verifying headless
+  bearer tokens; an alternative to `AIRBYTE_MCP_AUTH_JWKS_URI` for self-hosted
+  realms without a JWKS endpoint (no default).
 - `AIRBYTE_MCP_AUTH_ISSUER` / `AIRBYTE_MCP_AUTH_AUDIENCE` /
   `AIRBYTE_MCP_AUTH_ALGORITHM` — expected `iss` / `aud` claims and signing
   algorithm; default to Airbyte Cloud (`.../realms/_airbyte-application-clients`,
   `account`, `RS256`).
+- `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` — opt-in flag (off by default) that
+  enables the HTTP Basic `client_secret_basic` path described above.
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL` — token endpoint used for that
+  exchange; defaults to Airbyte Cloud's `https://api.airbyte.com/v1/applications/token`.
 
 This module owns those Airbyte-branded names and translates them to the generic
 names consumed by
