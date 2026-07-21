@@ -190,18 +190,21 @@ def _warn_on_legacy_oidc_env() -> None:
     the old contract is silently ignored. Surfacing it turns a silent
     no-interactive-OIDC misconfiguration into a visible migration hint.
     """
-    # Membership checks (not `os.getenv`) so the secret *values* are never read;
-    # only the env var *names* are ever surfaced in the log.
+    # Only the legacy env var *names* are surfaced: values are never read (we use
+    # membership tests, not `os.getenv`), and the branded replacement names — one
+    # of which is held by a `*_SECRET`-named constant — are deliberately not
+    # interpolated into the message, so no secret-named symbol reaches the log.
     ignored = [
-        f"`{legacy}` (rename to `{branded}`)"
+        legacy
         for legacy, branded in _LEGACY_OIDC_ENV.items()
         if legacy in os.environ and branded not in os.environ
     ]
     if ignored:
         logger.warning(
-            "Ignoring legacy transport-auth env var(s): %s. This server reads the "
-            "Airbyte-branded `AIRBYTE_MCP_OIDC_*` names now.",
-            "; ".join(ignored),
+            "Ignoring legacy transport-auth env var(s): %s. Rename each to its "
+            "`AIRBYTE_MCP_OIDC_*` / `AIRBYTE_MCP_AUTH_*` equivalent; this server "
+            "reads the Airbyte-branded names now.",
+            ", ".join(f"`{name}`" for name in ignored),
         )
 
 

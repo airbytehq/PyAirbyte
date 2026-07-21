@@ -37,6 +37,8 @@ import httpx
 
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from starlette.types import ASGIApp, Receive, Scope, Send
 
 
@@ -59,7 +61,7 @@ _EXPIRY_SAFETY_MARGIN_SECONDS = 60
 _TRUTHY = frozenset({"1", "true", "t", "yes", "y", "on"})
 
 
-def client_credentials_enabled(env: os._Environ[str] | None = None) -> bool:
+def client_credentials_enabled(env: Mapping[str, str] | None = None) -> bool:
     """Return whether the opt-in HTTP Basic client-credentials grant is enabled."""
     source = env if env is not None else os.environ
     return source.get(ALLOW_CLIENT_CREDENTIALS_ENV, "").strip().lower() in _TRUTHY
