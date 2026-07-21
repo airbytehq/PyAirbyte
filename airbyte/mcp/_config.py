@@ -43,11 +43,16 @@ def load_secrets_to_env_vars() -> None:
 
     When trusted execution is disabled (`airbyte.mcp._guards.is_trusted_execution_enabled`),
     the dotenv and Google Secret Manager backends are *not* registered as secret sources.
-    This prevents an untrusted (for example hosted HTTP) deployment from resolving
-    server-side secrets into connector config via `config_secret_name` /
-    `secret_reference::`. Ordinary environment variables are still loaded from any
-    referenced dotenv file so that safe, non-secret-manager configuration continues to
-    work.
+    This stops an untrusted (for example hosted HTTP) deployment from resolving server-side
+    secrets into connector config via `config_secret_name` / `secret_reference::`.
+
+    The dotenv file itself is still loaded into `os.environ` even when untrusted, so ordinary
+    environment-variable configuration keeps working. Note this loads *every* key from the
+    file (secret values included) into the process environment; that is acceptable because
+    both dotenv sources are server-owned (a server-side `.envrc` or the operator-set
+    `AIRBYTE_MCP_ENV_FILE`) and are never caller-controllable, and the function-layer guards
+    in `airbyte.mcp._arg_resolvers.resolve_connector_config` are what actually block an
+    untrusted caller from resolving those values.
     """
     trusted = is_trusted_execution_enabled()
 
