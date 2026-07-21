@@ -13,8 +13,21 @@ from typing import Any, overload
 
 import yaml
 
+from airbyte.constants import SECRETS_HYDRATION_PREFIX
+from airbyte.mcp._guards import raise_if_untrusted_execution_context
 from airbyte.secrets.hydration import deep_update, detect_hardcoded_secrets
 from airbyte.secrets.util import get_secret
+
+
+def _contains_secret_reference(value: object) -> bool:
+    """Return whether `value` contains a `secret_reference::` string at any depth."""
+    if isinstance(value, str):
+        return value.startswith(SECRETS_HYDRATION_PREFIX)
+    if isinstance(value, dict):
+        return any(_contains_secret_reference(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_secret_reference(item) for item in value)
+    return False
 
 
 # Hint: Null result if input is Null
@@ -88,6 +101,14 @@ def resolve_connector_config(  # noqa: PLR0912
         ValueError: If JSON parsing fails or a provided input is invalid
 
     We reject hardcoded secrets in a config dict if we detect them.
+
+    The trusted-machine inputs are gated by trusted execution
+    (`airbyte.mcp._guards.raise_if_untrusted_execution_context`): reading a local `config_file`,
+    resolving a server-side `config_secret_name`, and hydrating inline
+    `secret_reference::` values each hard-fail when trusted execution is disabled. Passing
+    an already-resolved inline `config` dict remains available to untrusted callers (for
+    example hosted cloud tools), so only the paths that touch the server's filesystem or
+    secret store are restricted.
     """
     config_dict: dict[str, Any] = {}
 
@@ -95,6 +116,9 @@ def resolve_connector_config(  # noqa: PLR0912
         return {}
 
     if config_file is not None:
+        raise_if_untrusted_execution_context(
+            "Reading connector config from a local file (`config_file`)"
+        )
         if isinstance(config_file, str):
             config_file = Path(config_file)
 
@@ -137,6 +161,11 @@ def resolve_connector_config(  # noqa: PLR0912
         else:
             raise ValueError(f"Config must be a dict or JSON string, got: {type(config).__name__}")
 
+    if _contains_secret_reference(config_dict):
+        raise_if_untrusted_execution_context(
+            "Resolving inline secret references (`secret_reference::`) in connector config"
+        )
+
     if config_dict and config_spec_jsonschema is not None:
         hardcoded_secrets: list[list[str]] = detect_hardcoded_secrets(
             config=config_dict,
@@ -156,6 +185,9 @@ def resolve_connector_config(  # noqa: PLR0912
             raise ValueError(error_msg)
 
     if config_secret_name is not None:
+        raise_if_untrusted_execution_context(
+            "Resolving connector config from a server-side secret (`config_secret_name`)"
+        )
         # Assume this is a secret name that points to a JSON/YAML config.
         secret_config = yaml.safe_load(str(get_secret(config_secret_name)))
         if not isinstance(secret_config, dict):

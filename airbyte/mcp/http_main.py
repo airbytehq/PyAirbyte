@@ -54,7 +54,10 @@ import os
 from urllib.parse import urlparse
 
 import uvicorn
-from fastmcp_extensions import register_landing_page
+from fastmcp_extensions import (
+    assert_http_trusted_execution_disabled,
+    register_landing_page,
+)
 
 from airbyte.mcp._client_credentials import wrap_if_enabled
 from airbyte.mcp.server import (
@@ -123,6 +126,12 @@ def main() -> None:
         DEFAULT_HTTP_PORT,
         mcp_path,
     )
+
+    # Trusted execution grants local filesystem, connector-execution, and
+    # server-side secret-resolution capability, which must never be reachable
+    # over HTTP. Hard-fail startup if it was explicitly enabled on this hosted
+    # entrypoint (a permanent gate; the per-request filter also forces it off).
+    assert_http_trusted_execution_disabled(app)
 
     # Build the ASGI app ourselves (rather than `app.run`) so the optional
     # client-credentials exchange can wrap it as the *outermost* layer — ahead
