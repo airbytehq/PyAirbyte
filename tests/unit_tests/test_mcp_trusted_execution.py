@@ -164,6 +164,21 @@ _UNTRUSTED_LOCAL_HELPERS: list[Callable[[], object]] = [
         lambda: local.list_connector_config_secrets("source-faker"),
         id="list_connector_config_secrets",
     ),
+    pytest.param(
+        lambda: local.destination_smoke_test(
+            "destination-dev-null",
+            None,
+            None,
+            None,
+            "fast",
+            None,
+            None,
+            None,
+            None,
+            False,
+        ),
+        id="destination_smoke_test",
+    ),
 ]
 
 
