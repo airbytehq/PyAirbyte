@@ -70,8 +70,13 @@ def client_credentials_enabled(env: Mapping[str, str] | None = None) -> bool:
 
 
 def _token_url() -> str:
-    """Return the token endpoint, defaulting to Airbyte Cloud."""
-    return os.getenv(TOKEN_URL_ENV, AIRBYTE_CLOUD_TOKEN_URL)
+    """Return the token endpoint, defaulting to Airbyte Cloud.
+
+    A blank or whitespace-only override is treated as unset so the Airbyte Cloud
+    default still applies, rather than POSTing to an invalid URL and failing every
+    Basic-auth request closed.
+    """
+    return os.getenv(TOKEN_URL_ENV, "").strip() or AIRBYTE_CLOUD_TOKEN_URL
 
 
 class ClientCredentialsExchangeMiddleware:
