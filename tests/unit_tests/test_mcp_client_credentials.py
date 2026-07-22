@@ -103,6 +103,25 @@ def test_token_url(
 
 
 @pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        pytest.param(900, 900.0, id="int"),
+        pytest.param(900.5, 900.5, id="float"),
+        pytest.param("900", 900.0, id="numeric-string"),
+        pytest.param(None, 0.0, id="none"),
+        pytest.param("not-a-number", 0.0, id="non-numeric-string"),
+        pytest.param({}, 0.0, id="object"),
+        pytest.param([], 0.0, id="list"),
+        pytest.param(True, 0.0, id="bool-true"),
+        pytest.param(0, 0.0, id="zero"),
+        pytest.param(-5, 0.0, id="negative"),
+    ],
+)
+def test_coerce_expires_in(value: object, expected: float) -> None:
+    assert cc._coerce_expires_in(value) == expected
+
+
+@pytest.mark.parametrize(
     ("header", "expected"),
     [
         pytest.param(_basic_header("id", "secret"), ("id", "secret"), id="simple"),

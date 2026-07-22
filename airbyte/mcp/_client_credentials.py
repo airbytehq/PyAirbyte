@@ -228,10 +228,27 @@ class ClientCredentialsExchangeMiddleware:
             )
             return None
 
-        # `expires_in` is advisory; fall back to a conservative default so a
-        # missing field can't produce a non-expiring cache entry.
-        expires_in = payload.get("expires_in")
-        return access_token, float(expires_in) if expires_in else 0.0
+        # `expires_in` is advisory and comes from an external response, so it may
+        # be missing or non-numeric. Coerce defensively and fall back to `0.0`
+        # (no caching) rather than letting a bad value raise and turn a clean
+        # fail-closed pass-through into a 500.
+        return access_token, _coerce_expires_in(payload.get("expires_in"))
+
+
+def _coerce_expires_in(value: object) -> float:
+    """Return `value` as a non-negative float, or `0.0` when unparseable.
+
+    The token endpoint's `expires_in` is external input and may be missing, a
+    string, or a non-numeric type. Anything that can't be coerced to a positive
+    number yields `0.0` so the token simply isn't cached, never a raised error.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return 0.0
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return seconds if seconds > 0 else 0.0
 
 
 def _parse_basic_credentials(scope: Scope) -> tuple[str, str] | None:

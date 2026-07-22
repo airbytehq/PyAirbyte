@@ -50,7 +50,6 @@ provider resolves (e.g. the `AIRBYTE_MCP_AUTH_*` defaults were blanked out).
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import urlparse
 
 import uvicorn
@@ -63,7 +62,9 @@ from airbyte.mcp._client_credentials import wrap_if_enabled
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
+    DEFAULT_MCP_SERVER_URL,
     MCP_SERVER_URL_ENV,
+    _env_or_default,
     app,
 )
 
@@ -76,11 +77,13 @@ MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
 
 
 def _get_server_url() -> str:
-    """Return the public base URL from `MCP_SERVER_URL`, defaulting to localhost."""
-    return os.getenv(
-        MCP_SERVER_URL_ENV,
-        f"http://localhost:{DEFAULT_HTTP_PORT}",
-    )
+    """Return the public base URL from `MCP_SERVER_URL`, defaulting to localhost.
+
+    A blank or whitespace-only value is treated as unset (matching `_create_auth`
+    in `server.py`), so the mount-path and landing-page URL derived here can't
+    disagree with the OIDC redirect base derived there.
+    """
+    return _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
 
 
 def main() -> None:
@@ -111,13 +114,15 @@ def main() -> None:
     if getattr(app, "auth", None) is None:
         # HTTP transport is always authenticated by design: launching over HTTP
         # declares the server needs auth. Auth defaults to Airbyte Cloud, so a
-        # `None` provider means the `AIRBYTE_MCP_AUTH_*` defaults were explicitly
-        # blanked out. Fail fast rather than fall open to unauthenticated serving.
+        # `None` provider means auth resolution produced nothing — most often
+        # because the `AIRBYTE_MCP_AUTH_*` defaults were blanked out, but any
+        # resolution failure lands here. Fail fast rather than fall open to
+        # unauthenticated serving.
         raise RuntimeError(
             "HTTP transport requires transport auth, but none resolved. Auth "
-            "defaults to Airbyte Cloud, so this means the `AIRBYTE_MCP_AUTH_*` "
-            "settings were blanked out. Restore them (or leave them unset to use "
-            "the Airbyte Cloud defaults) to serve over HTTP."
+            "defaults to Airbyte Cloud; leave the `AIRBYTE_MCP_AUTH_*` settings "
+            "unset to use those defaults, or set them to valid values. Check "
+            "startup logs for auth-resolution warnings before serving over HTTP."
         )
 
     logger.info(
