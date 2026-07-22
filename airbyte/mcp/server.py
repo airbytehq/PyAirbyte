@@ -217,16 +217,27 @@ def _warn_on_legacy_auth_env() -> None:
         )
 
 
+def _env_or_default(name: str, default: str) -> str:
+    """Return the stripped value of env var `name`, or `default` when unset/blank.
+
+    An env var set to an empty or whitespace-only string is treated as unset, so
+    the baked default still applies and no blank value is propagated downstream
+    (a `"   "` JWKS URI or server URL would otherwise break auth resolution).
+    """
+    return os.getenv(name, "").strip() or default
+
+
 def _resolve_signing_key() -> dict[str, str]:
     """Resolve the headless JWT verifier's signing-key source.
 
     Returns the generic `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY` pair.
     A deployment may set either env var to point at its own realm; the Airbyte
     Cloud JWKS default applies only when *neither* is set, so a self-hosted
-    static public key isn't shadowed by a leftover Cloud JWKS URI.
+    static public key isn't shadowed by a leftover Cloud JWKS URI. Blank or
+    whitespace-only values are treated as unset.
     """
-    jwks_uri = os.getenv(JWKS_URI_ENV, "")
-    public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "")
+    jwks_uri = os.getenv(JWKS_URI_ENV, "").strip()
+    public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "").strip()
     if not jwks_uri and not public_key:
         jwks_uri = AIRBYTE_CLOUD_JWKS_URI
     return {
@@ -248,14 +259,14 @@ def _create_auth() -> AuthProvider | None:
     """
     _warn_on_legacy_auth_env()
     resolved_env: dict[str, str] = {
-        generic_name: os.getenv(our_name, default)
+        generic_name: _env_or_default(our_name, default)
         for our_name, (generic_name, default) in _JWT_ENV_MAP.items()
     }
     resolved_env.update(_resolve_signing_key())
-    resolved_env[MCP_SERVER_URL_ENV] = os.getenv(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
+    resolved_env[MCP_SERVER_URL_ENV] = _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
 
-    oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "")
-    oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "")
+    oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "").strip()
+    oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "").strip()
     resolved_env["OIDC_CLIENT_ID"] = oidc_client_id
     resolved_env["OIDC_CLIENT_SECRET"] = oidc_client_secret
     # Only advertise the OIDC discovery URL (defaulting to Airbyte Cloud) once
@@ -263,7 +274,7 @@ def _create_auth() -> AuthProvider | None:
     # config URL with no credentials and logs a spurious "incomplete OIDC"
     # warning on every headless/bearer-only startup.
     if oidc_client_id and oidc_client_secret:
-        resolved_env["OIDC_CONFIG_URL"] = os.getenv(
+        resolved_env["OIDC_CONFIG_URL"] = _env_or_default(
             OIDC_CONFIG_URL_ENV, AIRBYTE_CLOUD_OIDC_CONFIG_URL
         )
     return resolve_mcp_auth(env=resolved_env)
