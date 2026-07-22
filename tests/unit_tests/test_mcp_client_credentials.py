@@ -34,7 +34,7 @@ class _RecordingApp:
         self.seen_scope: Scope | None = None
         self.calls = 0
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+    async def __call__(self, scope: Scope, _receive: Receive, _send: Send) -> None:
         self.calls += 1
         self.seen_scope = scope
 
@@ -201,7 +201,7 @@ def test_failed_exchange_passes_request_through_unmodified() -> None:
     basic = _basic_header("id", "bad-secret")
     scope = _http_scope((b"authorization", basic))
 
-    async def fake_mint(client_id: str, client_secret: str) -> None:
+    async def fake_mint(_client_id: str, _client_secret: str) -> None:
         return None
 
     mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
@@ -234,5 +234,5 @@ async def _noop_receive() -> dict[str, object]:
     return {"type": "http.request"}
 
 
-async def _noop_send(message: dict[str, object]) -> None:
+async def _noop_send(_message: dict[str, object]) -> None:
     return None
