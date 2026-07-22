@@ -44,7 +44,8 @@ tokens itself (off by default):
   exchange (defaults to Airbyte Cloud)
 
 Running over HTTP always requires transport auth: startup fails fast if no auth
-provider resolves (e.g. the `AIRBYTE_MCP_AUTH_*` defaults were blanked out).
+provider resolves (e.g. an invalid `AIRBYTE_MCP_AUTH_*` override, since blank
+values fall back to the Airbyte Cloud defaults rather than disabling auth).
 """
 
 from __future__ import annotations
@@ -113,11 +114,10 @@ def main() -> None:
 
     if getattr(app, "auth", None) is None:
         # HTTP transport is always authenticated by design: launching over HTTP
-        # declares the server needs auth. Auth defaults to Airbyte Cloud, so a
-        # `None` provider means auth resolution produced nothing — most often
-        # because the `AIRBYTE_MCP_AUTH_*` defaults were blanked out, but any
-        # resolution failure lands here. Fail fast rather than fall open to
-        # unauthenticated serving.
+        # declares the server needs auth. Auth defaults to Airbyte Cloud and blank
+        # env vars fall back to those defaults, so a `None` provider means auth
+        # resolution produced nothing at all — e.g. an invalid `AIRBYTE_MCP_AUTH_*`
+        # override. Fail fast rather than fall open to unauthenticated serving.
         raise RuntimeError(
             "HTTP transport requires transport auth, but none resolved. Auth "
             "defaults to Airbyte Cloud; leave the `AIRBYTE_MCP_AUTH_*` settings "
