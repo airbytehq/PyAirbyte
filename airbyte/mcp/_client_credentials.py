@@ -7,13 +7,15 @@ automatically, but not for a truly headless agent that can only set a *static*
 `Authorization` header value and cannot re-mint on a timer.
 
 This module bridges that gap, behind an opt-in flag. When enabled, the server
-accepts the long-lived `client_id` / `client_secret` presented via standard HTTP
-Basic auth (`Authorization: Basic base64(client_id:client_secret)`, the
-`client_secret_basic` token-endpoint auth method), exchanges them for a
-short-lived access token at the Airbyte token endpoint, and rewrites the request
-to `Authorization: Bearer <token>` so the existing `JWTVerifier` validates it
-unchanged. The agent thus presents a durable credential once; the server owns
-the short-lived-token churn.
+accepts the long-lived `client_id` / `client_secret` presented on the inbound MCP
+request via standard HTTP Basic auth
+(`Authorization: Basic base64(client_id:client_secret)`, the same credential
+encoding OAuth's `client_secret_basic` uses). The server then runs a
+client-credentials exchange against the Airbyte token endpoint (posting the
+credentials as a JSON body, *not* as an inbound-style Basic header) to obtain a
+short-lived access token, and rewrites the request to `Authorization: Bearer
+<token>` so the existing `JWTVerifier` validates it unchanged. The agent thus
+presents a durable credential once; the server owns the short-lived-token churn.
 
 The exchange runs as the outermost ASGI layer (ahead of FastMCP's auth
 middleware) so the rewritten bearer header is what the verifier sees. Minted
@@ -91,7 +93,10 @@ class ClientCredentialsExchangeMiddleware:
         self._app = app
         self._token_url = token_url
         self._expiry_margin_seconds = expiry_margin_seconds
-        # Maps a per-credential cache key to `(access_token, expiry_epoch)`.
+        # Maps a per-credential cache key to `(access_token, expiry_deadline)`,
+        # where the deadline is a `time.monotonic()` value (not a wall-clock
+        # epoch). Expired entries are pruned under `_locks_guard` so the cache
+        # can't grow unbounded from a high-cardinality stream of credentials.
         self._token_cache: dict[str, tuple[str, float]] = {}
         # A lock per credential so a slow/unreachable token endpoint stalls only
         # the affected credential, not all Basic-auth traffic. `_locks_guard`
@@ -102,11 +107,30 @@ class ClientCredentialsExchangeMiddleware:
     async def _lock_for(self, cache_key: str) -> asyncio.Lock:
         """Return the lock dedicated to `cache_key`, creating it on first use."""
         async with self._locks_guard:
+            self._prune_expired(time.monotonic(), keep=cache_key)
             lock = self._locks.get(cache_key)
             if lock is None:
                 lock = asyncio.Lock()
                 self._locks[cache_key] = lock
             return lock
+
+    def _prune_expired(self, now: float, *, keep: str) -> None:
+        """Drop expired token entries and their idle locks; caller holds the guard.
+
+        Keeps the cache and lock dicts bounded to credentials that are currently
+        cached or in flight, so an unbounded stream of distinct Basic credentials
+        can't leak memory. `keep` is the key about to be used, never pruned.
+        """
+        expired = [key for key, (_, deadline) in self._token_cache.items() if deadline <= now]
+        for key in expired:
+            del self._token_cache[key]
+        stale_locks = [
+            key
+            for key, lock in self._locks.items()
+            if key != keep and key not in self._token_cache and not lock.locked()
+        ]
+        for key in stale_locks:
+            del self._locks[key]
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         """Rewrite a Basic-auth HTTP request to Bearer, then delegate downstream."""

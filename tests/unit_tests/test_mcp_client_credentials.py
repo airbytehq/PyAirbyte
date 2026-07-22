@@ -169,6 +169,32 @@ def test_basic_request_is_rewritten_to_bearer() -> None:
     assert mint_calls == [("id", "secret")]
 
 
+def test_concurrent_identical_requests_mint_once() -> None:
+    app = _RecordingApp()
+    mw = cc.ClientCredentialsExchangeMiddleware(app, token_url="https://example/token")
+    scope = _http_scope((b"authorization", _basic_header("id", "secret")))
+    mint_calls: list[tuple[str, str]] = []
+
+    async def fake_mint(client_id: str, client_secret: str) -> tuple[str, float]:
+        mint_calls.append((client_id, client_secret))
+        # Yield so the second concurrent request can interleave; the
+        # per-credential lock must still serialize them into a single mint.
+        await asyncio.sleep(0)
+        return "minted-token", 900.0
+
+    mw._mint_token = fake_mint  # type: ignore[assignment,method-assign]
+
+    async def scenario() -> None:
+        await asyncio.gather(
+            mw(scope, _noop_receive, _noop_send),
+            mw(scope, _noop_receive, _noop_send),
+        )
+
+    _run(scenario())
+    assert mint_calls == [("id", "secret")]
+    assert _auth_header(app.seen_scope) == b"Bearer minted-token"
+
+
 def test_failed_exchange_passes_request_through_unmodified() -> None:
     app = _RecordingApp()
     mw = cc.ClientCredentialsExchangeMiddleware(app, token_url="https://example/token")

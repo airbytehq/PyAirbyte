@@ -203,17 +203,18 @@ their MCP config:
 The headless bearer path assumes the client can re-mint a token every ~15 min.
 An agent that can only set a **static** `Authorization` value (no refresh hook)
 can't do that. For this case the server can optionally accept the long-lived
-`client_id` / `client_secret` directly, via standard HTTP Basic
-(`client_secret_basic`):
+`client_id` / `client_secret` directly on the inbound request, via standard HTTP
+Basic (the same credential encoding OAuth's `client_secret_basic` uses):
 
 ```http
 Authorization: Basic base64(client_id:client_secret)
 ```
 
-When `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` is truthy, the server exchanges
-those credentials for a short-lived token server-side (caching it until shortly
-before expiry) and verifies it via the same headless path, so the agent presents
-one durable credential and the server owns the token churn. This is **off by
+When `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` is truthy, the server runs a
+client-credentials exchange server-side (posting the credentials to the Airbyte
+token endpoint) for a short-lived token, caches it until shortly before expiry,
+and verifies it via the same headless bearer path — so the agent presents one
+durable credential and the server owns the token churn. This is **off by
 default**, because accepting long-lived credentials at the transport is a
 deliberate escalation; a `Bearer` request is always preferred when the client
 can manage it.
@@ -242,7 +243,7 @@ points at its own Airbyte instance:
   algorithm; default to Airbyte Cloud (`.../realms/_airbyte-application-clients`,
   `account`, `RS256`).
 - `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` — opt-in flag (off by default) that
-  enables the HTTP Basic `client_secret_basic` path described above.
+  enables the inbound HTTP Basic client-credentials path described above.
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL` — token endpoint used for that
   exchange; defaults to Airbyte Cloud's `https://api.airbyte.com/v1/applications/token`.
 

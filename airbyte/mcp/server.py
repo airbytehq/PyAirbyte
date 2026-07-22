@@ -175,20 +175,29 @@ OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 
 # Pre-rename generic names this server no longer reads, mapped to the branded
 # name that replaced each. Used only to warn about a stale deployment config.
-_LEGACY_OIDC_ENV: dict[str, str] = {
+# Covers both the interactive `OIDC_*` set and the headless JWT verifier set
+# (`MCP_AUTH_*`), all of which moved to `AIRBYTE_MCP_*` names in this release.
+_LEGACY_AUTH_ENV: dict[str, str] = {
     "OIDC_CLIENT_ID": OIDC_CLIENT_ID_ENV,
     "OIDC_CLIENT_SECRET": OIDC_CLIENT_SECRET_ENV,
     "OIDC_CONFIG_URL": OIDC_CONFIG_URL_ENV,
+    "MCP_AUTH_JWKS_URI": JWKS_URI_ENV,
+    "MCP_AUTH_JWT_PUBLIC_KEY": JWT_PUBLIC_KEY_ENV,
+    "MCP_AUTH_ISSUER": "AIRBYTE_MCP_AUTH_ISSUER",
+    "MCP_AUTH_AUDIENCE": "AIRBYTE_MCP_AUTH_AUDIENCE",
+    "MCP_AUTH_ALGORITHM": "AIRBYTE_MCP_AUTH_ALGORITHM",
 }
 
 
-def _warn_on_legacy_oidc_env() -> None:
-    """Warn when a deployment still sets the pre-rename generic `OIDC_*` vars.
+def _warn_on_legacy_auth_env() -> None:
+    """Warn when a deployment still sets a pre-rename generic auth env var.
 
-    `_create_auth` reads only the `AIRBYTE_MCP_OIDC_*` names now, so a bare
-    `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_CONFIG_URL` carried over from
-    the old contract is silently ignored. Surfacing it turns a silent
-    no-interactive-OIDC misconfiguration into a visible migration hint.
+    `_create_auth` reads only the `AIRBYTE_MCP_OIDC_*` / `AIRBYTE_MCP_AUTH_*`
+    names now, so a bare `OIDC_*` (interactive) or `MCP_AUTH_*` (headless JWT
+    verifier) var carried over from the old contract is silently ignored — and
+    for the verifier vars, the deployment would silently fall back to Airbyte
+    Cloud defaults. Surfacing it turns a silent misconfiguration into a visible
+    migration hint.
     """
     # Only the legacy env var *names* are surfaced: values are never read (we use
     # membership tests, not `os.getenv`), and the branded replacement names — one
@@ -196,7 +205,7 @@ def _warn_on_legacy_oidc_env() -> None:
     # interpolated into the message, so no secret-named symbol reaches the log.
     ignored = [
         legacy
-        for legacy, branded in _LEGACY_OIDC_ENV.items()
+        for legacy, branded in _LEGACY_AUTH_ENV.items()
         if legacy in os.environ and branded not in os.environ
     ]
     if ignored:
@@ -237,7 +246,7 @@ def _create_auth() -> AuthProvider | None:
     always verifies bearer tokens; the interactive path additionally activates
     once the OIDC client credentials are supplied.
     """
-    _warn_on_legacy_oidc_env()
+    _warn_on_legacy_auth_env()
     resolved_env: dict[str, str] = {
         generic_name: os.getenv(our_name, default)
         for our_name, (generic_name, default) in _JWT_ENV_MAP.items()
