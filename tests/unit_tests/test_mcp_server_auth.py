@@ -3,9 +3,18 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
-from airbyte.mcp import server
+
+# Importing `airbyte.mcp.server` runs `load_secrets_to_env_vars()` at module
+# import time, which raises if `AIRBYTE_MCP_ENV_FILE` points at a missing file.
+# Drop any stale value from the ambient environment before importing so test
+# collection doesn't fail on an external dotenv path unrelated to these tests.
+os.environ.pop("AIRBYTE_MCP_ENV_FILE", None)
+
+from airbyte.mcp import server  # noqa: E402
 
 
 def test_env_or_default_uses_default_when_unset(
