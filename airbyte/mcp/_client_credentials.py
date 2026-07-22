@@ -124,7 +124,9 @@ class ClientCredentialsExchangeMiddleware:
 
         Keeps the cache and lock dicts bounded to credentials that are currently
         cached or in flight, so an unbounded stream of distinct Basic credentials
-        can't leak memory. `keep` is the key about to be used, never pruned.
+        can't leak memory. `keep` is the key whose lock is about to be used: its
+        lock is never pruned, but its token-cache entry still is when expired
+        (the caller re-mints under that lock, so a stale entry there is moot).
         """
         expired = [key for key, (_, deadline) in self._token_cache.items() if deadline <= now]
         for key in expired:
@@ -162,10 +164,12 @@ class ClientCredentialsExchangeMiddleware:
         """Return a valid access token for the credentials, minting if needed."""
         client_id, client_secret = credentials
         cache_key = _cache_key(client_id, client_secret)
-        now = time.monotonic()
 
         lock = await self._lock_for(cache_key)
         async with lock:
+            # Read the clock inside the lock so a delayed lock acquisition can't
+            # treat an already-expired cached token as still valid.
+            now = time.monotonic()
             cached = self._token_cache.get(cache_key)
             if cached is not None and cached[1] > now:
                 return cached[0]
@@ -174,8 +178,11 @@ class ClientCredentialsExchangeMiddleware:
             if minted is None:
                 return None
 
+            # Base the expiry deadline on a fresh reading taken after the mint
+            # round-trip, so network latency isn't charged against the token's
+            # usable lifetime.
             token, expires_in = minted
-            expiry = now + max(expires_in - self._expiry_margin_seconds, 0)
+            expiry = time.monotonic() + max(expires_in - self._expiry_margin_seconds, 0)
             self._token_cache[cache_key] = (token, expiry)
             return token
 
