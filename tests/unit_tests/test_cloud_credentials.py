@@ -74,7 +74,10 @@ def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
         ),
         pytest.param(
             True,
-            "Set Airbyte Cloud credentials in environment variables.",
+            (
+                "Provide Airbyte Cloud credentials via the `AIRBYTE_CLOUD_*` environment "
+                "variables, or via request auth headers when using a hosted MCP server."
+            ),
             id="env_vars",
         ),
     ],

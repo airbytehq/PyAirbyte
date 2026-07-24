@@ -13,6 +13,8 @@ from airbyte.mcp._tool_utils import (
     _GUIDS_CREATED_IN_SESSION,
     _resolve_transport_bearer_token,
     check_guid_created_in_session,
+    get_mcp_credential_guidance,
+    is_hosted_mcp_request,
     register_guid_created_in_session,
 )
 
@@ -85,6 +87,62 @@ def test_resolve_transport_bearer_token(
         mock_get_http_headers.assert_not_called()
     else:
         mock_get_http_headers.assert_called_once_with(include={"authorization"})
+
+
+@pytest.mark.parametrize(
+    ("access_token", "headers", "expected"),
+    [
+        pytest.param(_FakeAccessToken("token"), {}, True, id="verified_access_token"),
+        pytest.param(
+            None, {"x-airbyte-workspace-id": "workspace"}, True, id="http_headers"
+        ),
+        pytest.param(None, {}, False, id="no_request"),
+    ],
+)
+def test_is_hosted_mcp_request(
+    access_token: _FakeAccessToken | None,
+    headers: dict[str, str],
+    expected: bool,
+) -> None:
+    """Detect hosted requests from the verified token or request headers."""
+    with (
+        patch("airbyte.mcp._tool_utils.get_access_token", return_value=access_token),
+        patch("airbyte.mcp._tool_utils.get_http_headers", return_value=headers),
+    ):
+        assert is_hosted_mcp_request() is expected
+
+
+def test_mcp_credential_guidance_uses_hosted_headers() -> None:
+    """Use request headers for credential guidance on hosted requests."""
+    with patch(
+        "airbyte.mcp._tool_utils.is_hosted_mcp_request",
+        return_value=True,
+    ):
+        assert get_mcp_credential_guidance() == (
+            "Provide a bearer token via the `Authorization` header, or client "
+            "credentials via the `X-Airbyte-Cloud-Client-Id` and "
+            "`X-Airbyte-Cloud-Client-Secret` headers. Provide the workspace ID "
+            "via the `X-Airbyte-Workspace-Id` header."
+        )
+        assert get_mcp_credential_guidance(workspace_only=True) == (
+            "Provide the workspace ID via the `X-Airbyte-Workspace-Id` header."
+        )
+
+
+def test_mcp_credential_guidance_uses_local_environment() -> None:
+    """Use environment variables for credential guidance outside hosted requests."""
+    with patch(
+        "airbyte.mcp._tool_utils.is_hosted_mcp_request",
+        return_value=False,
+    ):
+        assert get_mcp_credential_guidance() == (
+            "Set the `AIRBYTE_CLOUD_BEARER_TOKEN` environment variable, or set both "
+            "`AIRBYTE_CLOUD_CLIENT_ID` and `AIRBYTE_CLOUD_CLIENT_SECRET`. Set the "
+            "`AIRBYTE_CLOUD_WORKSPACE_ID` environment variable for the workspace."
+        )
+        assert get_mcp_credential_guidance(workspace_only=True) == (
+            "Set the `AIRBYTE_CLOUD_WORKSPACE_ID` environment variable."
+        )
 
 
 @pytest.fixture(autouse=True)

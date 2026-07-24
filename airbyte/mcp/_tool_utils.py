@@ -182,6 +182,37 @@ WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
 """Config arg for workspace ID, supporting both HTTP header and env var."""
 
 
+def is_hosted_mcp_request() -> bool:
+    """Return whether the current call is served over hosted HTTP transport."""
+    try:
+        if get_access_token() is not None:
+            return True
+        return bool(get_http_headers())
+    except RuntimeError:
+        return False
+
+
+def get_mcp_credential_guidance(*, workspace_only: bool = False) -> str:
+    """Return credential guidance for the current MCP execution mode."""
+    if is_hosted_mcp_request():
+        if workspace_only:
+            return f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header."
+        return (
+            f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
+            f"or client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
+            f"`{MCP_CLIENT_SECRET_HEADER}` headers. Provide the workspace ID via "
+            f"the `{MCP_WORKSPACE_ID_HEADER}` header."
+        )
+
+    if workspace_only:
+        return f"Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
+    return (
+        f"Set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment variable, or set both "
+        f"`{CLOUD_CLIENT_ID_ENV_VAR}` and `{CLOUD_CLIENT_SECRET_ENV_VAR}`."
+        f" Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable for the workspace."
+    )
+
+
 def _normalize_bearer_token(value: str) -> str | None:
     """Strip an optional `Bearer ` prefix from an `Authorization` value.
 
