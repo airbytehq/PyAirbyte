@@ -87,9 +87,10 @@ class _AirbyteCredentials:
             )
         if not resolved_bearer_token and not resolved_client_id:
             guidance = (
-                "Provide Airbyte Cloud credentials via the "
-                "`AIRBYTE_CLOUD_*` environment variables, or via request auth "
-                "headers when using a hosted MCP server."
+                "Provide Airbyte Cloud credentials as explicit arguments "
+                "(client_id and client_secret, or bearer_token), or via the "
+                "`AIRBYTE_CLOUD_*` environment variables. When connecting to a "
+                "hosted MCP server, credentials are supplied via request auth headers."
                 if env_vars
                 else "Provide either bearer_token or both client_id and client_secret."
             )
