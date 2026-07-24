@@ -25,12 +25,20 @@ from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_BEARER_TOKEN_HEADER,
+    MCP_CLIENT_ID_HEADER,
+    MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_WORKSPACE_ID_HEADER,
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
@@ -44,11 +52,13 @@ from airbyte.mcp._tool_utils import (
 
 
 CLOUD_AUTH_TIP_TEXT = (
-    "When connecting to a hosted MCP server, provide Airbyte Cloud credentials "
-    "via the auth headers. For local or stdio connections, use the "
-    "`AIRBYTE_CLOUD_CLIENT_ID`, `AIRBYTE_CLOUD_CLIENT_SECRET`, "
-    "`AIRBYTE_CLOUD_BEARER_TOKEN`, and `AIRBYTE_CLOUD_WORKSPACE_ID` environment "
-    "variables."
+    f"When connecting to a hosted MCP server, provide a bearer token via the "
+    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the "
+    f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers, plus "
+    f"the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header. For local or "
+    f"stdio connections, use the `{CLOUD_CLIENT_ID_ENV_VAR}`, "
+    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`, `{CLOUD_BEARER_TOKEN_ENV_VAR}`, and "
+    f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variables."
 )
 WORKSPACE_ID_TIP_TEXT = (
     "Workspace ID. Hosted MCP connections pass it via the `X-Airbyte-Workspace-Id` "

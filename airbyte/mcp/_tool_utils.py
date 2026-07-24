@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from fastmcp.apps import UI_EXTENSION_ID
-from fastmcp.server.dependencies import get_access_token, get_context, get_http_headers
+from fastmcp.server.dependencies import (
+    get_access_token,
+    get_context,
+    get_http_headers,
+)
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (
@@ -31,6 +35,7 @@ from fastmcp_extensions.tool_filters import (
     get_annotation,
 )
 
+from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -182,19 +187,9 @@ WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
 """Config arg for workspace ID, supporting both HTTP header and env var."""
 
 
-def is_hosted_mcp_request() -> bool:
-    """Return whether the current call is served over hosted HTTP transport."""
-    try:
-        if get_access_token() is not None:
-            return True
-        return bool(get_http_headers())
-    except RuntimeError:
-        return False
-
-
 def get_mcp_credential_guidance(*, workspace_only: bool = False) -> str:
     """Return credential guidance for the current MCP execution mode."""
-    if is_hosted_mcp_request():
+    if is_hosted_mcp_mode():
         if workspace_only:
             return f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header."
         return (
