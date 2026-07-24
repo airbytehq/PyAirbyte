@@ -44,7 +44,7 @@ from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
 
-from airbyte._util.meta import is_hosted_mcp_mode
+from airbyte._util.mcp_mode import is_hosted_mcp_mode
 from airbyte.constants import (
     AIRBYTE_PRINT_FULL_ERROR_LOGS,
     CLOUD_BEARER_TOKEN_ENV_VAR,
