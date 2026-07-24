@@ -200,9 +200,10 @@ their MCP config:
 
 ### Server environment variables (HTTP mode)
 
-All names live in this server's branded `AIRBYTE_MCP_*` namespace; each headless
-var defaults to the Airbyte Cloud realm, so a self-hosted deployment overrides
-only the field(s) pointing at its own realm.
+The auth vars use this server's branded `AIRBYTE_MCP_*` namespace, and each
+headless var defaults to the Airbyte Cloud realm, so a self-hosted deployment
+overrides only the field(s) pointing at its own realm. `MCP_SERVER_URL` is a
+deployment URL (not an auth var) and stays unbranded.
 
 - `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
   callbacks); defaults to `http://localhost:8080`.

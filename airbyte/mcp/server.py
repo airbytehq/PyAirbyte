@@ -121,10 +121,11 @@ Safety features:
 
 logger = logging.getLogger(__name__)
 
-# This server's own (branded) transport-auth env vars. It owns these names and
-# maps them into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that
-# `build_mcp_auth` consumes; the extensions library reads no env itself. The
-# branded `AIRBYTE_MCP_*` namespace is an added layer over generic OAuth names.
+# This server's own transport-auth env vars. It owns these names and maps them
+# into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that `build_mcp_auth`
+# consumes; the extensions library reads no env itself. The auth vars below use
+# the branded `AIRBYTE_MCP_*` namespace as an added layer over generic OAuth
+# names; `MCP_SERVER_URL` (a deployment URL, not an auth var) stays unbranded.
 
 # Public base URL of this deployment (also used for OIDC redirect callbacks);
 # `http_main` reuses it to derive the mounted MCP path.
