@@ -50,7 +50,7 @@ from fastmcp_extensions import (
     register_landing_page,
 )
 
-from airbyte._util.mcp_mode import set_hosted_mcp_mode
+from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
