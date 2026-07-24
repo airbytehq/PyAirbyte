@@ -16,7 +16,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from fastmcp.apps import UI_EXTENSION_ID
-from fastmcp.server.dependencies import get_access_token, get_context, get_http_headers
+from fastmcp.server.dependencies import (
+    get_access_token,
+    get_context,
+    get_http_headers,
+)
 from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (

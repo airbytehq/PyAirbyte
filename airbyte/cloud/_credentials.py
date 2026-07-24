@@ -15,7 +15,7 @@ from airbyte.constants import (
     CLOUD_ORGANIZATION_ID_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
 )
-from airbyte.exceptions import PyAirbyteInputError
+from airbyte.exceptions import AirbyteNoCloudCredentialsError, PyAirbyteInputError
 from airbyte.secrets.base import SecretString
 from airbyte.secrets.util import try_get_secret
 
@@ -86,15 +86,7 @@ class _AirbyteCredentials:
                 guidance="Provide both client ID and client secret, or use a bearer token.",
             )
         if not resolved_bearer_token and not resolved_client_id:
-            guidance = (
-                "Set Airbyte Cloud credentials in environment variables."
-                if env_vars
-                else "Provide either bearer_token or both client_id and client_secret."
-            )
-            raise PyAirbyteInputError(
-                message="No Airbyte credentials found.",
-                guidance=guidance,
-            )
+            raise AirbyteNoCloudCredentialsError(_env_vars=env_vars)
 
         return cls(
             client_id=SecretString(resolved_client_id) if resolved_client_id else None,

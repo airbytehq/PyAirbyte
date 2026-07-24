@@ -50,6 +50,7 @@ from fastmcp_extensions import (
     register_landing_page,
 )
 
+from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -80,6 +81,7 @@ def _get_server_url() -> str:
 def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     logging.basicConfig(level=logging.INFO)
+    set_hosted_mcp_mode()
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the

@@ -110,8 +110,10 @@ Use this server for:
 - Listing and describing environment variables for connector configuration
 
 Operational modes:
-- Cloud operations: Deploy and manage connectors on Airbyte Cloud (requires
-  AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET, AIRBYTE_CLOUD_WORKSPACE_ID)
+- Cloud operations: Deploy and manage connectors on Airbyte Cloud (use request
+  headers when connecting to a hosted MCP server, or AIRBYTE_CLOUD_CLIENT_ID +
+  AIRBYTE_CLOUD_CLIENT_SECRET (or AIRBYTE_CLOUD_BEARER_TOKEN) plus
+  AIRBYTE_CLOUD_WORKSPACE_ID for local or stdio connections)
 - Local operations: Run connectors locally for data extraction (requires
   AIRBYTE_PROJECT_DIR for artifact storage)
 
