@@ -280,7 +280,7 @@ def _get_cloud_workspace(
     """
     resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
     if not resolved_workspace_id:
-        raise AirbyteMissingWorkspaceContextError(guidance=None)
+        raise AirbyteMissingWorkspaceContextError
 
     return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
 
