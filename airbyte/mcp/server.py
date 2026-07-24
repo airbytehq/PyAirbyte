@@ -6,35 +6,37 @@ Supports two transport modes:
 - **stdio** (default): For local MCP clients (Claude Desktop, etc.). Auth is not
   enforced; the provider assembled below is ignored by the stdio transport.
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
-  `poe mcp-serve-http`. HTTP transport is **always authenticated**, defaulting
-  to Airbyte Cloud with zero auth config. This server maps its own branded
-  `AIRBYTE_MCP_*` env vars into the typed configs that
-  `fastmcp_extensions.build_mcp_auth` consumes, which supports two client shapes
-  on the same deployment:
+  `poe mcp-serve-http`. This server maps its own branded `AIRBYTE_MCP_*` env vars
+  into the typed configs that `fastmcp_extensions.build_mcp_auth` consumes, which
+  supports two client shapes on the same deployment:
     - **Interactive** (humans in a browser): Keycloak Authorization Code + PKCE
-      via `OIDCProxy`, active once `AIRBYTE_MCP_OIDC_CLIENT_ID` and
-      `AIRBYTE_MCP_OIDC_CLIENT_SECRET` are supplied (the OIDC discovery URL
-      defaults to Airbyte Cloud).
+      via `OIDCProxy`, active once `AIRBYTE_MCP_OIDC_CLIENT_ID`,
+      `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and `AIRBYTE_MCP_OIDC_CONFIG_URL` (the
+      OIDC discovery URL) are supplied.
     - **Headless** (agents, CI): the client mints its own short-lived bearer
       token via the OAuth 2.0 client credentials grant and sends it as
       `Authorization: Bearer <token>`. The server verifies it with a
-      `JWTVerifier` against Airbyte Cloud's application-client realm by default
-      (no browser, no stored/rotating refresh token).
-  When both are active they are combined via `MultiAuth`.
+      `JWTVerifier`, active once a signing-key source (`AIRBYTE_MCP_AUTH_JWKS_URI`
+      or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is configured (no browser, no
+      stored/rotating refresh token).
+  When both are active they are combined via `MultiAuth`; when neither is
+  configured `_create_auth` returns `None` and HTTP transport runs
+  unauthenticated (a startup warning is logged in `http_main`).
 
-This module owns the Airbyte Cloud realm defaults (non-secret, publicly
-discoverable) and maps its branded `AIRBYTE_MCP_OIDC_*` / `AIRBYTE_MCP_AUTH_*`
-env vars into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that
-`build_mcp_auth` consumes, so the extensions library stays provider-neutral and
-reads no env itself. A self-hosted deployment pointing at its own Airbyte
-instance overrides any default via the matching env var.
+This module declares only the env var *names* and maps their values into the
+typed `OIDCAuthConfig` / `JWTAuthConfig` objects that `build_mcp_auth` consumes,
+so the extensions library stays provider-neutral and reads no env itself. It
+embeds no provider-specific configuration *values* (a realm's discovery URL,
+issuer, JWKS URI, audience, algorithm, etc.); those are supplied at deploy time
+by the deployment's own repo — e.g. the hosted Cloud MCP image in
+`airbyte-ops-mcp` sets the `AIRBYTE_MCP_*` env for the Airbyte Cloud realm.
 
-An agent mints an Airbyte Cloud access token from its `AIRBYTE_CLOUD_CLIENT_ID` /
-`AIRBYTE_CLOUD_CLIENT_SECRET` (the `<api_root>/applications/token` endpoint) and
-sends it as `Authorization: Bearer`. That single token both authenticates
-transport (verified here) and authorizes downstream Cloud API calls (the same
-header feeds the Cloud bearer token), because an Airbyte-Cloud-issued JWT is
-itself a valid Cloud API bearer.
+For the headless path, an agent mints an access token from its client id/secret
+(via the deployment's `<api_root>/applications/token` endpoint) and sends it as
+`Authorization: Bearer`. When the deployment's realm is Airbyte Cloud, that
+single token both authenticates transport (verified here) and authorizes
+downstream Cloud API calls, because an Airbyte-Cloud-issued JWT is itself a valid
+Cloud API bearer.
 """
 
 from __future__ import annotations
