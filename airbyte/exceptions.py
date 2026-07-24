@@ -42,7 +42,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import indent
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from airbyte.constants import (
     AIRBYTE_PRINT_FULL_ERROR_LOGS,
@@ -531,6 +531,20 @@ class PyAirbyteSecretNotFoundError(PyAirbyteError):
 # Airbyte API Errors
 
 
+class _WorkspaceWithUrl(Protocol):
+    """Structural type for a workspace that exposes a `workspace_url`.
+
+    Declared locally so `exceptions` does not need to import `airbyte.cloud`, which
+    would create an import cycle. Any object with a `workspace_url` attribute (e.g.
+    `CloudWorkspace`) satisfies this via structural (duck) typing.
+    """
+
+    @property
+    def workspace_url(self) -> str | None:
+        """The web URL of the workspace."""
+        ...
+
+
 @dataclass
 class AirbyteError(PyAirbyteError):
     """An error occurred while communicating with the hosted Airbyte instance."""
@@ -538,7 +552,7 @@ class AirbyteError(PyAirbyteError):
     response: AirbyteApiResponseDuckType | None = None
     """The API response from the failed request."""
 
-    workspace: Any | None = None
+    workspace: _WorkspaceWithUrl | None = None
     """The workspace where the error occurred."""
 
     @property
