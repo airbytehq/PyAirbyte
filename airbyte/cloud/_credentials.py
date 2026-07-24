@@ -86,17 +86,9 @@ class _AirbyteCredentials:
                 guidance="Provide both client ID and client secret, or use a bearer token.",
             )
         if not resolved_bearer_token and not resolved_client_id:
-            guidance = (
-                "Provide Airbyte Cloud credentials as explicit arguments "
-                "(client_id and client_secret, or bearer_token), or via the "
-                "`AIRBYTE_CLOUD_*` environment variables. When connecting to a "
-                "hosted MCP server, credentials are supplied via request auth headers."
-                if env_vars
-                else "Provide either bearer_token or both client_id and client_secret."
-            )
             raise PyAirbyteInputError(
                 message="No Airbyte credentials found.",
-                guidance=guidance,
+                guidance="Provide either bearer_token or both client_id and client_secret.",
             )
 
         return cls(
