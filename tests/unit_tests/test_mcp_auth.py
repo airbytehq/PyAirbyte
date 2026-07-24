@@ -208,6 +208,23 @@ def test_create_auth_honors_oidc_scopes_override(monkeypatch: MonkeyPatch) -> No
     assert oidc.required_scopes == ["openid", "custom-api"]
 
 
+def test_create_auth_forces_openid_when_override_omits_it(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """An override missing `openid` still gets it, so the token stays API-usable."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
+    monkeypatch.setenv(server.OIDC_SCOPES_ENV, "custom-api")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    oidc = captured["oidc"]
+    assert isinstance(oidc, OIDCAuthConfig)
+    assert oidc.required_scopes == ["openid", "custom-api"]
+
+
 def test_create_auth_oidc_without_config_url_raises(monkeypatch: MonkeyPatch) -> None:
     """OIDC credentials without a discovery URL fail clearly, naming the env var."""
     _clear_all_auth_env(monkeypatch)

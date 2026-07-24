@@ -193,6 +193,23 @@ def _env_or_default(name: str, default: str) -> str:
     return value or default
 
 
+def _resolve_oidc_scopes() -> list[str]:
+    """Return the interactive OIDC scopes, always including `openid` first.
+
+    Reads the space-separated `AIRBYTE_MCP_OIDC_SCOPES` override (defaulting to
+    `DEFAULT_OIDC_SCOPES`) and guarantees `openid` is present: without it the IdP
+    may issue an identity-only token that downstream APIs reject, so an override
+    that omits it would silently recreate that failure. Custom scopes are
+    preserved in order, deduplicated, with `openid` guaranteed at the front.
+    """
+    configured = _env_or_default(OIDC_SCOPES_ENV, DEFAULT_OIDC_SCOPES).split()
+    scopes = ["openid"]
+    for scope in configured:
+        if scope not in scopes:
+            scopes.append(scope)
+    return scopes
+
+
 def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue | None:
     """Resolve the durable `OIDCProxy` OAuth-state store, if one is configured.
 
@@ -286,7 +303,7 @@ def _create_auth() -> AuthProvider | None:
             client_id=oidc_client_id,
             client_secret=oidc_client_secret,
             base_url=base_url,
-            required_scopes=_env_or_default(OIDC_SCOPES_ENV, DEFAULT_OIDC_SCOPES).split(),
+            required_scopes=_resolve_oidc_scopes(),
             client_storage=_resolve_client_storage(encryption_source_material=oidc_client_secret),
         )
 
