@@ -237,6 +237,7 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
 class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
     """No Airbyte credentials found."""
 
+    guidance: str | None = None
     _allow_bearer: bool = True
     _env_vars: bool = True
 
@@ -278,6 +279,8 @@ class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
 @dataclass
 class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
     """Workspace ID is required but not provided."""
+
+    guidance: str | None = None
 
     def __post_init__(self) -> None:
         """Set guidance for the current execution mode."""
