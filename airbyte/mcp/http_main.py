@@ -84,7 +84,7 @@ def _get_server_url() -> str:
 
 
 def _advertise_root_mount_resource(auth: AuthProvider) -> None:
-    """Advertise the slash-less public URL as the RFC 8707 resource at a root mount.
+    """Advertise the slash-less public URL as the RFC 9728 resource at a root mount.
 
     Behind a path-stripping load balancer the MCP endpoint is mounted at root
     (`mcp_path="/"`), and FastMCP derives the protected-resource identifier from
