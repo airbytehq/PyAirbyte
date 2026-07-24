@@ -180,7 +180,9 @@ class CloudConnectionInfo(BaseModel):
 
         The Config API response embeds the full `source` and `destination` objects and
         the `syncCatalog`, so connector names and selected streams are resolved from this
-        single response rather than via separate public API lookups.
+        single response rather than via separate public API lookups. The `syncCatalog`
+        lists every discovered stream with a per-stream `config.selected` flag, so only
+        selected streams are returned, matching the public API's `stream_names` behavior.
         """
         source: Mapping[str, Any] = connection.get("source") or {}
         destination: Mapping[str, Any] = connection.get("destination") or {}
@@ -189,7 +191,9 @@ class CloudConnectionInfo(BaseModel):
         stream_names = [
             entry["stream"]["name"]
             for entry in stream_entries
-            if isinstance(entry.get("stream"), Mapping) and entry["stream"].get("name")
+            if isinstance(entry.get("stream"), Mapping)
+            and entry["stream"].get("name")
+            and _is_stream_selected(entry.get("config"))
         ]
         workspace_id = (
             source.get("workspaceId")
@@ -313,6 +317,17 @@ def _notifications_to_dict(notifications: object) -> dict[str, object | None]:
     if isinstance(notifications, Mapping):
         return {str(key): value for key, value in notifications.items()}
     return {}
+
+
+def _is_stream_selected(config: object) -> bool:
+    """Return whether a `syncCatalog` stream entry is selected for sync.
+
+    A stream is selected when its `config.selected` flag is truthy. A missing `config` or
+    missing `selected` flag defaults to selected, matching the platform default.
+    """
+    if not isinstance(config, Mapping):
+        return True
+    return bool(config.get("selected", True))
 
 
 def _enum_value(value: object) -> str:

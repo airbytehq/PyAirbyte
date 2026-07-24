@@ -52,6 +52,8 @@ def _web_backend_connection_payload() -> dict[str, Any]:
             "streams": [
                 {"stream": {"name": "users"}, "config": {"selected": True}},
                 {"stream": {"name": "orders"}, "config": {"selected": True}},
+                {"stream": {"name": "audit_log"}, "config": {"selected": False}},
+                {"stream": {"name": "legacy"}},
             ]
         },
     }
@@ -106,7 +108,9 @@ def test_connection_info_from_config_api_response() -> None:
     assert info.status == "active"
     assert info.source_name == "My Postgres"
     assert info.destination_name == "My Snowflake"
-    assert info.stream_names == ["users", "orders"]
+    # `audit_log` (selected=False) is excluded; `legacy` (no config) defaults to selected.
+    assert info.stream_names == ["users", "orders", "legacy"]
+    assert "audit_log" not in info.stream_names
 
 
 def test_connection_info_from_config_api_response_uses_fallback_workspace_id() -> None:
@@ -205,6 +209,6 @@ def test_fetch_connection_info_routes_bearer_only_to_config_api(
 
     assert connection.source_name == "My Postgres"
     assert connection.destination_name == "My Snowflake"
-    assert connection.stream_names == ["users", "orders"]
+    assert connection.stream_names == ["users", "orders", "legacy"]
     assert connection.table_prefix == "raw_"
     assert calls == ["config"]

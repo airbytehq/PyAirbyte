@@ -349,13 +349,7 @@ class CloudWorkspace:
               serves primarily as a simple check to ensure that the workspace is reachable
               and credentials are correct.
         """
-        _ = api_util.get_workspace(
-            api_root=self.api_root,
-            workspace_id=self.workspace_id,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-        )
+        _ = self.get_workspace_info()
         print(f"Successfully connected to workspace: {self.workspace_url}")
 
     # Get sources, destinations, and connections
