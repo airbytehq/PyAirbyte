@@ -220,6 +220,23 @@ def test_resolve_client_storage_imports_and_calls_factory(
     assert _STORAGE_FACTORY_CALLS == ["the-secret"]
 
 
+@pytest.mark.parametrize(
+    "factory_spec",
+    [
+        pytest.param("not-a-valid-reference", id="malformed_reference"),
+        pytest.param(f"{__name__}:_does_not_exist", id="missing_symbol"),
+    ],
+)
+def test_resolve_client_storage_raises_clear_error_on_bad_factory(
+    monkeypatch: MonkeyPatch,
+    factory_spec: str,
+) -> None:
+    """A malformed/unresolvable factory reference fails with the env var named."""
+    monkeypatch.setenv(server.OIDC_CLIENT_STORAGE_FACTORY_ENV, factory_spec)
+    with pytest.raises(ValueError, match=server.OIDC_CLIENT_STORAGE_FACTORY_ENV):
+        server._resolve_client_storage(encryption_source_material="s")
+
+
 def test_create_auth_injects_resolved_storage_on_oidc(monkeypatch: MonkeyPatch) -> None:
     """The resolved storage object is passed through to `OIDCAuthConfig.client_storage`."""
     _STORAGE_FACTORY_CALLS.clear()

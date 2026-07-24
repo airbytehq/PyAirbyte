@@ -221,11 +221,24 @@ def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue
     imports a concrete store, so the infrastructure-specific factory (e.g. the
     Fernet-wrapped Firestore store for the hosted Cloud MCP image) ships in the
     deployment's own package.
+
+    Raises `ValueError` (naming the env var and expected format) when the
+    factory reference is malformed or points at a missing symbol, so a
+    misconfigured deployment fails with a clear message instead of a bare
+    import traceback.
     """
     factory_spec = os.getenv(OIDC_CLIENT_STORAGE_FACTORY_ENV, "").strip()
     if not factory_spec:
         return None
-    factory: _ClientStorageFactory = pkgutil.resolve_name(factory_spec)
+    try:
+        factory: _ClientStorageFactory = pkgutil.resolve_name(factory_spec)
+    except (ImportError, AttributeError, ValueError) as exc:
+        msg = (
+            f"{OIDC_CLIENT_STORAGE_FACTORY_ENV}={factory_spec!r} could not be "
+            "resolved; expected a 'package.module:callable' reference to an "
+            "importable OAuth-state store factory."
+        )
+        raise ValueError(msg) from exc
     return factory(encryption_source_material=encryption_source_material)
 
 
