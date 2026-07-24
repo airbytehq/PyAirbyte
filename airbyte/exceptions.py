@@ -60,7 +60,6 @@ from airbyte.constants import (
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
-    from airbyte.cloud.workspaces import CloudWorkspace
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
@@ -539,7 +538,7 @@ class AirbyteError(PyAirbyteError):
     response: AirbyteApiResponseDuckType | None = None
     """The API response from the failed request."""
 
-    workspace: CloudWorkspace | None = None
+    workspace: Any | None = None
     """The workspace where the error occurred."""
 
     @property
