@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 import inspect
-import pytest
 import airbyte.exceptions as exceptions_module
+import pytest
+
+from airbyte.exceptions import (
+    AirbyteMissingWorkspaceContextError,
+    AirbyteNoCloudCredentialsError,
+)
 
 
 def test_exceptions():
@@ -25,6 +30,83 @@ def test_exceptions():
             f"{name} does not start with Airbyte or PyAirbyte"
         )
         assert name.endswith("Error")
+
+
+@pytest.mark.parametrize(
+    ("hosted", "allow_bearer", "expected_guidance"),
+    [
+        pytest.param(
+            True,
+            True,
+            "Provide a bearer token via the `Authorization` header, or client credentials "
+            "via the `X-Airbyte-Cloud-Client-Id` and `X-Airbyte-Cloud-Client-Secret` headers.",
+            id="hosted_with_bearer",
+        ),
+        pytest.param(
+            True,
+            False,
+            "Provide client credentials via the `X-Airbyte-Cloud-Client-Id` and "
+            "`X-Airbyte-Cloud-Client-Secret` headers.",
+            id="hosted_client_credentials_only",
+        ),
+        pytest.param(
+            False,
+            True,
+            "Provide `bearer_token`, or both `client_id` and `client_secret`, as arguments "
+            "or via the `AIRBYTE_CLOUD_BEARER_TOKEN`, `AIRBYTE_CLOUD_CLIENT_ID`, and "
+            "`AIRBYTE_CLOUD_CLIENT_SECRET` environment variables.",
+            id="local_with_bearer",
+        ),
+        pytest.param(
+            False,
+            False,
+            "Provide both `client_id` and `client_secret`, as arguments or via the "
+            "`AIRBYTE_CLOUD_CLIENT_ID` and `AIRBYTE_CLOUD_CLIENT_SECRET` environment variables.",
+            id="local_client_credentials_only",
+        ),
+    ],
+)
+def test_cloud_credentials_error_guidance(
+    hosted: bool,
+    allow_bearer: bool,
+    expected_guidance: str,
+) -> None:
+    """Render cloud credential guidance for each supported mode."""
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(exceptions_module, "is_hosted_mcp_mode", lambda: hosted)
+        error = AirbyteNoCloudCredentialsError(allow_bearer=allow_bearer)
+
+    assert error.get_message() == "No Airbyte credentials found."
+    assert error.guidance == expected_guidance
+
+
+@pytest.mark.parametrize(
+    ("hosted", "expected_guidance"),
+    [
+        pytest.param(
+            True,
+            "Provide the workspace ID via the `X-Airbyte-Workspace-Id` header.",
+            id="hosted",
+        ),
+        pytest.param(
+            False,
+            "Set the `AIRBYTE_CLOUD_WORKSPACE_ID` environment variable, or pass the "
+            "`workspace_id` parameter.",
+            id="local",
+        ),
+    ],
+)
+def test_missing_workspace_context_error_guidance(
+    hosted: bool,
+    expected_guidance: str,
+) -> None:
+    """Render workspace guidance for each supported mode."""
+    with pytest.MonkeyPatch.context() as monkeypatch:
+        monkeypatch.setattr(exceptions_module, "is_hosted_mcp_mode", lambda: hosted)
+        error = AirbyteMissingWorkspaceContextError()
+
+    assert error.get_message() == "Workspace ID is required but not provided."
+    assert error.guidance == expected_guidance
 
 
 if __name__ == "__main__":

@@ -41,12 +41,15 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
 )
 from airbyte.destinations.util import get_noop_destination
-from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteMissingResourceError,
+    AirbyteMissingWorkspaceContextError,
+    PyAirbyteInputError,
+)
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
     check_guid_created_in_session,
-    get_mcp_credential_guidance,
     register_guid_created_in_session,
 )
 
@@ -277,11 +280,7 @@ def _get_cloud_workspace(
     """
     resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
     if not resolved_workspace_id:
-        raise PyAirbyteInputError(
-            message="Workspace ID is required but not provided.",
-            guidance=f"{get_mcp_credential_guidance(workspace_only=True)} "
-            "You can also pass the workspace_id parameter.",
-        )
+        raise AirbyteMissingWorkspaceContextError
 
     return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
 

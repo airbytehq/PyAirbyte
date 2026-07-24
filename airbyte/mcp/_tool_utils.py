@@ -35,7 +35,6 @@ from fastmcp_extensions.tool_filters import (
     get_annotation,
 )
 
-from airbyte._util.meta import is_hosted_mcp_mode
 from airbyte.constants import (
     CLOUD_API_ROOT_ENV_VAR,
     CLOUD_BEARER_TOKEN_ENV_VAR,
@@ -185,27 +184,6 @@ WORKSPACE_ID_CONFIG_ARG = MCPServerConfigArg(
     sensitive=False,
 )
 """Config arg for workspace ID, supporting both HTTP header and env var."""
-
-
-def get_mcp_credential_guidance(*, workspace_only: bool = False) -> str:
-    """Return credential guidance for the current MCP execution mode."""
-    if is_hosted_mcp_mode():
-        if workspace_only:
-            return f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header."
-        return (
-            f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
-            f"or client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
-            f"`{MCP_CLIENT_SECRET_HEADER}` headers. Provide the workspace ID via "
-            f"the `{MCP_WORKSPACE_ID_HEADER}` header."
-        )
-
-    if workspace_only:
-        return f"Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
-    return (
-        f"Set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment variable, or set both "
-        f"`{CLOUD_CLIENT_ID_ENV_VAR}` and `{CLOUD_CLIENT_SECRET_ENV_VAR}`."
-        f" Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable for the workspace."
-    )
 
 
 def _normalize_bearer_token(value: str) -> str | None:

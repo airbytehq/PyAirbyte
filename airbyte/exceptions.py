@@ -44,7 +44,18 @@ from pathlib import Path
 from textwrap import indent
 from typing import TYPE_CHECKING, Any
 
-from airbyte.constants import AIRBYTE_PRINT_FULL_ERROR_LOGS
+from airbyte._util.meta import is_hosted_mcp_mode
+from airbyte.constants import (
+    AIRBYTE_PRINT_FULL_ERROR_LOGS,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_BEARER_TOKEN_HEADER,
+    MCP_CLIENT_ID_HEADER,
+    MCP_CLIENT_SECRET_HEADER,
+    MCP_WORKSPACE_ID_HEADER,
+)
 
 
 if TYPE_CHECKING:
@@ -220,6 +231,60 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
     )
     connector_name: str | None = None
     available_streams: list[str] | None = None
+
+
+@dataclass
+class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
+    """No Airbyte credentials found."""
+
+    allow_bearer: bool = True
+
+    def __post_init__(self) -> None:
+        """Set guidance for the current execution mode."""
+        if self.guidance is not None:
+            return
+        if is_hosted_mcp_mode():
+            if self.allow_bearer:
+                self.guidance = (
+                    f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
+                    f"or client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
+                    f"`{MCP_CLIENT_SECRET_HEADER}` headers."
+                )
+            else:
+                self.guidance = (
+                    f"Provide client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
+                    f"`{MCP_CLIENT_SECRET_HEADER}` headers."
+                )
+        elif self.allow_bearer:
+            self.guidance = (
+                f"Provide `bearer_token`, or both `client_id` and `client_secret`, as "
+                f"arguments or via the `{CLOUD_BEARER_TOKEN_ENV_VAR}`, "
+                f"`{CLOUD_CLIENT_ID_ENV_VAR}`, and `{CLOUD_CLIENT_SECRET_ENV_VAR}` "
+                "environment variables."
+            )
+        else:
+            self.guidance = (
+                f"Provide both `client_id` and `client_secret`, as arguments or via the "
+                f"`{CLOUD_CLIENT_ID_ENV_VAR}` and `{CLOUD_CLIENT_SECRET_ENV_VAR}` "
+                "environment variables."
+            )
+
+
+@dataclass
+class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
+    """Workspace ID is required but not provided."""
+
+    def __post_init__(self) -> None:
+        """Set guidance for the current execution mode."""
+        if self.guidance is not None:
+            return
+        if is_hosted_mcp_mode():
+            self.guidance = f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header."
+        else:
+            self.guidance = (
+                f"Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable, or pass "
+                "the `workspace_id` parameter."
+            )
 
 
 # MCP Server Errors
