@@ -44,7 +44,6 @@ JWKS URI nor the public key is set:
 from __future__ import annotations
 
 import logging
-import os
 from urllib.parse import urlparse
 
 from fastmcp_extensions import (
@@ -55,7 +54,9 @@ from fastmcp_extensions import (
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
+    DEFAULT_MCP_SERVER_URL,
     MCP_SERVER_URL_ENV,
+    _env_or_default,
     app,
 )
 
@@ -68,11 +69,13 @@ MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
 
 
 def _get_server_url() -> str:
-    """Return the public base URL from `MCP_SERVER_URL`, defaulting to localhost."""
-    return os.getenv(
-        MCP_SERVER_URL_ENV,
-        f"http://localhost:{DEFAULT_HTTP_PORT}",
-    )
+    """Return the public base URL from `MCP_SERVER_URL`, defaulting to localhost.
+
+    Uses the same blank-as-unset handling as `server._create_auth` so the HTTP
+    mount/landing URL and the auth redirect/base URL agree on the effective
+    server URL even when `MCP_SERVER_URL` is set but blank.
+    """
+    return _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
 
 
 def main() -> None:
