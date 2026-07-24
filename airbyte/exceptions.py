@@ -542,7 +542,6 @@ class _WorkspaceWithUrl(Protocol):
     @property
     def workspace_url(self) -> str | None:
         """The web URL of the workspace."""
-        ...
 
 
 @dataclass
