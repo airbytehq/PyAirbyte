@@ -56,14 +56,15 @@ CLOUD_AUTH_TIP_TEXT = (
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the "
     f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers, plus "
     f"the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header. For local or "
-    f"stdio connections, use the `{CLOUD_CLIENT_ID_ENV_VAR}`, "
-    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`, `{CLOUD_BEARER_TOKEN_ENV_VAR}`, and "
-    f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variables."
+    f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
+    f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
+    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`, plus `{CLOUD_WORKSPACE_ID_ENV_VAR}` for the "
+    f"workspace."
 )
 WORKSPACE_ID_TIP_TEXT = (
-    "Workspace ID. Hosted MCP connections pass it via the `X-Airbyte-Workspace-Id` "
-    "header; local or stdio connections use the `AIRBYTE_CLOUD_WORKSPACE_ID` "
-    "environment variable."
+    f"Workspace ID. Hosted MCP connections pass it via the "
+    f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
+    f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
 
 
