@@ -249,7 +249,8 @@ points at its own Airbyte instance:
   algorithm; default to Airbyte Cloud (`.../realms/_airbyte-application-clients`,
   `account`, `RS256`).
 - `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` — opt-in flag (off by default) that
-  enables the inbound HTTP Basic client-credentials path described above.
+  enables the inbound static client-credentials path described above (Basic or
+  the `Client-Id`/`Client-Secret` headers).
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL` — token endpoint used for that
   exchange; defaults to Airbyte Cloud's `https://api.airbyte.com/v1/applications/token`.
 
