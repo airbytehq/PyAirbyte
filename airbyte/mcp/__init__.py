@@ -198,16 +198,22 @@ their MCP config:
 }
 ```
 
-### Opt-in: static client credentials via HTTP Basic
+### Opt-in: static client credentials
 
 The headless bearer path assumes the client can re-mint a token every ~15 min.
 An agent that can only set a **static** `Authorization` value (no refresh hook)
 can't do that. For this case the server can optionally accept the long-lived
-`client_id` / `client_secret` directly on the inbound request, via standard HTTP
-Basic (the same credential encoding OAuth's `client_secret_basic` uses):
+`client_id` / `client_secret` directly on the inbound request, in either form —
+standard HTTP Basic (the same credential encoding OAuth's `client_secret_basic`
+uses), or separate flat headers for clients that can't Base64-encode the pair:
 
 ```http
 Authorization: Basic base64(client_id:client_secret)
+```
+
+```http
+Client-Id: <client_id>
+Client-Secret: <client_secret>
 ```
 
 When `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` is truthy, the server runs a
@@ -243,7 +249,8 @@ points at its own Airbyte instance:
   algorithm; default to Airbyte Cloud (`.../realms/_airbyte-application-clients`,
   `account`, `RS256`).
 - `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` — opt-in flag (off by default) that
-  enables the inbound HTTP Basic client-credentials path described above.
+  enables the inbound static client-credentials path described above (Basic or
+  the `Client-Id`/`Client-Secret` headers).
 - `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL` — token endpoint used for that
   exchange; defaults to Airbyte Cloud's `https://api.airbyte.com/v1/applications/token`.
 
