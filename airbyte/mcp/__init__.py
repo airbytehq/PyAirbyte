@@ -248,10 +248,11 @@ points at its own Airbyte instance:
   exchange; defaults to Airbyte Cloud's `https://api.airbyte.com/v1/applications/token`.
 
 This module owns those Airbyte-branded names, reads them itself, and maps them
-into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects it passes to
-[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions)'
-`build_mcp_auth`, which assembles the verifiers. The extensions library reads no
-environment variables of its own, keeping it provider-agnostic.
+into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects it passes to the
+`build_mcp_auth` function from
+[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
+assembles the verifiers. The extensions library reads no environment variables
+of its own, keeping it provider-agnostic.
 
 ## Troubleshooting
 
