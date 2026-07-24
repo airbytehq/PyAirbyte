@@ -16,7 +16,6 @@ from airbyte.mcp._tool_utils import (
     get_mcp_credential_guidance,
     register_guid_created_in_session,
 )
-from airbyte._util import meta
 
 
 @dataclass
@@ -91,7 +90,10 @@ def test_resolve_transport_bearer_token(
 
 def test_mcp_credential_guidance_uses_hosted_headers() -> None:
     """Use request headers for credential guidance on hosted requests."""
-    with patch.object(meta, "_HOSTED_MCP_MODE_ENABLED", True):
+    with patch(
+        "airbyte.mcp._tool_utils.is_hosted_mcp_mode",
+        return_value=True,
+    ):
         assert get_mcp_credential_guidance() == (
             "Provide a bearer token via the `Authorization` header, or client "
             "credentials via the `X-Airbyte-Cloud-Client-Id` and "
@@ -105,7 +107,10 @@ def test_mcp_credential_guidance_uses_hosted_headers() -> None:
 
 def test_mcp_credential_guidance_uses_local_environment() -> None:
     """Use environment variables for credential guidance outside hosted requests."""
-    with patch.object(meta, "_HOSTED_MCP_MODE_ENABLED", False):
+    with patch(
+        "airbyte.mcp._tool_utils.is_hosted_mcp_mode",
+        return_value=False,
+    ):
         assert get_mcp_credential_guidance() == (
             "Set the `AIRBYTE_CLOUD_BEARER_TOKEN` environment variable, or set both "
             "`AIRBYTE_CLOUD_CLIENT_ID` and `AIRBYTE_CLOUD_CLIENT_SECRET`. Set the "
