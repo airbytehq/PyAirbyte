@@ -151,32 +151,36 @@ server process locally, so there is no transport-layer auth and the only
 credentials that matter are your Airbyte Cloud creds in the dotenv file.
 
 When the server is instead exposed over **HTTP** (`airbyte-mcp-http` /
-`poe mcp-serve-http`), it verifies an `Authorization: Bearer <token>` on every
-request. Two client shapes are supported on the same deployment (combined
-automatically when both are configured):
+`poe mcp-serve-http`), transport auth is **always on** and targets Airbyte Cloud
+out of the box — it verifies an `Authorization: Bearer <token>` on every request
+against Airbyte Cloud's public Keycloak realms with no auth config required. Two
+client shapes are supported on the same deployment (combined automatically):
 
 ### Humans → interactive OIDC
 
-Set `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`. Interactive
-clients open a browser (Keycloak Authorization Code + PKCE) and the resulting
-token is verified by the server. No bearer token to manage by hand.
+Supply `AIRBYTE_MCP_OIDC_CLIENT_ID` and `AIRBYTE_MCP_OIDC_CLIENT_SECRET` (the
+OIDC discovery URL defaults to Airbyte Cloud). Interactive clients open a browser
+(Keycloak Authorization Code + PKCE) and the resulting token is verified by the
+server. No bearer token to manage by hand.
 
 ### Machines / agents → headless bearer token
 
-There is **no** transport mode that accepts a raw `client_id` + `client_secret`
-in a header. A headless agent **mints its own short-lived bearer token** and
-sends it as `Authorization: Bearer <token>`; the server verifies the signature
-(no browser, no stored/rotating refresh token).
+By default there is **no** transport mode that accepts a raw `client_id` +
+`client_secret` in a header (see the opt-in exception below). A headless agent
+**mints its own short-lived bearer token** and sends it as
+`Authorization: Bearer <token>`; the server verifies the signature (no browser,
+no stored/rotating refresh token).
 
-For Airbyte Cloud, set `MCP_AUTH_AIRBYTE_CLOUD=true` on the server so it verifies
-tokens against Airbyte Cloud's application-client realm without hand-configuring
-URLs. The agent mints an Airbyte Cloud access token from its
+By default the server verifies against Airbyte Cloud's application-client realm,
+so an agent just mints an Airbyte Cloud access token from its
 `AIRBYTE_CLOUD_CLIENT_ID` / `AIRBYTE_CLOUD_CLIENT_SECRET` (the
 `https://api.airbyte.com/v1/applications/token` endpoint) and sends it as the
 bearer. That single token both authenticates transport (verified by the server)
 and authorizes downstream Cloud API calls, because an Airbyte-Cloud-issued token
 is itself a valid Cloud API bearer. Tokens are short-lived (~15 min), so
-re-mint on expiry / on a `401` rather than pinning a static token.
+re-mint on expiry / on a `401` rather than pinning a static token. A self-hosted
+deployment pointing at its own Airbyte instance overrides the realm via the
+`AIRBYTE_MCP_AUTH_*` vars below.
 
 Clients that support HTTP transports can pass the token via a `headers` block in
 their MCP config:
@@ -194,24 +198,61 @@ their MCP config:
 }
 ```
 
+### Opt-in: static client credentials via HTTP Basic
+
+The headless bearer path assumes the client can re-mint a token every ~15 min.
+An agent that can only set a **static** `Authorization` value (no refresh hook)
+can't do that. For this case the server can optionally accept the long-lived
+`client_id` / `client_secret` directly on the inbound request, via standard HTTP
+Basic (the same credential encoding OAuth's `client_secret_basic` uses):
+
+```http
+Authorization: Basic base64(client_id:client_secret)
+```
+
+When `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` is truthy, the server runs a
+client-credentials exchange server-side (posting the credentials to the Airbyte
+token endpoint) for a short-lived token, caches it until shortly before expiry,
+and verifies it via the same headless bearer path — so the agent presents one
+durable credential and the server owns the token churn. This is **off by
+default**, because accepting long-lived credentials at the transport is a
+deliberate escalation; a `Bearer` request is always preferred when the client
+can manage it.
+
 ### Server environment variables (HTTP mode)
+
+All auth settings default to Airbyte Cloud's public (non-secret) Keycloak realms,
+so the hosted Airbyte Cloud deployment needs none of them except the interactive
+OIDC client credentials. Each is an override for a self-hosted deployment that
+points at its own Airbyte instance:
 
 - `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
   callbacks); defaults to `http://localhost:8080`.
-- `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` — enable interactive
-  OIDC (all three required).
-- `MCP_AUTH_AIRBYTE_CLOUD` — set truthy to verify headless tokens against Airbyte
-  Cloud's realm (fills JWKS URI / issuer / audience / algorithm with Airbyte
-  Cloud defaults; each stays overridable).
-- `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or static public key
-  for verifying headless tokens.
-- `MCP_AUTH_ISSUER` / `MCP_AUTH_AUDIENCE` / `MCP_AUTH_ALGORITHM` — expected `iss`
-  / `aud` claims and signing algorithm (recommended for headless).
+- `AIRBYTE_MCP_OIDC_CLIENT_ID` / `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — OAuth client
+  credentials that activate the interactive OIDC path (no default; deployment
+  supplies them).
+- `AIRBYTE_MCP_OIDC_CONFIG_URL` — OIDC discovery URL; defaults to Airbyte Cloud's
+  `airbyte` realm.
+- `AIRBYTE_MCP_AUTH_JWKS_URI` — JWKS URL for verifying headless bearer tokens;
+  defaults to Airbyte Cloud's application-client realm certs.
+- `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` — static public key for verifying headless
+  bearer tokens; an alternative to `AIRBYTE_MCP_AUTH_JWKS_URI` for self-hosted
+  realms without a JWKS endpoint (no default).
+- `AIRBYTE_MCP_AUTH_ISSUER` / `AIRBYTE_MCP_AUTH_AUDIENCE` /
+  `AIRBYTE_MCP_AUTH_ALGORITHM` — expected `iss` / `aud` claims and signing
+  algorithm; default to Airbyte Cloud (`.../realms/_airbyte-application-clients`,
+  `account`, `RS256`).
+- `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS` — opt-in flag (off by default) that
+  enables the inbound HTTP Basic client-credentials path described above.
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL` — token endpoint used for that
+  exchange; defaults to Airbyte Cloud's `https://api.airbyte.com/v1/applications/token`.
 
-If no transport auth variables are set, the HTTP server starts
-**unauthenticated** and logs a warning — acceptable only behind a trusted
-network boundary. The verifier assembly is provided by
-[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions).
+This module owns those Airbyte-branded names, reads them itself, and maps them
+into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects it passes to the
+`build_mcp_auth` function from
+[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
+assembles the verifiers. The extensions library reads no environment variables
+of its own, keeping it provider-agnostic.
 
 ## Troubleshooting
 
