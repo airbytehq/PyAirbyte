@@ -3,10 +3,12 @@
 
 These cover what this server owns: mapping its branded `AIRBYTE_MCP_*` env vars
 into the typed `JWTAuthConfig` / `OIDCAuthConfig` objects it hands to
-`fastmcp_extensions.build_mcp_auth`, the Airbyte Cloud realm defaults,
-blank-as-unset handling, the signing-key precedence, and the durable-storage
-factory injection on the interactive path. The generic verifier assembly lives
-in `fastmcp-extensions` and is tested there.
+`fastmcp_extensions.build_mcp_auth`, activation of the headless and interactive
+paths from env, blank-as-unset handling, and the durable-storage factory
+injection on the interactive path. This server declares only env var names and
+maps their values — it embeds no provider-specific configuration values; those
+are supplied at deploy time by the deployment's own repo. The generic verifier
+assembly lives in `fastmcp-extensions` and is tested there.
 """
 
 from __future__ import annotations
@@ -99,74 +101,82 @@ def test_env_or_default(
     assert server._env_or_default("SOME_VAR", "fallback") == expected
 
 
-def test_resolve_signing_key_defaults_to_cloud_jwks(monkeypatch: MonkeyPatch) -> None:
-    """With neither var set, the headless verifier defaults to Airbyte Cloud's JWKS."""
-    monkeypatch.delenv(server.JWKS_URI_ENV, raising=False)
-    monkeypatch.delenv(server.JWT_PUBLIC_KEY_ENV, raising=False)
-    jwks_uri, public_key = server._resolve_signing_key()
-    assert jwks_uri == server.AIRBYTE_CLOUD_JWKS_URI
-    assert public_key == ""
-
-
-def test_resolve_signing_key_blank_values_fall_back_to_cloud(
-    monkeypatch: MonkeyPatch,
-) -> None:
-    """Blank/whitespace overrides are treated as unset and fall back to Cloud."""
-    monkeypatch.setenv(server.JWKS_URI_ENV, "   ")
-    monkeypatch.setenv(server.JWT_PUBLIC_KEY_ENV, "  ")
-    jwks_uri, public_key = server._resolve_signing_key()
-    assert jwks_uri == server.AIRBYTE_CLOUD_JWKS_URI
-    assert public_key == ""
-
-
-def test_resolve_signing_key_honors_explicit_jwks(monkeypatch: MonkeyPatch) -> None:
-    """An explicit self-hosted JWKS URI is used instead of the Cloud default."""
-    monkeypatch.setenv(server.JWKS_URI_ENV, "https://self-hosted/jwks")
-    monkeypatch.delenv(server.JWT_PUBLIC_KEY_ENV, raising=False)
-    jwks_uri, _public_key = server._resolve_signing_key()
-    assert jwks_uri == "https://self-hosted/jwks"
-
-
-def test_resolve_signing_key_static_key_not_shadowed_by_cloud_jwks(
-    monkeypatch: MonkeyPatch,
-) -> None:
-    """A static public key must not be shadowed by the injected Cloud JWKS default."""
-    monkeypatch.delenv(server.JWKS_URI_ENV, raising=False)
-    monkeypatch.setenv(server.JWT_PUBLIC_KEY_ENV, "-----BEGIN PUBLIC KEY-----")
-    jwks_uri, public_key = server._resolve_signing_key()
-    assert jwks_uri == ""
-    assert public_key == "-----BEGIN PUBLIC KEY-----"
-
-
-def test_create_auth_defaults_to_bearer_verification(monkeypatch: MonkeyPatch) -> None:
-    """With zero auth env, HTTP transport still verifies bearer tokens (no OIDC)."""
+def test_create_auth_no_env_yields_no_provider(monkeypatch: MonkeyPatch) -> None:
+    """With zero auth env, neither path is configured (no embedded defaults)."""
     _clear_all_auth_env(monkeypatch)
     captured = _capture_build_mcp_auth(monkeypatch)
     server._create_auth()
 
     assert captured["oidc"] is None
+    assert captured["jwt"] is None
+
+
+def test_create_auth_no_env_returns_none(monkeypatch: MonkeyPatch) -> None:
+    """The real `build_mcp_auth` yields no provider when nothing is configured."""
+    _clear_all_auth_env(monkeypatch)
+    assert server._create_auth() is None
+
+
+def test_create_auth_maps_jwt_env_when_jwks_set(monkeypatch: MonkeyPatch) -> None:
+    """A JWKS URI activates the headless verifier; issuer/audience/algorithm map through."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
+    monkeypatch.setenv(server.JWT_ISSUER_ENV, "https://idp.example/")
+    monkeypatch.setenv(server.JWT_AUDIENCE_ENV, "mcp-api")
+    monkeypatch.setenv(server.JWT_ALGORITHM_ENV, "RS256")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
     jwt = captured["jwt"]
     assert isinstance(jwt, JWTAuthConfig)
-    assert jwt.jwks_uri == server.AIRBYTE_CLOUD_JWKS_URI
-    assert jwt.issuer == server.AIRBYTE_CLOUD_ISSUER
-    assert jwt.audience == server.AIRBYTE_CLOUD_AUDIENCE
-    assert jwt.algorithm == server.AIRBYTE_CLOUD_ALGORITHM
+    assert jwt.jwks_uri == "https://idp.example/jwks"
+    assert jwt.public_key is None
+    assert jwt.issuer == "https://idp.example/"
+    assert jwt.audience == "mcp-api"
+    assert jwt.algorithm == "RS256"
 
 
-def test_create_auth_returns_a_verifier_by_default(monkeypatch: MonkeyPatch) -> None:
-    """The real `build_mcp_auth` yields a bearer-token verifier from the defaults."""
+def test_create_auth_activates_jwt_with_static_public_key(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """A static public key activates the verifier without a JWKS URI."""
     _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWT_PUBLIC_KEY_ENV, "-----BEGIN PUBLIC KEY-----")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+
+    jwt = captured["jwt"]
+    assert isinstance(jwt, JWTAuthConfig)
+    assert jwt.jwks_uri is None
+    assert jwt.public_key == "-----BEGIN PUBLIC KEY-----"
+
+
+def test_create_auth_returns_verifier_when_jwks_set(monkeypatch: MonkeyPatch) -> None:
+    """The real `build_mcp_auth` yields a bearer-token verifier when a JWKS URI is set."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "https://idp.example/jwks")
     auth = server._create_auth()
     assert isinstance(auth, JWTVerifier)
+
+
+def test_create_auth_blank_jwt_env_yields_no_verifier(monkeypatch: MonkeyPatch) -> None:
+    """Blank/whitespace signing-key vars are treated as unset (no verifier)."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.JWKS_URI_ENV, "   ")
+    monkeypatch.setenv(server.JWT_PUBLIC_KEY_ENV, "  ")
+    captured = _capture_build_mcp_auth(monkeypatch)
+    server._create_auth()
+    assert captured["jwt"] is None
 
 
 def test_create_auth_activates_oidc_when_credentials_present(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    """OIDC client id + secret activate the interactive path with Cloud defaults."""
+    """OIDC client id + secret + discovery URL activate the interactive path."""
     _clear_all_auth_env(monkeypatch)
     monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
     monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
     captured = _capture_build_mcp_auth(monkeypatch)
     server._create_auth()
 
@@ -174,9 +184,18 @@ def test_create_auth_activates_oidc_when_credentials_present(
     assert isinstance(oidc, OIDCAuthConfig)
     assert oidc.client_id == "cid"
     assert oidc.client_secret == "csecret"
-    assert oidc.config_url == server.AIRBYTE_CLOUD_OIDC_CONFIG_URL
+    assert oidc.config_url == "https://idp.example/.well-known"
     # No storage factory configured -> in-memory default.
     assert oidc.client_storage is None
+
+
+def test_create_auth_oidc_without_config_url_raises(monkeypatch: MonkeyPatch) -> None:
+    """OIDC credentials without a discovery URL fail clearly, naming the env var."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    with pytest.raises(ValueError, match=server.OIDC_CONFIG_URL_ENV):
+        server._create_auth()
 
 
 def test_create_auth_no_oidc_without_secret(monkeypatch: MonkeyPatch) -> None:
@@ -243,6 +262,7 @@ def test_create_auth_injects_resolved_storage_on_oidc(monkeypatch: MonkeyPatch) 
     _clear_all_auth_env(monkeypatch)
     monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
     monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
     monkeypatch.setenv(
         server.OIDC_CLIENT_STORAGE_FACTORY_ENV,
         f"{__name__}:_fake_store_factory",

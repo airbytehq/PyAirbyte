@@ -121,24 +121,27 @@ Safety features:
 
 logger = logging.getLogger(__name__)
 
-# This server's own transport-auth env vars. It owns these names and maps them
-# into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that `build_mcp_auth`
-# consumes; the extensions library reads no env itself. The auth vars below use
-# the branded `AIRBYTE_MCP_*` namespace as an added layer over generic OAuth
-# names; `MCP_SERVER_URL` (a deployment URL, not an auth var) stays unbranded.
+# This server's own transport-auth env vars. It owns these *names* and maps the
+# *values* into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that
+# `build_mcp_auth` consumes; the extensions library reads no env itself. The
+# auth vars use the branded `AIRBYTE_MCP_*` namespace as an added layer over
+# generic OAuth names; `MCP_SERVER_URL` (a deployment URL, not an auth var)
+# stays unbranded. Only names live here — the concrete values (e.g. a specific
+# realm's endpoints) are supplied at deploy time by the deployment's own repo,
+# keeping infrastructure configuration out of this generic library.
 
 # Public base URL of this deployment (also used for OIDC redirect callbacks);
 # `http_main` reuses it to derive the mounted MCP path.
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 
 # Interactive OIDC (`OIDCProxy`). Client id + secret gate the interactive path;
-# the discovery URL defaults to Airbyte Cloud when unset.
+# the discovery URL comes from the deployment.
 OIDC_CLIENT_ID_ENV = "AIRBYTE_MCP_OIDC_CLIENT_ID"
 OIDC_CLIENT_SECRET_ENV = "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
 OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 
-# Headless JWT verifier. Each defaults to the Airbyte Cloud realm below, so a
-# self-hosted deployment overrides only the field(s) pointing at its own realm.
+# Headless JWT verifier. A signing-key source (`JWKS_URI_ENV` or
+# `JWT_PUBLIC_KEY_ENV`) activates it; issuer/audience/algorithm refine it.
 JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_JWKS_URI"
 JWT_PUBLIC_KEY_ENV = "AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY"
 JWT_ISSUER_ENV = "AIRBYTE_MCP_AUTH_ISSUER"
@@ -149,20 +152,6 @@ JWT_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_ALGORITHM"
 # interactive `OIDCProxy`'s OAuth state. The concrete backend (and its infra
 # config) lives in the deployment's own package, keeping PyAirbyte generic.
 OIDC_CLIENT_STORAGE_FACTORY_ENV = "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
-
-# Airbyte Cloud's application-client realm (non-secret, publicly discoverable).
-# Tokens minted from an Airbyte Cloud `client_id`/`client_secret` via
-# `<api_root>/applications/token` are RS256 JWTs issued by this realm, and the
-# same token is a valid Airbyte Cloud API bearer — so verifying against this
-# realm by default lets one token both authenticate transport and authorize
-# downstream Cloud calls.
-AIRBYTE_CLOUD_OIDC_CONFIG_URL = (
-    "https://cloud.airbyte.com/auth/realms/airbyte/.well-known/openid-configuration"
-)
-AIRBYTE_CLOUD_ISSUER = "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
-AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_ISSUER}/protocol/openid-connect/certs"
-AIRBYTE_CLOUD_AUDIENCE = "account"
-AIRBYTE_CLOUD_ALGORITHM = "RS256"
 
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
@@ -188,27 +177,10 @@ def _env_or_default(name: str, default: str) -> str:
     """Return the stripped value of env var `name`, or `default` when blank/unset.
 
     Blank and whitespace-only values are treated as unset so an empty deployment
-    override falls back to the Airbyte Cloud realm default rather than an empty
-    string.
+    override falls back to `default` rather than an empty string.
     """
     value = os.getenv(name, "").strip()
     return value or default
-
-
-def _resolve_signing_key() -> tuple[str, str]:
-    """Resolve the headless JWT verifier's signing-key source.
-
-    Returns the `(jwks_uri, public_key)` pair. A deployment may set either env
-    var to point at its own realm; the Airbyte Cloud JWKS default applies only
-    when *neither* is set, so a self-hosted static public key isn't shadowed by
-    a leftover Cloud JWKS URI. Blank or whitespace-only values are treated as
-    unset, and an unset member is returned as the empty string.
-    """
-    jwks_uri = os.getenv(JWKS_URI_ENV, "").strip()
-    public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "").strip()
-    if not jwks_uri and not public_key:
-        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
-    return jwks_uri, public_key
 
 
 def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue | None:
@@ -243,36 +215,53 @@ def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue
 
 
 def _create_auth() -> AuthProvider | None:
-    """Assemble the transport auth provider, defaulting to Airbyte Cloud.
+    """Assemble the transport auth provider from this server's env configuration.
 
-    Reads this server's branded `AIRBYTE_MCP_*` env vars (falling back to
-    Airbyte Cloud's public realm defaults), maps them into the typed
-    `JWTAuthConfig` / `OIDCAuthConfig` objects that
-    `fastmcp_extensions.build_mcp_auth` consumes, and lets it wire up a headless
+    Reads this server's branded `AIRBYTE_MCP_*` env vars and maps them into the
+    typed `JWTAuthConfig` / `OIDCAuthConfig` objects that
+    `fastmcp_extensions.build_mcp_auth` consumes, which wires up a headless
     `JWTVerifier` and/or an interactive `OIDCProxy`, combined via `MultiAuth`.
-    Because a JWKS default is always present, HTTP transport always verifies
-    bearer tokens against Airbyte Cloud's application-client realm; the
-    interactive path additionally activates once the OIDC client credentials are
-    supplied. The `stdio` transport ignores the provider entirely.
+    The headless verifier activates once a signing-key source
+    (`AIRBYTE_MCP_AUTH_JWKS_URI` or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`) is
+    configured; the interactive path activates once the OIDC client credentials
+    are supplied. Returns `None` when neither is configured, so the server falls
+    back to unauthenticated local behavior. The `stdio` transport ignores the
+    provider entirely.
+
+    This server declares only the env var *names*; the concrete values (e.g. a
+    deployment's realm endpoints, issuer, audience, and discovery URL) are
+    supplied at deploy time by the deployment's own repo, keeping
+    infrastructure configuration out of this generic library.
     """
     base_url = _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
 
-    jwks_uri, public_key = _resolve_signing_key()
-    jwt = JWTAuthConfig(
-        jwks_uri=jwks_uri or None,
-        public_key=public_key or None,
-        issuer=_env_or_default(JWT_ISSUER_ENV, AIRBYTE_CLOUD_ISSUER),
-        audience=_env_or_default(JWT_AUDIENCE_ENV, AIRBYTE_CLOUD_AUDIENCE),
-        algorithm=_env_or_default(JWT_ALGORITHM_ENV, AIRBYTE_CLOUD_ALGORITHM),
-        base_url=base_url,
-    )
+    jwt: JWTAuthConfig | None = None
+    jwks_uri = os.getenv(JWKS_URI_ENV, "").strip()
+    public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "").strip()
+    if jwks_uri or public_key:
+        jwt = JWTAuthConfig(
+            jwks_uri=jwks_uri or None,
+            public_key=public_key or None,
+            issuer=os.getenv(JWT_ISSUER_ENV, "").strip() or None,
+            audience=os.getenv(JWT_AUDIENCE_ENV, "").strip() or None,
+            algorithm=os.getenv(JWT_ALGORITHM_ENV, "").strip() or None,
+            base_url=base_url,
+        )
 
     oidc: OIDCAuthConfig | None = None
     oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "").strip()
     oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "").strip()
     if oidc_client_id and oidc_client_secret:
+        config_url = os.getenv(OIDC_CONFIG_URL_ENV, "").strip()
+        if not config_url:
+            msg = (
+                f"{OIDC_CLIENT_ID_ENV} and {OIDC_CLIENT_SECRET_ENV} are set but "
+                f"{OIDC_CONFIG_URL_ENV} is not; the interactive OIDC path needs "
+                "an OpenID Connect discovery URL."
+            )
+            raise ValueError(msg)
         oidc = OIDCAuthConfig(
-            config_url=_env_or_default(OIDC_CONFIG_URL_ENV, AIRBYTE_CLOUD_OIDC_CONFIG_URL),
+            config_url=config_url,
             client_id=oidc_client_id,
             client_secret=oidc_client_secret,
             base_url=base_url,

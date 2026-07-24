@@ -5,9 +5,11 @@ Starts the MCP server with HTTP transport, suitable for hosted deployment
 behind a load balancer. Transport auth is assembled in `server.py`, which maps
 this server's branded `AIRBYTE_MCP_*` env vars into the typed configs consumed
 by `fastmcp_extensions.build_mcp_auth` (interactive OIDC and/or headless
-bearer-token verification, combined via `MultiAuth`). HTTP transport is
-**always authenticated**, defaulting to the Airbyte Cloud realm with zero auth
-config. See `server.py` for details.
+bearer-token verification, combined via `MultiAuth`). Auth activates only for
+the paths a deployment configures via env; with no auth env set the server
+falls back to unauthenticated local behavior. This module declares only the env
+var *names* — the concrete values are supplied at deploy time by the
+deployment's own repo. See `server.py` for details.
 
 Environment variables:
 
@@ -16,26 +18,23 @@ Environment variables:
   prefix, otherwise defaults to `/mcp`).
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
-credentials are set (the discovery URL defaults to Airbyte Cloud):
+credentials are set:
 
 - `AIRBYTE_MCP_OIDC_CLIENT_ID`: OIDC client identifier
 - `AIRBYTE_MCP_OIDC_CLIENT_SECRET`: OIDC client secret
-- `AIRBYTE_MCP_OIDC_CONFIG_URL`: OIDC discovery URL (defaults to Airbyte Cloud)
+- `AIRBYTE_MCP_OIDC_CONFIG_URL`: OIDC discovery URL (required when the client
+  credentials are set)
 - `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY`: optional `"package.module:callable"`
   naming a durable OAuth-state store factory (defaults to in-memory)
 
 Headless bearer-token verification (for agents/CI that mint their own
-short-lived token via the client credentials grant). The verifier defaults to
-Airbyte Cloud's application-client realm — its JWKS URI, issuer, audience, and
-algorithm — so a self-hosted deployment overrides only the field(s) pointing at
-its own realm. The static public key has no default; it's an alternative
-signing-key source, and the Cloud JWKS fallback applies only when neither the
-JWKS URI nor the public key is set:
+short-lived token via the client credentials grant). The verifier activates
+once a signing-key source — the JWKS URI or a static public key — is set;
+issuer, audience, and algorithm refine verification when provided:
 
 - `AIRBYTE_MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
-  (defaults to Airbyte Cloud's JWKS unless a static public key is set)
 - `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to the JWKS
-  URI; no default)
+  URI)
 - `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
 - `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
 - `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm override
