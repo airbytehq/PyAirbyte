@@ -45,7 +45,7 @@ import yaml
 from airbyte import exceptions as exc
 from airbyte._util import api_util, text_util
 from airbyte._util.api_util import get_web_url_root
-from airbyte.cloud import _credentials as _cred
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.client_config import CloudClientConfig
 from airbyte.cloud.connections import CloudConnection
 from airbyte.cloud.connectors import (
@@ -104,7 +104,7 @@ class CloudWorkspace:
     bearer_token: SecretString | None
 
     # Internal credentials objects (set in __init__, excluded from repr)
-    _credentials: _cred._AirbyteCredentials = field(init=False, repr=False)
+    _credentials: _AirbyteCredentials = field(init=False, repr=False)
     _client_config: CloudClientConfig = field(init=False, repr=False)
 
     def __init__(
@@ -119,7 +119,7 @@ class CloudWorkspace:
     ) -> None:
         """Validate and initialize credentials."""
         env_vars = not (client_id or client_secret or bearer_token)
-        credentials = _cred._AirbyteCredentials.from_auth(  # noqa: SLF001
+        credentials = _AirbyteCredentials.from_auth(
             workspace_id=workspace_id,
             client_id=client_id,
             client_secret=client_secret,

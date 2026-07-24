@@ -7,7 +7,7 @@ import logging
 from typing import Any
 
 from airbyte._util import api_util
-from airbyte.cloud import _credentials as _cred
+from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.secrets.base import SecretString
 
 
@@ -43,7 +43,7 @@ class CloudOrganization:
         self._email = email
         """Email associated with the organization."""
 
-        self._credentials = _cred._AirbyteCredentials(  # noqa: SLF001
+        self._credentials = _AirbyteCredentials(
             client_id=SecretString(client_id) if client_id else None,
             client_secret=SecretString(client_secret) if client_secret else None,
             bearer_token=SecretString(bearer_token) if bearer_token else None,
