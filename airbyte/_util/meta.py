@@ -16,7 +16,6 @@ from platform import python_implementation, python_version, system
 
 import requests
 
-from airbyte._util.mcp_mode import is_hosted_mcp_mode, set_hosted_mcp_mode  # noqa: F401
 from airbyte.version import get_version
 
 

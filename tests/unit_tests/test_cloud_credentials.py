@@ -69,12 +69,7 @@ def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
     [
         pytest.param(
             False,
-            (
-                "Provide `bearer_token`, or both `client_id` and `client_secret`, as "
-                "arguments or via the `AIRBYTE_CLOUD_BEARER_TOKEN`, "
-                "`AIRBYTE_CLOUD_CLIENT_ID`, and `AIRBYTE_CLOUD_CLIENT_SECRET` "
-                "environment variables."
-            ),
+            "Provide `bearer_token`, or both `client_id` and `client_secret`.",
             id="explicit_inputs",
         ),
         pytest.param(

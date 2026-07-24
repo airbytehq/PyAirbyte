@@ -86,7 +86,7 @@ class _AirbyteCredentials:
                 guidance="Provide both client ID and client secret, or use a bearer token.",
             )
         if not resolved_bearer_token and not resolved_client_id:
-            raise AirbyteNoCloudCredentialsError
+            raise AirbyteNoCloudCredentialsError(_env_vars=env_vars)
 
         return cls(
             client_id=SecretString(resolved_client_id) if resolved_client_id else None,

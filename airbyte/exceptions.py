@@ -237,14 +237,15 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
 class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
     """No Airbyte credentials found."""
 
-    allow_bearer: bool = True
+    _allow_bearer: bool = True
+    _env_vars: bool = True
 
     def __post_init__(self) -> None:
         """Set guidance for the current execution mode."""
         if self.guidance is not None:
             return
         if is_hosted_mcp_mode():
-            if self.allow_bearer:
+            if self._allow_bearer:
                 self.guidance = (
                     f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
                     f"or client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
@@ -255,19 +256,23 @@ class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
                     f"Provide client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
                     f"`{MCP_CLIENT_SECRET_HEADER}` headers."
                 )
-        elif self.allow_bearer:
+        elif self._allow_bearer and self._env_vars:
             self.guidance = (
                 f"Provide `bearer_token`, or both `client_id` and `client_secret`, as "
                 f"arguments or via the `{CLOUD_BEARER_TOKEN_ENV_VAR}`, "
                 f"`{CLOUD_CLIENT_ID_ENV_VAR}`, and `{CLOUD_CLIENT_SECRET_ENV_VAR}` "
                 "environment variables."
             )
-        else:
+        elif self._allow_bearer:
+            self.guidance = "Provide `bearer_token`, or both `client_id` and `client_secret`."
+        elif self._env_vars:
             self.guidance = (
                 f"Provide both `client_id` and `client_secret`, as arguments or via the "
                 f"`{CLOUD_CLIENT_ID_ENV_VAR}` and `{CLOUD_CLIENT_SECRET_ENV_VAR}` "
                 "environment variables."
             )
+        else:
+            self.guidance = "Provide both `client_id` and `client_secret`."
 
 
 @dataclass
@@ -279,7 +284,10 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
         if self.guidance is not None:
             return
         if is_hosted_mcp_mode():
-            self.guidance = f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header."
+            self.guidance = (
+                f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header, "
+                "or pass the `workspace_id` parameter."
+            )
         else:
             self.guidance = (
                 f"Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable, or pass "
