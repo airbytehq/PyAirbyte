@@ -111,6 +111,8 @@ def main() -> None:
             "(interactive) or `AIRBYTE_MCP_AUTH_JWKS_URI`/"
             "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
         )
+    else:
+        logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
 
     logger.info(
         "Starting Airbyte MCP HTTP server on %s:%d (mcp_path=%r)",

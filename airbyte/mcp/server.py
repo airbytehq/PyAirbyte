@@ -253,6 +253,17 @@ def _create_auth() -> AuthProvider | None:
     oidc: OIDCAuthConfig | None = None
     oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "").strip()
     oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "").strip()
+    if bool(oidc_client_id) != bool(oidc_client_secret):
+        present, missing = (
+            (OIDC_CLIENT_ID_ENV, OIDC_CLIENT_SECRET_ENV)
+            if oidc_client_id
+            else (OIDC_CLIENT_SECRET_ENV, OIDC_CLIENT_ID_ENV)
+        )
+        msg = (
+            f"{present} is set but {missing} is not; the interactive OIDC path "
+            "needs both client credentials. Set both, or neither."
+        )
+        raise ValueError(msg)
     if oidc_client_id and oidc_client_secret:
         config_url = os.getenv(OIDC_CONFIG_URL_ENV, "").strip()
         if not config_url:

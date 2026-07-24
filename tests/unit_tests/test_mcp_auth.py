@@ -198,13 +198,20 @@ def test_create_auth_oidc_without_config_url_raises(monkeypatch: MonkeyPatch) ->
         server._create_auth()
 
 
-def test_create_auth_no_oidc_without_secret(monkeypatch: MonkeyPatch) -> None:
-    """A client id alone (no secret) does not activate the interactive path."""
+def test_create_auth_partial_oidc_id_only_raises(monkeypatch: MonkeyPatch) -> None:
+    """A client id alone (no secret) fails closed rather than starting unauthenticated."""
     _clear_all_auth_env(monkeypatch)
     monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
-    captured = _capture_build_mcp_auth(monkeypatch)
-    server._create_auth()
-    assert captured["oidc"] is None
+    with pytest.raises(ValueError, match=server.OIDC_CLIENT_SECRET_ENV):
+        server._create_auth()
+
+
+def test_create_auth_partial_oidc_secret_only_raises(monkeypatch: MonkeyPatch) -> None:
+    """A client secret alone (no id) fails closed rather than starting unauthenticated."""
+    _clear_all_auth_env(monkeypatch)
+    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
+    with pytest.raises(ValueError, match=server.OIDC_CLIENT_ID_ENV):
+        server._create_auth()
 
 
 def test_resolve_client_storage_returns_none_when_unset(
