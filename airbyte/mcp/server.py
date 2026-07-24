@@ -111,8 +111,8 @@ Use this server for:
 
 Operational modes:
 - Cloud operations: Deploy and manage connectors on Airbyte Cloud (use auth
-  headers when connecting to a hosted MCP server, or
-  AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET, and
+  headers when connecting to a hosted MCP server, or AIRBYTE_CLOUD_CLIENT_ID +
+  AIRBYTE_CLOUD_CLIENT_SECRET (or AIRBYTE_CLOUD_BEARER_TOKEN) plus
   AIRBYTE_CLOUD_WORKSPACE_ID for local or stdio connections)
 - Local operations: Run connectors locally for data extraction (requires
   AIRBYTE_PROJECT_DIR for artifact storage)

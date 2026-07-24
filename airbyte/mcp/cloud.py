@@ -51,8 +51,9 @@ CLOUD_AUTH_TIP_TEXT = (
     "variables."
 )
 WORKSPACE_ID_TIP_TEXT = (
-    "Workspace ID. Hosted MCP connections use the auth header; local or stdio "
-    "connections use the `AIRBYTE_CLOUD_WORKSPACE_ID` environment variable."
+    "Workspace ID. Hosted MCP connections pass it via the `X-Airbyte-Workspace-Id` "
+    "header; local or stdio connections use the `AIRBYTE_CLOUD_WORKSPACE_ID` "
+    "environment variable."
 )
 
 
