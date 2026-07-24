@@ -25,12 +25,17 @@ credentials are set (the discovery URL defaults to Airbyte Cloud):
   naming a durable OAuth-state store factory (defaults to in-memory)
 
 Headless bearer-token verification (for agents/CI that mint their own
-short-lived token via the client credentials grant). Each var defaults to the
-Airbyte Cloud application-client realm, so a self-hosted deployment overrides
-only the field(s) pointing at its own realm:
+short-lived token via the client credentials grant). The verifier defaults to
+Airbyte Cloud's application-client realm — its JWKS URI, issuer, audience, and
+algorithm — so a self-hosted deployment overrides only the field(s) pointing at
+its own realm. The static public key has no default; it's an alternative
+signing-key source, and the Cloud JWKS fallback applies only when neither the
+JWKS URI nor the public key is set:
 
 - `AIRBYTE_MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
-- `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to the JWKS URI)
+  (defaults to Airbyte Cloud's JWKS unless a static public key is set)
+- `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to the JWKS
+  URI; no default)
 - `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
 - `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
 - `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm override

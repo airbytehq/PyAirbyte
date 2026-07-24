@@ -200,10 +200,12 @@ their MCP config:
 
 ### Server environment variables (HTTP mode)
 
-The auth vars use this server's branded `AIRBYTE_MCP_*` namespace, and each
-headless var defaults to the Airbyte Cloud realm, so a self-hosted deployment
-overrides only the field(s) pointing at its own realm. `MCP_SERVER_URL` is a
-deployment URL (not an auth var) and stays unbranded.
+The auth vars use this server's branded `AIRBYTE_MCP_*` namespace. The headless
+verifier defaults to Airbyte Cloud's realm — its JWKS URI, issuer, audience, and
+algorithm — so a self-hosted deployment overrides only the field(s) pointing at
+its own realm. The static public key has no default; the Cloud JWKS fallback
+applies only when neither the JWKS URI nor the public key is set. `MCP_SERVER_URL`
+is a deployment URL (not an auth var) and stays unbranded.
 
 - `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
   callbacks); defaults to `http://localhost:8080`.
