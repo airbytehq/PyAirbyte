@@ -17,11 +17,13 @@ from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
 # other test modules.
 _PRIOR_MCP_ENV_FILE = os.environ.pop("AIRBYTE_MCP_ENV_FILE", None)
 
-from airbyte.mcp import server  # noqa: E402
-
-
-if _PRIOR_MCP_ENV_FILE is not None:
-    os.environ["AIRBYTE_MCP_ENV_FILE"] = _PRIOR_MCP_ENV_FILE
+try:
+    from airbyte.mcp import server  # noqa: E402
+finally:
+    # Restore even if the import raises, so a partial collection failure doesn't
+    # leave `AIRBYTE_MCP_ENV_FILE` popped for the rest of the test session.
+    if _PRIOR_MCP_ENV_FILE is not None:
+        os.environ["AIRBYTE_MCP_ENV_FILE"] = _PRIOR_MCP_ENV_FILE
 
 
 def test_env_or_default_uses_default_when_unset(
