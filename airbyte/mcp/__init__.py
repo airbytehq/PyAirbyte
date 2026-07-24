@@ -151,15 +151,19 @@ server process locally, so there is no transport-layer auth and the only
 credentials that matter are your Airbyte Cloud creds in the dotenv file.
 
 When the server is instead exposed over **HTTP** (`airbyte-mcp-http` /
-`poe mcp-serve-http`), it verifies an `Authorization: Bearer <token>` on every
-request. Two client shapes are supported on the same deployment (combined
+`poe mcp-serve-http`), transport auth verifies an `Authorization: Bearer
+<token>` on every request once it is configured. Auth is driven entirely by the
+`AIRBYTE_MCP_*` env values a deployment sets — the hosted Airbyte Cloud MCP
+deployment supplies its realm's values, and a self-hosted deployment supplies
+its own. Two client shapes are supported on the same deployment (combined
 automatically when both are configured):
 
 ### Humans → interactive OIDC
 
-Set `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET`. Interactive
-clients open a browser (Keycloak Authorization Code + PKCE) and the resulting
-token is verified by the server. No bearer token to manage by hand.
+Set `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET`, and
+`AIRBYTE_MCP_OIDC_CONFIG_URL` (the OIDC discovery URL). Interactive clients open
+a browser (Keycloak Authorization Code + PKCE) and the resulting token is
+verified by the server. No bearer token to manage by hand.
 
 ### Machines / agents → headless bearer token
 
@@ -168,9 +172,10 @@ in a header. A headless agent **mints its own short-lived bearer token** and
 sends it as `Authorization: Bearer <token>`; the server verifies the signature
 (no browser, no stored/rotating refresh token).
 
-For Airbyte Cloud, set `MCP_AUTH_AIRBYTE_CLOUD=true` on the server so it verifies
-tokens against Airbyte Cloud's application-client realm without hand-configuring
-URLs. The agent mints an Airbyte Cloud access token from its
+The server verifies tokens against whatever realm the deployment configures via
+the `AIRBYTE_MCP_AUTH_*` env values below. Against the hosted Airbyte Cloud MCP
+(configured for Airbyte Cloud's application-client realm), the agent mints an
+Airbyte Cloud access token from its
 `AIRBYTE_CLOUD_CLIENT_ID` / `AIRBYTE_CLOUD_CLIENT_SECRET` (the
 `https://api.airbyte.com/v1/applications/token` endpoint) and sends it as the
 bearer. That single token both authenticates transport (verified by the server)
@@ -196,22 +201,34 @@ their MCP config:
 
 ### Server environment variables (HTTP mode)
 
+The auth vars use this server's branded `AIRBYTE_MCP_*` namespace. This server
+declares only the env var *names* and reads them; the concrete *values* (a
+realm's JWKS URI, issuer, audience, discovery URL, etc.) are supplied at deploy
+time by the deployment's own repo — none are baked in here. The headless
+verifier activates once a signing-key source (JWKS URI or static public key) is
+set; the interactive path activates once the OIDC client credentials are set.
+`MCP_SERVER_URL` is a deployment URL (not an auth var) and stays unbranded.
+
 - `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
   callbacks); defaults to `http://localhost:8080`.
-- `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` — enable interactive
-  OIDC (all three required).
-- `MCP_AUTH_AIRBYTE_CLOUD` — set truthy to verify headless tokens against Airbyte
-  Cloud's realm (fills JWKS URI / issuer / audience / algorithm with Airbyte
-  Cloud defaults; each stays overridable).
-- `MCP_AUTH_JWKS_URI` / `MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or static public key
-  for verifying headless tokens.
-- `MCP_AUTH_ISSUER` / `MCP_AUTH_AUDIENCE` / `MCP_AUTH_ALGORITHM` — expected `iss`
-  / `aud` claims and signing algorithm (recommended for headless).
+- `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — enable
+  interactive OIDC (both required).
+- `AIRBYTE_MCP_OIDC_CONFIG_URL` — OIDC discovery URL (required when the client
+  credentials are set).
+- `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY` — optional `"package.module:callable"`
+  naming a durable OAuth-state store factory for the interactive proxy (defaults
+  to in-memory).
+- `AIRBYTE_MCP_AUTH_JWKS_URI` / `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` — JWKS URL or
+  static public key for verifying headless tokens (one activates the verifier).
+- `AIRBYTE_MCP_AUTH_ISSUER` / `AIRBYTE_MCP_AUTH_AUDIENCE` /
+  `AIRBYTE_MCP_AUTH_ALGORITHM` — expected `iss` / `aud` claims and signing
+  algorithm.
 
-If no transport auth variables are set, the HTTP server starts
-**unauthenticated** and logs a warning — acceptable only behind a trusted
-network boundary. The verifier assembly is provided by
-[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions).
+With no auth variables set, the HTTP server falls back to unauthenticated local
+behavior. This server maps the `AIRBYTE_MCP_*` variables into the typed config
+objects consumed by
+[`fastmcp-extensions`](https://github.com/airbytehq/fastmcp-extensions), which
+assembles the verifier(s) and reads no environment variables itself.
 
 ## Troubleshooting
 
