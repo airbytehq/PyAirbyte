@@ -47,8 +47,10 @@ dependencies = [
     "uuid7>=0.1.0,<1.0",
     "fastmcp>=3.0,<4.0",
     # 0.14.0 drops the library's env-var auth mapping (`resolve_mcp_auth`) in
-    # favor of the pure typed `build_mcp_auth` API this server now consumes.
-    "fastmcp-extensions>=0.14.0,<1.0.0",
+    # favor of the pure typed `build_mcp_auth` API this server now consumes; 0.15.0
+    # adds the separate `Client-Id` / `Client-Secret` credential-header form to the
+    # client-credentials exchange middleware (`wrap_client_credentials`).
+    "fastmcp-extensions>=0.15.0,<1.0.0",
     # Transitive dep of `fastmcp` that we import directly (in `airbyte.mcp`).
     "starlette",
     "uv>=0.5.0,<0.9.0",

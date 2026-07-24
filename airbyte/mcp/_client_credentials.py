@@ -1,5 +1,5 @@
 # Copyright (c) 2025 Airbyte, Inc., all rights reserved.
-"""Opt-in HTTP Basic client-credentials transport auth for the MCP server.
+"""Opt-in client-credentials transport auth for the MCP server.
 
 The headless bearer path verifies an already-minted, short-lived (~15 min) JWT.
 That works for MCP clients that run the OAuth flow and refresh tokens
@@ -8,9 +8,11 @@ automatically, but not for a truly headless agent that can only set a *static*
 
 This module bridges that gap, behind an opt-in flag. When enabled, the server
 accepts the long-lived `client_id` / `client_secret` presented on the inbound MCP
-request via standard HTTP Basic auth
+request either via standard HTTP Basic auth
 (`Authorization: Basic base64(client_id:client_secret)`, the same credential
-encoding OAuth's `client_secret_basic` uses). The server then runs a
+encoding OAuth's `client_secret_basic` uses) or via separate flat `Client-Id` /
+`Client-Secret` request headers for clients that can't Base64-encode the pair.
+The server then runs a
 client-credentials exchange against the Airbyte token endpoint to obtain a
 short-lived access token and rewrites the request to `Authorization: Bearer
 <token>` so the existing `JWTVerifier` validates it unchanged. The agent thus
@@ -51,7 +53,7 @@ _TRUTHY = frozenset({"1", "true", "t", "yes", "y", "on"})
 
 
 def client_credentials_enabled(env: Mapping[str, str] | None = None) -> bool:
-    """Return whether the opt-in HTTP Basic client-credentials grant is enabled."""
+    """Return whether the opt-in client-credentials grant is enabled."""
     source = env if env is not None else os.environ
     return source.get(ALLOW_CLIENT_CREDENTIALS_ENV, "").strip().lower() in _TRUTHY
 
@@ -72,7 +74,7 @@ def wrap_if_enabled(app: ASGIApp) -> ASGIApp:
     Returns `app` unchanged when the opt-in flag is unset, so the standard
     bearer/OIDC transport auth is the only path. When enabled, wraps `app` as the
     outermost ASGI layer (via `fastmcp_extensions.wrap_client_credentials`) so the
-    Basic-to-Bearer rewrite happens before FastMCP's auth verifier runs.
+    credentials-to-Bearer rewrite happens before FastMCP's auth verifier runs.
     """
     return wrap_client_credentials(
         app,
