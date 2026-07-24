@@ -157,11 +157,11 @@ class CatalogProvider:
         ]
 
         for pk_nodes in normalized_pks:
-            if len(pk_nodes) != 1:
+            if any("." in node for node in pk_nodes):
                 raise exc.AirbyteError(
                     message=(
                         "Nested primary keys are not supported. "
-                        "Each PK column should have exactly one node. "
+                        "Primary key columns should reference top-level fields only. "
                     ),
                     context={
                         "stream_name": stream_name,
