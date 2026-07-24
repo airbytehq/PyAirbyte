@@ -148,7 +148,7 @@ OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 # issue an identity-only token that downstream APIs reject. Defaults to the
 # standard OIDC set; a deployment can override for a realm needing other scopes.
 OIDC_SCOPES_ENV = "AIRBYTE_MCP_OIDC_SCOPES"
-DEFAULT_OIDC_SCOPES = "openid email profile"
+AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES = "openid email profile"
 
 # Headless JWT verifier. A signing-key source (`JWKS_URI_ENV` or
 # `JWT_PUBLIC_KEY_ENV`) activates it; issuer/audience/algorithm refine it.
@@ -197,12 +197,12 @@ def _resolve_oidc_scopes() -> list[str]:
     """Return the interactive OIDC scopes, always including `openid` first.
 
     Reads the space-separated `AIRBYTE_MCP_OIDC_SCOPES` override (defaulting to
-    `DEFAULT_OIDC_SCOPES`) and guarantees `openid` is present: without it the IdP
-    may issue an identity-only token that downstream APIs reject, so an override
-    that omits it would silently recreate that failure. Custom scopes are
-    preserved in order, deduplicated, with `openid` guaranteed at the front.
+    `AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES`) and guarantees `openid` is present:
+    without it the IdP may issue an identity-only token that downstream APIs
+    reject, so an override that omits it would silently recreate that failure.
+    Custom scopes are preserved in order, deduplicated, with `openid` first.
     """
-    configured = _env_or_default(OIDC_SCOPES_ENV, DEFAULT_OIDC_SCOPES).split()
+    configured = _env_or_default(OIDC_SCOPES_ENV, AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES).split()
     scopes = ["openid"]
     for scope in configured:
         if scope not in scopes:
