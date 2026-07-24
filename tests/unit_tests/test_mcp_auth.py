@@ -185,6 +185,9 @@ def test_create_auth_activates_oidc_when_credentials_present(
     assert oidc.client_id == "cid"
     assert oidc.client_secret == "csecret"
     assert oidc.config_url == "https://idp.example/.well-known"
+    # `openid` must be requested upstream, else the IdP may issue an
+    # identity-only token that downstream APIs reject.
+    assert oidc.required_scopes == ["openid", "email", "profile"]
     # No storage factory configured -> in-memory default.
     assert oidc.client_storage is None
 

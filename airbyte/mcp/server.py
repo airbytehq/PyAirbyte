@@ -144,6 +144,12 @@ OIDC_CLIENT_ID_ENV = "AIRBYTE_MCP_OIDC_CLIENT_ID"
 OIDC_CLIENT_SECRET_ENV = "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
 OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 
+# Upstream authorize scopes requested for the interactive OIDC flow, also
+# advertised to clients via DCR/`.well-known` and enforced on the verified
+# upstream token. `openid` is required for OIDC: without it the IdP may issue an
+# identity-only token that downstream APIs reject.
+AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES: str = "openid email profile"
+
 # Headless JWT verifier. A signing-key source (`JWKS_URI_ENV` or
 # `JWT_PUBLIC_KEY_ENV`) activates it; issuer/audience/algorithm refine it.
 JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_JWKS_URI"
@@ -280,6 +286,7 @@ def _create_auth() -> AuthProvider | None:
             client_id=oidc_client_id,
             client_secret=oidc_client_secret,
             base_url=base_url,
+            required_scopes=AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES.split(),
             client_storage=_resolve_client_storage(encryption_source_material=oidc_client_secret),
         )
 
