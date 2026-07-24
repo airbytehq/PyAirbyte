@@ -31,7 +31,6 @@ _ALL_AUTH_ENV = (
     server.OIDC_CLIENT_ID_ENV,
     server.OIDC_CLIENT_SECRET_ENV,
     server.OIDC_CONFIG_URL_ENV,
-    server.OIDC_SCOPES_ENV,
     server.OIDC_CLIENT_STORAGE_FACTORY_ENV,
     server.JWKS_URI_ENV,
     server.JWT_PUBLIC_KEY_ENV,
@@ -191,38 +190,6 @@ def test_create_auth_activates_oidc_when_credentials_present(
     assert oidc.required_scopes == ["openid", "email", "profile"]
     # No storage factory configured -> in-memory default.
     assert oidc.client_storage is None
-
-
-def test_create_auth_honors_oidc_scopes_override(monkeypatch: MonkeyPatch) -> None:
-    """A realm needing different scopes can override the default via env."""
-    _clear_all_auth_env(monkeypatch)
-    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
-    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
-    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
-    monkeypatch.setenv(server.OIDC_SCOPES_ENV, "openid custom-api")
-    captured = _capture_build_mcp_auth(monkeypatch)
-    server._create_auth()
-
-    oidc = captured["oidc"]
-    assert isinstance(oidc, OIDCAuthConfig)
-    assert oidc.required_scopes == ["openid", "custom-api"]
-
-
-def test_create_auth_forces_openid_when_override_omits_it(
-    monkeypatch: MonkeyPatch,
-) -> None:
-    """An override missing `openid` still gets it, so the token stays API-usable."""
-    _clear_all_auth_env(monkeypatch)
-    monkeypatch.setenv(server.OIDC_CLIENT_ID_ENV, "cid")
-    monkeypatch.setenv(server.OIDC_CLIENT_SECRET_ENV, "csecret")
-    monkeypatch.setenv(server.OIDC_CONFIG_URL_ENV, "https://idp.example/.well-known")
-    monkeypatch.setenv(server.OIDC_SCOPES_ENV, "custom-api")
-    captured = _capture_build_mcp_auth(monkeypatch)
-    server._create_auth()
-
-    oidc = captured["oidc"]
-    assert isinstance(oidc, OIDCAuthConfig)
-    assert oidc.required_scopes == ["openid", "custom-api"]
 
 
 def test_create_auth_oidc_without_config_url_raises(monkeypatch: MonkeyPatch) -> None:

@@ -142,13 +142,11 @@ OIDC_CLIENT_ID_ENV = "AIRBYTE_MCP_OIDC_CLIENT_ID"
 OIDC_CLIENT_SECRET_ENV = "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
 OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 
-# Space-separated upstream authorize scopes requested for the interactive OIDC
-# flow, also advertised to clients via DCR/`.well-known` and enforced on the
-# verified upstream token. `openid` is required for OIDC: without it the IdP may
-# issue an identity-only token that downstream APIs reject. Defaults to the
-# standard OIDC set; a deployment can override for a realm needing other scopes.
-OIDC_SCOPES_ENV = "AIRBYTE_MCP_OIDC_SCOPES"
-AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES = "openid email profile"
+# Upstream authorize scopes requested for the interactive OIDC flow, also
+# advertised to clients via DCR/`.well-known` and enforced on the verified
+# upstream token. `openid` is required for OIDC: without it the IdP may issue an
+# identity-only token that downstream APIs reject.
+AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES: str = "openid email profile"
 
 # Headless JWT verifier. A signing-key source (`JWKS_URI_ENV` or
 # `JWT_PUBLIC_KEY_ENV`) activates it; issuer/audience/algorithm refine it.
@@ -191,23 +189,6 @@ def _env_or_default(name: str, default: str) -> str:
     """
     value = os.getenv(name, "").strip()
     return value or default
-
-
-def _resolve_oidc_scopes() -> list[str]:
-    """Return the interactive OIDC scopes, always including `openid` first.
-
-    Reads the space-separated `AIRBYTE_MCP_OIDC_SCOPES` override (defaulting to
-    `AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES`) and guarantees `openid` is present:
-    without it the IdP may issue an identity-only token that downstream APIs
-    reject, so an override that omits it would silently recreate that failure.
-    Custom scopes are preserved in order, deduplicated, with `openid` first.
-    """
-    configured = _env_or_default(OIDC_SCOPES_ENV, AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES).split()
-    scopes = ["openid"]
-    for scope in configured:
-        if scope not in scopes:
-            scopes.append(scope)
-    return scopes
 
 
 def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue | None:
@@ -303,7 +284,7 @@ def _create_auth() -> AuthProvider | None:
             client_id=oidc_client_id,
             client_secret=oidc_client_secret,
             base_url=base_url,
-            required_scopes=_resolve_oidc_scopes(),
+            required_scopes=AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES.split(),
             client_storage=_resolve_client_storage(encryption_source_material=oidc_client_secret),
         )
 
