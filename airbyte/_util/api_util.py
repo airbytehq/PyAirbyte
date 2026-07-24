@@ -285,6 +285,34 @@ def get_workspace(
     )
 
 
+def get_workspace_via_config_api(
+    workspace_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> dict[str, Any]:
+    """Get a workspace via the Config API endpoint `POST /v1/workspaces/get`.
+
+    Unlike `get_workspace`, this uses the internal Config API rather than the public API.
+    The Config API accepts user-realm bearer tokens (from an interactive OIDC login),
+    which the public API rejects because it only accepts application-client tokens.
+
+    Returns the raw `WorkspaceRead` response as a dictionary.
+    """
+    return _make_config_api_request(
+        path="/workspaces/get",
+        json={"workspaceId": workspace_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
 def create_workspace(
     *,
     name: str,
@@ -795,6 +823,38 @@ def get_connection(
             "request_url": response.raw_response.url,
             "status_code": response.status_code,
         },
+    )
+
+
+def get_connection_via_config_api(
+    connection_id: str,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+    config_api_root: str | None = None,
+) -> dict[str, Any]:
+    """Get a connection via the Config API endpoint `POST /v1/web_backend/connections/get`.
+
+    Unlike `get_connection`, this uses the internal Config API rather than the public API.
+    The Config API accepts user-realm bearer tokens (from an interactive OIDC login),
+    which the public API rejects because it only accepts application-client tokens.
+
+    The `WebBackendConnectionRead` response embeds the full `source` and `destination`
+    objects (including their names), so callers can resolve connector names without
+    issuing separate public API lookups.
+
+    Returns the raw `WebBackendConnectionRead` response as a dictionary.
+    """
+    return _make_config_api_request(
+        path="/web_backend/connections/get",
+        json={"connectionId": connection_id, "withRefreshedCatalog": False},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
     )
 
 

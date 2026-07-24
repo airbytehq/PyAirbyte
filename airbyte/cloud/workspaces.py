@@ -213,6 +213,45 @@ class CloudWorkspace:
         """The web URL of the workspace."""
         return f"{get_web_url_root(self.api_root)}/workspaces/{self.workspace_id}"
 
+    @property
+    def _uses_bearer_only_auth(self) -> bool:
+        """Whether this workspace authenticates with a bearer token and no client credentials.
+
+        An interactive OIDC login produces a user-realm bearer token with no client
+        credentials. The public API rejects such tokens (it only accepts application-client
+        tokens), while the Config API accepts them, so metadata reads must route through the
+        Config API in this case.
+        """
+        return (
+            self.bearer_token is not None and self.client_id is None and self.client_secret is None
+        )
+
+    def get_workspace_info(self) -> CloudWorkspaceInfo:
+        """Get metadata about this workspace.
+
+        Routes bearer-only (interactive OIDC) reads through the Config API and all other
+        reads through the public API.
+        """
+        if self._uses_bearer_only_auth:
+            raw = api_util.get_workspace_via_config_api(
+                workspace_id=self.workspace_id,
+                api_root=self.api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                config_api_root=self.config_api_root,
+            )
+            return CloudWorkspaceInfo.from_mapping(raw)
+
+        response = api_util.get_workspace(
+            workspace_id=self.workspace_id,
+            api_root=self.api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+        return CloudWorkspaceInfo.from_api_response(response)
+
     @cached_property
     def _organization_info(self) -> dict[str, Any]:
         """Fetch and cache organization info for this workspace.

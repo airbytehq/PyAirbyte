@@ -18,7 +18,6 @@ from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
 from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
-from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
 from airbyte.cloud.connectors import CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
@@ -567,14 +566,9 @@ def check_airbyte_cloud_workspace(
     """
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
 
-    # Get workspace details from the public API using workspace's credentials
-    workspace_response = api_util.get_workspace(
-        workspace_id=workspace.workspace_id,
-        api_root=workspace.api_root,
-        client_id=workspace.client_id,
-        client_secret=workspace.client_secret,
-        bearer_token=workspace.bearer_token,
-    )
+    # Get workspace details. Reads are routed through the Config API for bearer-only
+    # (interactive OIDC) credentials, which the public API rejects.
+    workspace_response = workspace.get_workspace_info()
 
     # Try to get organization info (including billing), but fail gracefully if we don't have
     # permissions. Fetching organization info requires ORGANIZATION_READER permissions on the
@@ -1006,9 +1000,9 @@ def describe_cloud_connection(
         connection_name=cast(str, connection.name),
         connection_url=cast(str, connection.connection_url),
         source_id=connection.source_id,
-        source_name=cast(str, connection.source.name),
+        source_name=cast(str, connection.source_name),
         destination_id=connection.destination_id,
-        destination_name=cast(str, connection.destination.name),
+        destination_name=cast(str, connection.destination_name),
         selected_streams=connection.stream_names,
         table_prefix=connection.table_prefix,
     )

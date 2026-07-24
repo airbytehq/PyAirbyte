@@ -133,14 +133,27 @@ class CloudConnectionInfo(BaseModel):
     name: str
     """The connection name."""
 
-    configurations: Any
-    """Stream configuration details for the connection."""
+    configurations: Any = None
+    """Stream configuration details for the connection.
+
+    Populated from the public API response. `None` when the connection was read via
+    the Config API, in which case `stream_names` carries the selected stream names.
+    """
 
     prefix: str | None = None
     """The destination table prefix."""
 
     status: str
     """The connection status."""
+
+    source_name: str | None = None
+    """The source display name, when embedded in the response (Config API only)."""
+
+    destination_name: str | None = None
+    """The destination display name, when embedded in the response (Config API only)."""
+
+    stream_names: list[str] | None = None
+    """Selected stream names, when the response embeds the sync catalog (Config API only)."""
 
     @classmethod
     def from_api_response(cls, connection: _ConnectionResponseLike) -> CloudConnectionInfo:
@@ -154,6 +167,48 @@ class CloudConnectionInfo(BaseModel):
             configurations=connection.configurations,
             prefix=connection.prefix,
             status=_enum_value(connection.status),
+        )
+
+    @classmethod
+    def from_config_api_response(
+        cls,
+        connection: Mapping[str, Any],
+        *,
+        fallback_workspace_id: str | None = None,
+    ) -> CloudConnectionInfo:
+        """Create a public model from a Config API `WebBackendConnectionRead` response.
+
+        The Config API response embeds the full `source` and `destination` objects and
+        the `syncCatalog`, so connector names and selected streams are resolved from this
+        single response rather than via separate public API lookups.
+        """
+        source: Mapping[str, Any] = connection.get("source") or {}
+        destination: Mapping[str, Any] = connection.get("destination") or {}
+        sync_catalog: Mapping[str, Any] = connection.get("syncCatalog") or {}
+        stream_entries: list[Mapping[str, Any]] = sync_catalog.get("streams") or []
+        stream_names = [
+            entry["stream"]["name"]
+            for entry in stream_entries
+            if isinstance(entry.get("stream"), Mapping) and entry["stream"].get("name")
+        ]
+        workspace_id = (
+            source.get("workspaceId")
+            or destination.get("workspaceId")
+            or fallback_workspace_id
+            or ""
+        )
+        return cls(
+            connection_id=connection["connectionId"],
+            workspace_id=workspace_id,
+            source_id=connection["sourceId"],
+            destination_id=connection["destinationId"],
+            name=connection["name"],
+            configurations=None,
+            prefix=connection.get("prefix"),
+            status=_enum_value(connection["status"]),
+            source_name=source.get("name"),
+            destination_name=destination.get("name"),
+            stream_names=stream_names,
         )
 
 

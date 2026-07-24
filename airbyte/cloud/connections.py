@@ -111,16 +111,32 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                 self._verify_workspace_match(self._connection_info)
             return self._connection_info
 
-        # Fetch from API
-        connection_info = api_util.get_connection(
-            workspace_id=self.workspace.workspace_id,
-            connection_id=self.connection_id,
-            api_root=self.workspace.api_root,
-            client_id=self.workspace.client_id,
-            client_secret=self.workspace.client_secret,
-            bearer_token=self.workspace.bearer_token,
-        )
-        result = CloudConnectionInfo.from_api_response(connection_info)
+        # Fetch from API. A bearer-only (interactive OIDC) token is rejected by the
+        # public API, so route those reads through the Config API, which also embeds
+        # the source/destination objects and sync catalog in a single response.
+        if self.workspace._uses_bearer_only_auth:  # noqa: SLF001 # Internal auth check
+            raw = api_util.get_connection_via_config_api(
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+                config_api_root=self.workspace.config_api_root,
+            )
+            result = CloudConnectionInfo.from_config_api_response(
+                raw,
+                fallback_workspace_id=self.workspace.workspace_id,
+            )
+        else:
+            connection_info = api_util.get_connection(
+                workspace_id=self.workspace.workspace_id,
+                connection_id=self.connection_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            result = CloudConnectionInfo.from_api_response(connection_info)
 
         self._connection_info = result
 
@@ -243,12 +259,48 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return self._cloud_destination_object
 
     @property
+    def source_name(self) -> str | None:
+        """The display name of the source, if available.
+
+        Prefers a name embedded in the connection info (Config API reads). Falls back to
+        a separate source lookup for public API reads that do not embed the name.
+        """
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        if self._connection_info.source_name is not None:
+            return self._connection_info.source_name
+
+        return self.source.name
+
+    @property
+    def destination_name(self) -> str | None:
+        """The display name of the destination, if available.
+
+        Prefers a name embedded in the connection info (Config API reads). Falls back to
+        a separate destination lookup for public API reads that do not embed the name.
+        """
+        if not self._connection_info:
+            self._connection_info = self._fetch_connection_info()
+
+        if self._connection_info.destination_name is not None:
+            return self._connection_info.destination_name
+
+        return self.destination.name
+
+    @property
     def stream_names(self) -> list[str]:
         """The stream names."""
         if not self._connection_info:
             self._connection_info = self._fetch_connection_info()
 
-        return [stream.name for stream in self._connection_info.configurations.streams or []]
+        if self._connection_info.stream_names is not None:
+            return self._connection_info.stream_names
+
+        configurations = self._connection_info.configurations
+        if configurations is None:
+            return []
+        return [stream.name for stream in configurations.streams or []]
 
     @property
     def table_prefix(self) -> str:
