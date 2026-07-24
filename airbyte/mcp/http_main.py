@@ -2,10 +2,12 @@
 """HTTP transport entry point for the Airbyte MCP server.
 
 Starts the MCP server with HTTP transport, suitable for hosted deployment
-behind a load balancer. Transport auth is assembled in `server.py` via
-`fastmcp_extensions.resolve_mcp_auth`, which supports interactive OIDC and
-headless bearer-token verification (combined via `MultiAuth` when both are
-configured). See `server.py` for details.
+behind a load balancer. Transport auth is assembled in `server.py`, which maps
+this server's branded `AIRBYTE_MCP_*` env vars into the typed configs consumed
+by `fastmcp_extensions.build_mcp_auth` (interactive OIDC and/or headless
+bearer-token verification, combined via `MultiAuth`). HTTP transport is
+**always authenticated**, defaulting to the Airbyte Cloud realm with zero auth
+config. See `server.py` for details.
 
 Environment variables:
 
@@ -13,22 +15,25 @@ Environment variables:
   derive the MCP endpoint mount path (serves at `/` when the URL has a path
   prefix, otherwise defaults to `/mcp`).
 
-Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when all three
-are set:
+Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
+credentials are set (the discovery URL defaults to Airbyte Cloud):
 
-- `OIDC_CONFIG_URL`: Keycloak OIDC discovery URL
-- `OIDC_CLIENT_ID`: OIDC client identifier
-- `OIDC_CLIENT_SECRET`: OIDC client secret
+- `AIRBYTE_MCP_OIDC_CLIENT_ID`: OIDC client identifier
+- `AIRBYTE_MCP_OIDC_CLIENT_SECRET`: OIDC client secret
+- `AIRBYTE_MCP_OIDC_CONFIG_URL`: OIDC discovery URL (defaults to Airbyte Cloud)
+- `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY`: optional `"package.module:callable"`
+  naming a durable OAuth-state store factory (defaults to in-memory)
 
 Headless bearer-token verification (for agents/CI that mint their own
-short-lived token via the client credentials grant), enabled when
-`MCP_AUTH_JWKS_URI` or `MCP_AUTH_JWT_PUBLIC_KEY` is set:
+short-lived token via the client credentials grant). Each var defaults to the
+Airbyte Cloud application-client realm, so a self-hosted deployment overrides
+only the field(s) pointing at its own realm:
 
-- `MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
-- `MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to `MCP_AUTH_JWKS_URI`)
-- `MCP_AUTH_ISSUER`: expected token issuer
-- `MCP_AUTH_AUDIENCE`: expected token audience
-- `MCP_AUTH_ALGORITHM`: signing algorithm override
+- `AIRBYTE_MCP_AUTH_JWKS_URI`: JWKS endpoint used to verify token signatures
+- `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY`: static public key (alternative to the JWKS URI)
+- `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
+- `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
+- `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm override
 """
 
 from __future__ import annotations
@@ -89,15 +94,6 @@ def main() -> None:
         endpoint_url=endpoint_url,
         docs_url=MCP_LANDING_DOCS_URL,
     )
-
-    if getattr(app, "auth", None) is None:
-        logger.warning(
-            "HTTP transport starting without authentication: no interactive "
-            "OIDC or headless bearer-token auth is configured, so every "
-            "request is unauthenticated. Set `OIDC_CONFIG_URL`/`OIDC_CLIENT_ID`/"
-            "`OIDC_CLIENT_SECRET` (interactive) or `MCP_AUTH_JWKS_URI`/"
-            "`MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
-        )
 
     logger.info(
         "Starting Airbyte MCP HTTP server on %s:%d (mcp_path=%r)",

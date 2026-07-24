@@ -3,24 +3,33 @@
 
 Supports two transport modes:
 
-- **stdio** (default): For local MCP clients (Claude Desktop, etc.)
+- **stdio** (default): For local MCP clients (Claude Desktop, etc.). Auth is not
+  enforced; the provider assembled below is ignored by the stdio transport.
 - **HTTP**: For hosted deployment. Start via `airbyte-mcp-http` entry point or
-  `poe mcp-serve-http`. Transport auth is assembled by
-  `fastmcp_extensions.resolve_mcp_auth`, which supports two client shapes on the
-  same deployment:
+  `poe mcp-serve-http`. HTTP transport is **always authenticated**, defaulting
+  to Airbyte Cloud with zero auth config. This server maps its own branded
+  `AIRBYTE_MCP_*` env vars into the typed configs that
+  `fastmcp_extensions.build_mcp_auth` consumes, which supports two client shapes
+  on the same deployment:
     - **Interactive** (humans in a browser): Keycloak Authorization Code + PKCE
-      via `OIDCProxy`, enabled when `OIDC_CONFIG_URL`, `OIDC_CLIENT_ID`, and
-      `OIDC_CLIENT_SECRET` are all set.
+      via `OIDCProxy`, active once `AIRBYTE_MCP_OIDC_CLIENT_ID` and
+      `AIRBYTE_MCP_OIDC_CLIENT_SECRET` are supplied (the OIDC discovery URL
+      defaults to Airbyte Cloud).
     - **Headless** (agents, CI): the client mints its own short-lived bearer
       token via the OAuth 2.0 client credentials grant and sends it as
       `Authorization: Bearer <token>`. The server verifies it with a
-      `JWTVerifier` (no browser, no stored/rotating refresh token), enabled
-      when `MCP_AUTH_JWKS_URI` (or `MCP_AUTH_JWT_PUBLIC_KEY`) is set.
-  When both are configured they are combined via `MultiAuth`.
+      `JWTVerifier` against Airbyte Cloud's application-client realm by default
+      (no browser, no stored/rotating refresh token).
+  When both are active they are combined via `MultiAuth`.
 
-For Airbyte Cloud, set `MCP_AUTH_AIRBYTE_CLOUD=true` to verify against Airbyte
-Cloud's application-client realm without hand-configuring URLs. An agent then
-mints an Airbyte Cloud access token from its `AIRBYTE_CLOUD_CLIENT_ID` /
+This module owns the Airbyte Cloud realm defaults (non-secret, publicly
+discoverable) and maps its branded `AIRBYTE_MCP_OIDC_*` / `AIRBYTE_MCP_AUTH_*`
+env vars into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that
+`build_mcp_auth` consumes, so the extensions library stays provider-neutral and
+reads no env itself. A self-hosted deployment pointing at its own Airbyte
+instance overrides any default via the matching env var.
+
+An agent mints an Airbyte Cloud access token from its `AIRBYTE_CLOUD_CLIENT_ID` /
 `AIRBYTE_CLOUD_CLIENT_SECRET` (the `<api_root>/applications/token` endpoint) and
 sends it as `Authorization: Bearer`. That single token both authenticates
 transport (verified here) and authorizes downstream Cloud API calls (the same
@@ -33,19 +42,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import pkgutil
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from fastmcp_extensions import (
     JWTAuthConfig,
+    OIDCAuthConfig,
+    build_mcp_auth,
     mcp_server,
-    resolve_mcp_auth,
 )
 from starlette.responses import JSONResponse
 
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
+    from key_value.aio.protocols.key_value import AsyncKeyValue
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
@@ -109,52 +121,151 @@ Safety features:
 
 logger = logging.getLogger(__name__)
 
-# Public base URL of this deployment; consumed by `http_main` to derive the
-# mounted MCP path. All other transport auth env vars (`OIDC_*` interactive,
-# `MCP_AUTH_*` headless) are read by `fastmcp_extensions.resolve_mcp_auth`.
+# This server's own (branded) transport-auth env vars. It owns these names and
+# maps them into the typed `OIDCAuthConfig` / `JWTAuthConfig` objects that
+# `build_mcp_auth` consumes; the extensions library reads no env itself. The
+# branded `AIRBYTE_MCP_*` namespace is an added layer over generic OAuth names.
+
+# Public base URL of this deployment (also used for OIDC redirect callbacks);
+# `http_main` reuses it to derive the mounted MCP path.
 MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 
-# Flag that opts headless verification into Airbyte Cloud's application-client
-# realm; this server owns only this provider literal.
-MCP_AUTH_AIRBYTE_CLOUD_ENV = "MCP_AUTH_AIRBYTE_CLOUD"
+# Interactive OIDC (`OIDCProxy`). Client id + secret gate the interactive path;
+# the discovery URL defaults to Airbyte Cloud when unset.
+OIDC_CLIENT_ID_ENV = "AIRBYTE_MCP_OIDC_CLIENT_ID"
+OIDC_CLIENT_SECRET_ENV = "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
+OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
 
-# Airbyte Cloud's application-client realm. Tokens minted from an Airbyte Cloud
-# `client_id`/`client_secret` via `<api_root>/applications/token` are RS256 JWTs
-# issued by this realm, and the same token is a valid Airbyte Cloud API bearer.
-# Verifying against this realm lets one token both authenticate transport and
-# authorize downstream Cloud calls. Enable with `MCP_AUTH_AIRBYTE_CLOUD=true`.
-AIRBYTE_CLOUD_REALM_ISSUER = "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
-AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_REALM_ISSUER}/protocol/openid-connect/certs"
-AIRBYTE_CLOUD_JWT_AUDIENCE = "account"
-AIRBYTE_CLOUD_JWT_ALGORITHM = "RS256"
+# Headless JWT verifier. Each defaults to the Airbyte Cloud realm below, so a
+# self-hosted deployment overrides only the field(s) pointing at its own realm.
+JWKS_URI_ENV = "AIRBYTE_MCP_AUTH_JWKS_URI"
+JWT_PUBLIC_KEY_ENV = "AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY"
+JWT_ISSUER_ENV = "AIRBYTE_MCP_AUTH_ISSUER"
+JWT_AUDIENCE_ENV = "AIRBYTE_MCP_AUTH_AUDIENCE"
+JWT_ALGORITHM_ENV = "AIRBYTE_MCP_AUTH_ALGORITHM"
+
+# Names a durable-storage factory (`"package.module:callable"`) for the
+# interactive `OIDCProxy`'s OAuth state. The concrete backend (and its infra
+# config) lives in the deployment's own package, keeping PyAirbyte generic.
+OIDC_CLIENT_STORAGE_FACTORY_ENV = "AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY"
+
+# Airbyte Cloud's application-client realm (non-secret, publicly discoverable).
+# Tokens minted from an Airbyte Cloud `client_id`/`client_secret` via
+# `<api_root>/applications/token` are RS256 JWTs issued by this realm, and the
+# same token is a valid Airbyte Cloud API bearer — so verifying against this
+# realm by default lets one token both authenticate transport and authorize
+# downstream Cloud calls.
+AIRBYTE_CLOUD_OIDC_CONFIG_URL = (
+    "https://cloud.airbyte.com/auth/realms/airbyte/.well-known/openid-configuration"
+)
+AIRBYTE_CLOUD_ISSUER = "https://cloud.airbyte.com/auth/realms/_airbyte-application-clients"
+AIRBYTE_CLOUD_JWKS_URI = f"{AIRBYTE_CLOUD_ISSUER}/protocol/openid-connect/certs"
+AIRBYTE_CLOUD_AUDIENCE = "account"
+AIRBYTE_CLOUD_ALGORITHM = "RS256"
 
 DEFAULT_HTTP_HOST = "0.0.0.0"
 DEFAULT_HTTP_PORT = 8080
+DEFAULT_MCP_SERVER_URL = f"http://localhost:{DEFAULT_HTTP_PORT}"
+
+
+class _ClientStorageFactory(Protocol):
+    """Callable that builds a durable `OIDCProxy` OAuth-state backend.
+
+    A deployment names its factory via
+    `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY` (`"package.module:callable"`). The
+    callable receives the OIDC client secret as `encryption_source_material` so
+    it can derive an at-rest encryption key, and returns an `AsyncKeyValue`
+    store. Keeping the concrete backend (Firestore, Redis, ...) behind this hook
+    lets PyAirbyte stay generic — the infrastructure-specific factory ships in
+    the deployment's own package (e.g. the hosted Cloud MCP image), not here.
+    """
+
+    def __call__(self, *, encryption_source_material: str) -> AsyncKeyValue: ...
+
+
+def _env_or_default(name: str, default: str) -> str:
+    """Return the stripped value of env var `name`, or `default` when blank/unset.
+
+    Blank and whitespace-only values are treated as unset so an empty deployment
+    override falls back to the Airbyte Cloud realm default rather than an empty
+    string.
+    """
+    value = os.getenv(name, "").strip()
+    return value or default
+
+
+def _resolve_signing_key() -> tuple[str, str]:
+    """Resolve the headless JWT verifier's signing-key source.
+
+    Returns the `(jwks_uri, public_key)` pair. A deployment may set either env
+    var to point at its own realm; the Airbyte Cloud JWKS default applies only
+    when *neither* is set, so a self-hosted static public key isn't shadowed by
+    a leftover Cloud JWKS URI. Blank or whitespace-only values are treated as
+    unset, and an unset member is returned as the empty string.
+    """
+    jwks_uri = os.getenv(JWKS_URI_ENV, "").strip()
+    public_key = os.getenv(JWT_PUBLIC_KEY_ENV, "").strip()
+    if not jwks_uri and not public_key:
+        jwks_uri = AIRBYTE_CLOUD_JWKS_URI
+    return jwks_uri, public_key
+
+
+def _resolve_client_storage(*, encryption_source_material: str) -> AsyncKeyValue | None:
+    """Resolve the durable `OIDCProxy` OAuth-state store, if one is configured.
+
+    Reads `AIRBYTE_MCP_OIDC_CLIENT_STORAGE_FACTORY` (`"package.module:callable"`),
+    imports the named factory, and calls it to build the store. Returns `None`
+    when the var is unset/blank, keeping `OIDCProxy`'s in-memory default (fine
+    for single-instance local dev). PyAirbyte stays backend-agnostic: it never
+    imports a concrete store, so the infrastructure-specific factory (e.g. the
+    Fernet-wrapped Firestore store for the hosted Cloud MCP image) ships in the
+    deployment's own package.
+    """
+    factory_spec = os.getenv(OIDC_CLIENT_STORAGE_FACTORY_ENV, "").strip()
+    if not factory_spec:
+        return None
+    factory: _ClientStorageFactory = pkgutil.resolve_name(factory_spec)
+    return factory(encryption_source_material=encryption_source_material)
 
 
 def _create_auth() -> AuthProvider | None:
-    """Assemble the transport auth provider from environment configuration.
+    """Assemble the transport auth provider, defaulting to Airbyte Cloud.
 
-    Delegates env parsing to `fastmcp_extensions.resolve_mcp_auth`, which wires
-    up interactive `OIDCProxy` (from `OIDC_*`) and/or headless `JWTVerifier`
-    (from `MCP_AUTH_*`), combining them via `MultiAuth` when both are set and
-    returning `None` when neither is — so the server falls back to standard
-    local (no-auth) behavior.
-
-    When `MCP_AUTH_AIRBYTE_CLOUD` is truthy, the headless verifier defaults to
-    Airbyte Cloud's application-client realm (JWKS / issuer / audience /
-    algorithm); individual `MCP_AUTH_*` vars still override those fields. This
-    is the only provider literal the server owns.
+    Reads this server's branded `AIRBYTE_MCP_*` env vars (falling back to
+    Airbyte Cloud's public realm defaults), maps them into the typed
+    `JWTAuthConfig` / `OIDCAuthConfig` objects that
+    `fastmcp_extensions.build_mcp_auth` consumes, and lets it wire up a headless
+    `JWTVerifier` and/or an interactive `OIDCProxy`, combined via `MultiAuth`.
+    Because a JWKS default is always present, HTTP transport always verifies
+    bearer tokens against Airbyte Cloud's application-client realm; the
+    interactive path additionally activates once the OIDC client credentials are
+    supplied. The `stdio` transport ignores the provider entirely.
     """
-    jwt_defaults: JWTAuthConfig | None = None
-    if os.getenv(MCP_AUTH_AIRBYTE_CLOUD_ENV, "").strip().lower() in {"1", "true", "yes"}:
-        jwt_defaults = JWTAuthConfig(
-            jwks_uri=AIRBYTE_CLOUD_JWKS_URI,
-            issuer=AIRBYTE_CLOUD_REALM_ISSUER,
-            audience=AIRBYTE_CLOUD_JWT_AUDIENCE,
-            algorithm=AIRBYTE_CLOUD_JWT_ALGORITHM,
+    base_url = _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
+
+    jwks_uri, public_key = _resolve_signing_key()
+    jwt = JWTAuthConfig(
+        jwks_uri=jwks_uri or None,
+        public_key=public_key or None,
+        issuer=_env_or_default(JWT_ISSUER_ENV, AIRBYTE_CLOUD_ISSUER),
+        audience=_env_or_default(JWT_AUDIENCE_ENV, AIRBYTE_CLOUD_AUDIENCE),
+        algorithm=_env_or_default(JWT_ALGORITHM_ENV, AIRBYTE_CLOUD_ALGORITHM),
+        base_url=base_url,
+    )
+
+    oidc: OIDCAuthConfig | None = None
+    oidc_client_id = os.getenv(OIDC_CLIENT_ID_ENV, "").strip()
+    oidc_client_secret = os.getenv(OIDC_CLIENT_SECRET_ENV, "").strip()
+    if oidc_client_id and oidc_client_secret:
+        oidc = OIDCAuthConfig(
+            config_url=_env_or_default(OIDC_CONFIG_URL_ENV, AIRBYTE_CLOUD_OIDC_CONFIG_URL),
+            client_id=oidc_client_id,
+            client_secret=oidc_client_secret,
+            base_url=base_url,
+            client_storage=_resolve_client_storage(encryption_source_material=oidc_client_secret),
         )
-    return resolve_mcp_auth(jwt_defaults=jwt_defaults)
+
+    return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=base_url)
 
 
 set_mcp_mode()
