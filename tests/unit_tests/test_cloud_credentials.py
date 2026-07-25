@@ -277,6 +277,16 @@ def test_cloud_client_list_workspaces_accepts_api_notification_list(
     assert workspaces[0].notifications == []
 
 
+def test_cloud_workspace_info_accepts_api_notification_mapping() -> None:
+    workspace = CloudWorkspaceInfo.model_validate({
+        "workspaceId": "workspace-id",
+        "name": "Workspace",
+        "notifications": {"sendOnSuccess": True},
+    })
+
+    assert workspace.notifications == {"sendOnSuccess": True}
+
+
 def test_cloud_client_rename_workspace_forwards_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
