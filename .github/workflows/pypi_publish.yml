@@ -81,9 +81,9 @@ jobs:
         uses: pypa/gh-action-pypi-publish@v1.13.0
 
   # Prod cloud-mcp is bumped via Dependabot on airbytehq/airbyte-ops-mcp, not here.
-  # A PyPI publish dispatches the just-released version to airbyte-ops-mcp, which
-  # opens/refreshes a deterministic `airbyte==<version>` bump PR and deploys the
-  # cloud-mcp preview off it (see `deploy-mcp-command.yml`).
+  # A PyPI publish dispatches the just-released version to airbyte-ops-mcp, whose
+  # deploy-mcp-command.yml opens/refreshes a deterministic `airbyte==<version>`
+  # bump PR and deploys the cloud-mcp preview off it.
   deploy_cloud_mcp_preview:
     name: Deploy Cloud MCP (Preview)
     needs: publish_to_pypi
@@ -91,28 +91,58 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
+      # Read the raw ref/input via env (not inline `${{ }}` in the script) to
+      # avoid shell injection, then validate it is a plain PEP 440-ish version
+      # before it reaches the dispatch payload -- this both fails fast on a
+      # malformed tag/override and guarantees the value is safe to interpolate
+      # into the client-payload JSON string below (no quotes/backslashes).
       - name: Resolve released version
         id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          VERSION_OVERRIDE: ${{ github.event.inputs.version_override }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            raw="${{ github.event.release.tag_name }}"
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "release" ]; then
+            raw="$RELEASE_TAG"
           else
-            raw="${{ github.event.inputs.version_override }}"
+            raw="$VERSION_OVERRIDE"
           fi
-          echo "value=${raw#v}" >> "$GITHUB_OUTPUT"
+          version="${raw#v}"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.a-zA-Z0-9-]*)?$ ]] \
+            || { echo "::error::Refusing to dispatch an unexpected version string: '$version'"; exit 1; }
+          echo "value=$version" >> "$GITHUB_OUTPUT"
 
+      # Poll the version-specific PyPI endpoint instead of a fixed sleep so the
+      # dispatch never races ahead of replication (and fails fast if the just-
+      # published version never shows up).
       - name: Wait for PyPI availability
-        run: sleep 120
+        env:
+          AIRBYTE_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 30); do
+            if curl --fail --silent --show-error \
+              "https://pypi.org/pypi/airbyte/${AIRBYTE_VERSION}/json" >/dev/null; then
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::airbyte==${AIRBYTE_VERSION} was not available on PyPI in time"
+          exit 1
 
-      # Cross-repo dispatch is authenticated with an Octavia GitHub App token
-      # scoped to airbyte-ops-mcp (the app must be installed there with
-      # contents: write), matching the pattern used by prerelease-command.yml.
+      # Cross-repo dispatch is authenticated with an Octavia GitHub App token,
+      # scoped to airbyte-ops-mcp and to contents:write only (least privilege;
+      # repository scoping limits where the token works, not its permission
+      # set), matching the pattern used by prerelease-command.yml.
       - name: Authenticate as GitHub App
         uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
         id: get-app-token
         with:
           owner: airbytehq
           repositories: airbyte-ops-mcp
+          permission-contents: write
           app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
           private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
