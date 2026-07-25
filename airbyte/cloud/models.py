@@ -91,7 +91,9 @@ class CloudWorkspaceInfo(BaseModel):
     organization_id: str | None = Field(default=None, alias="organizationId")
     """The organization ID for the workspace, if available."""
 
-    notifications: dict[str, object | None] = Field(default_factory=dict)
+    notifications: dict[str, object | None] | list[dict[str, object | None]] = Field(
+        default_factory=dict
+    )
     """Workspace notification settings."""
 
     @classmethod
