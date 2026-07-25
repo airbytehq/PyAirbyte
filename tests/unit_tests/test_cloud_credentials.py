@@ -258,7 +258,7 @@ def test_cloud_client_list_workspaces_accepts_api_notification_list(
             {
                 "workspaceId": "workspace-id",
                 "name": "Workspace",
-                "notifications": [],
+                "notifications": [{"sendOnSuccess": True}],
             }
         ]
 
@@ -274,7 +274,7 @@ def test_cloud_client_list_workspaces_accepts_api_notification_list(
     ).list_workspaces()
 
     assert len(workspaces) == 1
-    assert workspaces[0].notifications == []
+    assert workspaces[0].notifications == [{"sendOnSuccess": True}]
 
 
 def test_cloud_workspace_info_accepts_api_notification_mapping() -> None:
