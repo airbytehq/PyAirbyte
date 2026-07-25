@@ -248,6 +248,35 @@ def test_cloud_client_create_workspace_uses_default_organization_id(
     assert captured_organization_id == "organization-id"
 
 
+def test_cloud_client_list_workspaces_accepts_api_notification_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_list_workspaces_in_organization(
+        **_: object,
+    ) -> list[dict[str, object]]:
+        return [
+            {
+                "workspaceId": "workspace-id",
+                "name": "Workspace",
+                "notifications": [],
+            }
+        ]
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    workspaces = CloudClient(
+        bearer_token="token",
+        organization_id="organization-id",
+    ).list_workspaces()
+
+    assert len(workspaces) == 1
+    assert workspaces[0].notifications == []
+
+
 def test_cloud_client_rename_workspace_forwards_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

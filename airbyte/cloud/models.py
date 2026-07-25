@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, is_dataclass
 from enum import Enum
 from typing import Any, Protocol
@@ -91,7 +91,7 @@ class CloudWorkspaceInfo(BaseModel):
     organization_id: str | None = Field(default=None, alias="organizationId")
     """The organization ID for the workspace, if available."""
 
-    notifications: dict[str, object | None] = Field(default_factory=dict)
+    notifications: list[dict[str, object | None]] = Field(default_factory=list)
     """Workspace notification settings."""
 
     @classmethod
@@ -102,7 +102,7 @@ class CloudWorkspaceInfo(BaseModel):
             name=workspace.name,
             data_residency=workspace.data_residency,
             organization_id=getattr(workspace, "organization_id", None),
-            notifications=_notifications_to_dict(workspace.notifications),
+            notifications=_notifications_to_list(workspace.notifications),
         )
 
     @classmethod
@@ -249,15 +249,21 @@ class CloudCustomSourceDefinitionInfo(BaseModel):
         )
 
 
-def _notifications_to_dict(notifications: object) -> dict[str, object | None]:
-    """Convert workspace notification settings into a dictionary."""
+def _notifications_to_list(
+    notifications: object,
+) -> list[dict[str, object | None]]:
+    """Convert workspace notification settings into a list."""
     if notifications is None:
-        return {}
+        return []
     if is_dataclass(notifications) and not isinstance(notifications, type):
-        return {str(key): value for key, value in asdict(notifications).items()}
+        return [asdict(notifications)]
     if isinstance(notifications, Mapping):
-        return {str(key): value for key, value in notifications.items()}
-    return {}
+        return [dict(notifications)]
+    if isinstance(notifications, Sequence) and not isinstance(
+        notifications, (str, bytes, bytearray)
+    ):
+        return [dict(item) for item in notifications if isinstance(item, Mapping)]
+    return []
 
 
 def _enum_value(value: object) -> str:
