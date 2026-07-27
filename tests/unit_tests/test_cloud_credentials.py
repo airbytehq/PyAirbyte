@@ -627,7 +627,12 @@ def test_mcp_list_cloud_workspaces_uses_public_api_without_organization(
                     workspaceId="workspace-id",
                     name="Workspace",
                     organizationId="organization-id",
-                )
+                ),
+                CloudWorkspaceInfo(
+                    workspaceId="workspace-without-org",
+                    name="Workspace without organization",
+                    organizationId=None,
+                ),
             ]
 
     monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: WorkspaceClient())
@@ -642,6 +647,7 @@ def test_mcp_list_cloud_workspaces_uses_public_api_without_organization(
 
     assert captured_organization_id is None
     assert result.workspaces[0].workspace_id == "workspace-id"
+    assert result.workspaces[1].organization_id is None
 
 
 @pytest.mark.parametrize("status_code", [401, 403])

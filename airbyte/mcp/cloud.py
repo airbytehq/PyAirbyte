@@ -10,9 +10,10 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+from collections.abc import Callable
 from http import HTTPStatus
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast
+from typing import Annotated, Any, Literal, TypeVar, cast
 
 from fastmcp import Context, FastMCP
 from fastmcp_extensions import get_mcp_config, mcp_tool, register_mcp_tools
@@ -72,6 +73,24 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
+
+_DiscoveryResult = TypeVar("_DiscoveryResult")
+
+
+def _handle_discovery_permission_error(
+    error: AirbyteError,
+    *,
+    make_result: Callable[[str], _DiscoveryResult],
+) -> _DiscoveryResult:
+    """Return a graceful result for discovery permission errors."""
+    status_code = (error.context or {}).get("status_code")
+    if status_code not in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
+        raise error
+    return make_result(
+        "Organization or workspace discovery is unavailable because these credentials "
+        "do not have the required permission or access. Provide an organization or "
+        "workspace ID, or use credentials with the needed access."
+    )
 
 
 class CloudSourceResult(BaseModel):
@@ -214,8 +233,8 @@ class CloudWorkspaceResult(BaseModel):
     """Display name of the workspace."""
     workspace_url: str | None = None
     """URL to access the workspace in Airbyte Cloud."""
-    organization_id: str
-    """ID of the organization (requires ORGANIZATION_READER permission)."""
+    organization_id: str | None
+    """ID of the organization, if known and available."""
     organization_name: str | None = None
     """Name of the organization (requires ORGANIZATION_READER permission)."""
     payment_status: str | None = None
@@ -1384,8 +1403,10 @@ def list_cloud_workspaces(
     """List all workspaces visible to the authenticated credentials.
 
     When an organization ID or exact organization name is provided, the Config API
-    lists workspaces in that organization. When neither is provided, the public API
-    lists workspaces across organizations visible to the current credentials.
+    lists workspaces in that organization. When neither is provided and the client
+    has no default organization, the public API lists workspaces across organizations
+    visible to the current credentials. Otherwise, results are scoped to the client's
+    default organization.
     """
     client = _get_cloud_client(ctx)
 
@@ -1404,15 +1425,11 @@ def list_cloud_workspaces(
             limit=limit,
         )
     except AirbyteError as error:
-        status_code = (error.context or {}).get("status_code")
-        if status_code not in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
-            raise
-        return CloudWorkspaceListResult(
-            workspaces=[],
-            message=(
-                "Workspace discovery is unavailable because these credentials do not "
-                "have permission to list workspaces. Provide a workspace ID or use "
-                "credentials with workspace access."
+        return _handle_discovery_permission_error(
+            error,
+            make_result=lambda message: CloudWorkspaceListResult(
+                workspaces=[],
+                message=message,
             ),
         )
 
@@ -1420,7 +1437,7 @@ def list_cloud_workspaces(
         CloudWorkspaceResult(
             workspace_id=ws.workspace_id,
             workspace_name=ws.name,
-            organization_id=ws.organization_id or "",
+            organization_id=ws.organization_id,
         )
         for ws in workspaces
     ]
@@ -1448,15 +1465,11 @@ def list_cloud_organizations(
     try:
         organizations = _get_cloud_client(ctx).list_organizations()
     except AirbyteError as error:
-        status_code = (error.context or {}).get("status_code")
-        if status_code not in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
-            raise
-        return CloudOrganizationListResult(
-            organizations=[],
-            message=(
-                "Organization discovery is unavailable because these credentials do not "
-                "have permission to list organizations. Provide an organization ID or "
-                "use credentials with organization reader access."
+        return _handle_discovery_permission_error(
+            error,
+            make_result=lambda message: CloudOrganizationListResult(
+                organizations=[],
+                message=message,
             ),
         )
 
