@@ -285,6 +285,27 @@ class CloudClient:
             )
         ]
 
+    def list_organizations(self) -> list[CloudOrganization]:
+        """List all organizations available to this client."""
+        return [
+            CloudOrganization(
+                organization_id=organization.organization_id,
+                organization_name=organization.organization_name,
+                email=organization.email,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                public_api_root=self.public_api_root,
+                config_api_root=self.config_api_root,
+            )
+            for organization in api_util.list_organizations_for_user(
+                api_root=self.public_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+            )
+        ]
+
     def get_organization(
         self,
         organization_id: str | None = None,
@@ -302,12 +323,7 @@ class CloudClient:
                 message="Organization ID or organization name is required."
             )
 
-        organizations = api_util.list_organizations_for_user(
-            api_root=self.public_api_root,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
-            bearer_token=self.bearer_token,
-        )
+        organizations = self.list_organizations()
         if resolved_organization_id:
             matching_organizations = [
                 organization
@@ -332,18 +348,4 @@ class CloudClient:
                 context={"organization_name": organization_name},
             )
 
-        organization = matching_organizations[0]
-
-        organization_credentials = self._credentials.with_organization_id(
-            organization.organization_id
-        )
-        return CloudOrganization(
-            organization_id=organization.organization_id,
-            organization_name=organization.organization_name,
-            email=organization.email,
-            client_id=organization_credentials.client_id,
-            client_secret=organization_credentials.client_secret,
-            bearer_token=organization_credentials.bearer_token,
-            public_api_root=organization_credentials.public_api_root,
-            config_api_root=organization_credentials.config_api_root,
-        )
+        return matching_organizations[0]

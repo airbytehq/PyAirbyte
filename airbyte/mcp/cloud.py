@@ -10,6 +10,7 @@
 # tool / helper definitions as a redundant "API Documentation" list.
 __all__: list[str] = []
 
+from http import HTTPStatus
 from pathlib import Path
 from typing import Annotated, Any, Literal, cast
 
@@ -42,6 +43,7 @@ from airbyte.constants import (
 )
 from airbyte.destinations.util import get_noop_destination
 from airbyte.exceptions import (
+    AirbyteError,
     AirbyteMissingResourceError,
     AirbyteMissingWorkspaceContextError,
     PyAirbyteInputError,
@@ -57,12 +59,13 @@ from airbyte.mcp._tool_utils import (
 CLOUD_AUTH_TIP_TEXT = (
     f"When connecting to a hosted MCP server, provide a bearer token via the "
     f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the "
-    f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers, plus "
-    f"the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header. For local or "
+    f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers. To discover "
+    f"available organizations and workspaces, call `list_cloud_organizations` and "
+    f"`list_cloud_workspaces` before asking the user for an ID. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
-    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`, plus `{CLOUD_WORKSPACE_ID_ENV_VAR}` for the "
-    f"workspace."
+    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
+    f"ask the user to choose one; do not select automatically."
 )
 WORKSPACE_ID_TIP_TEXT = (
     f"Workspace ID. Hosted MCP connections pass it via the "
@@ -192,6 +195,16 @@ class CloudOrganizationResult(BaseModel):
     Defaults to False unless we have affirmative evidence of a locked state."""
 
 
+class CloudOrganizationListResult(BaseModel):
+    """Result of discovering organizations in Airbyte Cloud."""
+
+    organizations: list[CloudOrganizationResult]
+    """Organizations visible to the authenticated credentials."""
+
+    message: str | None = None
+    """Additional guidance when discovery returns no results or is unavailable."""
+
+
 class CloudWorkspaceResult(BaseModel):
     """Information about a workspace in Airbyte Cloud."""
 
@@ -217,6 +230,16 @@ class CloudWorkspaceResult(BaseModel):
     True if payment_status is 'disabled'/'locked' or subscription_status is 'unsubscribed'.
     Defaults to False unless we have affirmative evidence of a locked state.
     Requires ORGANIZATION_READER permission."""
+
+
+class CloudWorkspaceListResult(BaseModel):
+    """Result of discovering workspaces in Airbyte Cloud."""
+
+    workspaces: list[CloudWorkspaceResult]
+    """Workspaces visible to the authenticated credentials."""
+
+    message: str | None = None
+    """Additional guidance when discovery returns no results."""
 
 
 class LogReadResult(BaseModel):
@@ -1332,16 +1355,14 @@ def list_cloud_workspaces(
     organization_id: Annotated[
         str | None,
         Field(
-            description="Organization ID. Required if organization_name is not provided.",
+            description="Optional organization ID to list workspaces within.",
             default=None,
         ),
     ],
     organization_name: Annotated[
         str | None,
         Field(
-            description=(
-                "Organization name (exact match). " "Required if organization_id is not provided."
-            ),
+            description=("Optional organization name (exact match) to list workspaces within."),
             default=None,
         ),
     ],
@@ -1359,28 +1380,43 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
-) -> list[CloudWorkspaceResult]:
-    """List all workspaces in a specific organization.
+) -> CloudWorkspaceListResult:
+    """List all workspaces visible to the authenticated credentials.
 
-    Requires either organization_id OR organization_name (exact match) to be provided.
-    This tool will NOT list workspaces across all organizations - you must specify
-    which organization to list workspaces from.
+    When an organization ID or exact organization name is provided, the Config API
+    lists workspaces in that organization. When neither is provided, the public API
+    lists workspaces across organizations visible to the current credentials.
     """
     client = _get_cloud_client(ctx)
 
-    resolved_org_id = _resolve_organization_id(
-        organization_id=organization_id,
-        organization_name=organization_name,
-        client=client,
-    )
+    try:
+        workspaces = client.list_workspaces(
+            organization_id=(
+                _resolve_organization_id(
+                    organization_id=organization_id,
+                    organization_name=organization_name,
+                    client=client,
+                )
+                if organization_id is not None or organization_name is not None
+                else None
+            ),
+            name_contains=name_contains,
+            limit=limit,
+        )
+    except AirbyteError as error:
+        status_code = (error.context or {}).get("status_code")
+        if status_code not in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
+            raise
+        return CloudWorkspaceListResult(
+            workspaces=[],
+            message=(
+                "Workspace discovery is unavailable because these credentials do not "
+                "have permission to list workspaces. Provide a workspace ID or use "
+                "credentials with workspace access."
+            ),
+        )
 
-    workspaces = client.list_workspaces(
-        organization_id=resolved_org_id,
-        name_contains=name_contains,
-        limit=limit,
-    )
-
-    return [
+    results = [
         CloudWorkspaceResult(
             workspace_id=ws.workspace_id,
             workspace_name=ws.name,
@@ -1388,6 +1424,61 @@ def list_cloud_workspaces(
         )
         for ws in workspaces
     ]
+    return CloudWorkspaceListResult(
+        workspaces=results,
+        message=(
+            "No workspaces were returned for these credentials. Verify the "
+            "credentials or ask the user to provide a workspace ID."
+            if not results
+            else None
+        ),
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def list_cloud_organizations(
+    ctx: Context,
+) -> CloudOrganizationListResult:
+    """List organizations visible to the authenticated Airbyte Cloud credentials."""
+    try:
+        organizations = _get_cloud_client(ctx).list_organizations()
+    except AirbyteError as error:
+        status_code = (error.context or {}).get("status_code")
+        if status_code not in {HTTPStatus.UNAUTHORIZED, HTTPStatus.FORBIDDEN}:
+            raise
+        return CloudOrganizationListResult(
+            organizations=[],
+            message=(
+                "Organization discovery is unavailable because these credentials do not "
+                "have permission to list organizations. Provide an organization ID or "
+                "use credentials with organization reader access."
+            ),
+        )
+
+    if not organizations:
+        return CloudOrganizationListResult(
+            organizations=[],
+            message=(
+                "No organizations were returned for these credentials. Verify the "
+                "credentials or ask the user to provide an organization ID."
+            ),
+        )
+
+    return CloudOrganizationListResult(
+        organizations=[
+            CloudOrganizationResult(
+                id=organization.organization_id,
+                name=organization.organization_name or "",
+                email=organization.email or "",
+            )
+            for organization in organizations
+        ]
+    )
 
 
 @mcp_tool(

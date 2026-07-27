@@ -287,13 +287,17 @@ class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
             return
         if is_hosted_mcp_mode():
             self.guidance = (
-                f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header, "
-                "or pass the `workspace_id` parameter."
+                "Call `list_cloud_organizations` and `list_cloud_workspaces` first. "
+                "If discovery returns exactly one workspace, provide its ID via the "
+                f"`{MCP_WORKSPACE_ID_HEADER}` header or the `workspace_id` parameter; "
+                "otherwise ask the user to choose."
             )
         else:
             self.guidance = (
-                f"Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable, or pass "
-                "the `workspace_id` parameter."
+                "Call `list_cloud_organizations` and `list_cloud_workspaces` first. "
+                "If discovery returns exactly one workspace, set its ID in "
+                f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` or pass the `workspace_id` parameter; "
+                "otherwise ask the user to choose."
             )
 
 
