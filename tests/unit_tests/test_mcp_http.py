@@ -210,10 +210,12 @@ def test_stateless_http_ui_tool_visibility(
             )
         )
     )
-    assert (UI_TOOL_NAMES <= names) is expected
     if expected:
+        assert UI_TOOL_NAMES <= names
         assert any(
             header_name.lower() == b"x-mcp-extensions"
             for request_headers in wire_headers
             for header_name, _ in request_headers
         )
+    else:
+        assert UI_TOOL_NAMES.isdisjoint(names)
