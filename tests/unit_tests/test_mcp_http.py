@@ -153,6 +153,11 @@ def test_stdio_ui_tool_visibility(
             id="comma-separated",
         ),
         pytest.param(
+            {"x-mcp-extensions": "other io.modelcontextprotocol/ui another"},
+            True,
+            id="whitespace-separated",
+        ),
+        pytest.param(
             {"x-mcp-extensions": "other"},
             False,
             id="unknown-extension",
@@ -169,7 +174,8 @@ def test_client_declared_extensions_from_headers(
     """Header extension parsing tolerates common HTTP formatting.
 
     `get_http_headers()` lowercases header names, so the parser looks up the
-    lowercased key; end-to-end casing is covered by the HTTP visibility test.
+    lowercased key; comma- and whitespace-separated values are accepted.
+    End-to-end casing is covered by the HTTP visibility test.
     """
     monkeypatch.setattr(_tool_utils, "get_http_headers", lambda **_: headers)
     extensions = _tool_utils._client_declared_extensions_from_headers()
@@ -207,7 +213,7 @@ def test_stateless_http_ui_tool_visibility(
     assert (UI_TOOL_NAMES <= names) is expected
     if expected:
         assert any(
-            header_name == b"x-McP-ExTeNsIoNs"
+            header_name.lower() == b"x-mcp-extensions"
             for request_headers in wire_headers
             for header_name, _ in request_headers
         )

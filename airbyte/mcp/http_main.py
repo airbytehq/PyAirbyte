@@ -17,6 +17,8 @@ The spec-aligned mechanism is per-request `_meta` under
 does not expose that metadata to tool filtering yet. Until it does, clients
 that need MCP Apps `interactive-ui` tools must send the non-standard
 `X-MCP-Extensions: io.modelcontextprotocol/ui` header on each HTTP request.
+Multiple extension IDs may be comma-separated (recommended) or whitespace-
+separated.
 
 Environment variables:
 

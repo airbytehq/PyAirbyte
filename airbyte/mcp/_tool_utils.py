@@ -540,7 +540,7 @@ def _fastmcp_context_supports_ui(context: Context) -> bool:
 
 
 def _client_declared_extensions_from_headers() -> set[str]:
-    """Return extension IDs declared in the current HTTP request headers."""
+    """Return comma- or whitespace-separated extension IDs from HTTP headers."""
     header_key = MCP_EXTENSIONS_HEADER.lower()
     header_value = get_http_headers(include={header_key}).get(header_key, "")
-    return {extension.strip() for extension in header_value.split(",") if extension.strip()}
+    return set(header_value.replace(",", " ").split())

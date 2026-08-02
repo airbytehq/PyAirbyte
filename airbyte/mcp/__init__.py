@@ -229,6 +229,8 @@ spec-aligned mechanism is per-request `_meta` under
 `io.modelcontextprotocol/clientCapabilities`, but FastMCP does not yet surface
 that metadata to tool filtering (as of `fastmcp` 3.4.5). Until it does, send the
 `X-MCP-Extensions: io.modelcontextprotocol/ui` header on each request instead.
+Multiple extension IDs may be comma-separated (recommended) or whitespace-
+separated.
 
 With no auth variables set, the HTTP server falls back to unauthenticated local
 behavior. This server maps the `AIRBYTE_MCP_*` variables into the typed config
