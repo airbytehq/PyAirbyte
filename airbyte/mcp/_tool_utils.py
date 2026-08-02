@@ -56,6 +56,7 @@ from airbyte.constants import (
     MCP_CONFIG_WORKSPACE_ID,
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
+    MCP_EXTENSIONS_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
@@ -518,12 +519,28 @@ def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
 
 
 def _client_supports_ui() -> bool:
+    """Return whether the current client declared MCP Apps UI support.
+
+    Stateless streamable HTTP discards initialize-time `ClientCapabilities`, so
+    HTTP clients can declare extensions through the fallback request header.
+    There is no standardized MCP header for this today; the Airbyte server
+    accepts the non-standard `X-MCP-Extensions` header.
+    """
     try:
         context = get_context()
     except RuntimeError:
-        return False
-    return _fastmcp_context_supports_ui(context)
+        context_supports_ui = False
+    else:
+        context_supports_ui = _fastmcp_context_supports_ui(context)
+    return context_supports_ui or (UI_EXTENSION_ID in _client_declared_extensions_from_headers())
 
 
 def _fastmcp_context_supports_ui(context: Context) -> bool:
     return context.client_supports_extension(UI_EXTENSION_ID)
+
+
+def _client_declared_extensions_from_headers() -> set[str]:
+    """Return extension IDs declared in the current HTTP request headers."""
+    header_key = MCP_EXTENSIONS_HEADER.lower()
+    header_value = get_http_headers(include={header_key}).get(header_key, "")
+    return {extension.strip() for extension in header_value.split(",") if extension.strip()}

@@ -11,6 +11,13 @@ falls back to unauthenticated local behavior. This module declares only the env
 var *names* — the concrete values are supplied at deploy time by the
 deployment's own repo. See `server.py` for details.
 
+Stateless streamable HTTP does not retain initialize-time client capabilities.
+The spec-aligned mechanism is per-request `_meta` under
+`io.modelcontextprotocol/clientCapabilities`, but the installed FastMCP stack
+does not expose that metadata to tool filtering yet. Until it does, clients
+that need MCP Apps `interactive-ui` tools must send the non-standard
+`X-MCP-Extensions: io.modelcontextprotocol/ui` header on each HTTP request.
+
 Environment variables:
 
 - `MCP_SERVER_URL`: Public base URL. Used for OIDC redirect callbacks and to
