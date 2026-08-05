@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -40,6 +41,7 @@ def test_no_uv_environment_mapping(env_value: str | None, expected_no_uv: bool) 
         capture_output=True,
         text=True,
         env=environment,
+        cwd=Path(__file__).parents[2],
     )
 
     assert result.stdout.strip() == str(expected_no_uv)
