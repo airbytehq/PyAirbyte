@@ -1,14 +1,22 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
-"""Constants shared across the PyAirbyte codebase."""
+"""Constants shared across the PyAirbyte codebase.
+
+Non-secret runtime settings can be configured in optional `airbyte.yaml` or
+`airbyte.toml` files in the current working directory. Environment variables
+override file values, and file values override defaults. Secret-shaped values
+remain resolved through `airbyte.secrets`.
+"""
 
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
+
+from airbyte.settings import Settings
 
 
 logger = logging.getLogger("airbyte")
+_SETTINGS = Settings()
 
 
 DEBUG_MODE = False  # Set to True to enable additional debug logging.
@@ -59,12 +67,13 @@ def _try_create_dir_if_missing(path: Path, desc: str = "specified") -> Path:
 
 
 DEFAULT_PROJECT_DIR: Path = _try_create_dir_if_missing(
-    Path(os.getenv("AIRBYTE_PROJECT_DIR", "") or Path.cwd()).expanduser().absolute(),
+    Path(_SETTINGS.project_dir or Path.cwd()).expanduser().absolute(),
     desc="project",
 )
 """Default project directory.
 
-Can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
+Values use `AIRBYTE_PROJECT_DIR`, then `project_dir` from `airbyte.yaml` or `airbyte.toml`, then
+the current working directory.
 
 If not set, defaults to the current working directory.
 
@@ -76,26 +85,25 @@ If a path is specified that does not yet exist, PyAirbyte will attempt to create
 
 
 DEFAULT_INSTALL_DIR: Path = _try_create_dir_if_missing(
-    Path(os.getenv("AIRBYTE_INSTALL_DIR", "") or DEFAULT_PROJECT_DIR).expanduser().absolute(),
+    Path(_SETTINGS.install_dir or DEFAULT_PROJECT_DIR).expanduser().absolute(),
     desc="install",
 )
 """Default install directory for connectors.
 
-If not set, defaults to `DEFAULT_PROJECT_DIR` (`AIRBYTE_PROJECT_DIR` env var) or the current
-working directory if neither is set.
+Values use `AIRBYTE_INSTALL_DIR`, then `install_dir` from `airbyte.yaml` or `airbyte.toml`, then
+`DEFAULT_PROJECT_DIR`.
 
 If a path is specified that does not yet exist, PyAirbyte will attempt to create it.
 """
 
 
 DEFAULT_CACHE_ROOT: Path = (
-    (Path(os.getenv("AIRBYTE_CACHE_ROOT", "") or (DEFAULT_PROJECT_DIR / ".cache")))
-    .expanduser()
-    .absolute()
+    (Path(_SETTINGS.cache_root or (DEFAULT_PROJECT_DIR / ".cache"))).expanduser().absolute()
 )
 """Default cache root is `.cache` in the current working directory.
 
-The default location can be overridden by setting the `AIRBYTE_CACHE_ROOT` environment variable.
+Values use `AIRBYTE_CACHE_ROOT`, then `cache_root` from `airbyte.yaml` or `airbyte.toml`, then the
+default `.cache` path.
 
 Overriding this can be useful if you always want to store cache files in a specific location.
 For example, in ephemeral environments like Google Colab, you might want to store cache files in
@@ -115,42 +123,25 @@ DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 """The default number of records to include in each batch of an Arrow dataset."""
 
 
-def _str_to_bool(value: str) -> bool:
-    """Convert a string value of an environment values to a boolean value."""
-    return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
-
-
-TEMP_DIR_OVERRIDE: Path | None = (
-    Path(os.environ["AIRBYTE_TEMP_DIR"]) if os.getenv("AIRBYTE_TEMP_DIR") else None
-)
+TEMP_DIR_OVERRIDE: Path | None = _SETTINGS.temp_dir
 """The directory to use for temporary files.
 
-This value is read from the `AIRBYTE_TEMP_DIR` environment variable. If the variable is not set,
-Tempfile will use the system's default temporary directory.
+Values use `AIRBYTE_TEMP_DIR`, then `temp_dir` from `airbyte.yaml` or `airbyte.toml`, then the
+system's default temporary directory.
 
 This can be useful if you want to store temporary files in a specific location (or) when you
 need your temporary files to exist in user level directories, and not in system level
 directories for permissions reasons.
 """
 
-TEMP_FILE_CLEANUP = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_TEMP_FILE_CLEANUP",
-        default="true",
-    )
-)
+TEMP_FILE_CLEANUP = _SETTINGS.temp_file_cleanup
 """Whether to clean up temporary files after use.
 
-This value is read from the `AIRBYTE_TEMP_FILE_CLEANUP` environment variable. If the variable is
-not set, the default value is `True`.
+Values use `AIRBYTE_TEMP_FILE_CLEANUP`, then `temp_file_cleanup` from `airbyte.yaml` or
+`airbyte.toml`, then the default value `True`.
 """
 
-AIRBYTE_OFFLINE_MODE = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_OFFLINE_MODE",
-        default="false",
-    )
-)
+AIRBYTE_OFFLINE_MODE = _SETTINGS.offline_mode
 """Enable or disable offline mode.
 
 When offline mode is enabled, PyAirbyte will attempt to fetch metadata for connectors from the
@@ -158,19 +149,18 @@ Airbyte registry but will not raise an error if the registry is unavailable. Thi
 environments without internet access or with air-gapped networks.
 
 Offline mode also disables telemetry, similar to a `DO_NOT_TRACK` setting, ensuring no usage data
-is sent from your environment. You may also specify a custom registry URL via the`_REGISTRY_ENV_VAR`
-environment variable if you prefer to use a different registry source for metadata.
+is sent from your environment. You may also specify a custom registry URL via the
+`_REGISTRY_ENV_VAR` environment variable if you prefer to use a different registry source for
+metadata.
 
 This setting helps you make informed choices about data privacy and operation in restricted and
 air-gapped environments.
+
+Values use `AIRBYTE_OFFLINE_MODE`, then `offline_mode` from `airbyte.yaml` or `airbyte.toml`, then
+the default value `False`.
 """
 
-AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _str_to_bool(
-    os.getenv(
-        key="AIRBYTE_PRINT_FULL_ERROR_LOGS",
-        default=os.getenv("CI", "false"),
-    )
-)
+AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _SETTINGS.print_full_error_logs
 """Whether to print full error logs when an error occurs.
 This setting helps in debugging by providing detailed logs when errors occur. This is especially
 helpful in ephemeral environments like CI/CD pipelines where log files may not be persisted after
@@ -178,9 +168,12 @@ the pipeline run.
 
 If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
+
+Values use `AIRBYTE_PRINT_FULL_ERROR_LOGS`, then `print_full_error_logs` from `airbyte.yaml` or
+`airbyte.toml`, then the `CI`-derived default.
 """
 
-NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
+NO_UV: bool = _SETTINGS.no_uv
 """Whether to use uv for Python package management.
 
 This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
@@ -189,6 +182,9 @@ is set to "1", "true", or "yes", uv will be disabled and pip will be used instea
 If the variable is not set or set to any other value, uv will be used by default.
 This provides a safe fallback mechanism for environments where uv is not available
 or causes issues.
+
+Values use `AIRBYTE_NO_UV`, then `no_uv` from `airbyte.yaml` or `airbyte.toml`, then the existing
+default.
 """
 
 SECRETS_HYDRATION_PREFIX = "secret_reference::"

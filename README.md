@@ -40,6 +40,11 @@ By default, beginning with version `0.29.0`, PyAirbyte defaults to [`uv`](https:
 
 If you prefer to fall back to the prior `pip`-based installation methods, set the env var `AIRBYTE_NO_UV=true`.
 
+Non-secret runtime settings can also be configured in an optional `airbyte.yaml` or `airbyte.toml`
+file in the current working directory. Environment variables take precedence over file values, and
+file values take precedence over defaults. Credentials and other secrets continue to use PyAirbyte's
+secrets subsystem.
+
 #### Installing Connectors With a Custom Python Version
 
 In both `get_source()` and `get_destination()`, you can provide a `use_python` input arg that is equal to the desired version of Python that you with to use for the given connector. This can be helpful if an older connector doesn't support the version of Python that you are using for PyAirbyte itself.
