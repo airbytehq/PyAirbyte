@@ -1,10 +1,10 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 """Constants shared across the PyAirbyte codebase.
 
-Non-secret runtime settings can be configured in optional ``airbyte.yaml`` or
-``airbyte.toml`` files in the current working directory. Environment variables
+Non-secret runtime settings can be configured in optional `airbyte.yaml` or
+`airbyte.toml` files in the current working directory. Environment variables
 override file values, and file values override defaults. Secret-shaped values
-remain resolved through :mod:`airbyte.secrets`.
+remain resolved through `airbyte.secrets`.
 """
 
 from __future__ import annotations

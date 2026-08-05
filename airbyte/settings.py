@@ -1,14 +1,14 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Typed runtime settings for PyAirbyte.
 
-PyAirbyte reads these settings once when :mod:`airbyte.constants` is imported.
-Optional ``airbyte.yaml`` and ``airbyte.toml`` files in the current working
+PyAirbyte reads these settings once when `airbyte.constants` is imported.
+Optional `airbyte.yaml` and `airbyte.toml` files in the current working
 directory may provide values for the same settings. Environment variables take
 precedence over file values, and file values take precedence over defaults.
 
 This module intentionally contains only non-secret runtime settings. Cloud
 credentials, connector credentials, and other secret-shaped values continue to
-resolve through :mod:`airbyte.secrets`.
+resolve through `airbyte.secrets`.
 """
 
 from __future__ import annotations
