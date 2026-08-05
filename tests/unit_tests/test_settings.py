@@ -127,4 +127,4 @@ def test_empty_temp_dir_is_none_and_non_empty_value_is_a_path(
     assert Settings().temp_dir is None
 
     monkeypatch.setenv("AIRBYTE_TEMP_DIR", "/tmp/airbyte")
-    assert str(Settings().temp_dir) == "/tmp/airbyte"
+    assert Settings().temp_dir == Path("/tmp/airbyte")
