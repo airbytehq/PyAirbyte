@@ -72,7 +72,8 @@ DEFAULT_PROJECT_DIR: Path = _try_create_dir_if_missing(
 )
 """Default project directory.
 
-Can be overridden by setting the `AIRBYTE_PROJECT_DIR` environment variable.
+Values use `AIRBYTE_PROJECT_DIR`, then `project_dir` from `airbyte.yaml` or `airbyte.toml`, then
+the current working directory.
 
 If not set, defaults to the current working directory.
 
@@ -89,8 +90,8 @@ DEFAULT_INSTALL_DIR: Path = _try_create_dir_if_missing(
 )
 """Default install directory for connectors.
 
-If not set, defaults to `DEFAULT_PROJECT_DIR` (`AIRBYTE_PROJECT_DIR` env var) or the current
-working directory if neither is set.
+Values use `AIRBYTE_INSTALL_DIR`, then `install_dir` from `airbyte.yaml` or `airbyte.toml`, then
+`DEFAULT_PROJECT_DIR`.
 
 If a path is specified that does not yet exist, PyAirbyte will attempt to create it.
 """
@@ -101,7 +102,8 @@ DEFAULT_CACHE_ROOT: Path = (
 )
 """Default cache root is `.cache` in the current working directory.
 
-The default location can be overridden by setting the `AIRBYTE_CACHE_ROOT` environment variable.
+Values use `AIRBYTE_CACHE_ROOT`, then `cache_root` from `airbyte.yaml` or `airbyte.toml`, then the
+default `.cache` path.
 
 Overriding this can be useful if you always want to store cache files in a specific location.
 For example, in ephemeral environments like Google Colab, you might want to store cache files in
@@ -124,8 +126,8 @@ DEFAULT_ARROW_MAX_CHUNK_SIZE = 100_000
 TEMP_DIR_OVERRIDE: Path | None = _SETTINGS.temp_dir
 """The directory to use for temporary files.
 
-This value is read from the `AIRBYTE_TEMP_DIR` environment variable. If the variable is not set,
-Tempfile will use the system's default temporary directory.
+Values use `AIRBYTE_TEMP_DIR`, then `temp_dir` from `airbyte.yaml` or `airbyte.toml`, then the
+system's default temporary directory.
 
 This can be useful if you want to store temporary files in a specific location (or) when you
 need your temporary files to exist in user level directories, and not in system level
@@ -135,8 +137,8 @@ directories for permissions reasons.
 TEMP_FILE_CLEANUP = _SETTINGS.temp_file_cleanup
 """Whether to clean up temporary files after use.
 
-This value is read from the `AIRBYTE_TEMP_FILE_CLEANUP` environment variable. If the variable is
-not set, the default value is `True`.
+Values use `AIRBYTE_TEMP_FILE_CLEANUP`, then `temp_file_cleanup` from `airbyte.yaml` or
+`airbyte.toml`, then the default value `True`.
 """
 
 AIRBYTE_OFFLINE_MODE = _SETTINGS.offline_mode
@@ -147,11 +149,15 @@ Airbyte registry but will not raise an error if the registry is unavailable. Thi
 environments without internet access or with air-gapped networks.
 
 Offline mode also disables telemetry, similar to a `DO_NOT_TRACK` setting, ensuring no usage data
-is sent from your environment. You may also specify a custom registry URL via the`_REGISTRY_ENV_VAR`
-environment variable if you prefer to use a different registry source for metadata.
+is sent from your environment. You may also specify a custom registry URL via the
+`_REGISTRY_ENV_VAR` environment variable if you prefer to use a different registry source for
+metadata.
 
 This setting helps you make informed choices about data privacy and operation in restricted and
 air-gapped environments.
+
+Values use `AIRBYTE_OFFLINE_MODE`, then `offline_mode` from `airbyte.yaml` or `airbyte.toml`, then
+the default value `False`.
 """
 
 AIRBYTE_PRINT_FULL_ERROR_LOGS: bool = _SETTINGS.print_full_error_logs
@@ -162,6 +168,9 @@ the pipeline run.
 
 If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
+
+Values use `AIRBYTE_PRINT_FULL_ERROR_LOGS`, then `print_full_error_logs` from `airbyte.yaml` or
+`airbyte.toml`, then the `CI`-derived default.
 """
 
 NO_UV: bool = _SETTINGS.no_uv
@@ -173,6 +182,9 @@ is set to "1", "true", or "yes", uv will be disabled and pip will be used instea
 If the variable is not set or set to any other value, uv will be used by default.
 This provides a safe fallback mechanism for environments where uv is not available
 or causes issues.
+
+Values use `AIRBYTE_NO_UV`, then `no_uv` from `airbyte.yaml` or `airbyte.toml`, then the existing
+default.
 """
 
 SECRETS_HYDRATION_PREFIX = "secret_reference::"
