@@ -283,10 +283,10 @@ class ConnectorBase(abc.ABC):
             content = json.dumps(self.config_spec, indent=2)
 
         if output_file:
-            output_file.write_text(content)  # pyrefly: ignore[unbound-name]
+            output_file.write_text(content)
             return
 
-        syntax_highlighted = Syntax(content, format)  # pyrefly: ignore[unbound-name]
+        syntax_highlighted = Syntax(content, format)
         rich.print(syntax_highlighted, file=sys.stderr if stderr else None)
 
     @property
@@ -405,32 +405,32 @@ class ConnectorBase(abc.ABC):
             AirbyteConnectorFailedError: If a TRACE message of type ERROR is emitted.
         """
         if message.type == Type.LOG:
-            self._print_info_message(message.log.message)  # pyrefly: ignore[missing-attribute]
+            self._print_info_message(message.log.message)  # ty: ignore[unresolved-attribute]
             return
 
         if (
             message.type == Type.TRACE
-            and message.trace.type == TraceType.ERROR  # pyrefly: ignore[missing-attribute]
+            and message.trace.type == TraceType.ERROR  # ty: ignore[unresolved-attribute]
         ):
             self._print_error_message(
-                message.trace.error.message  # pyrefly: ignore[missing-attribute]
+                message.trace.error.message  # ty: ignore[unresolved-attribute]
             )
             if raise_on_error:
                 raise exc.AirbyteConnectorFailedError(
                     connector_name=self.name,
-                    message=message.trace.error.message,  # pyrefly: ignore[missing-attribute]
+                    message=message.trace.error.message,  # ty: ignore[unresolved-attribute]
                     log_text=self._last_log_messages,
                 )
             return
 
         if (
             message.type == Type.CONTROL
-            and message.control.type  # pyrefly: ignore[missing-attribute]
+            and message.control.type  # ty: ignore[unresolved-attribute]
             == OrchestratorType.CONNECTOR_CONFIG
             and self.config_change_callback is not None
         ):
             self.config_change_callback(
-                message.control.connectorConfig.config  # pyrefly: ignore[missing-attribute]
+                message.control.connectorConfig.config  # ty: ignore[unresolved-attribute]
             )
             return
 
