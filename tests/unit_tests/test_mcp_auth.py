@@ -104,9 +104,21 @@ def test_client_credentials_enabled_wraps_app(
 @pytest.mark.parametrize(
     "value, expected",
     [
-        pytest.param(None, "", id="unset"),
-        pytest.param("", "", id="empty"),
-        pytest.param("   ", "", id="whitespace"),
+        pytest.param(
+            None,
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="unset-uses-default",
+        ),
+        pytest.param(
+            "",
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="empty-uses-default",
+        ),
+        pytest.param(
+            "   ",
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="whitespace-uses-default",
+        ),
         pytest.param(
             "  https://idp.example/token  ",
             "https://idp.example/token",
