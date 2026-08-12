@@ -14,8 +14,11 @@ Environment variables:
 The provider-neutral exchange middleware lives in `fastmcp_extensions`. This
 module owns the branded env var names and Airbyte token endpoint policy, then
 passes those values to `wrap_client_credentials`. The credential path is off
-by default. When enabled, use TLS and prevent intermediaries from logging the
-credential headers.
+by default. It exchanges the inbound credentials for a bearer token and
+rewrites the request, but it does not verify that token. When enabled, also
+configure the bearer verifier so issuer, audience, and expiry are checked and
+requests with no credentials are rejected. Use TLS and prevent intermediaries
+from logging the credential headers.
 """
 
 from __future__ import annotations

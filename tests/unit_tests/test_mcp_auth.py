@@ -13,6 +13,8 @@ assembly lives in `fastmcp-extensions` and is tested there.
 
 from __future__ import annotations
 
+import logging
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -20,6 +22,7 @@ from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
 
 from airbyte.mcp import _client_credentials as client_credentials
+from airbyte.mcp import http_main
 from airbyte.mcp import server
 
 
@@ -99,6 +102,39 @@ def test_client_credentials_enabled_wraps_app(
     monkeypatch.setenv(client_credentials.TOKEN_URL_ENV, "https://idp.example/token")
     app = object()
     assert client_credentials.wrap_if_enabled(app) is not app
+
+
+@pytest.mark.parametrize(
+    "auth, expected_warning",
+    [
+        pytest.param(
+            None,
+            "without bearer-token verification",
+            id="enabled-without-verifier",
+        ),
+        pytest.param(
+            object(),
+            None,
+            id="enabled-with-verifier",
+        ),
+    ],
+)
+def test_client_credentials_auth_status_warning(
+    auth: object | None,
+    expected_warning: str | None,
+    monkeypatch: MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    monkeypatch.setattr(http_main, "app", SimpleNamespace(auth=auth))
+    monkeypatch.setattr(http_main, "client_credentials_enabled", lambda: True)
+    caplog.set_level(logging.WARNING, logger=http_main.logger.name)
+
+    http_main._log_auth_status()
+
+    if expected_warning is None:
+        assert not caplog.records
+    else:
+        assert expected_warning in caplog.text
 
 
 @pytest.mark.parametrize(
