@@ -44,8 +44,8 @@ Opt-in static client credentials:
 
 - `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS`: enable `Client-Id` /
   `Client-Secret` headers and HTTP Basic credentials
-- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: deployment-supplied OAuth
-  token endpoint; required when static client credentials are enabled
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
+  exchange; defaults to the Airbyte Cloud application-token endpoint
 """
 
 from __future__ import annotations
