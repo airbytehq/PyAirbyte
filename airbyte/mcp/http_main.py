@@ -9,7 +9,8 @@ bearer-token verification, combined via `MultiAuth`). Auth activates only for
 the paths a deployment configures via env; with no auth env set the server
 falls back to unauthenticated local behavior. This module declares only the env
 var *names* — the concrete values are supplied at deploy time by the
-deployment's own repo. See `server.py` for details.
+deployment's own repo. See `server.py` and `_client_credentials.py` for
+details.
 
 Environment variables:
 
@@ -38,6 +39,13 @@ issuer, audience, and algorithm refine verification when provided:
 - `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
 - `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
 - `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm override
+
+Opt-in static client credentials:
+
+- `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS`: enable `Client-Id` /
+  `Client-Secret` headers and HTTP Basic credentials
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: deployment-supplied OAuth
+  token endpoint; required when static client credentials are enabled
 """
 
 from __future__ import annotations
@@ -45,12 +53,14 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlparse
 
+import uvicorn
 from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
 )
 
 from airbyte.constants import set_hosted_mcp_mode
+from airbyte.mcp._client_credentials import wrap_if_enabled
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -129,13 +139,19 @@ def main() -> None:
     # entrypoint (a permanent gate; the per-request filter also forces it off).
     assert_http_trusted_execution_disabled(app)
 
-    app.run(
-        transport="streamable-http",
-        host=DEFAULT_HTTP_HOST,
-        port=DEFAULT_HTTP_PORT,
+    http_app = app.http_app(
         path=mcp_path,
+        transport="streamable-http",
         stateless_http=True,
     )
+    try:
+        uvicorn.run(
+            wrap_if_enabled(http_app),
+            host=DEFAULT_HTTP_HOST,
+            port=DEFAULT_HTTP_PORT,
+        )
+    except KeyboardInterrupt:
+        logger.info("Airbyte MCP HTTP server interrupted by user.")
 
 
 if __name__ == "__main__":
