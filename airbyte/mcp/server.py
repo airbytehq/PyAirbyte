@@ -110,8 +110,10 @@ Use this server for:
 - Listing and describing environment variables for connector configuration
 
 Operational modes:
-- Cloud operations: Deploy and manage connectors on Airbyte Cloud (requires
-  AIRBYTE_CLOUD_CLIENT_ID, AIRBYTE_CLOUD_CLIENT_SECRET, AIRBYTE_CLOUD_WORKSPACE_ID)
+- Cloud operations: Deploy and manage connectors on Airbyte Cloud (use request
+  headers when connecting to a hosted MCP server, or AIRBYTE_CLOUD_CLIENT_ID +
+  AIRBYTE_CLOUD_CLIENT_SECRET (or AIRBYTE_CLOUD_BEARER_TOKEN) plus
+  AIRBYTE_CLOUD_WORKSPACE_ID for local or stdio connections)
 - Local operations: Run connectors locally for data extraction (requires
   AIRBYTE_PROJECT_DIR for artifact storage)
 
@@ -141,6 +143,12 @@ MCP_SERVER_URL_ENV = "MCP_SERVER_URL"
 OIDC_CLIENT_ID_ENV = "AIRBYTE_MCP_OIDC_CLIENT_ID"
 OIDC_CLIENT_SECRET_ENV = "AIRBYTE_MCP_OIDC_CLIENT_SECRET"
 OIDC_CONFIG_URL_ENV = "AIRBYTE_MCP_OIDC_CONFIG_URL"
+
+# Upstream authorize scopes requested for the interactive OIDC flow, also
+# advertised to clients via DCR/`.well-known` and enforced on the verified
+# upstream token. `openid` is required for OIDC: without it the IdP may issue an
+# identity-only token that downstream APIs reject.
+AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES: str = "openid email profile"
 
 # Headless JWT verifier. A signing-key source (`JWKS_URI_ENV` or
 # `JWT_PUBLIC_KEY_ENV`) activates it; issuer/audience/algorithm refine it.
@@ -278,6 +286,7 @@ def _create_auth() -> AuthProvider | None:
             client_id=oidc_client_id,
             client_secret=oidc_client_secret,
             base_url=base_url,
+            required_scopes=AIRBYTE_CLOUD_REQUIRED_OIDC_SCOPES.split(),
             client_storage=_resolve_client_storage(encryption_source_material=oidc_client_secret),
         )
 

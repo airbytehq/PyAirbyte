@@ -69,12 +69,17 @@ def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
     [
         pytest.param(
             False,
-            "Provide either bearer_token or both client_id and client_secret.",
+            "Provide `bearer_token`, or both `client_id` and `client_secret`.",
             id="explicit_inputs",
         ),
         pytest.param(
             True,
-            "Set Airbyte Cloud credentials in environment variables.",
+            (
+                "Provide `bearer_token`, or both `client_id` and `client_secret`, as "
+                "arguments or via the `AIRBYTE_CLOUD_BEARER_TOKEN`, "
+                "`AIRBYTE_CLOUD_CLIENT_ID`, and `AIRBYTE_CLOUD_CLIENT_SECRET` "
+                "environment variables."
+            ),
             id="env_vars",
         ),
     ],
@@ -246,6 +251,45 @@ def test_cloud_client_create_workspace_uses_default_organization_id(
     assert isinstance(workspace, CloudWorkspaceInfo)
     assert workspace.workspace_id == "workspace-id"
     assert captured_organization_id == "organization-id"
+
+
+def test_cloud_client_list_workspaces_accepts_api_notification_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_list_workspaces_in_organization(
+        **_: object,
+    ) -> list[dict[str, object]]:
+        return [
+            {
+                "workspaceId": "workspace-id",
+                "name": "Workspace",
+                "notifications": [{"sendOnSuccess": True}],
+            }
+        ]
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    workspaces = CloudClient(
+        bearer_token="token",
+        organization_id="organization-id",
+    ).list_workspaces()
+
+    assert len(workspaces) == 1
+    assert workspaces[0].notifications == [{"sendOnSuccess": True}]
+
+
+def test_cloud_workspace_info_accepts_api_notification_mapping() -> None:
+    workspace = CloudWorkspaceInfo.model_validate({
+        "workspaceId": "workspace-id",
+        "name": "Workspace",
+        "notifications": {"sendOnSuccess": True},
+    })
+
+    assert workspace.notifications == {"sendOnSuccess": True}
 
 
 def test_cloud_client_rename_workspace_forwards_inputs(

@@ -880,9 +880,9 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             cron_expression: A cron expression defining when syncs should run.
 
         Examples:
-                - "0 0 * * *" - Daily at midnight UTC
-                - "0 */6 * * *" - Every 6 hours
-                - "0 0 * * 0" - Weekly on Sunday at midnight UTC
+            - "0 0 * * *"  # Daily at midnight UTC
+            - "0 */6 * * *"  # Every 6 hours
+            - "0 0 * * 0"  # Weekly on Sunday at midnight UTC
         """
         updated_response = api_util.patch_connection(
             connection_id=self.connection_id,

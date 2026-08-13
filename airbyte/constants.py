@@ -180,15 +180,14 @@ If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
 
-NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
-"""Whether to use uv for Python package management.
+NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() in {"1", "true", "yes"}
+"""Whether to disable uv and use pip for Python package management.
 
 This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
-is set to "1", "true", or "yes", uv will be disabled and pip will be used instead.
+is set to "1", "true", or "yes", pip will be used instead of uv.
 
-If the variable is not set or set to any other value, uv will be used by default.
-This provides a safe fallback mechanism for environments where uv is not available
-or causes issues.
+If the variable is not set or set to any other value, uv will be used by default. Set this
+variable to opt out of uv and use pip instead.
 """
 
 SECRETS_HYDRATION_PREFIX = "secret_reference::"
@@ -260,6 +259,21 @@ Documentation:
 """
 
 # MCP (Model Context Protocol) Constants
+
+_HOSTED_MCP_MODE_ENABLED: bool = False
+"""Whether the process is serving MCP over hosted HTTP transport."""
+
+
+def set_hosted_mcp_mode() -> None:
+    """Set the flag indicating the process serves MCP over hosted HTTP transport."""
+    global _HOSTED_MCP_MODE_ENABLED
+    _HOSTED_MCP_MODE_ENABLED = True
+
+
+def is_hosted_mcp_mode() -> bool:
+    """Return True if the process serves MCP over hosted HTTP transport."""
+    return _HOSTED_MCP_MODE_ENABLED
+
 
 MCP_READONLY_MODE_ENV_VAR: str = "AIRBYTE_CLOUD_MCP_READONLY_MODE"
 """Environment variable to enable read-only mode for the MCP server.

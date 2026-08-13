@@ -25,15 +25,27 @@ from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
 from airbyte.constants import (
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_BEARER_TOKEN_HEADER,
+    MCP_CLIENT_ID_HEADER,
+    MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
     MCP_CONFIG_CLIENT_SECRET,
     MCP_CONFIG_CONFIG_API_URL,
     MCP_CONFIG_WORKSPACE_ID,
+    MCP_WORKSPACE_ID_HEADER,
 )
 from airbyte.destinations.util import get_noop_destination
-from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteMissingResourceError,
+    AirbyteMissingWorkspaceContextError,
+    PyAirbyteInputError,
+)
 from airbyte.mcp._arg_resolvers import resolve_connector_config, resolve_list_of_strings
 from airbyte.mcp._tool_utils import (
     AIRBYTE_CLOUD_WORKSPACE_ID_IS_SET,
@@ -43,11 +55,20 @@ from airbyte.mcp._tool_utils import (
 
 
 CLOUD_AUTH_TIP_TEXT = (
-    "By default, the `AIRBYTE_CLOUD_CLIENT_ID`, `AIRBYTE_CLOUD_CLIENT_SECRET`, "
-    "and `AIRBYTE_CLOUD_WORKSPACE_ID` environment variables "
-    "will be used to authenticate with the Airbyte Cloud API."
+    f"When connecting to a hosted MCP server, provide a bearer token via the "
+    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the "
+    f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers, plus "
+    f"the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header. For local or "
+    f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
+    f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
+    f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`, plus `{CLOUD_WORKSPACE_ID_ENV_VAR}` for the "
+    f"workspace."
 )
-WORKSPACE_ID_TIP_TEXT = "Workspace ID. Defaults to `AIRBYTE_CLOUD_WORKSPACE_ID` env var."
+WORKSPACE_ID_TIP_TEXT = (
+    f"Workspace ID. Hosted MCP connections pass it via the "
+    f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
+    f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
+)
 
 
 class CloudSourceResult(BaseModel):
@@ -259,10 +280,7 @@ def _get_cloud_workspace(
     """
     resolved_workspace_id = workspace_id or get_mcp_config(ctx, MCP_CONFIG_WORKSPACE_ID)
     if not resolved_workspace_id:
-        raise PyAirbyteInputError(
-            message="Workspace ID is required but not provided.",
-            guidance="Set AIRBYTE_CLOUD_WORKSPACE_ID env var or pass workspace_id parameter.",
-        )
+        raise AirbyteMissingWorkspaceContextError
 
     return _get_cloud_client(ctx).get_workspace(resolved_workspace_id)
 

@@ -42,14 +42,24 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from textwrap import indent
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
-from airbyte.constants import AIRBYTE_PRINT_FULL_ERROR_LOGS
+from airbyte.constants import (
+    AIRBYTE_PRINT_FULL_ERROR_LOGS,
+    CLOUD_BEARER_TOKEN_ENV_VAR,
+    CLOUD_CLIENT_ID_ENV_VAR,
+    CLOUD_CLIENT_SECRET_ENV_VAR,
+    CLOUD_WORKSPACE_ID_ENV_VAR,
+    MCP_BEARER_TOKEN_HEADER,
+    MCP_CLIENT_ID_HEADER,
+    MCP_CLIENT_SECRET_HEADER,
+    MCP_WORKSPACE_ID_HEADER,
+    is_hosted_mcp_mode,
+)
 
 
 if TYPE_CHECKING:
     from airbyte._util.api_duck_types import AirbyteApiResponseDuckType
-    from airbyte.cloud.workspaces import CloudWorkspace
 
 
 NEW_ISSUE_URL = "https://github.com/airbytehq/airbyte/issues/new/choose"
@@ -220,6 +230,71 @@ class PyAirbyteNoStreamsSelectedError(PyAirbyteInputError):
     )
     connector_name: str | None = None
     available_streams: list[str] | None = None
+
+
+@dataclass
+class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
+    """No Airbyte credentials found."""
+
+    guidance: str | None = None
+    _allow_bearer: bool = True
+    _env_vars: bool = True
+
+    def __post_init__(self) -> None:
+        """Set guidance for the current execution mode."""
+        if self.guidance is not None:
+            return
+        if is_hosted_mcp_mode():
+            if self._allow_bearer:
+                self.guidance = (
+                    f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
+                    f"or client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
+                    f"`{MCP_CLIENT_SECRET_HEADER}` headers."
+                )
+            else:
+                self.guidance = (
+                    f"Provide client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
+                    f"`{MCP_CLIENT_SECRET_HEADER}` headers."
+                )
+        elif self._allow_bearer and self._env_vars:
+            self.guidance = (
+                f"Provide `bearer_token`, or both `client_id` and `client_secret`, as "
+                f"arguments or via the `{CLOUD_BEARER_TOKEN_ENV_VAR}`, "
+                f"`{CLOUD_CLIENT_ID_ENV_VAR}`, and `{CLOUD_CLIENT_SECRET_ENV_VAR}` "
+                "environment variables."
+            )
+        elif self._allow_bearer:
+            self.guidance = "Provide `bearer_token`, or both `client_id` and `client_secret`."
+        elif self._env_vars:
+            self.guidance = (
+                f"Provide both `client_id` and `client_secret`, as arguments or via the "
+                f"`{CLOUD_CLIENT_ID_ENV_VAR}` and `{CLOUD_CLIENT_SECRET_ENV_VAR}` "
+                "environment variables."
+            )
+        else:
+            self.guidance = "Provide both `client_id` and `client_secret`."
+
+
+@dataclass
+class AirbyteMissingWorkspaceContextError(PyAirbyteInputError):
+    """Workspace ID is required but not provided."""
+
+    guidance: str | None = None
+
+    def __post_init__(self) -> None:
+        """Set guidance for the current execution mode."""
+        if self.guidance is not None:
+            return
+        if is_hosted_mcp_mode():
+            self.guidance = (
+                f"Provide the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header, "
+                "or pass the `workspace_id` parameter."
+            )
+        else:
+            self.guidance = (
+                f"Set the `{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable, or pass "
+                "the `workspace_id` parameter."
+            )
 
 
 # MCP Server Errors
@@ -456,6 +531,19 @@ class PyAirbyteSecretNotFoundError(PyAirbyteError):
 # Airbyte API Errors
 
 
+class _WorkspaceWithUrl(Protocol):
+    """Structural type for a workspace that exposes a `workspace_url`.
+
+    Declared locally so `exceptions` does not need to import `airbyte.cloud`, which
+    would create an import cycle. Any object with a `workspace_url` attribute (e.g.
+    `CloudWorkspace`) satisfies this via structural (duck) typing.
+    """
+
+    @property
+    def workspace_url(self) -> str | None:
+        """The web URL of the workspace."""
+
+
 @dataclass
 class AirbyteError(PyAirbyteError):
     """An error occurred while communicating with the hosted Airbyte instance."""
@@ -463,7 +551,7 @@ class AirbyteError(PyAirbyteError):
     response: AirbyteApiResponseDuckType | None = None
     """The API response from the failed request."""
 
-    workspace: CloudWorkspace | None = None
+    workspace: _WorkspaceWithUrl | None = None
     """The workspace where the error occurred."""
 
     @property
