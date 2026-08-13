@@ -56,11 +56,10 @@ from __future__ import annotations
 import logging
 from urllib.parse import urlparse
 
-import fastmcp
-import uvicorn
 from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
+    run_http_server,
 )
 
 from airbyte.constants import set_hosted_mcp_mode
@@ -159,22 +158,15 @@ def main() -> None:
     # entrypoint (a permanent gate; the per-request filter also forces it off).
     assert_http_trusted_execution_disabled(app)
 
-    http_app = app.http_app(
-        path=mcp_path,
-        transport="streamable-http",
-        stateless_http=True,
-    )
     try:
-        # Match `FastMCP.run_http_async`; this direct path exists for the outer
-        # client-credentials wrapper and must retain its server configuration.
-        uvicorn.run(
-            wrap_if_enabled(http_app),
+        run_http_server(
+            app,
+            path=mcp_path,
+            transport="streamable-http",
+            stateless_http=True,
+            wrapper=wrap_if_enabled,
             host=DEFAULT_HTTP_HOST,
             port=DEFAULT_HTTP_PORT,
-            lifespan="on",
-            timeout_graceful_shutdown=2,
-            ws="websockets-sansio",
-            log_level=fastmcp.settings.log_level.lower(),
         )
     except KeyboardInterrupt:
         logger.info("Airbyte MCP HTTP server interrupted by user.")

@@ -49,9 +49,8 @@ dependencies = [
     # 0.14.0 stripped the library's env-var mapping (`resolve_mcp_auth`), so this
     # package now owns its `AIRBYTE_MCP_*` env names and maps them into the typed
     # `build_mcp_auth` API (with `OIDCAuthConfig.client_storage` injection).
-    # 0.15.1 adds the `Client-Id`/`Client-Secret` credential-header form to
-    # `wrap_client_credentials` (airbytehq/fastmcp-extensions#77).
-    "fastmcp-extensions>=0.15.1,<1.0.0",
+    # TK-TODO: Replace this branch pin with a released version floor before merge.
+    "fastmcp-extensions @ git+https://github.com/airbytehq/fastmcp-extensions@devin/1786579818-http-serving-helper",
     "starlette",
     "uv>=0.5.0,<0.9.0",
     # The HTTP entry point imports uvicorn directly; do not rely on fastmcp's transitive dependency.

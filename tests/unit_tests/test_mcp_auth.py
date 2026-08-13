@@ -136,7 +136,7 @@ def test_client_credentials_auth_status_warning(
         assert any(expected_warning in warning for warning in warnings)
 
 
-def test_http_main_preserves_fastmcp_uvicorn_settings(
+def test_http_main_delegates_http_serving_to_fastmcp_extensions(
     monkeypatch: MonkeyPatch,
 ) -> None:
     config: dict[str, object] = {}
@@ -157,21 +157,22 @@ def test_http_main_preserves_fastmcp_uvicorn_settings(
     )
     monkeypatch.setattr(http_main, "wrap_if_enabled", lambda app: app)
 
-    def capture_uvicorn_run(app: object, **kwargs: object) -> None:
+    def capture_run(app: object, **kwargs: object) -> None:
+        assert app is fake_app
         config.update(kwargs)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(http_main.uvicorn, "run", capture_uvicorn_run)
+    monkeypatch.setattr(http_main, "run_http_server", capture_run)
 
     http_main.main()
 
     assert config == {
+        "path": "/mcp",
+        "transport": "streamable-http",
+        "stateless_http": True,
+        "wrapper": http_main.wrap_if_enabled,
         "host": http_main.DEFAULT_HTTP_HOST,
         "port": http_main.DEFAULT_HTTP_PORT,
-        "lifespan": "on",
-        "timeout_graceful_shutdown": 2,
-        "ws": "websockets-sansio",
-        "log_level": http_main.fastmcp.settings.log_level.lower(),
     }
 
 
