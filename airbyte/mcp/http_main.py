@@ -9,7 +9,8 @@ bearer-token verification, combined via `MultiAuth`). Auth activates only for
 the paths a deployment configures via env; with no auth env set the server
 falls back to unauthenticated local behavior. This module declares only the env
 var *names* — the concrete values are supplied at deploy time by the
-deployment's own repo. See `server.py` for details.
+deployment's own repo. See `server.py` and `_client_credentials.py` for
+details.
 
 Environment variables:
 
@@ -38,6 +39,16 @@ issuer, audience, and algorithm refine verification when provided:
 - `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
 - `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
 - `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm override
+
+Opt-in static client credentials:
+
+- `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS`: enable `Client-Id` /
+  `Client-Secret` headers and HTTP Basic credentials. This is an exchange-and-
+  rewrite layer, not a bearer-token verifier; configure `AIRBYTE_MCP_AUTH_JWKS_URI`
+  or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` as well. Without a verifier, minted token
+  claims and requests with no credentials are not checked.
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
+  exchange; defaults to the Airbyte Cloud application-token endpoint
 """
 
 from __future__ import annotations
@@ -48,9 +59,14 @@ from urllib.parse import urlparse
 from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
+    run_mcp_http_server,
 )
 
 from airbyte.constants import set_hosted_mcp_mode
+from airbyte.mcp._client_credentials import (
+    client_credentials_enabled,
+    wrap_if_enabled,
+)
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -76,6 +92,29 @@ def _get_server_url() -> str:
     server URL even when `MCP_SERVER_URL` is set but blank.
     """
     return _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
+
+
+def _log_auth_status() -> None:
+    """Log the configured HTTP transport authentication state."""
+    if app.auth is None and client_credentials_enabled():
+        logger.warning(
+            "HTTP transport starting with client credentials enabled but without "
+            "bearer-token verification: the token endpoint rejects invalid "
+            "credentials, but minted token claims and requests with no credentials "
+            "are not checked. Set `AIRBYTE_MCP_AUTH_JWKS_URI` or "
+            "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` to require bearer verification."
+        )
+    elif app.auth is None:
+        logger.warning(
+            "HTTP transport starting without authentication: no interactive "
+            "OIDC or headless bearer-token auth is configured, so every request "
+            "is unauthenticated. Set `AIRBYTE_MCP_OIDC_CLIENT_ID`/"
+            "`AIRBYTE_MCP_OIDC_CLIENT_SECRET`/`AIRBYTE_MCP_OIDC_CONFIG_URL` "
+            "(interactive) or `AIRBYTE_MCP_AUTH_JWKS_URI`/"
+            "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
+        )
+    else:
+        logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
 
 
 def main() -> None:
@@ -104,17 +143,7 @@ def main() -> None:
         docs_url=MCP_LANDING_DOCS_URL,
     )
 
-    if app.auth is None:
-        logger.warning(
-            "HTTP transport starting without authentication: no interactive "
-            "OIDC or headless bearer-token auth is configured, so every request "
-            "is unauthenticated. Set `AIRBYTE_MCP_OIDC_CLIENT_ID`/"
-            "`AIRBYTE_MCP_OIDC_CLIENT_SECRET`/`AIRBYTE_MCP_OIDC_CONFIG_URL` "
-            "(interactive) or `AIRBYTE_MCP_AUTH_JWKS_URI`/"
-            "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
-        )
-    else:
-        logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
+    _log_auth_status()
 
     logger.info(
         "Starting Airbyte MCP HTTP server on %s:%d (mcp_path=%r)",
@@ -129,13 +158,18 @@ def main() -> None:
     # entrypoint (a permanent gate; the per-request filter also forces it off).
     assert_http_trusted_execution_disabled(app)
 
-    app.run(
-        transport="streamable-http",
-        host=DEFAULT_HTTP_HOST,
-        port=DEFAULT_HTTP_PORT,
-        path=mcp_path,
-        stateless_http=True,
-    )
+    try:
+        run_mcp_http_server(
+            app,
+            path=mcp_path,
+            transport="streamable-http",
+            stateless_http=True,
+            wrapper=wrap_if_enabled,
+            host=DEFAULT_HTTP_HOST,
+            port=DEFAULT_HTTP_PORT,
+        )
+    except KeyboardInterrupt:
+        logger.info("Airbyte MCP HTTP server interrupted by user.")
 
 
 if __name__ == "__main__":
