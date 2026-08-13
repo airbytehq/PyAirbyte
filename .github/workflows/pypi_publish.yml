@@ -81,7 +81,8 @@ jobs:
         uses: pypa/gh-action-pypi-publish@v1.13.0
 
   # Prod cloud-mcp is bumped via Dependabot on airbytehq/airbyte-ops-mcp, not here.
-  # A PyPI publish only refreshes the cloud-mcp preview against the new version.
+  # A PyPI publish refreshes the cloud-mcp preview with the exact published
+  # PyAirbyte requirement.
   deploy_cloud_mcp_preview:
     name: Deploy Cloud MCP (Preview)
     needs: publish_to_pypi
@@ -92,10 +93,22 @@ jobs:
       - name: Wait for PyPI availability
         run: sleep 120
 
+      - name: Resolve published PyAirbyte requirement
+        id: resolve-pyairbyte-requirement
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          VERSION_OVERRIDE: ${{ github.event.inputs.version_override || '' }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          version="${version:-${VERSION_OVERRIDE#v}}"
+          [ -n "$version" ] || { echo "::error::Could not resolve the published PyAirbyte version."; exit 1; }
+          echo "requirement=airbyte==$version" | tee -a "$GITHUB_OUTPUT"
+
       - name: Trigger cloud-mcp preview deploy
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ secrets.GITHUB_CI_WORKFLOW_TRIGGER_PAT }}
           repository: airbytehq/airbyte-ops-mcp
           event-type: deploy-cloud-mcp
-          client-payload: '{"mcp-server": "cloud-mcp", "preview": "true"}'
+          client-payload: '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-version": "${{ steps.resolve-pyairbyte-requirement.outputs.requirement }}"}'
