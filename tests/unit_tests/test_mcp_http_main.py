@@ -17,7 +17,7 @@ from fastmcp.server.auth.auth import TokenVerifier
 from airbyte.mcp.http_main import _advertise_root_mount_resource
 
 
-_BASE_URL = "https://mcp.internal.airbyte.ai/cloud-mcp"
+_BASE_URL = "https://mcp.example.com/cloud-mcp"
 
 
 class _FakeProvider(TokenVerifier):
