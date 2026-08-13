@@ -54,8 +54,10 @@ Opt-in static client credentials:
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from fastmcp.server.auth import MultiAuth
 from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
@@ -77,6 +79,10 @@ from airbyte.mcp.server import (
 )
 
 
+if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
+
+
 logger = logging.getLogger(__name__)
 
 # Human-facing landing page shown when a browser GETs the MCP endpoint.
@@ -92,6 +98,37 @@ def _get_server_url() -> str:
     server URL even when `MCP_SERVER_URL` is set but blank.
     """
     return _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
+
+
+def _advertise_root_mount_resource(auth: AuthProvider) -> None:
+    """Advertise the slash-less public URL as the RFC 9728 resource at a root mount.
+
+    Behind a path-stripping load balancer the MCP endpoint is mounted at root
+    (`mcp_path="/"`), and FastMCP derives the protected-resource identifier from
+    that mount path — appending a trailing slash (e.g. `.../cloud-mcp/`). Strict
+    RFC 9728 clients canonicalize the connection URL to the slash-less form
+    (`.../cloud-mcp`) and reject the mismatch, so they cannot attach. FastMCP
+    already returns the bare base URL for a *root* mount path (`None`/`""`), so
+    this maps the `"/"` mount path onto that root case, leaving non-root mounts
+    (e.g. the local `"/mcp"` default) untouched.
+
+    Applied to every provider in the tree because the protected-resource
+    metadata document and the `WWW-Authenticate` challenge are built from
+    different providers (the interactive server versus the top-level `MultiAuth`).
+    """
+    original = auth._get_resource_url  # noqa: SLF001  # FastMCP has no public seam for this.
+
+    def resolve_resource_url(path: str | None = None):  # noqa: ANN202
+        normalized = path if path and path != "/" else None
+        return original(normalized)
+
+    auth._get_resource_url = resolve_resource_url  # type: ignore[method-assign]  # noqa: SLF001
+
+    if isinstance(auth, MultiAuth):
+        if auth.server is not None:
+            _advertise_root_mount_resource(auth.server)
+        for verifier in auth.verifiers:
+            _advertise_root_mount_resource(verifier)
 
 
 def _log_auth_status() -> None:
@@ -131,6 +168,11 @@ def main() -> None:
     # The advertised endpoint must match where the MCP route is actually mounted:
     # the bare server URL when mounted at root, otherwise the server URL + mcp_path.
     endpoint_url = server_url if mcp_path == "/" else server_url.rstrip("/") + mcp_path
+
+    # At a root mount FastMCP would advertise a trailing-slash resource that
+    # strict RFC 9728 clients reject; pin it to the slash-less public URL.
+    if mcp_path == "/" and app.auth is not None:
+        _advertise_root_mount_resource(app.auth)
 
     # Serve a browser-friendly landing page on GET at the MCP path. In stateless
     # mode FastMCP only binds POST/DELETE there, so this GET route does not
