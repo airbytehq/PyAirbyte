@@ -78,7 +78,7 @@ jobs:
       # Uses GitHub OIDC for passwordless authentication (see header comment)
       - name: Publish to PyPI
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
-        uses: pypa/gh-action-pypi-publish@v1.14.2
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   # Prod cloud-mcp is bumped via Dependabot on airbytehq/airbyte-ops-mcp, not here.
   # A PyPI publish refreshes the cloud-mcp preview with the exact published
