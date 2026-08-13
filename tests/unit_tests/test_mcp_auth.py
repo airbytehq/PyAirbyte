@@ -156,6 +156,7 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
         lambda app: None,
     )
     monkeypatch.setattr(http_main, "wrap_if_enabled", lambda app: app)
+    monkeypatch.delenv("MCP_SERVER_URL", raising=False)
 
     def capture_run(app: object, **kwargs: object) -> None:
         assert app is fake_app

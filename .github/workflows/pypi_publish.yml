@@ -90,9 +90,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions: {}
     steps:
-      - name: Wait for PyPI availability
-        run: sleep 120
-
       - name: Resolve published PyAirbyte requirement
         id: resolve-pyairbyte-requirement
         env:
@@ -103,7 +100,36 @@ jobs:
           version="${RELEASE_TAG#v}"
           version="${version:-${VERSION_OVERRIDE#v}}"
           [ -n "$version" ] || { echo "::error::Could not resolve the published PyAirbyte version."; exit 1; }
+          python -c 'from packaging.version import Version; Version(__import__("sys").argv[1])' "$version" \
+            || { echo "::error::Invalid PEP 440 version: $version"; exit 1; }
+          echo "version=$version" | tee -a "$GITHUB_OUTPUT"
           echo "requirement=airbyte==$version" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Wait for PyAirbyte version on PyPI
+        env:
+          PYPI_VERSION: ${{ steps.resolve-pyairbyte-requirement.outputs.version }}
+        run: |
+          set -euo pipefail
+          attempt=1
+          while [ "$attempt" -le 30 ] && ! curl --fail --silent --show-error \
+            --output /dev/null "https://pypi.org/pypi/airbyte/$PYPI_VERSION/json"; do
+            echo "PyPI version $PYPI_VERSION is not available yet (attempt $attempt/30)."
+            sleep 10
+            attempt=$((attempt + 1))
+          done
+          [ "$attempt" -le 30 ] \
+            || { echo "::error::PyPI version $PYPI_VERSION did not become available after 30 attempts."; exit 1; }
+
+      - name: Build cloud-mcp dispatch payload
+        id: build-client-payload
+        env:
+          PYPI_REQUIREMENT: ${{ steps.resolve-pyairbyte-requirement.outputs.requirement }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn \
+            --arg requirement "$PYPI_REQUIREMENT" \
+            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-version": $requirement}')"
+          echo "payload=$payload" | tee -a "$GITHUB_OUTPUT"
 
       - name: Trigger cloud-mcp preview deploy
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
@@ -111,4 +137,4 @@ jobs:
           token: ${{ secrets.GITHUB_CI_WORKFLOW_TRIGGER_PAT }}
           repository: airbytehq/airbyte-ops-mcp
           event-type: deploy-cloud-mcp
-          client-payload: '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-version": "${{ steps.resolve-pyairbyte-requirement.outputs.requirement }}"}'
+          client-payload: ${{ steps.build-client-payload.outputs.payload }}
