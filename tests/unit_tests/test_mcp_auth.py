@@ -147,7 +147,9 @@ def test_http_main_preserves_fastmcp_uvicorn_settings(
 
     monkeypatch.setattr(http_main, "app", fake_app)
     monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
-    monkeypatch.setattr(http_main, "register_landing_page", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        http_main, "register_landing_page", lambda *args, **kwargs: None
+    )
     monkeypatch.setattr(
         http_main,
         "assert_http_trusted_execution_disabled",
