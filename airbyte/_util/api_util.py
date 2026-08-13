@@ -265,7 +265,7 @@ def get_workspace(
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     try:
         response = airbyte_instance.workspaces.get_workspace(
-            api.GetWorkspaceRequest(
+            request=api.GetWorkspaceRequest(
                 workspace_id=workspace_id,
             ),
         )
@@ -356,7 +356,7 @@ def rename_workspace(
     }
     try:
         response = airbyte_instance.workspaces.update_workspace(
-            api.UpdateWorkspaceRequest(
+            request=api.UpdateWorkspaceRequest(
                 workspace_id=workspace_id,
                 workspace_update_request=models.WorkspaceUpdateRequest(name=name),
             )
@@ -456,7 +456,7 @@ def permanently_delete_workspace(
     }
     try:
         response = airbyte_instance.workspaces.delete_workspace(
-            api.DeleteWorkspaceRequest(workspace_id=workspace_id),
+            request=api.DeleteWorkspaceRequest(workspace_id=workspace_id),
         )
     except SDKError as e:
         raise _wrap_sdk_error(e, base_context) from e
@@ -505,7 +505,7 @@ def list_connections(
     while remaining is None or remaining > 0:
         try:
             response = airbyte_instance.connections.list_connections(
-                api.ListConnectionsRequest(
+                request=api.ListConnectionsRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
                     limit=PAGE_SIZE,
@@ -576,7 +576,7 @@ def list_workspaces(
         page_limit = PAGE_SIZE if has_name_filter else _get_page_limit(remaining)
         try:
             response: api.ListWorkspacesResponse = airbyte_instance.workspaces.list_workspaces(
-                api.ListWorkspacesRequest(
+                request=api.ListWorkspacesRequest(
                     offset=current_offset,
                     limit=page_limit,
                 ),
@@ -643,7 +643,7 @@ def list_sources(
     while remaining is None or remaining > 0:
         try:
             response: api.ListSourcesResponse = airbyte_instance.sources.list_sources(
-                api.ListSourcesRequest(
+                request=api.ListSourcesRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
                     limit=PAGE_SIZE,
@@ -710,7 +710,7 @@ def list_destinations(
     while remaining is None or remaining > 0:
         try:
             response = airbyte_instance.destinations.list_destinations(
-                api.ListDestinationsRequest(
+                request=api.ListDestinationsRequest(
                     workspace_ids=[workspace_id],
                     offset=current_offset,
                     limit=PAGE_SIZE,
@@ -777,7 +777,7 @@ def get_connection(
     }
     try:
         response = airbyte_instance.connections.get_connection(
-            api.GetConnectionRequest(
+            request=api.GetConnectionRequest(
                 connection_id=connection_id,
             ),
         )
@@ -821,7 +821,7 @@ def run_connection(
         api_root=api_root,
     )
     response = airbyte_instance.jobs.create_job(
-        models.JobCreateRequest(
+        request=models.JobCreateRequest(
             connection_id=connection_id,
             job_type=models.JobTypeEnum.SYNC,
         ),
@@ -908,7 +908,7 @@ def get_job_logs(  # noqa: PLR0913  # Too many arguments - needed for auth flexi
         page_limit = _get_page_limit(remaining)
         try:
             response: api.ListJobsResponse = airbyte_instance.jobs.list_jobs(
-                api.ListJobsRequest(
+                request=api.ListJobsRequest(
                     workspace_ids=[workspace_id],
                     connection_id=connection_id,
                     limit=page_limit,
@@ -982,7 +982,7 @@ def get_job_info(
         api_root=api_root,
     )
     response = airbyte_instance.jobs.get_job(
-        api.GetJobRequest(
+        request=api.GetJobRequest(
             job_id=job_id,
         ),
     )
@@ -1025,7 +1025,7 @@ def create_source(
         api_root=api_root,
     )
     response: api.CreateSourceResponse = airbyte_instance.sources.create_source(
-        models.SourceCreateRequest(
+        request=models.SourceCreateRequest(
             name=name,
             workspace_id=workspace_id,
             configuration=config,  # Speakeasy API wants a dataclass, not a dict
@@ -1062,7 +1062,7 @@ def get_source(
         api_root=api_root,
     )
     response = airbyte_instance.sources.get_source(
-        api.GetSourceRequest(
+        request=api.GetSourceRequest(
             source_id=source_id,
         ),
     )
@@ -1144,7 +1144,7 @@ def delete_source(
         api_root=api_root,
     )
     response = airbyte_instance.sources.delete_source(
-        api.DeleteSourceRequest(
+        request=api.DeleteSourceRequest(
             source_id=source_id,
         ),
     )
@@ -1192,7 +1192,7 @@ def patch_source(
         api_root=api_root,
     )
     response = airbyte_instance.sources.patch_source(
-        api.PatchSourceRequest(
+        request=api.PatchSourceRequest(
             source_id=source_id,
             source_patch_request=models.SourcePatchRequest(
                 name=name,
@@ -1262,7 +1262,7 @@ def create_destination(
         #  https://github.com/airbytehq/PyAirbyte/issues/743
         definition_id_override = "a7bcc9d8-13b3-4e49-b80d-d020b90045e3"
     response: api.CreateDestinationResponse = airbyte_instance.destinations.create_destination(
-        models.DestinationCreateRequest(
+        request=models.DestinationCreateRequest(
             definition_id=definition_id_override,
             name=name,
             workspace_id=workspace_id,
@@ -1298,7 +1298,7 @@ def get_destination(
         api_root=api_root,
     )
     response = airbyte_instance.destinations.get_destination(
-        api.GetDestinationRequest(
+        request=api.GetDestinationRequest(
             destination_id=destination_id,
         ),
     )
@@ -1399,7 +1399,7 @@ def delete_destination(
         api_root=api_root,
     )
     response = airbyte_instance.destinations.delete_destination(
-        api.DeleteDestinationRequest(
+        request=api.DeleteDestinationRequest(
             destination_id=destination_id,
         ),
     )
@@ -1447,7 +1447,7 @@ def patch_destination(
         api_root=api_root,
     )
     response = airbyte_instance.destinations.patch_destination(
-        api.PatchDestinationRequest(
+        request=api.PatchDestinationRequest(
             destination_id=destination_id,
             destination_patch_request=models.DestinationPatchRequest(
                 name=name,
@@ -1525,7 +1525,7 @@ def create_connection(  # noqa: PLR0913  # Too many arguments
     )
     stream_configurations_obj = build_stream_configurations(selected_stream_names)
     response = airbyte_instance.connections.create_connection(
-        models.ConnectionCreateRequest(
+        request=models.ConnectionCreateRequest(
             name=name,
             source_id=source_id,
             destination_id=destination_id,
@@ -1663,7 +1663,7 @@ def delete_connection(
         api_root=api_root,
     )
     response = airbyte_instance.connections.delete_connection(
-        api.DeleteConnectionRequest(
+        request=api.DeleteConnectionRequest(
             connection_id=connection_id,
         ),
     )
@@ -1731,7 +1731,7 @@ def patch_connection(  # noqa: PLR0913  # Too many arguments
         status_value = status
 
     response = airbyte_instance.connections.patch_connection(
-        api.PatchConnectionRequest(
+        request=api.PatchConnectionRequest(
             connection_id=connection_id,
             connection_patch_request=models.ConnectionPatchRequest(
                 name=name,
@@ -1960,7 +1960,7 @@ def create_custom_yaml_source_definition(
         create_declarative_source_definition_request=request_body,
     )
     response = airbyte_instance.declarative_source_definitions.create_declarative_source_definition(
-        request
+        request=request
     )
     if response.declarative_source_definition_response is None:
         raise AirbyteError(
@@ -1990,7 +1990,7 @@ def list_custom_yaml_source_definitions(
         workspace_id=workspace_id,
     )
     response = airbyte_instance.declarative_source_definitions.list_declarative_source_definitions(
-        request
+        request=request
     )
     if (
         not status_ok(response.status_code)
@@ -2029,7 +2029,7 @@ def get_custom_yaml_source_definition(
         definition_id=definition_id,
     )
     response = airbyte_instance.declarative_source_definitions.get_declarative_source_definition(
-        request
+        request=request
     )
     if (
         not status_ok(response.status_code)
@@ -2074,7 +2074,7 @@ def update_custom_yaml_source_definition(
         update_declarative_source_definition_request=request_body,
     )
     response = airbyte_instance.declarative_source_definitions.update_declarative_source_definition(
-        request
+        request=request
     )
     if (
         not status_ok(response.status_code)
@@ -2160,7 +2160,7 @@ def delete_custom_yaml_source_definition(
         definition_id=definition_id,
     )
     response = airbyte_instance.declarative_source_definitions.delete_declarative_source_definition(
-        request
+        request=request
     )
     if not status_ok(response.status_code):
         raise AirbyteError(
