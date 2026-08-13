@@ -136,6 +136,43 @@ def test_client_credentials_auth_status_warning(
         assert any(expected_warning in warning for warning in warnings)
 
 
+def test_http_main_preserves_fastmcp_uvicorn_settings(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    config: dict[str, object] = {}
+    fake_app = SimpleNamespace(
+        auth=object(),
+        http_app=lambda **kwargs: object(),
+    )
+
+    monkeypatch.setattr(http_main, "app", fake_app)
+    monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
+    monkeypatch.setattr(http_main, "register_landing_page", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        http_main,
+        "assert_http_trusted_execution_disabled",
+        lambda app: None,
+    )
+    monkeypatch.setattr(http_main, "wrap_if_enabled", lambda app: app)
+
+    def capture_uvicorn_run(app: object, **kwargs: object) -> None:
+        config.update(kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(http_main.uvicorn, "run", capture_uvicorn_run)
+
+    http_main.main()
+
+    assert config == {
+        "host": http_main.DEFAULT_HTTP_HOST,
+        "port": http_main.DEFAULT_HTTP_PORT,
+        "lifespan": "on",
+        "timeout_graceful_shutdown": 2,
+        "ws": "websockets-sansio",
+        "log_level": http_main.fastmcp.settings.log_level.lower(),
+    }
+
+
 @pytest.mark.parametrize(
     "value, expected",
     [
