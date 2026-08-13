@@ -115,15 +115,22 @@ jobs:
           PYPI_VERSION: ${{ steps.resolve-pyairbyte-requirement.outputs.version }}
         run: |
           set -euo pipefail
+          wheel="airbyte-${PYPI_VERSION}-py3-none-any.whl"
+          sdist="airbyte-${PYPI_VERSION}.tar.gz"
           attempt=1
-          while [ "$attempt" -le 30 ] && ! curl --fail --silent --show-error \
-            --output /dev/null "https://pypi.org/pypi/airbyte/$PYPI_VERSION/json"; do
-            echo "PyPI version $PYPI_VERSION is not available yet (attempt $attempt/30)."
+          while [ "$attempt" -le 30 ]; do
+            simple_index="$(curl --fail --silent --show-error \
+              "https://pypi.org/simple/airbyte/")"
+            if grep -Fq ">${wheel}<" <<<"$simple_index" \
+              && grep -Fq ">${sdist}<" <<<"$simple_index"; then
+              break
+            fi
+            echo "PyPI artifacts for version $PYPI_VERSION are not available in the simple index yet (attempt $attempt/30)."
             sleep 10
             attempt=$((attempt + 1))
           done
           [ "$attempt" -le 30 ] \
-            || { echo "::error::PyPI version $PYPI_VERSION did not become available after 30 attempts."; exit 1; }
+            || { echo "::error::PyPI artifacts for version $PYPI_VERSION did not become available in the simple index after 30 attempts."; exit 1; }
 
       - name: Build cloud-mcp dispatch payload
         id: build-client-payload
