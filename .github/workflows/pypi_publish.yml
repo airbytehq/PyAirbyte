@@ -132,7 +132,7 @@ jobs:
           set -euo pipefail
           payload="$(jq -cn \
             --arg requirement "$PYPI_REQUIREMENT" \
-            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-version": $requirement}')"
+            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-requirement": $requirement}')"
           echo "payload=$payload" | tee -a "$GITHUB_OUTPUT"
 
       - name: Trigger cloud-mcp preview deploy
