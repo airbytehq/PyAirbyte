@@ -53,8 +53,6 @@ dependencies = [
     "fastmcp-extensions @ git+https://github.com/airbytehq/fastmcp-extensions@devin/1786579818-http-serving-helper",
     "starlette",
     "uv>=0.5.0,<0.9.0",
-    # The HTTP entry point imports uvicorn directly; do not rely on fastmcp's transitive dependency.
-    "uvicorn>=0.30.0,<1.0",
     "prefab-ui>=0.20.1,<0.21",
 ]
 
