@@ -1129,8 +1129,8 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.15.1.post4.dev0+eae0ca8"
-source = { git = "https://github.com/airbytehq/fastmcp-extensions?rev=devin%2F1786579818-http-serving-helper#eae0ca817c9863fe5059e0374091a575251c6060" }
+version = "0.15.1.post7.dev0+aa7c640"
+source = { git = "https://github.com/airbytehq/fastmcp-extensions?rev=devin%2F1786579818-http-serving-helper#aa7c640b4603dbd08d111fd3ec2dfde310cb4ad8" }
 dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },

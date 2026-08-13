@@ -162,7 +162,7 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
         config.update(kwargs)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(http_main, "run_http_server", capture_run)
+    monkeypatch.setattr(http_main, "run_mcp_http_server", capture_run)
 
     http_main.main()
 

@@ -59,7 +59,7 @@ from urllib.parse import urlparse
 from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
-    run_http_server,
+    run_mcp_http_server,
 )
 
 from airbyte.constants import set_hosted_mcp_mode
@@ -159,7 +159,7 @@ def main() -> None:
     assert_http_trusted_execution_disabled(app)
 
     try:
-        run_http_server(
+        run_mcp_http_server(
             app,
             path=mcp_path,
             transport="streamable-http",
