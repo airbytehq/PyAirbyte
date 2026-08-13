@@ -13,7 +13,6 @@ assembly lives in `fastmcp-extensions` and is tested there.
 
 from __future__ import annotations
 
-import logging
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -123,18 +122,18 @@ def test_client_credentials_auth_status_warning(
     auth: object | None,
     expected_warning: str | None,
     monkeypatch: MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     monkeypatch.setattr(http_main, "app", SimpleNamespace(auth=auth))
     monkeypatch.setattr(http_main, "client_credentials_enabled", lambda: True)
-    caplog.set_level(logging.WARNING, logger=http_main.logger.name)
+    warnings: list[str] = []
+    monkeypatch.setattr(http_main.logger, "warning", warnings.append)
 
     http_main._log_auth_status()
 
     if expected_warning is None:
-        assert not caplog.records
+        assert not warnings
     else:
-        assert expected_warning in caplog.text
+        assert any(expected_warning in warning for warning in warnings)
 
 
 @pytest.mark.parametrize(
