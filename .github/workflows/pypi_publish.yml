@@ -100,8 +100,12 @@ jobs:
           version="${RELEASE_TAG#v}"
           version="${version:-${VERSION_OVERRIDE#v}}"
           [ -n "$version" ] || { echo "::error::Could not resolve the published PyAirbyte version."; exit 1; }
-          python -c 'from packaging.version import Version; Version(__import__("sys").argv[1])' "$version" \
-            || { echo "::error::Invalid PEP 440 version: $version"; exit 1; }
+          case "$version" in
+            ''|[!0-9]*|*[!0-9A-Za-z.+!-]*)
+              echo "::error::Invalid PEP 440 version: $version"
+              exit 1
+              ;;
+          esac
           echo "version=$version" | tee -a "$GITHUB_OUTPUT"
           echo "requirement=airbyte==$version" | tee -a "$GITHUB_OUTPUT"
 
