@@ -119,8 +119,10 @@ jobs:
           sdist="airbyte-${PYPI_VERSION}.tar.gz"
           attempt=1
           while [ "$attempt" -le 30 ]; do
-            simple_index="$(curl --fail --silent --show-error \
-              "https://pypi.org/simple/airbyte/")"
+            if ! simple_index="$(curl --fail --silent --show-error \
+              "https://pypi.org/simple/airbyte/")"; then
+              simple_index=""
+            fi
             if grep -Fq ">${wheel}<" <<<"$simple_index" \
               && grep -Fq ">${sdist}<" <<<"$simple_index"; then
               break
