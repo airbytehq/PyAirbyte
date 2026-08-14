@@ -62,6 +62,7 @@ from airbyte.constants import (
     MCP_WORKSPACE_ID_HEADER,
 )
 from airbyte.exceptions import PyAirbyteInputError
+from airbyte.mcp._capability_tokens import decode_capability_token
 
 
 if TYPE_CHECKING:
@@ -521,10 +522,9 @@ def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
 def _client_supports_ui() -> bool:
     """Return whether the current client declared MCP Apps UI support.
 
-    Stateless streamable HTTP discards initialize-time `ClientCapabilities`, so
-    HTTP clients can declare extensions through the fallback request header.
-    There is no standardized MCP header for this today; the Airbyte server
-    accepts the non-standard `X-MCP-Extensions` header.
+    Stateless streamable HTTP carries initialize-time extensions in a
+    self-describing `Mcp-Session-Id` when the client supports session IDs.
+    `X-MCP-Extensions` remains an explicit fallback for clients that do not.
     """
     try:
         context = get_context()
@@ -540,7 +540,10 @@ def _fastmcp_context_supports_ui(context: Context) -> bool:
 
 
 def _client_declared_extensions_from_headers() -> set[str]:
-    """Return comma- or whitespace-separated extension IDs from HTTP headers."""
-    header_key = MCP_EXTENSIONS_HEADER.lower()
-    header_value = get_http_headers(include={header_key}).get(header_key, "")
+    """Return extension IDs from the session token or fallback HTTP header."""
+    headers = get_http_headers(include={MCP_EXTENSIONS_HEADER.lower(), "mcp-session-id"})
+    session_extensions = decode_capability_token(headers.get("mcp-session-id", ""))
+    if session_extensions:
+        return session_extensions
+    header_value = headers.get(MCP_EXTENSIONS_HEADER.lower(), "")
     return set(header_value.replace(",", " ").split())

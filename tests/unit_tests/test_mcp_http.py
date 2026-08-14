@@ -17,8 +17,14 @@ from mcp import types
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from starlette.middleware import Middleware
 
 from airbyte.mcp import _tool_utils
+from airbyte.mcp._capability_tokens import (
+    CapabilityTokenMiddleware,
+    decode_capability_token,
+    encode_capability_token,
+)
 from airbyte.mcp.server import app
 
 
@@ -55,6 +61,7 @@ def _http_app() -> Any:
     """Build the in-process HTTP app, mirroring `http_main`'s stateless config."""
     return app.http_app(
         path="/mcp",
+        middleware=[Middleware(CapabilityTokenMiddleware)],
         transport="streamable-http",
         stateless_http=True,
     )
@@ -88,21 +95,30 @@ async def _http_session(
     *,
     headers: dict[str, str] | None,
     configure_client_capabilities: Any,
+    ui: bool = False,
     wire_headers: list[list[tuple[bytes, bytes]]] | None = None,
+    response_headers: list[list[tuple[bytes, bytes]]] | None = None,
 ) -> AsyncIterator[ClientSession]:
-    configure_client_capabilities(False)
+    configure_client_capabilities(ui)
     http_app = _http_app()
 
     async def capture_request(request: httpx.Request) -> None:
         if wire_headers is not None:
             wire_headers.append(request.headers.raw)
 
+    async def capture_response(response: httpx.Response) -> None:
+        if response_headers is not None:
+            response_headers.append(response.headers.raw)
+
     async with http_app.router.lifespan_context(http_app):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=http_app),
             base_url="http://testserver",
             headers=headers,
-            event_hooks={"request": [capture_request]},
+            event_hooks={
+                "request": [capture_request],
+                "response": [capture_response],
+            },
         ) as http_client:
             async with streamable_http_client(
                 "http://testserver/mcp",
@@ -137,6 +153,88 @@ def test_stdio_ui_tool_visibility(
         assert UI_TOOL_NAMES <= names
     else:
         assert UI_TOOL_NAMES.isdisjoint(names)
+
+
+@pytest.mark.parametrize(
+    "extension_ids, expected",
+    [
+        pytest.param(
+            {"io.modelcontextprotocol/ui"},
+            {"io.modelcontextprotocol/ui"},
+            id="single-extension",
+        ),
+        pytest.param(
+            {"io.modelcontextprotocol/ui", "io.modelcontextprotocol/roots"},
+            {"io.modelcontextprotocol/ui", "io.modelcontextprotocol/roots"},
+            id="multiple-extensions",
+        ),
+        pytest.param(set(), set(), id="empty"),
+        pytest.param({"foo bar"}, set(), id="whitespace-containing-id"),
+        pytest.param({" \t\n"}, set(), id="all-whitespace-ids"),
+    ],
+)
+def test_capability_token_round_trip(
+    extension_ids: set[str],
+    expected: set[str],
+) -> None:
+    """Capability tokens round-trip extension IDs."""
+    token = encode_capability_token(extension_ids)
+    assert decode_capability_token(token) == expected
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        pytest.param("garbage", id="garbage"),
+        pytest.param(
+            "00000000000000000000000000000000.not-base64!",
+            id="non-base64",
+        ),
+        pytest.param("00000000-0000-0000-0000-000000000000", id="uuid-only"),
+        pytest.param("", id="empty"),
+    ],
+)
+def test_capability_token_decode_fails_closed(token: str) -> None:
+    """Malformed capability tokens do not expose extensions."""
+    assert decode_capability_token(token) == set()
+
+
+def test_stateless_http_initialize_capabilities_survive_via_session_token(
+    configure_client_capabilities: Any,
+) -> None:
+    """Stateless HTTP carries initialize extensions through the session token."""
+    names = asyncio.run(
+        _tool_names(
+            _http_session(
+                headers={},
+                ui=True,
+                configure_client_capabilities=configure_client_capabilities,
+            )
+        )
+    )
+    assert UI_TOOL_NAMES <= names
+
+
+def test_stateless_http_without_extensions_mints_no_session_token(
+    configure_client_capabilities: Any,
+) -> None:
+    """Clients without extensions receive no session token or UI tools."""
+    response_headers: list[list[tuple[bytes, bytes]]] = []
+    names = asyncio.run(
+        _tool_names(
+            _http_session(
+                headers={},
+                configure_client_capabilities=configure_client_capabilities,
+                response_headers=response_headers,
+            )
+        )
+    )
+    assert UI_TOOL_NAMES.isdisjoint(names)
+    assert all(
+        header_name.lower() != b"mcp-session-id"
+        for headers in response_headers
+        for header_name, _ in headers
+    )
 
 
 @pytest.mark.parametrize(
