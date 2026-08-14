@@ -69,6 +69,11 @@ def test_advertise_root_mount_resource_recurses_into_multiauth() -> None:
             id="tagged_release_links_to_its_release_page",
         ),
         pytest.param(
+            "0.54.0.post4.dev0+32b9886",
+            "https://github.com/airbytehq/PyAirbyte/commit/32b9886",
+            id="dev_build_links_to_the_commit_in_its_local_segment",
+        ),
+        pytest.param(
             "0.54.1a3",
             "https://github.com/airbytehq/PyAirbyte/releases",
             id="prerelease_build_without_a_sha_links_to_the_release_list",

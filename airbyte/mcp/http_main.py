@@ -105,10 +105,10 @@ def _landing_version_url() -> str:
     """Return the URL the landing-page version footer links to.
 
     A final version links to its release page. A dev build has no release of its
-    own: it links to the commit it was cut from when the version's local segment
-    carries one (`0.54.1.dev3+1b1637b4`), and otherwise — which is what this
-    project's `{base}a{distance}` version format produces (`0.54.1a3`) — to the
-    release list, since no per-build page exists.
+    own, so it links to the commit it was cut from, which its local segment
+    carries (`0.54.0.post4.dev0+32b9886`). A non-final version built without a
+    local segment (the prerelease workflow's `{base}.dev{pr}{run_id}`) identifies
+    no commit, so it falls back to the release list.
     """
     public, _, local = get_version().partition("+")
     commit_sha = local.split(".")[0]

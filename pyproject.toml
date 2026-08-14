@@ -96,10 +96,10 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 fallback-version = "0.0.0"
-# Format to produce PEP 440 compliant versions like "x.y.za0" for dev builds
-# This produces versions with 3 parts when split by "." (e.g., "0.35.7a17")
-format = "{base}a{distance}"
-format-jinja = "{% if distance == 0 %}{{ base }}{% else %}{{ base }}a{{ distance }}{% endif %}"
+# No `format` override: the default PEP 440 style carries the commit in the local
+# segment for dev builds (e.g. "0.54.1.post5.dev0+1b1637b4"), so a build always
+# identifies the commit it came from. Published releases pass an explicit version
+# via `UV_DYNAMIC_VERSIONING_BYPASS`, so they never carry a local segment.
 
 [tool.hatch.metadata]
 allow-direct-references = true
