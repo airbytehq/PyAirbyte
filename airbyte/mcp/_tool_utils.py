@@ -543,7 +543,6 @@ def _client_declared_extensions_from_headers() -> set[str]:
     """Return extension IDs from the session token or fallback HTTP header."""
     headers = get_http_headers(include={MCP_EXTENSIONS_HEADER.lower(), "mcp-session-id"})
     session_extensions = decode_capability_token(headers.get("mcp-session-id", ""))
-    if session_extensions:
-        return session_extensions
     header_value = headers.get(MCP_EXTENSIONS_HEADER.lower(), "")
-    return set(header_value.replace(",", " ").split())
+    fallback_extensions = set(header_value.replace(",", " ").split())
+    return session_extensions | fallback_extensions

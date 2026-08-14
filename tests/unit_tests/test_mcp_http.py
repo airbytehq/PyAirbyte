@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,6 +23,7 @@ from starlette.middleware import Middleware
 from airbyte.mcp import _tool_utils
 from airbyte.mcp._capability_tokens import (
     CapabilityTokenMiddleware,
+    _MAX_INITIALIZE_BODY_BYTES,
     decode_capability_token,
     encode_capability_token,
 )
@@ -187,8 +189,12 @@ def test_capability_token_round_trip(
     [
         pytest.param("garbage", id="garbage"),
         pytest.param(
-            "00000000000000000000000000000000.not-base64!",
+            f"{uuid.uuid4().hex}.not-base64!",
             id="non-base64",
+        ),
+        pytest.param(
+            f"00000000000000000000000000000000.{'aW8ubW9kZWxjb250ZXh0cHJvdG9jb2wvdWk'}",
+            id="non-uuid4-with-valid-payload",
         ),
         pytest.param("00000000-0000-0000-0000-000000000000", id="uuid-only"),
         pytest.param("", id="empty"),
@@ -278,6 +284,95 @@ def test_client_declared_extensions_from_headers(
     monkeypatch.setattr(_tool_utils, "get_http_headers", lambda **_: headers)
     extensions = _tool_utils._client_declared_extensions_from_headers()
     assert ("io.modelcontextprotocol/ui" in extensions) is expected
+
+
+def test_client_declared_extensions_union_session_token_and_fallback_header(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Session-token and fallback-header extensions are combined."""
+    token = encode_capability_token({"io.modelcontextprotocol/roots"})
+    monkeypatch.setattr(
+        _tool_utils,
+        "get_http_headers",
+        lambda **_: {
+            "mcp-session-id": token,
+            "x-mcp-extensions": "io.modelcontextprotocol/ui",
+        },
+    )
+
+    assert _tool_utils._client_declared_extensions_from_headers() == {
+        "io.modelcontextprotocol/roots",
+        "io.modelcontextprotocol/ui",
+    }
+
+
+async def _capture_middleware_request(
+    messages: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    received: list[dict[str, object]] = []
+    responses: list[dict[str, object]] = []
+    message_index = 0
+
+    async def receive() -> Any:
+        nonlocal message_index
+        message = messages[message_index]
+        message_index += 1
+        return message
+
+    async def send(message: dict[str, object]) -> None:
+        responses.append(message)
+
+    async def app(scope: Any, receive: Any, send: Any) -> None:
+        del scope
+        while True:
+            message = await receive()
+            received.append(message)
+            if message["type"] == "http.disconnect" or not message.get("more_body"):
+                break
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+
+    middleware = CapabilityTokenMiddleware(app)
+    await middleware(
+        {"type": "http", "method": "POST"},
+        receive,
+        send,
+    )
+    return received, responses
+
+
+def test_capability_token_middleware_forwards_large_body_without_token() -> None:
+    """Bodies larger than the sniffing cap reach the app intact."""
+    body = b"x" * (_MAX_INITIALIZE_BODY_BYTES + 1)
+    received, responses = asyncio.run(
+        _capture_middleware_request([
+            {"type": "http.request", "body": body[:1024], "more_body": True},
+            {"type": "http.request", "body": body[1024:], "more_body": False},
+        ])
+    )
+
+    assert b"".join(message.get("body", b"") for message in received) == body
+    assert all(
+        header_name != b"mcp-session-id"
+        for response in responses
+        for header_name, _ in response.get("headers", [])
+    )
+
+
+def test_capability_token_middleware_forwards_disconnect_without_token() -> None:
+    """A disconnected request is forwarded without attempting token parsing."""
+    received, responses = asyncio.run(
+        _capture_middleware_request([
+            {"type": "http.request", "body": b'{"jsonrpc":', "more_body": True},
+            {"type": "http.disconnect"},
+        ])
+    )
+
+    assert received[-1]["type"] == "http.disconnect"
+    assert all(
+        header_name != b"mcp-session-id"
+        for response in responses
+        for header_name, _ in response.get("headers", [])
+    )
 
 
 @pytest.mark.parametrize(

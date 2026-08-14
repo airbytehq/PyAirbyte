@@ -234,8 +234,9 @@ whitespace-separated.
 
 The eventual spec-aligned replacement is per-request `_meta` under
 `io.modelcontextprotocol/clientCapabilities`. That path exists in the modern
-`mcp` 2.0.0 server architecture, but `fastmcp` 3.4.5 requires `mcp<2.0`, so
-using it requires a stack migration rather than a version-only change.
+`mcp` 2.x server architecture, while this project currently resolves the
+legacy `fastmcp` 3.x and `mcp` 1.x stack. Using it requires a stack migration
+rather than a version-only change.
 
 With no auth variables set, the HTTP server falls back to unauthenticated local
 behavior. This server maps the `AIRBYTE_MCP_*` variables into the typed config

@@ -20,13 +20,14 @@ _TOKEN_SEPARATOR = "."
 _SESSION_HEADER = b"mcp-session-id"
 _BASE64URL_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 _HTTP_REQUEST = "http"
-_HTTP_REQUEST_MESSAGE = "http.request"
 _HTTP_RESPONSE_START = "http.response.start"
 _HTTP_REQUEST_METHOD = "method"
 _HTTP_REQUEST_BODY = "body"
 _HTTP_REQUEST_MORE_BODY = "more_body"
 _HTTP_RESPONSE_HEADERS = "headers"
+_HTTP_DISCONNECT = "http.disconnect"
 _UUID4_VERSION = 4
+_MAX_INITIALIZE_BODY_BYTES = 64 * 1024
 
 
 def encode_capability_token(extension_ids: AbstractSet[str]) -> str:
@@ -116,27 +117,46 @@ class CapabilityTokenMiddleware:
             await self.app(scope, receive, send)
             return
 
+        buffered_messages: list[Message] = []
         body_parts: list[bytes] = []
+        body_size = 0
+        oversized = False
+        disconnected = False
         while True:
             message = await receive()
-            body_parts.append(message.get(_HTTP_REQUEST_BODY, b""))
+            if message.get("type") == _HTTP_DISCONNECT:
+                buffered_messages.append(message)
+                disconnected = True
+                break
+            buffered_messages.append(message)
+            body_part = message.get(_HTTP_REQUEST_BODY, b"")
+            if not oversized:
+                body_size += len(body_part)
+                if body_size > _MAX_INITIALIZE_BODY_BYTES:
+                    oversized = True
+                    body_parts.clear()
+                else:
+                    body_parts.append(body_part)
+            if oversized:
+                break
             if not message.get(_HTTP_REQUEST_MORE_BODY, False):
                 break
         body = b"".join(body_parts)
-        extension_ids = _initialize_extension_ids(body)
+        extension_ids = set() if oversized or disconnected else _initialize_extension_ids(body)
         token = encode_capability_token(extension_ids)
-        replayed = False
+        replay_index = 0
 
         async def replay_receive() -> Message:
-            nonlocal replayed
-            if replayed:
+            nonlocal replay_index
+            if replay_index < len(buffered_messages):
+                message = buffered_messages[replay_index]
+                replay_index += 1
+                return message
+            if disconnected:
+                return {"type": _HTTP_DISCONNECT}
+            if oversized:
                 return await receive()
-            replayed = True
-            return {
-                "type": _HTTP_REQUEST_MESSAGE,
-                "body": body,
-                "more_body": False,
-            }
+            return await receive()
 
         async def send_response(message: Message) -> None:
             if (
