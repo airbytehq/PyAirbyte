@@ -17,10 +17,8 @@ from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.auth import TokenVerifier
 
 from airbyte.mcp import http_main
-from airbyte.mcp.http_main import (
-    _RejectEventStreamGetMiddleware,
-    _advertise_root_mount_resource,
-)
+from airbyte.mcp.http_main import _advertise_root_mount_resource
+from fastmcp_extensions import RejectEventStreamGetMiddleware
 
 
 _BASE_URL = "https://mcp.example.com/cloud-mcp"
@@ -155,7 +153,7 @@ def test_event_stream_get_content_negotiation(
             "body": b"<title>Airbyte MCP Server</title>",
         })
 
-    middleware = _RejectEventStreamGetMiddleware(landing_page)
+    middleware = RejectEventStreamGetMiddleware(landing_page)
     asyncio.run(
         middleware(
             {

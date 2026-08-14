@@ -462,7 +462,7 @@ def test_interactive_tools_are_filtered_by_ui_support(
     interactive.register_interactive_tools(app)
 
     with patch(
-        "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
+        "fastmcp_extensions.tool_filters.client_supports_extension",
         return_value=supports_ui,
     ):
         tools = asyncio.run(app.list_tools())
@@ -544,7 +544,7 @@ def test_prefab_generative_tools_are_filtered_by_ui_support() -> None:
     interactive.register_interactive_tools(app)
 
     with patch(
-        "airbyte.mcp._tool_utils._fastmcp_context_supports_ui",
+        "fastmcp_extensions.tool_filters.client_supports_extension",
         return_value=False,
     ):
         tools = asyncio.run(app.list_tools())
