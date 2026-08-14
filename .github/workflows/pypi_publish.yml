@@ -126,7 +126,7 @@ jobs:
           set -euo pipefail
           attempt=1
           while [ "$attempt" -le 30 ]; do
-            if uv pip compile --quiet --no-cache --no-deps \
+            if uv pip compile --quiet --no-cache --no-deps --python-version 3.12 \
               --output-file "$RUNNER_TEMP/pyairbyte-requirement.txt" - \
               <<<"$PYPI_REQUIREMENT"; then
               break
