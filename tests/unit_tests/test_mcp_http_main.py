@@ -169,6 +169,7 @@ def test_event_stream_get_content_negotiation(
     )
     run_mcp_http_server(
         FakeServer(),  # type: ignore[arg-type]
+        path="/mcp",
         transport="streamable-http",
         stateless_http=True,
     )
@@ -179,6 +180,7 @@ def test_event_stream_get_content_negotiation(
             {
                 "type": "http",
                 "method": "GET",
+                "path": "/mcp",
                 "headers": [(b"accept", accept)],
             },
             receive,
