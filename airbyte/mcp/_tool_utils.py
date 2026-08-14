@@ -15,13 +15,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
-from fastmcp.apps import UI_EXTENSION_ID
-from fastmcp.server.dependencies import (
-    get_access_token,
-    get_context,
-    get_http_headers,
+from fastmcp.server.dependencies import get_access_token, get_http_headers
+from fastmcp_extensions import (
+    ANNOTATION_INTERACTIVE_UI,
+    MCPServerConfigArg,
+    get_mcp_config,
 )
-from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROVIDERS,  # noqa: PLC2701
@@ -56,27 +55,23 @@ from airbyte.constants import (
     MCP_CONFIG_WORKSPACE_ID,
     MCP_DOMAINS_DISABLED_ENV_VAR,
     MCP_DOMAINS_ENV_VAR,
-    MCP_EXTENSIONS_HEADER,
     MCP_READONLY_MODE_ENV_VAR,
     MCP_TRUSTED_EXECUTION_ENV_VAR,
     MCP_WORKSPACE_ID_HEADER,
 )
 from airbyte.exceptions import PyAirbyteInputError
-from airbyte.mcp._capability_tokens import decode_capability_token
 
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
-    from fastmcp.server.context import Context
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
 
-INTERACTIVE_UI_ANNOTATION = "interactive-ui"
+INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 """Annotation indicating the tool requires MCP Apps UI support."""
-
 
 # =============================================================================
 # Safe Mode Configuration
@@ -510,39 +505,3 @@ def validate_airbyte_domains(app: FastMCP) -> None:
                 "known_domains": sorted(known_modules),
             },
         )
-
-
-def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
-    """Filter tools that require MCP Apps UI support."""
-    if not get_annotation(tool, INTERACTIVE_UI_ANNOTATION, default=False):
-        return True
-    return _client_supports_ui()
-
-
-def _client_supports_ui() -> bool:
-    """Return whether the current client declared MCP Apps UI support.
-
-    Stateless streamable HTTP carries initialize-time extensions in a
-    self-describing `Mcp-Session-Id` when the client supports session IDs.
-    `X-MCP-Extensions` remains an explicit fallback for clients that do not.
-    """
-    try:
-        context = get_context()
-    except RuntimeError:
-        context_supports_ui = False
-    else:
-        context_supports_ui = _fastmcp_context_supports_ui(context)
-    return context_supports_ui or (UI_EXTENSION_ID in _client_declared_extensions_from_headers())
-
-
-def _fastmcp_context_supports_ui(context: Context) -> bool:
-    return context.client_supports_extension(UI_EXTENSION_ID)
-
-
-def _client_declared_extensions_from_headers() -> set[str]:
-    """Return extension IDs from the session token or fallback HTTP header."""
-    headers = get_http_headers(include={MCP_EXTENSIONS_HEADER.lower(), "mcp-session-id"})
-    session_extensions = decode_capability_token(headers.get("mcp-session-id", ""))
-    header_value = headers.get(MCP_EXTENSIONS_HEADER.lower(), "")
-    fallback_extensions = set(header_value.replace(",", " ").split())
-    return session_extensions | fallback_extensions

@@ -231,6 +231,8 @@ echo session IDs can use the explicit fallback
 `X-MCP-Extensions: io.modelcontextprotocol/ui` header on each request instead.
 Multiple extension IDs may be comma-separated (recommended) or
 whitespace-separated.
+The stateless capability-token middleware and extension resolver are provided
+by the installed `fastmcp-extensions` package.
 
 The eventual spec-aligned replacement is per-request `_meta` under
 `io.modelcontextprotocol/clientCapabilities`. That path exists in the modern

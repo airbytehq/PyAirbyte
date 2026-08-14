@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
-import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,14 +20,10 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.middleware import Middleware
 
-from airbyte.mcp import _tool_utils
-from airbyte.mcp._capability_tokens import (
-    CapabilityTokenMiddleware,
-    _MAX_INITIALIZE_BODY_BYTES,
-    decode_capability_token,
-    encode_capability_token,
-)
+from airbyte.constants import MCP_EXTENSIONS_HEADER
 from airbyte.mcp.server import app
+from fastmcp_extensions import CapabilityTokenMiddleware
+from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
 
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
@@ -37,6 +33,43 @@ UI_TOOL_NAMES = {
     "show_connection_sync_history",
 }
 REPO_ROOT = Path(__file__).parents[2]
+
+
+def test_mcp_extensions_header_matches_fastmcp_extensions() -> None:
+    """Keep the public Airbyte header constant aligned with the shared default."""
+    assert MCP_EXTENSIONS_HEADER == DEFAULT_EXTENSIONS_HEADER
+
+
+def test_importing_airbyte_does_not_load_mcp_dependencies() -> None:
+    """Keep importing `airbyte` free of optional MCP dependencies."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import airbyte, sys; print(*sys.modules, sep='\\n')",
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    loaded_modules = set(result.stdout.splitlines())
+    forbidden_modules = {
+        "fastmcp",
+        "fastmcp_extensions",
+        "uvicorn",
+        "sentry_sdk",
+        "segment",
+    }
+    offending_modules = sorted(
+        module
+        for module in loaded_modules
+        if module in forbidden_modules
+        or any(module.startswith(f"{prefix}.") for prefix in forbidden_modules)
+    )
+    assert not offending_modules, (
+        "Importing `airbyte` loaded optional MCP dependencies: "
+        + ", ".join(offending_modules)
+    )
 
 
 @pytest.fixture
@@ -157,54 +190,6 @@ def test_stdio_ui_tool_visibility(
         assert UI_TOOL_NAMES.isdisjoint(names)
 
 
-@pytest.mark.parametrize(
-    "extension_ids, expected",
-    [
-        pytest.param(
-            {"io.modelcontextprotocol/ui"},
-            {"io.modelcontextprotocol/ui"},
-            id="single-extension",
-        ),
-        pytest.param(
-            {"io.modelcontextprotocol/ui", "io.modelcontextprotocol/roots"},
-            {"io.modelcontextprotocol/ui", "io.modelcontextprotocol/roots"},
-            id="multiple-extensions",
-        ),
-        pytest.param(set(), set(), id="empty"),
-        pytest.param({"foo bar"}, set(), id="whitespace-containing-id"),
-        pytest.param({" \t\n"}, set(), id="all-whitespace-ids"),
-    ],
-)
-def test_capability_token_round_trip(
-    extension_ids: set[str],
-    expected: set[str],
-) -> None:
-    """Capability tokens round-trip extension IDs."""
-    token = encode_capability_token(extension_ids)
-    assert decode_capability_token(token) == expected
-
-
-@pytest.mark.parametrize(
-    "token",
-    [
-        pytest.param("garbage", id="garbage"),
-        pytest.param(
-            f"{uuid.uuid4().hex}.not-base64!",
-            id="non-base64",
-        ),
-        pytest.param(
-            f"00000000000000000000000000000000.{'aW8ubW9kZWxjb250ZXh0cHJvdG9jb2wvdWk'}",
-            id="non-uuid4-with-valid-payload",
-        ),
-        pytest.param("00000000-0000-0000-0000-000000000000", id="uuid-only"),
-        pytest.param("", id="empty"),
-    ],
-)
-def test_capability_token_decode_fails_closed(token: str) -> None:
-    """Malformed capability tokens do not expose extensions."""
-    assert decode_capability_token(token) == set()
-
-
 def test_stateless_http_initialize_capabilities_survive_via_session_token(
     configure_client_capabilities: Any,
 ) -> None:
@@ -240,138 +225,6 @@ def test_stateless_http_without_extensions_mints_no_session_token(
         header_name.lower() != b"mcp-session-id"
         for headers in response_headers
         for header_name, _ in headers
-    )
-
-
-@pytest.mark.parametrize(
-    "headers, expected",
-    [
-        pytest.param(
-            {"x-mcp-extensions": "io.modelcontextprotocol/ui"},
-            True,
-            id="single-value",
-        ),
-        pytest.param(
-            {"x-mcp-extensions": "other, io.modelcontextprotocol/ui, another"},
-            True,
-            id="comma-separated",
-        ),
-        pytest.param(
-            {"x-mcp-extensions": "other io.modelcontextprotocol/ui another"},
-            True,
-            id="whitespace-separated",
-        ),
-        pytest.param(
-            {"x-mcp-extensions": "other"},
-            False,
-            id="unknown-extension",
-        ),
-        pytest.param({"x-mcp-extensions": " , "}, False, id="blank"),
-        pytest.param({}, False, id="missing-header"),
-    ],
-)
-def test_client_declared_extensions_from_headers(
-    headers: dict[str, str],
-    expected: bool,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Header extension parsing tolerates common HTTP formatting.
-
-    `get_http_headers()` lowercases header names, so the parser looks up the
-    lowercased key; comma- and whitespace-separated values are accepted.
-    End-to-end casing is covered by the HTTP visibility test.
-    """
-    monkeypatch.setattr(_tool_utils, "get_http_headers", lambda **_: headers)
-    extensions = _tool_utils._client_declared_extensions_from_headers()
-    assert ("io.modelcontextprotocol/ui" in extensions) is expected
-
-
-def test_client_declared_extensions_union_session_token_and_fallback_header(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Session-token and fallback-header extensions are combined."""
-    token = encode_capability_token({"io.modelcontextprotocol/roots"})
-    monkeypatch.setattr(
-        _tool_utils,
-        "get_http_headers",
-        lambda **_: {
-            "mcp-session-id": token,
-            "x-mcp-extensions": "io.modelcontextprotocol/ui",
-        },
-    )
-
-    assert _tool_utils._client_declared_extensions_from_headers() == {
-        "io.modelcontextprotocol/roots",
-        "io.modelcontextprotocol/ui",
-    }
-
-
-async def _capture_middleware_request(
-    messages: list[dict[str, object]],
-) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
-    received: list[dict[str, object]] = []
-    responses: list[dict[str, object]] = []
-    message_index = 0
-
-    async def receive() -> Any:
-        nonlocal message_index
-        message = messages[message_index]
-        message_index += 1
-        return message
-
-    async def send(message: dict[str, object]) -> None:
-        responses.append(message)
-
-    async def app(scope: Any, receive: Any, send: Any) -> None:
-        del scope
-        while True:
-            message = await receive()
-            received.append(message)
-            if message["type"] == "http.disconnect" or not message.get("more_body"):
-                break
-        await send({"type": "http.response.start", "status": 200, "headers": []})
-
-    middleware = CapabilityTokenMiddleware(app)
-    await middleware(
-        {"type": "http", "method": "POST"},
-        receive,
-        send,
-    )
-    return received, responses
-
-
-def test_capability_token_middleware_forwards_large_body_without_token() -> None:
-    """Bodies larger than the sniffing cap reach the app intact."""
-    body = b"x" * (_MAX_INITIALIZE_BODY_BYTES + 1)
-    received, responses = asyncio.run(
-        _capture_middleware_request([
-            {"type": "http.request", "body": body[:1024], "more_body": True},
-            {"type": "http.request", "body": body[1024:], "more_body": False},
-        ])
-    )
-
-    assert b"".join(message.get("body", b"") for message in received) == body
-    assert all(
-        header_name != b"mcp-session-id"
-        for response in responses
-        for header_name, _ in response.get("headers", [])
-    )
-
-
-def test_capability_token_middleware_forwards_disconnect_without_token() -> None:
-    """A disconnected request is forwarded without attempting token parsing."""
-    received, responses = asyncio.run(
-        _capture_middleware_request([
-            {"type": "http.request", "body": b'{"jsonrpc":', "more_body": True},
-            {"type": "http.disconnect"},
-        ])
-    )
-
-    assert received[-1]["type"] == "http.disconnect"
-    assert all(
-        header_name != b"mcp-session-id"
-        for response in responses
-        for header_name, _ in response.get("headers", [])
     )
 
 

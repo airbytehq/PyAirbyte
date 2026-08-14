@@ -15,12 +15,10 @@ import asyncio
 import pytest
 from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.auth import TokenVerifier
+from fastmcp_extensions import run_mcp_http_server
 
 from airbyte.mcp import http_main
-from airbyte.mcp.http_main import (
-    _RejectEventStreamGetMiddleware,
-    _advertise_root_mount_resource,
-)
+from airbyte.mcp.http_main import _advertise_root_mount_resource
 
 
 _BASE_URL = "https://mcp.example.com/cloud-mcp"
@@ -130,11 +128,12 @@ def test_landing_version_url(
     ],
 )
 def test_event_stream_get_content_negotiation(
+    monkeypatch: pytest.MonkeyPatch,
     accept: bytes,
     expected_status: int,
     expected_body: bytes,
 ) -> None:
-    """SSE GETs are rejected while browser GETs reach the landing page."""
+    """The default stateless HTTP stack rejects SSE GETs but serves browsers."""
     messages: list[dict[str, object]] = []
 
     async def receive() -> dict[str, object]:
@@ -155,9 +154,28 @@ def test_event_stream_get_content_negotiation(
             "body": b"<title>Airbyte MCP Server</title>",
         })
 
-    middleware = _RejectEventStreamGetMiddleware(landing_page)
+    class FakeServer:
+        def http_app(self, **_: object) -> object:
+            return landing_page
+
+    captured: dict[str, object] = {}
+
+    def capture_run(app: object, **_: object) -> None:
+        captured["app"] = app
+
+    monkeypatch.setattr(
+        "fastmcp_extensions.http_server.uvicorn.run",
+        capture_run,
+    )
+    run_mcp_http_server(
+        FakeServer(),  # type: ignore[arg-type]
+        transport="streamable-http",
+        stateless_http=True,
+    )
+    app = captured["app"]
+    assert app is not None
     asyncio.run(
-        middleware(
+        app(
             {
                 "type": "http",
                 "method": "GET",
