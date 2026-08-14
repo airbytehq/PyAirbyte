@@ -54,6 +54,7 @@ Opt-in static client credentials:
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -90,6 +91,8 @@ MCP_LANDING_TITLE = "Airbyte MCP Server"
 MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
 RELEASE_TAG_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/releases/tag/v{}"
 COMMIT_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/commit/{}"
+RELEASES_URL = "https://github.com/airbytehq/PyAirbyte/releases"
+_FINAL_VERSION_PATTERN = re.compile(r"\d+(?:\.\d+)*")
 
 
 def _landing_version_str() -> str:
@@ -100,13 +103,17 @@ def _landing_version_str() -> str:
 def _landing_version_url() -> str:
     """Return the URL the landing-page version footer links to.
 
-    A tagged release links to its release page. A dev build carries the commit
-    it was cut from in the version's local segment (`0.54.1.dev3+1b1637b4`) and
-    has no release of its own, so it links to that commit instead.
+    A final version links to its release page. A dev build has no release of its
+    own: it links to the commit it was cut from when the version carries one in
+    its local segment (`0.54.1.dev3+1b1637b4`), and otherwise — which is what
+    this project's `{base}a{distance}` version format produces (`0.54.1a3`) — to
+    the release list, since no per-build page exists.
     """
     public, _, local = get_version().partition("+")
     if local:
         return COMMIT_URL_TEMPLATE.format(local.split(".")[0])
+    if not _FINAL_VERSION_PATTERN.fullmatch(public):
+        return RELEASES_URL
     return RELEASE_TAG_URL_TEMPLATE.format(public)
 
 
