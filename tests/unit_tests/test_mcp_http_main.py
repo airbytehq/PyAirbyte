@@ -14,6 +14,7 @@ import pytest
 from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.auth import TokenVerifier
 
+from airbyte.mcp import http_main
 from airbyte.mcp.http_main import _advertise_root_mount_resource
 
 
@@ -57,3 +58,35 @@ def test_advertise_root_mount_resource_recurses_into_multiauth() -> None:
     for provider in (multi, server, verifier):
         assert str(provider._get_resource_url("/")) == _BASE_URL
         assert str(provider._get_resource_url("/mcp")) == f"{_BASE_URL}/mcp"
+
+
+@pytest.mark.parametrize(
+    ("installed", "expected"),
+    [
+        pytest.param(
+            "0.54.0",
+            "https://github.com/airbytehq/PyAirbyte/releases/tag/v0.54.0",
+            id="tagged_release_links_to_its_release_page",
+        ),
+        pytest.param(
+            "0.54.1.dev3+1b1637b4",
+            "https://github.com/airbytehq/PyAirbyte/commit/1b1637b4",
+            id="dev_build_links_to_the_commit_it_was_cut_from",
+        ),
+        pytest.param(
+            "0.54.1.dev3+1b1637b4.dirty",
+            "https://github.com/airbytehq/PyAirbyte/commit/1b1637b4",
+            id="dirty_dev_build_links_to_the_bare_sha",
+        ),
+    ],
+)
+def test_landing_version_url(
+    monkeypatch: pytest.MonkeyPatch,
+    installed: str,
+    expected: str,
+) -> None:
+    """Tagged versions link to a release page; dev builds link to their commit."""
+    monkeypatch.setattr(http_main, "get_version", lambda: installed)
+
+    assert http_main._landing_version_url() == expected
+    assert http_main._landing_version_str() == f"v{installed}"
