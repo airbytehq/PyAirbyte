@@ -179,6 +179,7 @@ def test_event_stream_get_content_negotiation(
             {
                 "type": "http",
                 "method": "GET",
+                "path": "/mcp",
                 "headers": [(b"accept", accept)],
             },
             receive,
