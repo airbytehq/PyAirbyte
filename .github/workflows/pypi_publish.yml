@@ -110,29 +110,35 @@ jobs:
           echo "version=$version" | tee -a "$GITHUB_OUTPUT"
           echo "requirement=airbyte==$version" | tee -a "$GITHUB_OUTPUT"
 
-      - name: Wait for PyAirbyte version on PyPI
+      - name: Install uv
+        uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
+        with:
+          enable-cache: false
+
+      # Gate on `uv` itself: it reads the PEP 691 JSON variant of the simple
+      # index, which PyPI caches separately (`vary: Accept`) from the HTML one
+      # and which can stay stale for far longer. Polling anything else can go
+      # green while the cloud-mcp image build still cannot resolve the version.
+      - name: Wait for PyAirbyte version to be resolvable
         env:
-          PYPI_VERSION: ${{ steps.resolve-pyairbyte-requirement.outputs.version }}
+          PYPI_REQUIREMENT: ${{ steps.resolve-pyairbyte-requirement.outputs.requirement }}
         run: |
           set -euo pipefail
-          wheel="airbyte-${PYPI_VERSION}-py3-none-any.whl"
-          sdist="airbyte-${PYPI_VERSION}.tar.gz"
           attempt=1
           while [ "$attempt" -le 30 ]; do
-            if ! simple_index="$(curl --fail --silent --show-error \
-              "https://pypi.org/simple/airbyte/")"; then
-              simple_index=""
-            fi
-            if grep -Fq ">${wheel}<" <<<"$simple_index" \
-              && grep -Fq ">${sdist}<" <<<"$simple_index"; then
+            if uv pip compile --quiet --no-cache --no-deps --python-version 3.12 \
+              --output-file "$RUNNER_TEMP/pyairbyte-requirement.txt" - \
+              <<<"$PYPI_REQUIREMENT"; then
               break
             fi
-            echo "PyPI artifacts for version $PYPI_VERSION are not available in the simple index yet (attempt $attempt/30)."
-            sleep 10
+            echo "$PYPI_REQUIREMENT is not resolvable from PyPI yet (attempt $attempt/30)."
+            if [ "$attempt" -lt 30 ]; then
+              sleep 10
+            fi
             attempt=$((attempt + 1))
           done
           [ "$attempt" -le 30 ] \
-            || { echo "::error::PyPI artifacts for version $PYPI_VERSION did not become available in the simple index after 30 attempts."; exit 1; }
+            || { echo "::error::$PYPI_REQUIREMENT did not become resolvable from PyPI after 30 attempts."; exit 1; }
 
       - name: Build cloud-mcp dispatch payload
         id: build-client-payload
