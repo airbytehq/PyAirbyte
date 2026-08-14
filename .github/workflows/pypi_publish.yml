@@ -132,7 +132,9 @@ jobs:
               break
             fi
             echo "$PYPI_REQUIREMENT is not resolvable from PyPI yet (attempt $attempt/30)."
-            sleep 10
+            if [ "$attempt" -lt 30 ]; then
+              sleep 10
+            fi
             attempt=$((attempt + 1))
           done
           [ "$attempt" -le 30 ] \
