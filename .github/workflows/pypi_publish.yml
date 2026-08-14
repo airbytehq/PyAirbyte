@@ -78,24 +78,92 @@ jobs:
       # Uses GitHub OIDC for passwordless authentication (see header comment)
       - name: Publish to PyPI
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
-        uses: pypa/gh-action-pypi-publish@v1.13.0
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
 
   # Prod cloud-mcp is bumped via Dependabot on airbytehq/airbyte-ops-mcp, not here.
-  # A PyPI publish only refreshes the cloud-mcp preview against the new version.
+  # A PyPI publish refreshes the cloud-mcp preview with the exact published
+  # PyAirbyte requirement.
   deploy_cloud_mcp_preview:
     name: Deploy Cloud MCP (Preview)
     needs: publish_to_pypi
     if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
     runs-on: ubuntu-latest
-    permissions: {}
+    permissions:
+      contents: read
     steps:
-      - name: Wait for PyPI availability
-        run: sleep 120
+      - name: Resolve published PyAirbyte requirement
+        id: resolve-pyairbyte-requirement
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
+          VERSION_OVERRIDE: ${{ github.event.inputs.version_override || '' }}
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
+          version="${version:-${VERSION_OVERRIDE#v}}"
+          [ -n "$version" ] || { echo "::error::Could not resolve the published PyAirbyte version."; exit 1; }
+          case "$version" in
+            ''|[!0-9]*|*[!0-9A-Za-z.+!-]*)
+              echo "::error::Invalid PEP 440 version: $version"
+              exit 1
+              ;;
+          esac
+          echo "version=$version" | tee -a "$GITHUB_OUTPUT"
+          echo "requirement=airbyte==$version" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@f06b870e0a91d23284a3013acc55e6f88ab4b904 # v7
+        with:
+          enable-cache: false
+
+      # Gate on `uv` itself: it reads the PEP 691 JSON variant of the simple
+      # index, which PyPI caches separately (`vary: Accept`) from the HTML one
+      # and which can stay stale for far longer. Polling anything else can go
+      # green while the cloud-mcp image build still cannot resolve the version.
+      - name: Wait for PyAirbyte version to be resolvable
+        env:
+          PYPI_REQUIREMENT: ${{ steps.resolve-pyairbyte-requirement.outputs.requirement }}
+        run: |
+          set -euo pipefail
+          attempt=1
+          while [ "$attempt" -le 30 ]; do
+            if uv pip compile --quiet --no-cache --no-deps --python-version 3.12 \
+              --output-file "$RUNNER_TEMP/pyairbyte-requirement.txt" - \
+              <<<"$PYPI_REQUIREMENT"; then
+              break
+            fi
+            echo "$PYPI_REQUIREMENT is not resolvable from PyPI yet (attempt $attempt/30)."
+            if [ "$attempt" -lt 30 ]; then
+              sleep 10
+            fi
+            attempt=$((attempt + 1))
+          done
+          [ "$attempt" -le 30 ] \
+            || { echo "::error::$PYPI_REQUIREMENT did not become resolvable from PyPI after 30 attempts."; exit 1; }
+
+      - name: Build cloud-mcp dispatch payload
+        id: build-client-payload
+        env:
+          PYPI_REQUIREMENT: ${{ steps.resolve-pyairbyte-requirement.outputs.requirement }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -cn \
+            --arg requirement "$PYPI_REQUIREMENT" \
+            '{"mcp-server": "cloud-mcp", "preview": "true", "cloud-mcp-pyairbyte-requirement": $requirement}')"
+          echo "payload=$payload" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Authenticate as GitHub App
+        id: get-app-token
+        uses: actions/create-github-app-token@67018539274d69449ef7c02e8e71183d1719ab42 # v2.1.4
+        with:
+          owner: airbytehq
+          repositories: airbyte-ops-mcp
+          app-id: ${{ secrets.OCTAVIA_BOT_APP_ID }}
+          private-key: ${{ secrets.OCTAVIA_BOT_PRIVATE_KEY }}
 
       - name: Trigger cloud-mcp preview deploy
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
-          token: ${{ secrets.GITHUB_CI_WORKFLOW_TRIGGER_PAT }}
+          token: ${{ steps.get-app-token.outputs.token }}
           repository: airbytehq/airbyte-ops-mcp
           event-type: deploy-cloud-mcp
-          client-payload: '{"mcp-server": "cloud-mcp", "preview": "true"}'
+          client-payload: ${{ steps.build-client-payload.outputs.payload }}

@@ -9,7 +9,8 @@ bearer-token verification, combined via `MultiAuth`). Auth activates only for
 the paths a deployment configures via env; with no auth env set the server
 falls back to unauthenticated local behavior. This module declares only the env
 var *names* — the concrete values are supplied at deploy time by the
-deployment's own repo. See `server.py` for details.
+deployment's own repo. See `server.py` and `_client_credentials.py` for
+details.
 
 Stateless streamable HTTP does not retain initialize-time client capabilities
 internally. For clients that declare extensions at initialize, the server
@@ -52,21 +53,38 @@ issuer, audience, and algorithm refine verification when provided:
 - `AIRBYTE_MCP_AUTH_ISSUER`: expected token issuer
 - `AIRBYTE_MCP_AUTH_AUDIENCE`: expected token audience
 - `AIRBYTE_MCP_AUTH_ALGORITHM`: signing algorithm override
+
+Opt-in static client credentials:
+
+- `AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS`: enable `Client-Id` /
+  `Client-Secret` headers and HTTP Basic credentials. This is an exchange-and-
+  rewrite layer, not a bearer-token verifier; configure `AIRBYTE_MCP_AUTH_JWKS_URI`
+  or `AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` as well. Without a verifier, minted token
+  claims and requests with no credentials are not checked.
+- `AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL`: OAuth token endpoint for the
+  exchange; defaults to the Airbyte Cloud application-token endpoint
 """
 
 from __future__ import annotations
 
 import logging
+import re
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
+from fastmcp.server.auth import MultiAuth
 from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
+    run_mcp_http_server,
 )
-from starlette.middleware import Middleware
 
 from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp._capability_tokens import CapabilityTokenMiddleware
+from airbyte.mcp._client_credentials import (
+    client_credentials_enabled,
+    wrap_if_enabled,
+)
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -75,13 +93,46 @@ from airbyte.mcp.server import (
     _env_or_default,
     app,
 )
+from airbyte.version import get_version
 
+
+if TYPE_CHECKING:
+    from fastmcp.server.auth import AuthProvider
+    from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
 # Human-facing landing page shown when a browser GETs the MCP endpoint.
 MCP_LANDING_TITLE = "Airbyte MCP Server"
 MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
+RELEASE_TAG_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/releases/tag/v{}"
+COMMIT_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/commit/{}"
+RELEASES_URL = "https://github.com/airbytehq/PyAirbyte/releases"
+_FINAL_VERSION_PATTERN = re.compile(r"\d+(?:\.\d+)*")
+_COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
+
+
+def _landing_version_str() -> str:
+    """Return the installed PyAirbyte version for the landing-page footer."""
+    return f"v{get_version()}"
+
+
+def _landing_version_url() -> str:
+    """Return the URL the landing-page version footer links to.
+
+    A final version links to its release page. A dev build has no release of its
+    own, so it links to the commit it was cut from, which its local segment
+    carries (`0.54.0.post4.dev0+32b9886`). A non-final version built without a
+    local segment (the prerelease workflow's `{base}.dev{pr}{run_id}`) identifies
+    no commit, so it falls back to the release list.
+    """
+    public, _, local = get_version().partition("+")
+    commit_sha = local.split(".")[0]
+    if _COMMIT_SHA_PATTERN.fullmatch(commit_sha):
+        return COMMIT_URL_TEMPLATE.format(commit_sha)
+    if not _FINAL_VERSION_PATTERN.fullmatch(public):
+        return RELEASES_URL
+    return RELEASE_TAG_URL_TEMPLATE.format(public)
 
 
 def _get_server_url() -> str:
@@ -92,6 +143,65 @@ def _get_server_url() -> str:
     server URL even when `MCP_SERVER_URL` is set but blank.
     """
     return _env_or_default(MCP_SERVER_URL_ENV, DEFAULT_MCP_SERVER_URL)
+
+
+def _advertise_root_mount_resource(auth: AuthProvider) -> None:
+    """Advertise the slash-less public URL as the RFC 9728 resource at a root mount.
+
+    Behind a path-stripping load balancer the MCP endpoint is mounted at root
+    (`mcp_path="/"`), and FastMCP derives the protected-resource identifier from
+    that mount path — appending a trailing slash (e.g. `.../cloud-mcp/`). Strict
+    RFC 9728 clients canonicalize the connection URL to the slash-less form
+    (`.../cloud-mcp`) and reject the mismatch, so they cannot attach. FastMCP
+    already returns the bare base URL for a *root* mount path (`None`/`""`), so
+    this maps the `"/"` mount path onto that root case, leaving non-root mounts
+    (e.g. the local `"/mcp"` default) untouched.
+
+    Applied to every provider in the tree because the protected-resource
+    metadata document and the `WWW-Authenticate` challenge are built from
+    different providers (the interactive server versus the top-level `MultiAuth`).
+    """
+    original = auth._get_resource_url  # noqa: SLF001  # FastMCP has no public seam for this.
+
+    def resolve_resource_url(path: str | None = None):  # noqa: ANN202
+        normalized = path if path and path != "/" else None
+        return original(normalized)
+
+    auth._get_resource_url = resolve_resource_url  # type: ignore[method-assign]  # noqa: SLF001
+
+    if isinstance(auth, MultiAuth):
+        if auth.server is not None:
+            _advertise_root_mount_resource(auth.server)
+        for verifier in auth.verifiers:
+            _advertise_root_mount_resource(verifier)
+
+
+def _log_auth_status() -> None:
+    """Log the configured HTTP transport authentication state."""
+    if app.auth is None and client_credentials_enabled():
+        logger.warning(
+            "HTTP transport starting with client credentials enabled but without "
+            "bearer-token verification: the token endpoint rejects invalid "
+            "credentials, but minted token claims and requests with no credentials "
+            "are not checked. Set `AIRBYTE_MCP_AUTH_JWKS_URI` or "
+            "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` to require bearer verification."
+        )
+    elif app.auth is None:
+        logger.warning(
+            "HTTP transport starting without authentication: no interactive "
+            "OIDC or headless bearer-token auth is configured, so every request "
+            "is unauthenticated. Set `AIRBYTE_MCP_OIDC_CLIENT_ID`/"
+            "`AIRBYTE_MCP_OIDC_CLIENT_SECRET`/`AIRBYTE_MCP_OIDC_CONFIG_URL` "
+            "(interactive) or `AIRBYTE_MCP_AUTH_JWKS_URI`/"
+            "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
+        )
+    else:
+        logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
+
+
+def _wrap_http_app(http_app: ASGIApp) -> ASGIApp:
+    """Wrap the HTTP app with authentication and capability propagation."""
+    return CapabilityTokenMiddleware(wrap_if_enabled(http_app))
 
 
 def main() -> None:
@@ -109,6 +219,11 @@ def main() -> None:
     # the bare server URL when mounted at root, otherwise the server URL + mcp_path.
     endpoint_url = server_url if mcp_path == "/" else server_url.rstrip("/") + mcp_path
 
+    # At a root mount FastMCP would advertise a trailing-slash resource that
+    # strict RFC 9728 clients reject; pin it to the slash-less public URL.
+    if mcp_path == "/" and app.auth is not None:
+        _advertise_root_mount_resource(app.auth)
+
     # Serve a browser-friendly landing page on GET at the MCP path. In stateless
     # mode FastMCP only binds POST/DELETE there, so this GET route does not
     # interfere with MCP traffic.
@@ -118,19 +233,11 @@ def main() -> None:
         title=MCP_LANDING_TITLE,
         endpoint_url=endpoint_url,
         docs_url=MCP_LANDING_DOCS_URL,
+        version_str=_landing_version_str(),
+        version_url=_landing_version_url(),
     )
 
-    if app.auth is None:
-        logger.warning(
-            "HTTP transport starting without authentication: no interactive "
-            "OIDC or headless bearer-token auth is configured, so every request "
-            "is unauthenticated. Set `AIRBYTE_MCP_OIDC_CLIENT_ID`/"
-            "`AIRBYTE_MCP_OIDC_CLIENT_SECRET`/`AIRBYTE_MCP_OIDC_CONFIG_URL` "
-            "(interactive) or `AIRBYTE_MCP_AUTH_JWKS_URI`/"
-            "`AIRBYTE_MCP_AUTH_JWT_PUBLIC_KEY` (headless) to require auth."
-        )
-    else:
-        logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
+    _log_auth_status()
 
     logger.info(
         "Starting Airbyte MCP HTTP server on %s:%d (mcp_path=%r)",
@@ -145,14 +252,18 @@ def main() -> None:
     # entrypoint (a permanent gate; the per-request filter also forces it off).
     assert_http_trusted_execution_disabled(app)
 
-    app.run(
-        transport="streamable-http",
-        host=DEFAULT_HTTP_HOST,
-        port=DEFAULT_HTTP_PORT,
-        path=mcp_path,
-        middleware=[Middleware(CapabilityTokenMiddleware)],
-        stateless_http=True,
-    )
+    try:
+        run_mcp_http_server(
+            app,
+            path=mcp_path,
+            transport="streamable-http",
+            stateless_http=True,
+            wrapper=_wrap_http_app,
+            host=DEFAULT_HTTP_HOST,
+            port=DEFAULT_HTTP_PORT,
+        )
+    except KeyboardInterrupt:
+        logger.info("Airbyte MCP HTTP server interrupted by user.")
 
 
 if __name__ == "__main__":
