@@ -11,14 +11,19 @@ falls back to unauthenticated local behavior. This module declares only the env
 var *names* — the concrete values are supplied at deploy time by the
 deployment's own repo. See `server.py` for details.
 
-Stateless streamable HTTP does not retain initialize-time client capabilities.
-The spec-aligned mechanism is per-request `_meta` under
-`io.modelcontextprotocol/clientCapabilities`, but the installed FastMCP stack
-does not expose that metadata to tool filtering yet. Until it does, clients
-that need MCP Apps `interactive-ui` tools must send the non-standard
-`X-MCP-Extensions: io.modelcontextprotocol/ui` header on each HTTP request.
-Multiple extension IDs may be comma-separated (recommended) or whitespace-
-separated.
+Stateless streamable HTTP does not retain initialize-time client capabilities
+internally. For clients that declare extensions at initialize, the server
+returns a self-describing `Mcp-Session-Id`, and spec-compliant clients echo it
+on subsequent requests. This makes MCP Apps `interactive-ui` tools available
+without a client-specific header. Clients that do not echo session IDs can use
+the explicit fallback `X-MCP-Extensions: io.modelcontextprotocol/ui` header on
+each HTTP request. Multiple extension IDs may be comma-separated (recommended)
+or whitespace-separated.
+
+The eventual spec-aligned replacement is per-request `_meta` under
+`io.modelcontextprotocol/clientCapabilities`. That path exists in the modern
+`mcp` 2.0.0 server architecture, but `fastmcp` 3.4.5 requires `mcp<2.0`, so
+using it requires a stack migration rather than a version-only change.
 
 Environment variables:
 
@@ -58,8 +63,10 @@ from fastmcp_extensions import (
     assert_http_trusted_execution_disabled,
     register_landing_page,
 )
+from starlette.middleware import Middleware
 
 from airbyte.constants import set_hosted_mcp_mode
+from airbyte.mcp._capability_tokens import CapabilityTokenMiddleware
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -143,6 +150,7 @@ def main() -> None:
         host=DEFAULT_HTTP_HOST,
         port=DEFAULT_HTTP_PORT,
         path=mcp_path,
+        middleware=[Middleware(CapabilityTokenMiddleware)],
         stateless_http=True,
     )
 
