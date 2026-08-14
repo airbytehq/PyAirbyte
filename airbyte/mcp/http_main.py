@@ -54,6 +54,7 @@ Opt-in static client credentials:
 from __future__ import annotations
 
 import logging
+import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -77,17 +78,45 @@ from airbyte.mcp.server import (
     _env_or_default,
     app,
 )
+from airbyte.version import get_version
 
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
-
 
 logger = logging.getLogger(__name__)
 
 # Human-facing landing page shown when a browser GETs the MCP endpoint.
 MCP_LANDING_TITLE = "Airbyte MCP Server"
 MCP_LANDING_DOCS_URL = "https://docs.airbyte.com/ai-agents/"
+RELEASE_TAG_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/releases/tag/v{}"
+COMMIT_URL_TEMPLATE = "https://github.com/airbytehq/PyAirbyte/commit/{}"
+RELEASES_URL = "https://github.com/airbytehq/PyAirbyte/releases"
+_FINAL_VERSION_PATTERN = re.compile(r"\d+(?:\.\d+)*")
+_COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
+
+
+def _landing_version_str() -> str:
+    """Return the installed PyAirbyte version for the landing-page footer."""
+    return f"v{get_version()}"
+
+
+def _landing_version_url() -> str:
+    """Return the URL the landing-page version footer links to.
+
+    A final version links to its release page. A dev build has no release of its
+    own, so it links to the commit it was cut from, which its local segment
+    carries (`0.54.0.post4.dev0+32b9886`). A non-final version built without a
+    local segment (the prerelease workflow's `{base}.dev{pr}{run_id}`) identifies
+    no commit, so it falls back to the release list.
+    """
+    public, _, local = get_version().partition("+")
+    commit_sha = local.split(".")[0]
+    if _COMMIT_SHA_PATTERN.fullmatch(commit_sha):
+        return COMMIT_URL_TEMPLATE.format(commit_sha)
+    if not _FINAL_VERSION_PATTERN.fullmatch(public):
+        return RELEASES_URL
+    return RELEASE_TAG_URL_TEMPLATE.format(public)
 
 
 def _get_server_url() -> str:
@@ -183,6 +212,8 @@ def main() -> None:
         title=MCP_LANDING_TITLE,
         endpoint_url=endpoint_url,
         docs_url=MCP_LANDING_DOCS_URL,
+        version_str=_landing_version_str(),
+        version_url=_landing_version_url(),
     )
 
     _log_auth_status()
