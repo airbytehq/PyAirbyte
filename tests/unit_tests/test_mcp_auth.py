@@ -171,7 +171,7 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
         "path": "/mcp",
         "transport": "streamable-http",
         "stateless_http": True,
-        "wrapper": http_main.wrap_if_enabled,
+        "wrapper": http_main._wrap_http_app,
         "host": http_main.DEFAULT_HTTP_HOST,
         "port": http_main.DEFAULT_HTTP_PORT,
     }

@@ -12,6 +12,21 @@ var *names* — the concrete values are supplied at deploy time by the
 deployment's own repo. See `server.py` and `_client_credentials.py` for
 details.
 
+Stateless streamable HTTP does not retain initialize-time client capabilities
+internally. For clients that declare extensions at initialize, the server
+returns a self-describing `Mcp-Session-Id`, and spec-compliant clients echo it
+on subsequent requests. This makes MCP Apps `interactive-ui` tools available
+without a client-specific header. Clients that do not echo session IDs can use
+the explicit fallback `X-MCP-Extensions: io.modelcontextprotocol/ui` header on
+each HTTP request. Multiple extension IDs may be comma-separated (recommended)
+or whitespace-separated.
+
+The eventual spec-aligned replacement is per-request `_meta` under
+`io.modelcontextprotocol/clientCapabilities`. That path exists in the modern
+`mcp` 2.x server architecture, while this project currently resolves the
+legacy `fastmcp` 3.x and `mcp` 1.x stack. Using it requires a stack migration
+rather than a version-only change.
+
 Environment variables:
 
 - `MCP_SERVER_URL`: Public base URL. Used for OIDC redirect callbacks and to
@@ -64,8 +79,10 @@ from fastmcp_extensions import (
     register_landing_page,
     run_mcp_http_server,
 )
+from starlette.responses import Response
 
 from airbyte.constants import set_hosted_mcp_mode
+from airbyte.mcp._capability_tokens import CapabilityTokenMiddleware
 from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
@@ -83,6 +100,7 @@ from airbyte.version import get_version
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
+    from starlette.types import ASGIApp, Receive, Scope, Send
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +201,32 @@ def _log_auth_status() -> None:
         logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
 
 
+def _wrap_http_app(http_app: ASGIApp) -> ASGIApp:
+    """Wrap the HTTP app with authentication and capability propagation."""
+    return _RejectEventStreamGetMiddleware(CapabilityTokenMiddleware(wrap_if_enabled(http_app)))
+
+
+class _RejectEventStreamGetMiddleware:
+    """Reject MCP SSE GETs without shadowing the browser landing page."""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope.get("type") == "http"
+            and scope.get("method") == "GET"
+            and any(
+                name.lower() == b"accept" and b"text/event-stream" in value.lower()
+                for name, value in scope.get("headers", [])
+            )
+        ):
+            response = Response(status_code=405, headers={"allow": "POST, DELETE"})
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     logging.basicConfig(level=logging.INFO)
@@ -237,7 +281,7 @@ def main() -> None:
             path=mcp_path,
             transport="streamable-http",
             stateless_http=True,
-            wrapper=wrap_if_enabled,
+            wrapper=_wrap_http_app,
             host=DEFAULT_HTTP_HOST,
             port=DEFAULT_HTTP_PORT,
         )

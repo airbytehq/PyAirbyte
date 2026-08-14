@@ -10,12 +10,17 @@ canonicalize the connection URL to the slash-less form (`.../cloud-mcp`).
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.auth import TokenVerifier
 
 from airbyte.mcp import http_main
-from airbyte.mcp.http_main import _advertise_root_mount_resource
+from airbyte.mcp.http_main import (
+    _RejectEventStreamGetMiddleware,
+    _advertise_root_mount_resource,
+)
 
 
 _BASE_URL = "https://mcp.example.com/cloud-mcp"
@@ -105,3 +110,63 @@ def test_landing_version_url(
 
     assert http_main._landing_version_url() == expected
     assert http_main._landing_version_str() == f"v{installed}"
+
+
+@pytest.mark.parametrize(
+    ("accept", "expected_status", "expected_body"),
+    [
+        pytest.param(
+            b"text/event-stream",
+            405,
+            b"",
+            id="sse-get-is-rejected",
+        ),
+        pytest.param(
+            b"text/html,application/xhtml+xml",
+            200,
+            b"<title>Airbyte MCP Server</title>",
+            id="browser-get-reaches-landing-page",
+        ),
+    ],
+)
+def test_event_stream_get_content_negotiation(
+    accept: bytes,
+    expected_status: int,
+    expected_body: bytes,
+) -> None:
+    """SSE GETs are rejected while browser GETs reach the landing page."""
+    messages: list[dict[str, object]] = []
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b""}
+
+    async def send(message: dict[str, object]) -> None:
+        messages.append(message)
+
+    async def landing_page(scope: object, receive: object, send: object) -> None:
+        del scope, receive
+        await send({
+            "type": "http.response.start",
+            "status": 200,
+            "headers": [(b"content-type", b"text/html")],
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"<title>Airbyte MCP Server</title>",
+        })
+
+    middleware = _RejectEventStreamGetMiddleware(landing_page)
+    asyncio.run(
+        middleware(
+            {
+                "type": "http",
+                "method": "GET",
+                "headers": [(b"accept", accept)],
+            },
+            receive,
+            send,
+        )
+    )
+
+    assert messages[0]["status"] == expected_status
+    assert messages[1]["body"] == expected_body
