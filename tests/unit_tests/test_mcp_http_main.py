@@ -79,6 +79,11 @@ def test_advertise_root_mount_resource_recurses_into_multiauth() -> None:
             id="dev_build_links_to_the_commit_it_was_cut_from",
         ),
         pytest.param(
+            "0.54.1.dev3+dirty",
+            "https://github.com/airbytehq/PyAirbyte/releases",
+            id="local_segment_without_a_sha_links_to_the_release_list",
+        ),
+        pytest.param(
             "0.54.1.dev3+1b1637b4.dirty",
             "https://github.com/airbytehq/PyAirbyte/commit/1b1637b4",
             id="dirty_dev_build_links_to_the_bare_sha",
