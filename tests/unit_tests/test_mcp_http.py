@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,8 +20,10 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from starlette.middleware import Middleware
 
+from airbyte.constants import MCP_EXTENSIONS_HEADER
 from airbyte.mcp.server import app
 from fastmcp_extensions import CapabilityTokenMiddleware
+from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
 
 
 UI_EXTENSION = {"io.modelcontextprotocol/ui": {}}
@@ -30,6 +33,43 @@ UI_TOOL_NAMES = {
     "show_connection_sync_history",
 }
 REPO_ROOT = Path(__file__).parents[2]
+
+
+def test_mcp_extensions_header_matches_fastmcp_extensions() -> None:
+    """Keep the public Airbyte header constant aligned with the shared default."""
+    assert MCP_EXTENSIONS_HEADER == DEFAULT_EXTENSIONS_HEADER
+
+
+def test_importing_airbyte_does_not_load_mcp_dependencies() -> None:
+    """Keep importing `airbyte` free of optional MCP dependencies."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import airbyte, sys; print(*sys.modules, sep='\\n')",
+        ],
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+    loaded_modules = set(result.stdout.splitlines())
+    forbidden_modules = {
+        "fastmcp",
+        "fastmcp_extensions",
+        "uvicorn",
+        "sentry_sdk",
+        "segment",
+    }
+    offending_modules = sorted(
+        module
+        for module in loaded_modules
+        if module in forbidden_modules
+        or any(module.startswith(f"{prefix}.") for prefix in forbidden_modules)
+    )
+    assert not offending_modules, (
+        "Importing `airbyte` loaded optional MCP dependencies: "
+        + ", ".join(offending_modules)
+    )
 
 
 @pytest.fixture

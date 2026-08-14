@@ -7,8 +7,6 @@ import logging
 import os
 from pathlib import Path
 
-from fastmcp_extensions import DEFAULT_EXTENSIONS_HEADER
-
 
 logger = logging.getLogger("airbyte")
 
@@ -348,7 +346,7 @@ MCP_CONFIG_CONFIG_API_URL: str = "config_api_url"
 MCP_BEARER_TOKEN_HEADER: str = "Authorization"
 """HTTP header key for bearer token (standard Authorization header)."""
 
-MCP_EXTENSIONS_HEADER: str = DEFAULT_EXTENSIONS_HEADER
+MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
 """HTTP header key for client-declared MCP extension IDs."""
 
 MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
