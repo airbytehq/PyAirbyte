@@ -201,7 +201,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = ">=0.18.0,<1.0.0" },
+    { name = "fastmcp-extensions", specifier = ">=0.19.0,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1129,7 +1129,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.18.0"
+version = "0.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -1141,9 +1141,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/80/3e/12d8cb8ce9fae3491392e9b38aa1681957f4a327294aae95097bb2a12ea1/fastmcp_extensions-0.18.0.tar.gz", hash = "sha256:b0150a354eb520305f4b01c549c1a5d3ed002a79baf7fbfc130620c504b4e00e", size = 229765, upload-time = "2026-08-14T02:02:17.639Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/ac/80c3db8957750fbf4778bb789a1e5316800cafda8d764b6e6a4986de23ae/fastmcp_extensions-0.19.0.tar.gz", hash = "sha256:7bf5af20600b15dba646dc0003e688fd055004908f8654bb3fc96a9a1c91e2c4", size = 231246, upload-time = "2026-08-14T02:35:48.238Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/9f/85/c8a750cd16be5fccfe8b06f9909319df756b2eb6ac6151a89f105ffcc0ee/fastmcp_extensions-0.18.0-py3-none-any.whl", hash = "sha256:0004cbe333da6f0388ee726061b28b36e326a94616376f8a34440372b2bd0295", size = 85629, upload-time = "2026-08-14T02:02:16.158Z" },
+    { url = "https://files.pythonhosted.org/packages/3c/93/1b8a88e93420839cb5ca35a0e5afa7aefe94c41f5a959ea4e82d9c17fe7d/fastmcp_extensions-0.19.0-py3-none-any.whl", hash = "sha256:6114360c82b9790fb5301636a274c78cea102dc25de56880e9c7206b8022f38f", size = 86476, upload-time = "2026-08-14T02:35:47.086Z" },
 ]
 
 [[package]]

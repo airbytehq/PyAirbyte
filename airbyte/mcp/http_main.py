@@ -76,8 +76,6 @@ from urllib.parse import urlparse
 
 from fastmcp.server.auth import MultiAuth
 from fastmcp_extensions import (
-    CapabilityTokenMiddleware,
-    RejectEventStreamGetMiddleware,
     assert_http_trusted_execution_disabled,
     register_landing_page,
     run_mcp_http_server,
@@ -101,7 +99,6 @@ from airbyte.version import get_version
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
-    from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
@@ -202,11 +199,6 @@ def _log_auth_status() -> None:
         logger.info("HTTP transport authentication is enabled (%s).", type(app.auth).__name__)
 
 
-def _wrap_http_app(http_app: ASGIApp) -> ASGIApp:
-    """Wrap the HTTP app with authentication and capability propagation."""
-    return RejectEventStreamGetMiddleware(CapabilityTokenMiddleware(wrap_if_enabled(http_app)))
-
-
 def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     logging.basicConfig(level=logging.INFO)
@@ -261,7 +253,7 @@ def main() -> None:
             path=mcp_path,
             transport="streamable-http",
             stateless_http=True,
-            wrapper=_wrap_http_app,
+            wrapper=wrap_if_enabled,
             host=DEFAULT_HTTP_HOST,
             port=DEFAULT_HTTP_PORT,
         )

@@ -452,12 +452,11 @@ def test_interactive_tools_are_filtered_by_ui_support(
 ) -> None:
     """Test that interactive tools are filtered by MCP Apps UI support."""
     from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
     from fastmcp_extensions import mcp_server
 
     app = mcp_server(
         name="test",
-        tool_filters=[airbyte_ui_support_filter],
+        include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
 
@@ -477,11 +476,10 @@ def test_interactive_tools_are_rejected_by_tool_filter_without_ui_support() -> N
     from fastmcp_extensions import mcp_server
 
     from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
 
     app = mcp_server(
         name="test",
-        tool_filters=[airbyte_ui_support_filter],
+        include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
 
@@ -535,11 +533,10 @@ def test_prefab_generative_tools_are_filtered_by_ui_support() -> None:
     from fastmcp_extensions import mcp_server
 
     from airbyte.mcp import interactive
-    from airbyte.mcp._tool_utils import airbyte_ui_support_filter
 
     app = mcp_server(
         name="test",
-        tool_filters=[airbyte_ui_support_filter],
+        include_standard_tool_filters=True,
     )
     interactive.register_interactive_tools(app)
 
