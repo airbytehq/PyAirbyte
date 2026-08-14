@@ -35,7 +35,11 @@ def encode_capability_token(extension_ids: AbstractSet[str]) -> str:
     The token contains a random UUID4 component and a base64url-encoded,
     space-separated payload. An empty extension set returns an empty string.
     """
-    normalized_ids = sorted(extension_id for extension_id in extension_ids if extension_id)
+    normalized_ids = sorted(
+        extension_id
+        for extension_id in extension_ids
+        if extension_id and not any(char.isspace() for char in extension_id)
+    )
     if not normalized_ids:
         return ""
     payload = " ".join(normalized_ids).encode("utf-8")
@@ -61,10 +65,7 @@ def decode_capability_token(token: str) -> set[str]:
         return set()
 
     extension_ids = payload.split()
-    if not extension_ids or any(
-        not extension_id or any(char.isspace() for char in extension_id)
-        for extension_id in extension_ids
-    ):
+    if not extension_ids:
         return set()
     return set(extension_ids)
 

@@ -156,20 +156,30 @@ def test_stdio_ui_tool_visibility(
 
 
 @pytest.mark.parametrize(
-    "extension_ids",
+    "extension_ids, expected",
     [
-        pytest.param({"io.modelcontextprotocol/ui"}, id="single-extension"),
         pytest.param(
+            {"io.modelcontextprotocol/ui"},
+            {"io.modelcontextprotocol/ui"},
+            id="single-extension",
+        ),
+        pytest.param(
+            {"io.modelcontextprotocol/ui", "io.modelcontextprotocol/roots"},
             {"io.modelcontextprotocol/ui", "io.modelcontextprotocol/roots"},
             id="multiple-extensions",
         ),
-        pytest.param(set(), id="empty"),
+        pytest.param(set(), set(), id="empty"),
+        pytest.param({"foo bar"}, set(), id="whitespace-containing-id"),
+        pytest.param({" \t\n"}, set(), id="all-whitespace-ids"),
     ],
 )
-def test_capability_token_round_trip(extension_ids: set[str]) -> None:
+def test_capability_token_round_trip(
+    extension_ids: set[str],
+    expected: set[str],
+) -> None:
     """Capability tokens round-trip extension IDs."""
     token = encode_capability_token(extension_ids)
-    assert decode_capability_token(token) == extension_ids
+    assert decode_capability_token(token) == expected
 
 
 @pytest.mark.parametrize(
