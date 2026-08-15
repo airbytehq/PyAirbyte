@@ -40,11 +40,13 @@ class _JobResponseLike(Protocol):
 class _SourceResponseLike(Protocol):
     source_id: str
     name: str
+    definition_id: str
 
 
 class _DestinationResponseLike(Protocol):
     destination_id: str
     name: str
+    definition_id: str
 
 
 class _DeclarativeSourceDefinitionResponseLike(Protocol):
@@ -198,10 +200,17 @@ class CloudSourceInfo(BaseModel):
     name: str
     """The source name."""
 
+    definition_id: str
+    """The connector definition ID (for example, the ID for `source-postgres`)."""
+
     @classmethod
     def from_api_response(cls, source: _SourceResponseLike) -> CloudSourceInfo:
         """Create a public model from an internal API source response."""
-        return cls(source_id=source.source_id, name=source.name)
+        return cls(
+            source_id=source.source_id,
+            name=source.name,
+            definition_id=source.definition_id,
+        )
 
 
 class CloudDestinationInfo(BaseModel):
@@ -213,13 +222,20 @@ class CloudDestinationInfo(BaseModel):
     name: str
     """The destination name."""
 
+    definition_id: str
+    """The connector definition ID (for example, the ID for `destination-snowflake`)."""
+
     @classmethod
     def from_api_response(
         cls,
         destination: _DestinationResponseLike,
     ) -> CloudDestinationInfo:
         """Create a public model from an internal API destination response."""
-        return cls(destination_id=destination.destination_id, name=destination.name)
+        return cls(
+            destination_id=destination.destination_id,
+            name=destination.name,
+            definition_id=destination.definition_id,
+        )
 
 
 class CloudCustomSourceDefinitionInfo(BaseModel):

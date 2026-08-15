@@ -125,6 +125,17 @@ class CloudConnector(abc.ABC):
 
         return self._connector_info.name
 
+    @property
+    def definition_id(self) -> str:
+        """Get the connector definition ID.
+
+        E.g. the definition ID for `source-postgres`, not the ID of this deployed connector.
+        """
+        if not self._connector_info:
+            self._connector_info = self._fetch_connector_info()
+
+        return self._connector_info.definition_id
+
     @abc.abstractmethod
     def _fetch_connector_info(self) -> CloudSourceInfo | CloudDestinationInfo:
         """Populate the connector with data from the API."""
