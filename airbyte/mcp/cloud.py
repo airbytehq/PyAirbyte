@@ -947,14 +947,13 @@ def describe_cloud_source(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
 
-    # Access name property to ensure _connector_info is populated
     source_name = cast(str, source.name)
 
     return CloudSourceDetails(
         source_id=source.source_id,
         source_name=source_name,
         source_url=source.connector_url,
-        connector_definition_id=source._connector_info.definition_id,  # noqa: SLF001  # type: ignore[union-attr]
+        connector_definition_id=source.definition_id,
     )
 
 
@@ -983,14 +982,13 @@ def describe_cloud_destination(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
-    # Access name property to ensure _connector_info is populated
     destination_name = cast(str, destination.name)
 
     return CloudDestinationDetails(
         destination_id=destination.destination_id,
         destination_name=destination_name,
         destination_url=destination.connector_url,
-        connector_definition_id=destination._connector_info.definition_id,  # noqa: SLF001  # type: ignore[union-attr]
+        connector_definition_id=destination.definition_id,
     )
 
 
