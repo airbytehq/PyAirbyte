@@ -40,15 +40,15 @@ def test_exceptions():
             True,
             True,
             "Provide a bearer token via the `Authorization` header, or client credentials "
-            "via the `X-Airbyte-Cloud-Client-Id` and `X-Airbyte-Cloud-Client-Secret` headers.",
+            "via the transport `Client-Id` and `Client-Secret` headers.",
             id="hosted_with_bearer",
         ),
         pytest.param(
             True,
             False,
             False,
-            "Provide client credentials via the `X-Airbyte-Cloud-Client-Id` and "
-            "`X-Airbyte-Cloud-Client-Secret` headers.",
+            "Provide client credentials via the transport `Client-Id` and "
+            "`Client-Secret` headers.",
             id="hosted_client_credentials_only",
         ),
         pytest.param(
