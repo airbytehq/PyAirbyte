@@ -89,23 +89,32 @@ class VenvExecutor(Executor):
 
         package_name = self._get_pypi_package_name()
         connector_name = self.name
-        discovery_script = f"""
-import importlib.metadata as metadata
-
-package_name = {package_name!r}
-connector_name = {connector_name!r}
-entry_points = [
-    ep
-    for ep in metadata.entry_points(group="console_scripts")
-    if ep.dist.name == package_name
-]
-if connector_name in {{ep.name for ep in entry_points}}:
-    print(connector_name)
-elif entry_points:
-    print(sorted(ep.name for ep in entry_points)[0])
-else:
-    print("")
-""".strip()
+        discovery_script = "\n".join(
+            [
+                "import importlib.metadata as metadata",
+                "import re",
+                "",
+                f"package_name = {package_name!r}",
+                f"connector_name = {connector_name!r}",
+                "",
+                "def canonicalize(name):",
+                '    return re.sub(r"[-_.]+", "-", name).lower()',
+                "",
+                "canonical_package_name = canonicalize(package_name)",
+                "entry_points = [",
+                "    ep",
+                '    for ep in metadata.entry_points(group="console_scripts")',
+                "    if ep.dist is not None",
+                "    and canonicalize(ep.dist.name) == canonical_package_name",
+                "]",
+                "if connector_name in {ep.name for ep in entry_points}:",
+                "    print(connector_name)",
+                "elif entry_points:",
+                "    print(sorted(ep.name for ep in entry_points)[0])",
+                "else:",
+                '    print("")',
+            ]
+        )
         try:
             result = subprocess.check_output(
                 [str(self.interpreter_path), "-c", discovery_script],
