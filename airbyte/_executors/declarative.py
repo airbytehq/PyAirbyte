@@ -67,6 +67,7 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
+        *,
         config: dict[str, Any] | None = None,
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
