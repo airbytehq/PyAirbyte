@@ -19,6 +19,7 @@ def test_get_source_passes_config_to_declarative_executor(monkeypatch) -> None:
             name=kwargs["name"],
             manifest=kwargs["source_manifest"],
             config=kwargs["config"],
+            components_py="class Component:\n    pass\n",
         )
 
     monkeypatch.setattr(
@@ -40,6 +41,7 @@ def test_get_source_passes_config_to_declarative_executor(monkeypatch) -> None:
 
     assert source.executor.declarative_source["config"] == config
     assert captured["config"] == config
+    assert config == {"api_key": "configured"}
 
 
 def test_execute_uses_config_set_after_get_source_and_preserves_injected_components(
