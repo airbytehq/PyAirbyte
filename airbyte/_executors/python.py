@@ -101,10 +101,8 @@ entry_points = [
 ]
 if connector_name in {{ep.name for ep in entry_points}}:
     print(connector_name)
-elif len(entry_points) == 1:
-    print(entry_points[0].name)
 elif entry_points:
-    print(entry_points[0].name)
+    print(sorted(ep.name for ep in entry_points)[0])
 else:
     print("")
 """.strip()
@@ -114,7 +112,7 @@ else:
                 universal_newlines=True,
                 stderr=subprocess.PIPE,
             ).strip()
-        except Exception:
+        except (FileNotFoundError, subprocess.CalledProcessError):
             return None
 
         return result or None
@@ -357,7 +355,7 @@ else:
             # This is sometimes caused by a failed or partial installation.
             print(
                 "Connector executable not found within the virtual environment "
-                f"at {get_bin_dir(self._get_venv_path()) / self.name!s}.\nReinstalling...",
+                f"within bin directory {get_bin_dir(self._get_venv_path())!s}.\nReinstalling...",
                 file=sys.stderr,
             )
             self.uninstall()
