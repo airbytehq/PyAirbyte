@@ -107,6 +107,15 @@ class DeclarativeExecutor(Executor):
         self.reported_version: str | None = self._manifest_dict.get("version", None)
         self._config_dict = config_dict
 
+    def _create_declarative_source(
+        self,
+        config: dict[str, Any],
+    ) -> ConcurrentDeclarativeSource:
+        return ConcurrentDeclarativeSource(
+            config=config,
+            source_config=self._manifest_dict,
+        )
+
     @property
     def declarative_source(self) -> ConcurrentDeclarativeSource:
         """Get the declarative source object.
@@ -118,10 +127,7 @@ class DeclarativeExecutor(Executor):
         3. Rather than cache the source object, we recreate it each time we need it, to
            avoid any issues with re-using the same object.
         """
-        return ConcurrentDeclarativeSource(
-            config=self._config_dict,
-            source_config=self._manifest_dict,
-        )
+        return self._create_declarative_source(self._config_dict)
 
     def get_installed_version(
         self,
@@ -150,9 +156,8 @@ class DeclarativeExecutor(Executor):
         mapped_args: list[str] = self.map_cli_args(args)
         args_config = _get_config_from_args(mapped_args)
         source_entrypoint = AirbyteEntrypoint(
-            ConcurrentDeclarativeSource(
-                config={**self._config_dict, **args_config},
-                source_config=self._manifest_dict,
+            self._create_declarative_source(
+                {**self._config_dict, **args_config},
             )
         )
         parsed_args: Namespace = source_entrypoint.parse_args(mapped_args)
