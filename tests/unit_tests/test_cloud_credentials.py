@@ -11,7 +11,11 @@ from airbyte.cloud.client import CloudClient
 from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteMissingResourceError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteError,
+    AirbyteMissingResourceError,
+    PyAirbyteInputError,
+)
 from airbyte.mcp import cloud as mcp_cloud
 from airbyte.secrets.base import SecretString
 
@@ -482,6 +486,211 @@ def test_cloud_client_get_organization_uses_default_organization_id(
     ).get_organization()
 
     assert organization.organization_id == "default-org"
+
+
+@pytest.mark.parametrize(
+    "organizations",
+    [
+        pytest.param([], id="empty"),
+        pytest.param(
+            [
+                models.OrganizationResponse(
+                    organization_id="organization-id",
+                    organization_name="Organization",
+                    email="test@example.com",
+                )
+            ],
+            id="single",
+        ),
+        pytest.param(
+            [
+                models.OrganizationResponse(
+                    organization_id="organization-id-1",
+                    organization_name="Organization 1",
+                    email="one@example.com",
+                ),
+                models.OrganizationResponse(
+                    organization_id="organization-id-2",
+                    organization_name="Organization 2",
+                    email="two@example.com",
+                ),
+            ],
+            id="multiple",
+        ),
+    ],
+)
+def test_cloud_client_list_organizations_returns_typed_resources(
+    monkeypatch: pytest.MonkeyPatch,
+    organizations: list[models.OrganizationResponse],
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "list_organizations_for_user",
+        lambda **_: organizations,
+    )
+
+    result = CloudClient(bearer_token="token").list_organizations()
+
+    assert all(isinstance(organization, CloudOrganization) for organization in result)
+    assert [organization.organization_id for organization in result] == [
+        organization.organization_id for organization in organizations
+    ]
+
+
+def test_cloud_client_get_organization_reuses_list_organizations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organizations = [
+        CloudOrganization(
+            organization_id="organization-id",
+            organization_name="Organization",
+            email="test@example.com",
+        )
+    ]
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "list_organizations", lambda: organizations)
+
+    result = client.get_organization(organization_id="organization-id")
+
+    assert result is organizations[0]
+
+
+@pytest.mark.parametrize(
+    ("organizations_or_error", "expected_count", "expected_message"),
+    [
+        pytest.param([], 0, "No organizations", id="empty-organizations"),
+        pytest.param(
+            [
+                CloudOrganization(
+                    organization_id="organization-id-1",
+                    organization_name="Organization 1",
+                    email="test-1@example.com",
+                )
+            ],
+            1,
+            None,
+            id="single-organization",
+        ),
+        pytest.param(
+            [
+                CloudOrganization(
+                    organization_id="organization-id-1",
+                    organization_name="Organization 1",
+                    email="test-1@example.com",
+                ),
+                CloudOrganization(
+                    organization_id="organization-id-2",
+                    organization_name="Organization 2",
+                    email="test-2@example.com",
+                ),
+            ],
+            2,
+            None,
+            id="multiple-organizations",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 401}),
+            0,
+            "permission",
+            id="unauthorized",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 403}),
+            0,
+            "permission",
+            id="forbidden",
+        ),
+    ],
+)
+def test_mcp_list_cloud_organizations_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    organizations_or_error: list[CloudOrganization] | AirbyteError,
+    expected_count: int,
+    expected_message: str | None,
+) -> None:
+    class DiscoveryClient:
+        def list_organizations(self) -> list[CloudOrganization]:
+            if isinstance(organizations_or_error, AirbyteError):
+                raise organizations_or_error
+            return organizations_or_error
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(None)
+
+    assert len(result.organizations) == expected_count
+    if expected_message is not None:
+        assert expected_message in (result.message or "")
+    else:
+        assert result.message is None
+
+
+@pytest.mark.parametrize(
+    ("workspaces_or_error", "expect_message"),
+    [
+        pytest.param(
+            [
+                CloudWorkspaceInfo(
+                    workspaceId="workspace-id",
+                    name="Workspace",
+                    organizationId="organization-id",
+                ),
+                CloudWorkspaceInfo(
+                    workspaceId="workspace-without-org",
+                    name="Workspace without organization",
+                    organizationId=None,
+                ),
+            ],
+            False,
+            id="org-less-public-api",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 401}),
+            True,
+            id="unauthorized",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 403}),
+            True,
+            id="forbidden",
+        ),
+    ],
+)
+def test_mcp_list_cloud_workspaces_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteError,
+    expect_message: bool,
+) -> None:
+    captured_organization_id: str | None = "unset"
+
+    class DiscoveryClient:
+        def list_workspaces(
+            self, *, organization_id: str | None = None, **_: object
+        ) -> list[CloudWorkspaceInfo]:
+            nonlocal captured_organization_id
+            captured_organization_id = organization_id
+            if isinstance(workspaces_or_error, AirbyteError):
+                raise workspaces_or_error
+            return workspaces_or_error
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_workspaces(
+        None,
+        organization_id=None,
+        organization_name=None,
+        name_contains=None,
+        limit=None,
+    )
+
+    assert captured_organization_id is None
+    if expect_message:
+        assert result.workspaces == []
+        assert "permission" in (result.message or "")
+    else:
+        assert result.workspaces[0].workspace_id == "workspace-id"
+        assert result.workspaces[1].organization_id is None
+        assert result.message is None
 
 
 def test_mcp_resolve_organization_id_skips_lookup_when_id_provided() -> None:

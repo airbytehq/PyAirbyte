@@ -112,7 +112,10 @@ Operational modes:
 - Cloud operations: Deploy and manage connectors on Airbyte Cloud (use request
   headers when connecting to a hosted MCP server, or AIRBYTE_CLOUD_CLIENT_ID +
   AIRBYTE_CLOUD_CLIENT_SECRET (or AIRBYTE_CLOUD_BEARER_TOKEN) plus
-  AIRBYTE_CLOUD_WORKSPACE_ID for local or stdio connections)
+  AIRBYTE_CLOUD_WORKSPACE_ID for local or stdio connections). When no organization
+  or workspace ID is configured, first call list_cloud_organizations, then
+  list_cloud_workspaces. If multiple organizations or workspaces are
+  returned, ask the user to choose explicitly; never select automatically.
 - Local operations: Run connectors locally for data extraction (requires
   AIRBYTE_PROJECT_DIR for artifact storage)
 
