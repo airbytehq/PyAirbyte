@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import warnings
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any, cast
@@ -36,6 +37,27 @@ def _suppress_cdk_pydantic_deprecation_warnings() -> None:
         "ignore",
         category=pydantic.warnings.PydanticDeprecatedSince20,
     )
+
+
+def _get_config_from_args(args: list[str]) -> dict[str, Any]:
+    config_path: str | None = None
+    try:
+        config_path = args[args.index("--config") + 1]
+    except (IndexError, ValueError):
+        for arg in args:
+            if arg.startswith("--config="):
+                config_path = arg.partition("=")[2]
+                break
+
+    if not config_path:
+        return {}
+
+    try:
+        config = json.loads(Path(config_path).read_text())
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+
+    return config if isinstance(config, dict) else {}
 
 
 class DeclarativeExecutor(Executor):
@@ -124,9 +146,14 @@ class DeclarativeExecutor(Executor):
     ) -> Iterator[str]:
         """Execute the declarative source."""
         _ = stdin, suppress_stderr  # Not used
-        source_entrypoint = AirbyteEntrypoint(self.declarative_source)
-
         mapped_args: list[str] = self.map_cli_args(args)
+        args_config = _get_config_from_args(mapped_args)
+        source_entrypoint = AirbyteEntrypoint(
+            ConcurrentDeclarativeSource(
+                config={**self._config_dict, **args_config},
+                source_config=self._manifest_dict,
+            )
+        )
         parsed_args: Namespace = source_entrypoint.parse_args(mapped_args)
         yield from source_entrypoint.run(parsed_args)
 
