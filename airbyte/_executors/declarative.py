@@ -53,7 +53,7 @@ def _get_config_from_args(args: list[str]) -> dict[str, Any]:
         return {}
 
     try:
-        config = json.loads(Path(config_path).read_text())
+        config = json.loads(Path(config_path).read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return {}
 

@@ -39,7 +39,9 @@ def test_get_source_passes_config_to_declarative_executor(monkeypatch) -> None:
         source_manifest=manifest,
     )
 
-    assert source.executor.declarative_source["config"] == config
+    declarative_config = source.executor.declarative_source["config"]
+    assert declarative_config["api_key"] == config["api_key"]
+    assert declarative_config["__injected_components_py"]
     assert captured["config"] == config
     assert config == {"api_key": "configured"}
 

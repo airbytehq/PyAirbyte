@@ -7,7 +7,7 @@ import sys
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import requests
 import yaml
@@ -188,10 +188,8 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
-    For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
-
-    Args:
-        config: Connector config used to resolve declarative manifest interpolations.
+    For documentation of each arg, see the function `airbyte.sources.util.get_source()`. The
+    `config` argument is also used to resolve declarative manifest interpolations.
     """
     install_method_count = sum(
         [
