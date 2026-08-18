@@ -349,12 +349,6 @@ MCP_BEARER_TOKEN_HEADER: str = "Authorization"
 MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
 """HTTP header key for client-declared MCP extension IDs."""
 
-MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
-"""HTTP header key for client ID."""
-
-MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
-"""HTTP header key for client secret."""
-
 # Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing
 # a caller to override these URLs per-request would let them redirect the

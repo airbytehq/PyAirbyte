@@ -42,8 +42,6 @@ from airbyte.constants import (
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_CLIENT_ID_HEADER,
-    MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -244,21 +242,39 @@ carries the proxy's self-minted reference JWT, which Airbyte Cloud rejects with
 
 CLIENT_ID_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CLIENT_ID,
-    http_header_key=MCP_CLIENT_ID_HEADER,
     env_var=CLOUD_CLIENT_ID_ENV_VAR,
     required=False,
     sensitive=True,
 )
-"""Config arg for client ID, supporting HTTP header and env var."""
+"""Config arg for client ID, supporting env var only.
+
+Deliberately has no `http_header_key`: the supported headless transport path
+uses standard `Client-Id` and `Client-Secret` headers, or
+`Authorization: Basic base64(client_id:client_secret)`, handled by
+`airbyte/mcp/_client_credentials.py` and
+`fastmcp_extensions.wrap_client_credentials`. That exchange produces a
+short-lived bearer token server-side and rewrites the request to
+`Authorization: Bearer`. A per-request downstream credential header would let
+a caller act as a Cloud identity other than the authenticated one.
+"""
 
 CLIENT_SECRET_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CLIENT_SECRET,
-    http_header_key=MCP_CLIENT_SECRET_HEADER,
     env_var=CLOUD_CLIENT_SECRET_ENV_VAR,
     required=False,
     sensitive=True,
 )
-"""Config arg for client secret, supporting HTTP header and env var."""
+"""Config arg for client secret, supporting env var only.
+
+Deliberately has no `http_header_key`: the supported headless transport path
+uses standard `Client-Id` and `Client-Secret` headers, or
+`Authorization: Basic base64(client_id:client_secret)`, handled by
+`airbyte/mcp/_client_credentials.py` and
+`fastmcp_extensions.wrap_client_credentials`. That exchange produces a
+short-lived bearer token server-side and rewrites the request to
+`Authorization: Bearer`. A per-request downstream credential header would let
+a caller act as a Cloud identity other than the authenticated one.
+"""
 
 API_URL_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_API_URL,

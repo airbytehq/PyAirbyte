@@ -51,8 +51,6 @@ from airbyte.constants import (
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_CLIENT_ID_HEADER,
-    MCP_CLIENT_SECRET_HEADER,
     MCP_WORKSPACE_ID_HEADER,
     is_hosted_mcp_mode,
 )
@@ -248,13 +246,13 @@ class AirbyteNoCloudCredentialsError(PyAirbyteInputError):
             if self._allow_bearer:
                 self.guidance = (
                     f"Provide a bearer token via the `{MCP_BEARER_TOKEN_HEADER}` header, "
-                    f"or client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
-                    f"`{MCP_CLIENT_SECRET_HEADER}` headers."
+                    "or client credentials via the transport `Client-Id` and "
+                    "`Client-Secret` headers."
                 )
             else:
                 self.guidance = (
-                    f"Provide client credentials via the `{MCP_CLIENT_ID_HEADER}` and "
-                    f"`{MCP_CLIENT_SECRET_HEADER}` headers."
+                    "Provide client credentials via the transport `Client-Id` and "
+                    "`Client-Secret` headers."
                 )
         elif self._allow_bearer and self._env_vars:
             self.guidance = (

@@ -30,8 +30,6 @@ from airbyte.constants import (
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_CLIENT_ID_HEADER,
-    MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -56,8 +54,8 @@ from airbyte.mcp._tool_utils import (
 
 CLOUD_AUTH_TIP_TEXT = (
     f"When connecting to a hosted MCP server, provide a bearer token via the "
-    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the "
-    f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers, plus "
+    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
+    f"`Client-Id` and `Client-Secret` headers, plus "
     f"the workspace ID via the `{MCP_WORKSPACE_ID_HEADER}` header. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
