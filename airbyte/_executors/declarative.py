@@ -116,6 +116,16 @@ class DeclarativeExecutor(Executor):
             source_config=self._manifest_dict,
         )
 
+    def _get_effective_config(self, args_config: dict[str, Any]) -> dict[str, Any]:
+        config = {**self._config_dict, **args_config}
+        for key in (
+            "__injected_components_py",
+            "__injected_components_py_checksums",
+        ):
+            if key in self._config_dict:
+                config[key] = self._config_dict[key]
+        return config
+
     @property
     def declarative_source(self) -> ConcurrentDeclarativeSource:
         """Get the declarative source object.
@@ -156,9 +166,7 @@ class DeclarativeExecutor(Executor):
         mapped_args: list[str] = self.map_cli_args(args)
         args_config = _get_config_from_args(mapped_args)
         source_entrypoint = AirbyteEntrypoint(
-            self._create_declarative_source(
-                {**self._config_dict, **args_config},
-            )
+            self._create_declarative_source(self._get_effective_config(args_config))
         )
         parsed_args: Namespace = source_entrypoint.parse_args(mapped_args)
         yield from source_entrypoint.run(parsed_args)

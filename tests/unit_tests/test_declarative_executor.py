@@ -96,8 +96,13 @@ def test_execute_uses_config_set_after_get_source_and_preserves_injected_compone
     )
     source.set_config(late_config, validate=False)
     config_path = tmp_path / "config.json"
+    config_file_config = {
+        **source._hydrated_config,
+        "__injected_components_py": "bogus",
+        "__injected_components_py_checksums": {"md5": "bogus"},
+    }
     config_path.write_text(
-        json.dumps(source._hydrated_config),
+        json.dumps(config_file_config),
         encoding="utf-8",
     )
 
