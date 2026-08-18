@@ -20,5 +20,5 @@ sample_spec = {
 
 
 def run() -> None:
-    if sys.argv[1] == "spec":
+    if len(sys.argv) > 1 and sys.argv[1] == "spec":
         print(json.dumps(sample_spec))

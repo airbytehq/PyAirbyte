@@ -51,3 +51,22 @@ def test_discovers_installed_console_script_with_different_name(
 
     assert executor._resolve_console_script_name() == expected_script_name  # noqa: SLF001
     assert executor._get_connector_path().name == expected_script_name  # noqa: SLF001
+
+    executor._get_connector_path().unlink()  # noqa: SLF001
+    assert executor._resolve_console_script_name() is None  # noqa: SLF001
+
+
+def test_declines_ambiguous_console_script_discovery(tmp_path: Path) -> None:
+    executor = VenvExecutor(
+        name="source-wrong-exe",
+        pip_url=str(FIXTURE_DIR / "source-wrong-exe-ambiguous"),
+        install_root=tmp_path,
+    )
+
+    executor.install()
+
+    assert executor._discover_console_script_name() == [  # noqa: SLF001
+        "helper-script-a",
+        "helper-script-b",
+    ]
+    assert executor._resolve_console_script_name() is None  # noqa: SLF001

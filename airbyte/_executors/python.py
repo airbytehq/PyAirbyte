@@ -82,10 +82,10 @@ class VenvExecutor(Executor):
             return self.metadata.pypi_package_name
         return f"airbyte-{self.name}"
 
-    def _discover_console_script_name(self) -> str | None:
-        """Return the installed package's console script name, if discoverable."""
+    def _discover_console_script_name(self) -> list[str]:
+        """Return the installed package's console script names, if discoverable."""
         if not self.interpreter_path.exists():
-            return None
+            return []
 
         package_name = self._get_pypi_package_name()
         connector_name = self.name
@@ -107,12 +107,8 @@ class VenvExecutor(Executor):
                 "    if ep.dist is not None",
                 "    and canonicalize(ep.dist.name) == canonical_package_name",
                 "]",
-                "if connector_name in {ep.name for ep in entry_points}:",
-                "    print(connector_name)",
-                "elif entry_points:",
-                "    print(sorted(ep.name for ep in entry_points)[0])",
-                "else:",
-                '    print("")',
+                "for entry_point_name in sorted(ep.name for ep in entry_points):",
+                "    print(entry_point_name)",
             ]
         )
         try:
@@ -122,14 +118,18 @@ class VenvExecutor(Executor):
                 stderr=subprocess.PIPE,
             ).strip()
         except (FileNotFoundError, subprocess.CalledProcessError):
-            return None
+            return []
 
-        return result or None
+        return result.splitlines()
 
     def _resolve_console_script_name(self) -> str | None:
         """Resolve the connector CLI executable name within the virtual environment."""
         if self._console_script_name:
-            return self._console_script_name
+            suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
+            cached_path = get_bin_dir(self._get_venv_path()) / (self._console_script_name + suffix)
+            if cached_path.exists():
+                return self._console_script_name
+            self._console_script_name = None
 
         suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         default_name = self.name + suffix
@@ -138,7 +138,14 @@ class VenvExecutor(Executor):
             self._console_script_name = self.name
             return self._console_script_name
 
-        discovered_name = self._discover_console_script_name()
+        discovered_names = self._discover_console_script_name()
+        if self.name in discovered_names:
+            discovered_name = self.name
+        elif len(discovered_names) == 1:
+            discovered_name = discovered_names[0]
+        else:
+            return None
+
         if discovered_name:
             discovered_path = get_bin_dir(self._get_venv_path()) / (discovered_name + suffix)
             if discovered_path.exists():
@@ -303,7 +310,7 @@ class VenvExecutor(Executor):
                 [
                     self.interpreter_path,
                     "-c",
-                    f"from importlib.metadata import version; print(version('{package_name}'))",
+                    f"from importlib.metadata import version; print(version({package_name!r}))",
                 ],
                 universal_newlines=True,
                 stderr=subprocess.PIPE,  # Don't print to stderr
