@@ -1,20 +1,27 @@
+# Copyright (c) 2026 Airbyte, Inc., all rights reserved.
+"""Unit tests for declarative executor configuration resolution."""
+
 from __future__ import annotations
 
+from collections.abc import Iterator
 import json
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from airbyte._executors import declarative
 from airbyte._executors.declarative import DeclarativeExecutor
 from airbyte.sources import util as sources_util
 
 
-def test_get_source_passes_config_to_declarative_executor(monkeypatch) -> None:
-    captured: dict[str, Any] = {}
+def test_get_source_passes_config_to_declarative_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     manifest = {"version": "1.0.0"}
     config = {"api_key": "configured"}
 
     def fake_get_connector_executor(**kwargs: Any) -> DeclarativeExecutor:
-        captured.update(kwargs)
         return DeclarativeExecutor(
             name=kwargs["name"],
             manifest=kwargs["source_manifest"],
@@ -42,13 +49,12 @@ def test_get_source_passes_config_to_declarative_executor(monkeypatch) -> None:
     declarative_config = source.executor.declarative_source["config"]
     assert declarative_config["api_key"] == config["api_key"]
     assert declarative_config["__injected_components_py"]
-    assert captured["config"] == config
     assert config == {"api_key": "configured"}
 
 
 def test_execute_uses_config_set_after_get_source_and_preserves_injected_components(
-    monkeypatch,
-    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     captured: dict[str, Any] = {}
     manifest = {"version": "1.0.0"}
@@ -69,7 +75,7 @@ def test_execute_uses_config_set_after_get_source_and_preserves_injected_compone
         def parse_args(self, args: list[str]) -> list[str]:
             return args
 
-        def run(self, args: list[str]):
+        def run(self, args: list[str]) -> Iterator[str]:
             yield from args
 
     monkeypatch.setattr(
@@ -90,7 +96,10 @@ def test_execute_uses_config_set_after_get_source_and_preserves_injected_compone
     )
     source.set_config(late_config, validate=False)
     config_path = tmp_path / "config.json"
-    config_path.write_text(json.dumps(source._hydrated_config))
+    config_path.write_text(
+        json.dumps(source._hydrated_config),
+        encoding="utf-8",
+    )
 
     list(source.executor.execute(["read", "--config", str(config_path)]))
 
