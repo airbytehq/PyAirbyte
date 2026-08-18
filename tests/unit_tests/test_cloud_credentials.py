@@ -555,74 +555,81 @@ def test_cloud_client_get_organization_reuses_list_organizations(
     assert result is organizations[0]
 
 
-def test_mcp_list_cloud_organizations_returns_empty_message(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class EmptyClient:
-        def list_organizations(self) -> list[CloudOrganization]:
-            return []
-
-    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: EmptyClient())
-
-    result = mcp_cloud.list_cloud_organizations(None)
-
-    assert result.organizations == []
-    assert result.message
-
-
-@pytest.mark.parametrize("organization_count", [1, 2])
-def test_mcp_list_cloud_organizations_returns_all_results(
-    monkeypatch: pytest.MonkeyPatch,
-    organization_count: int,
-) -> None:
-    class OrganizationClient:
-        def list_organizations(self) -> list[CloudOrganization]:
-            return [
+@pytest.mark.parametrize(
+    ("organizations_or_error", "expected_count", "expect_message"),
+    [
+        pytest.param([], 0, True, id="empty-organizations"),
+        pytest.param(
+            [
                 CloudOrganization(
-                    organization_id=f"organization-id-{index}",
-                    organization_name=f"Organization {index}",
-                    email=f"test-{index}@example.com",
+                    organization_id="organization-id-1",
+                    organization_name="Organization 1",
+                    email="test-1@example.com",
                 )
-                for index in range(organization_count)
-            ]
-
-    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: OrganizationClient())
-
-    result = mcp_cloud.list_cloud_organizations(None)
-
-    assert len(result.organizations) == organization_count
-    assert result.message is None
-
-
-@pytest.mark.parametrize("status_code", [401, 403])
-def test_mcp_list_cloud_organizations_degrades_on_auth_error(
+            ],
+            1,
+            False,
+            id="single-organization",
+        ),
+        pytest.param(
+            [
+                CloudOrganization(
+                    organization_id="organization-id-1",
+                    organization_name="Organization 1",
+                    email="test-1@example.com",
+                ),
+                CloudOrganization(
+                    organization_id="organization-id-2",
+                    organization_name="Organization 2",
+                    email="test-2@example.com",
+                ),
+            ],
+            2,
+            False,
+            id="multiple-organizations",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 401}),
+            0,
+            True,
+            id="unauthorized",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 403}),
+            0,
+            True,
+            id="forbidden",
+        ),
+    ],
+)
+def test_mcp_list_cloud_organizations_discovery(
     monkeypatch: pytest.MonkeyPatch,
-    status_code: int,
+    organizations_or_error: list[CloudOrganization] | AirbyteError,
+    expected_count: int,
+    expect_message: bool,
 ) -> None:
-    class ForbiddenClient:
+    class DiscoveryClient:
         def list_organizations(self) -> list[CloudOrganization]:
-            raise AirbyteError(context={"status_code": status_code})
+            if isinstance(organizations_or_error, AirbyteError):
+                raise organizations_or_error
+            return organizations_or_error
 
-    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: ForbiddenClient())
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
     result = mcp_cloud.list_cloud_organizations(None)
 
-    assert result.organizations == []
-    assert "permission" in (result.message or "")
+    assert len(result.organizations) == expected_count
+    if expect_message:
+        assert result.message
+    else:
+        assert result.message is None
 
 
-def test_mcp_list_cloud_workspaces_uses_public_api_without_organization(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    captured_organization_id: str | None = "unset"
-
-    class WorkspaceClient:
-        def list_workspaces(
-            self, *, organization_id: str | None = None, **_: object
-        ) -> list[CloudWorkspaceInfo]:
-            nonlocal captured_organization_id
-            captured_organization_id = organization_id
-            return [
+@pytest.mark.parametrize(
+    ("workspaces_or_error", "expect_message"),
+    [
+        pytest.param(
+            [
                 CloudWorkspaceInfo(
                     workspaceId="workspace-id",
                     name="Workspace",
@@ -633,9 +640,40 @@ def test_mcp_list_cloud_workspaces_uses_public_api_without_organization(
                     name="Workspace without organization",
                     organizationId=None,
                 ),
-            ]
+            ],
+            False,
+            id="org-less-public-api",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 401}),
+            True,
+            id="unauthorized",
+        ),
+        pytest.param(
+            AirbyteError(context={"status_code": 403}),
+            True,
+            id="forbidden",
+        ),
+    ],
+)
+def test_mcp_list_cloud_workspaces_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+    workspaces_or_error: list[CloudWorkspaceInfo] | AirbyteError,
+    expect_message: bool,
+) -> None:
+    captured_organization_id: str | None = "unset"
 
-    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: WorkspaceClient())
+    class DiscoveryClient:
+        def list_workspaces(
+            self, *, organization_id: str | None = None, **_: object
+        ) -> list[CloudWorkspaceInfo]:
+            nonlocal captured_organization_id
+            captured_organization_id = organization_id
+            if isinstance(workspaces_or_error, AirbyteError):
+                raise workspaces_or_error
+            return workspaces_or_error
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
 
     result = mcp_cloud.list_cloud_workspaces(
         None,
@@ -646,31 +684,13 @@ def test_mcp_list_cloud_workspaces_uses_public_api_without_organization(
     )
 
     assert captured_organization_id is None
-    assert result.workspaces[0].workspace_id == "workspace-id"
-    assert result.workspaces[1].organization_id is None
-
-
-@pytest.mark.parametrize("status_code", [401, 403])
-def test_mcp_list_cloud_workspaces_degrades_on_auth_error(
-    monkeypatch: pytest.MonkeyPatch,
-    status_code: int,
-) -> None:
-    class ForbiddenClient:
-        def list_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
-            raise AirbyteError(context={"status_code": status_code})
-
-    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: ForbiddenClient())
-
-    result = mcp_cloud.list_cloud_workspaces(
-        None,
-        organization_id=None,
-        organization_name=None,
-        name_contains=None,
-        limit=None,
-    )
-
-    assert result.workspaces == []
-    assert "permission" in (result.message or "")
+    if expect_message:
+        assert result.workspaces == []
+        assert "permission" in (result.message or "")
+    else:
+        assert result.workspaces[0].workspace_id == "workspace-id"
+        assert result.workspaces[1].organization_id is None
+        assert result.message is None
 
 
 def test_mcp_resolve_organization_id_skips_lookup_when_id_provided() -> None:
