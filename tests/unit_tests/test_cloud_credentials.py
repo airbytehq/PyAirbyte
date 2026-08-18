@@ -556,9 +556,9 @@ def test_cloud_client_get_organization_reuses_list_organizations(
 
 
 @pytest.mark.parametrize(
-    ("organizations_or_error", "expected_count", "expect_message"),
+    ("organizations_or_error", "expected_count", "expected_message"),
     [
-        pytest.param([], 0, True, id="empty-organizations"),
+        pytest.param([], 0, "No organizations", id="empty-organizations"),
         pytest.param(
             [
                 CloudOrganization(
@@ -568,7 +568,7 @@ def test_cloud_client_get_organization_reuses_list_organizations(
                 )
             ],
             1,
-            False,
+            None,
             id="single-organization",
         ),
         pytest.param(
@@ -585,19 +585,19 @@ def test_cloud_client_get_organization_reuses_list_organizations(
                 ),
             ],
             2,
-            False,
+            None,
             id="multiple-organizations",
         ),
         pytest.param(
             AirbyteError(context={"status_code": 401}),
             0,
-            True,
+            "permission",
             id="unauthorized",
         ),
         pytest.param(
             AirbyteError(context={"status_code": 403}),
             0,
-            True,
+            "permission",
             id="forbidden",
         ),
     ],
@@ -606,7 +606,7 @@ def test_mcp_list_cloud_organizations_discovery(
     monkeypatch: pytest.MonkeyPatch,
     organizations_or_error: list[CloudOrganization] | AirbyteError,
     expected_count: int,
-    expect_message: bool,
+    expected_message: str | None,
 ) -> None:
     class DiscoveryClient:
         def list_organizations(self) -> list[CloudOrganization]:
@@ -619,8 +619,8 @@ def test_mcp_list_cloud_organizations_discovery(
     result = mcp_cloud.list_cloud_organizations(None)
 
     assert len(result.organizations) == expected_count
-    if expect_message:
-        assert result.message
+    if expected_message is not None:
+        assert expected_message in (result.message or "")
     else:
         assert result.message is None
 
