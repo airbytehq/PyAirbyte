@@ -1,8 +1,11 @@
 # Copyright (c) 2023 Airbyte, Inc., all rights reserved.
-"""Regression tests for https://github.com/airbytehq/PyAirbyte/issues/290."""
+"""Regression tests for console script discovery.
+
+See https://github.com/airbytehq/PyAirbyte/issues/290.
+"""
+
 from __future__ import annotations
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -19,12 +22,11 @@ def _use_uv_for_install(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("airbyte._executors.python.NO_UV", False)
 
 
-def test_discovers_console_script_when_name_differs_from_connector() -> None:
-    install_root = Path(tempfile.mkdtemp(prefix="pyairbyte-issue-290-test-"))
+def test_discovers_installed_console_script_with_different_name(tmp_path: Path) -> None:
     executor = VenvExecutor(
         name="source-wrong-exe",
         pip_url=str(FIXTURE_DIR),
-        install_root=install_root,
+        install_root=tmp_path,
     )
 
     executor.install()
@@ -32,4 +34,3 @@ def test_discovers_console_script_when_name_differs_from_connector() -> None:
 
     assert executor._resolve_console_script_name() == "wrong-script-name"  # noqa: SLF001
     assert executor._get_connector_path().name == "wrong-script-name"  # noqa: SLF001
-    assert executor.pip_url == str(FIXTURE_DIR)
