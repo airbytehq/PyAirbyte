@@ -32,6 +32,15 @@ the source provides records that are tied or received out of order from the pers
 `emitted_at` (`_airbyte_extracted_at`) timestamps.
 """
 
+AB_DATA_COLUMN = "_airbyte_data"
+"""A column that stores all data properties as a single JSON/JSONB object.
+
+This column is used when `use_single_json_column=True` is set on the cache configuration.
+Instead of creating individual columns for each property in the source data, all non-primary-key
+data properties are stored together in this single JSON column. Primary keys and internal Airbyte
+columns remain as separate columns for efficient querying and merge operations.
+"""
+
 AB_INTERNAL_COLUMNS = {
     AB_RAW_ID_COLUMN,
     AB_EXTRACTED_AT_COLUMN,

@@ -118,6 +118,15 @@ class DuckDBSqlProcessor(SqlProcessorBase):
         We use DuckDB native SQL functions to efficiently read the files and insert
         them into the table in a single operation.
         """
+        # Fall back to pandas-based approach for single JSON column mode
+        # since the DuckDB native approach doesn't support dynamically combining columns 
+        # into JSON.
+        if self.sql_config.use_single_json_column:
+            return super()._write_files_to_new_table(
+                files=files,
+                stream_name=stream_name,
+                batch_id=batch_id,
+            )
         temp_table_name = self._create_table_for_loading(
             stream_name=stream_name,
             batch_id=batch_id,
