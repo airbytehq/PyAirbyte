@@ -568,9 +568,11 @@ def get_connector_version_history(
         AirbyteConnectorNotRegisteredError: If the connector is not found in the registry.
 
     Example:
-        >>> versions = get_connector_version_history("source-faker", num_versions_to_validate=3)
-        >>> for v in versions[:5]:
-        ...     print(f"{v.version}: {v.release_date}")
+        ```python
+        versions = get_connector_version_history("source-faker", num_versions_to_validate=3)
+        for v in versions[:5]:
+            print(f"{v.version}: {v.release_date}")
+        ```
     """
     if connector_name not in get_available_connectors(InstallType.ANY):
         raise exc.AirbyteConnectorNotRegisteredError(

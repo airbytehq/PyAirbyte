@@ -32,8 +32,6 @@ from airbyte.constants import (
     CLOUD_CLIENT_SECRET_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_CLIENT_ID_HEADER,
-    MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -59,10 +57,10 @@ from airbyte.mcp._tool_utils import (
 
 CLOUD_AUTH_TIP_TEXT = (
     f"When connecting to a hosted MCP server, provide a bearer token via the "
-    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the "
-    f"`{MCP_CLIENT_ID_HEADER}` and `{MCP_CLIENT_SECRET_HEADER}` headers. To discover "
-    f"available organizations and workspaces, call `list_cloud_organizations` and "
-    f"`list_cloud_workspaces` before asking the user for an ID. For local or "
+    f"`{MCP_BEARER_TOKEN_HEADER}` header, or client credentials via the transport "
+    f"`Client-Id` and `Client-Secret` headers. To discover available organizations "
+    f"and workspaces, call `list_cloud_organizations` and `list_cloud_workspaces` "
+    f"before asking the user for an ID. For local or "
     f"stdio connections, set the `{CLOUD_BEARER_TOKEN_ENV_VAR}` environment "
     f"variable, or both `{CLOUD_CLIENT_ID_ENV_VAR}` and "
     f"`{CLOUD_CLIENT_SECRET_ENV_VAR}`. If discovery returns multiple candidates, "
@@ -989,14 +987,13 @@ def describe_cloud_source(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     source = workspace.get_source(source_id=source_id)
 
-    # Access name property to ensure _connector_info is populated
     source_name = cast(str, source.name)
 
     return CloudSourceDetails(
         source_id=source.source_id,
         source_name=source_name,
         source_url=source.connector_url,
-        connector_definition_id=source._connector_info.definition_id,  # noqa: SLF001  # type: ignore[union-attr]
+        connector_definition_id=source.definition_id,
     )
 
 
@@ -1025,14 +1022,13 @@ def describe_cloud_destination(
     workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
     destination = workspace.get_destination(destination_id=destination_id)
 
-    # Access name property to ensure _connector_info is populated
     destination_name = cast(str, destination.name)
 
     return CloudDestinationDetails(
         destination_id=destination.destination_id,
         destination_name=destination_name,
         destination_url=destination.connector_url,
-        connector_definition_id=destination._connector_info.definition_id,  # noqa: SLF001  # type: ignore[union-attr]
+        connector_definition_id=destination.definition_id,
     )
 
 

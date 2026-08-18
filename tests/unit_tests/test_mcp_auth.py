@@ -13,12 +13,15 @@ assembly lives in `fastmcp-extensions` and is tested there.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastmcp.server.auth.providers.jwt import JWTVerifier
 from fastmcp_extensions import JWTAuthConfig, OIDCAuthConfig
 
+from airbyte.mcp import _client_credentials as client_credentials
+from airbyte.mcp import http_main
 from airbyte.mcp import server
 
 
@@ -37,6 +40,8 @@ _ALL_AUTH_ENV = (
     server.JWT_ISSUER_ENV,
     server.JWT_AUDIENCE_ENV,
     server.JWT_ALGORITHM_ENV,
+    client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV,
+    client_credentials.TOKEN_URL_ENV,
 )
 
 
@@ -71,6 +76,142 @@ def test_auth_env_names_are_branded() -> None:
     assert server.JWT_ISSUER_ENV == "AIRBYTE_MCP_AUTH_ISSUER"
     assert server.JWT_AUDIENCE_ENV == "AIRBYTE_MCP_AUTH_AUDIENCE"
     assert server.JWT_ALGORITHM_ENV == "AIRBYTE_MCP_AUTH_ALGORITHM"
+    assert (
+        client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV
+        == "AIRBYTE_MCP_AUTH_ALLOW_CLIENT_CREDENTIALS"
+    )
+    assert (
+        client_credentials.TOKEN_URL_ENV
+        == "AIRBYTE_MCP_AUTH_CLIENT_CREDENTIALS_TOKEN_URL"
+    )
+
+
+def test_client_credentials_disabled_leaves_app_unwrapped(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV, raising=False)
+    app = object()
+    assert client_credentials.wrap_if_enabled(app) is app
+
+
+def test_client_credentials_enabled_wraps_app(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(client_credentials.ALLOW_CLIENT_CREDENTIALS_ENV, "true")
+    monkeypatch.setenv(client_credentials.TOKEN_URL_ENV, "https://idp.example/token")
+    app = object()
+    assert client_credentials.wrap_if_enabled(app) is not app
+
+
+@pytest.mark.parametrize(
+    "auth, expected_warning",
+    [
+        pytest.param(
+            None,
+            "without bearer-token verification",
+            id="enabled-without-verifier",
+        ),
+        pytest.param(
+            object(),
+            None,
+            id="enabled-with-verifier",
+        ),
+    ],
+)
+def test_client_credentials_auth_status_warning(
+    auth: object | None,
+    expected_warning: str | None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(http_main, "app", SimpleNamespace(auth=auth))
+    monkeypatch.setattr(http_main, "client_credentials_enabled", lambda: True)
+    warnings: list[str] = []
+    monkeypatch.setattr(http_main.logger, "warning", warnings.append)
+
+    http_main._log_auth_status()
+
+    if expected_warning is None:
+        assert not warnings
+    else:
+        assert any(expected_warning in warning for warning in warnings)
+
+
+def test_http_main_delegates_http_serving_to_fastmcp_extensions(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    config: dict[str, object] = {}
+    fake_app = SimpleNamespace(
+        auth=object(),
+        http_app=lambda **kwargs: object(),
+    )
+
+    monkeypatch.setattr(http_main, "app", fake_app)
+    monkeypatch.setattr(http_main, "set_hosted_mcp_mode", lambda: None)
+    monkeypatch.setattr(
+        http_main, "register_landing_page", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(
+        http_main,
+        "assert_http_trusted_execution_disabled",
+        lambda app: None,
+    )
+    monkeypatch.setattr(http_main, "wrap_if_enabled", lambda app: app)
+    monkeypatch.delenv(http_main.MCP_SERVER_URL_ENV, raising=False)
+
+    def capture_run(app: object, **kwargs: object) -> None:
+        assert app is fake_app
+        config.update(kwargs)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(http_main, "run_mcp_http_server", capture_run)
+
+    http_main.main()
+
+    assert config == {
+        "path": "/mcp",
+        "transport": "streamable-http",
+        "stateless_http": True,
+        "wrapper": http_main.wrap_if_enabled,
+        "host": http_main.DEFAULT_HTTP_HOST,
+        "port": http_main.DEFAULT_HTTP_PORT,
+    }
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [
+        pytest.param(
+            None,
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="unset-uses-default",
+        ),
+        pytest.param(
+            "",
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="empty-uses-default",
+        ),
+        pytest.param(
+            "   ",
+            client_credentials.AIRBYTE_CLOUD_TOKEN_URL,
+            id="whitespace-uses-default",
+        ),
+        pytest.param(
+            "  https://idp.example/token  ",
+            "https://idp.example/token",
+            id="override",
+        ),
+    ],
+)
+def test_client_credentials_token_url(
+    value: str | None,
+    expected: str,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    if value is None:
+        monkeypatch.delenv(client_credentials.TOKEN_URL_ENV, raising=False)
+    else:
+        monkeypatch.setenv(client_credentials.TOKEN_URL_ENV, value)
+    assert client_credentials._token_url() == expected
 
 
 @pytest.mark.parametrize(

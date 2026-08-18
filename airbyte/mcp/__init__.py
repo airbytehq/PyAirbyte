@@ -224,6 +224,22 @@ set; the interactive path activates once the OIDC client credentials are set.
   `AIRBYTE_MCP_AUTH_ALGORITHM` — expected `iss` / `aud` claims and signing
   algorithm.
 
+For stateless HTTP clients that need MCP Apps `interactive-ui` tools, clients
+that declare extensions at initialize receive a self-describing `Mcp-Session-Id`
+which spec-compliant clients echo on subsequent requests. Clients that do not
+echo session IDs can use the explicit fallback
+`X-MCP-Extensions: io.modelcontextprotocol/ui` header on each request instead.
+Multiple extension IDs may be comma-separated (recommended) or
+whitespace-separated.
+The stateless capability-token middleware and extension resolver are provided
+by the installed `fastmcp-extensions` package.
+
+The eventual spec-aligned replacement is per-request `_meta` under
+`io.modelcontextprotocol/clientCapabilities`. That path exists in the modern
+`mcp` 2.x server architecture, while this project currently resolves the
+legacy `fastmcp` 3.x and `mcp` 1.x stack. Using it requires a stack migration
+rather than a version-only change.
+
 With no auth variables set, the HTTP server falls back to unauthenticated local
 behavior. This server maps the `AIRBYTE_MCP_*` variables into the typed config
 objects consumed by

@@ -15,13 +15,12 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
-from fastmcp.apps import UI_EXTENSION_ID
-from fastmcp.server.dependencies import (
-    get_access_token,
-    get_context,
-    get_http_headers,
+from fastmcp.server.dependencies import get_access_token, get_http_headers
+from fastmcp_extensions import (
+    ANNOTATION_INTERACTIVE_UI,
+    MCPServerConfigArg,
+    get_mcp_config,
 )
-from fastmcp_extensions import MCPServerConfigArg, get_mcp_config
 from fastmcp_extensions import mcp_tool as _mcp_tool
 from fastmcp_extensions.decorators import (
     _REGISTERED_PROVIDERS,  # noqa: PLC2701
@@ -43,8 +42,6 @@ from airbyte.constants import (
     CLOUD_CONFIG_API_ROOT_ENV_VAR,
     CLOUD_WORKSPACE_ID_ENV_VAR,
     MCP_BEARER_TOKEN_HEADER,
-    MCP_CLIENT_ID_HEADER,
-    MCP_CLIENT_SECRET_HEADER,
     MCP_CONFIG_API_URL,
     MCP_CONFIG_BEARER_TOKEN,
     MCP_CONFIG_CLIENT_ID,
@@ -65,16 +62,14 @@ from airbyte.exceptions import PyAirbyteInputError
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
-    from fastmcp.server.context import Context
     from mcp.types import Tool
 
 _MCP_TOOL_FUNC = TypeVar("_MCP_TOOL_FUNC", bound=Callable[..., object])
 _TOOL_APP_KEY = "_airbyte_tool_app"
 _TOOL_META_KEY = "_airbyte_tool_meta"
 
-INTERACTIVE_UI_ANNOTATION = "interactive-ui"
+INTERACTIVE_UI_ANNOTATION = ANNOTATION_INTERACTIVE_UI
 """Annotation indicating the tool requires MCP Apps UI support."""
-
 
 # =============================================================================
 # Safe Mode Configuration
@@ -247,21 +242,39 @@ carries the proxy's self-minted reference JWT, which Airbyte Cloud rejects with
 
 CLIENT_ID_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CLIENT_ID,
-    http_header_key=MCP_CLIENT_ID_HEADER,
     env_var=CLOUD_CLIENT_ID_ENV_VAR,
     required=False,
     sensitive=True,
 )
-"""Config arg for client ID, supporting HTTP header and env var."""
+"""Config arg for client ID, supporting env var only.
+
+Deliberately has no `http_header_key`: the supported headless transport path
+uses standard `Client-Id` and `Client-Secret` headers, or
+`Authorization: Basic base64(client_id:client_secret)`, handled by
+`airbyte/mcp/_client_credentials.py` and
+`fastmcp_extensions.wrap_client_credentials`. That exchange produces a
+short-lived bearer token server-side and rewrites the request to
+`Authorization: Bearer`. A per-request downstream credential header would let
+a caller act as a Cloud identity other than the authenticated one.
+"""
 
 CLIENT_SECRET_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_CLIENT_SECRET,
-    http_header_key=MCP_CLIENT_SECRET_HEADER,
     env_var=CLOUD_CLIENT_SECRET_ENV_VAR,
     required=False,
     sensitive=True,
 )
-"""Config arg for client secret, supporting HTTP header and env var."""
+"""Config arg for client secret, supporting env var only.
+
+Deliberately has no `http_header_key`: the supported headless transport path
+uses standard `Client-Id` and `Client-Secret` headers, or
+`Authorization: Basic base64(client_id:client_secret)`, handled by
+`airbyte/mcp/_client_credentials.py` and
+`fastmcp_extensions.wrap_client_credentials`. That exchange produces a
+short-lived bearer token server-side and rewrites the request to
+`Authorization: Bearer`. A per-request downstream credential header would let
+a caller act as a Cloud identity other than the authenticated one.
+"""
 
 API_URL_CONFIG_ARG = MCPServerConfigArg(
     name=MCP_CONFIG_API_URL,
@@ -508,22 +521,3 @@ def validate_airbyte_domains(app: FastMCP) -> None:
                 "known_domains": sorted(known_modules),
             },
         )
-
-
-def airbyte_ui_support_filter(tool: Tool, _app: FastMCP) -> bool:
-    """Filter tools that require MCP Apps UI support."""
-    if not get_annotation(tool, INTERACTIVE_UI_ANNOTATION, default=False):
-        return True
-    return _client_supports_ui()
-
-
-def _client_supports_ui() -> bool:
-    try:
-        context = get_context()
-    except RuntimeError:
-        return False
-    return _fastmcp_context_supports_ui(context)
-
-
-def _fastmcp_context_supports_ui(context: Context) -> bool:
-    return context.client_supports_extension(UI_EXTENSION_ID)

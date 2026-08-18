@@ -180,15 +180,14 @@ If not set, the default value is `False` for non-CI environments.
 If running in a CI environment ("CI" env var is set), then the default value is `True`.
 """
 
-NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() not in {"1", "true", "yes"}
-"""Whether to use uv for Python package management.
+NO_UV: bool = os.getenv("AIRBYTE_NO_UV", "").lower() in {"1", "true", "yes"}
+"""Whether to disable uv and use pip for Python package management.
 
 This value is determined by the `AIRBYTE_NO_UV` environment variable. When `AIRBYTE_NO_UV`
-is set to "1", "true", or "yes", uv will be disabled and pip will be used instead.
+is set to "1", "true", or "yes", pip will be used instead of uv.
 
-If the variable is not set or set to any other value, uv will be used by default.
-This provides a safe fallback mechanism for environments where uv is not available
-or causes issues.
+If the variable is not set or set to any other value, uv will be used by default. Set this
+variable to opt out of uv and use pip instead.
 """
 
 SECRETS_HYDRATION_PREFIX = "secret_reference::"
@@ -347,11 +346,8 @@ MCP_CONFIG_CONFIG_API_URL: str = "config_api_url"
 MCP_BEARER_TOKEN_HEADER: str = "Authorization"
 """HTTP header key for bearer token (standard Authorization header)."""
 
-MCP_CLIENT_ID_HEADER: str = "X-Airbyte-Cloud-Client-Id"
-"""HTTP header key for client ID."""
-
-MCP_CLIENT_SECRET_HEADER: str = "X-Airbyte-Cloud-Client-Secret"
-"""HTTP header key for client secret."""
+MCP_EXTENSIONS_HEADER: str = "X-MCP-Extensions"
+"""HTTP header key for client-declared MCP extension IDs."""
 
 # Security Note: The API root and Config API root are intentionally NOT exposed as HTTP
 # headers. Each hosted MCP deployment is paired to a single backend, so allowing
