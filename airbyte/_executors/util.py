@@ -184,11 +184,14 @@ def get_connector_executor(  # noqa: PLR0912, PLR0913, PLR0914, PLR0915, C901 # 
     install_root: Path | None = None,
     use_python: bool | Path | str | None = None,
     no_executor: bool = False,
-    config: dict[str, Any] = {}
+    config: dict[str, Any] | None = None,
 ) -> Executor:
     """This factory function creates an executor for a connector.
 
     For documentation of each arg, see the function `airbyte.sources.util.get_source()`.
+
+    Args:
+        config: Connector config used to resolve declarative manifest interpolations.
     """
     install_method_count = sum(
         [

@@ -45,7 +45,7 @@ class DeclarativeExecutor(Executor):
         self,
         name: str,
         manifest: dict | Path,
-        config: dict[str, Any] = {},
+        config: dict[str, Any] | None = None,
         components_py: str | Path | None = None,
         components_py_checksum: str | None = None,
     ) -> None:
@@ -54,6 +54,7 @@ class DeclarativeExecutor(Executor):
         - If `manifest` is a path, it will be read as a json file.
         - If `manifest` is a string, it will be parsed as an HTTP path.
         - If `manifest` is a dict, it will be used as is.
+        - If `config` is provided, it will be used to resolve manifest interpolations.
         - If `components_py` is provided, components will be injected into the source.
         - If `components_py_checksum` is not provided, it will be calculated automatically.
         """
@@ -67,7 +68,7 @@ class DeclarativeExecutor(Executor):
         elif isinstance(manifest, dict):
             self._manifest_dict = manifest
 
-        config_dict: dict[str, Any] = config
+        config_dict: dict[str, Any] = dict(config or {})
         if components_py:
             if isinstance(components_py, Path):
                 components_py = components_py.read_text()
