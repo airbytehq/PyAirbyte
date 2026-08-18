@@ -82,7 +82,7 @@ class VenvExecutor(Executor):
             return self.metadata.pypi_package_name
         return f"airbyte-{self.name}"
 
-    def _discover_console_script_name(self) -> list[str]:
+    def _discover_console_script_names(self) -> list[str]:
         """Return the installed package's console script names, if discoverable."""
         if not self.interpreter_path.exists():
             return []
@@ -124,21 +124,20 @@ class VenvExecutor(Executor):
 
     def _resolve_console_script_name(self) -> str | None:
         """Resolve the connector CLI executable name within the virtual environment."""
+        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         if self._console_script_name:
-            suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
             cached_path = get_bin_dir(self._get_venv_path()) / (self._console_script_name + suffix)
             if cached_path.exists():
                 return self._console_script_name
             self._console_script_name = None
 
-        suffix: Literal[".exe", ""] = ".exe" if is_windows() else ""
         default_name = self.name + suffix
         default_path = get_bin_dir(self._get_venv_path()) / default_name
         if default_path.exists():
             self._console_script_name = self.name
             return self._console_script_name
 
-        discovered_names = self._discover_console_script_name()
+        discovered_names = self._discover_console_script_names()
         if self.name in discovered_names:
             discovered_name = self.name
         elif len(discovered_names) == 1:
@@ -146,11 +145,10 @@ class VenvExecutor(Executor):
         else:
             return None
 
-        if discovered_name:
-            discovered_path = get_bin_dir(self._get_venv_path()) / (discovered_name + suffix)
-            if discovered_path.exists():
-                self._console_script_name = discovered_name
-                return self._console_script_name
+        discovered_path = get_bin_dir(self._get_venv_path()) / (discovered_name + suffix)
+        if discovered_path.exists():
+            self._console_script_name = discovered_name
+            return self._console_script_name
 
         return None
 
@@ -364,14 +362,15 @@ class VenvExecutor(Executor):
                     connector_name=self.name,
                     context={
                         "connector_path": self._get_connector_path(),
+                        "discovered_console_scripts": self._discover_console_script_names(),
                     },
                 )
 
             # If the connector path does not exist, uninstall and re-install.
             # This is sometimes caused by a failed or partial installation.
             print(
-                "Connector executable not found within the virtual environment "
-                f"within bin directory {get_bin_dir(self._get_venv_path())!s}.\nReinstalling...",
+                "Connector executable not found in virtual environment bin directory "
+                f"{get_bin_dir(self._get_venv_path())!s}.\nReinstalling...",
                 file=sys.stderr,
             )
             self.uninstall()
@@ -386,7 +385,7 @@ class VenvExecutor(Executor):
                 connector_name=self.name,
                 context={
                     "connector_path": self._get_connector_path(),
-                    "discovered_console_scripts": self._discover_console_script_name(),
+                    "discovered_console_scripts": self._discover_console_script_names(),
                 },
             ) from FileNotFoundError(self._get_connector_path())
 

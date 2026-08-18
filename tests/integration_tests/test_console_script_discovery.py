@@ -65,7 +65,7 @@ def test_declines_ambiguous_console_script_discovery(tmp_path: Path) -> None:
 
     executor.install()
 
-    assert executor._discover_console_script_name() == [  # noqa: SLF001
+    assert executor._discover_console_script_names() == [  # noqa: SLF001
         "helper-script-a",
         "helper-script-b",
     ]
