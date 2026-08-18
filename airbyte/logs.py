@@ -7,10 +7,17 @@ files within the same directory, under a subfolder with the name of the connecto
 
 PyAirbyte supports structured JSON logging, which is disabled by default. To enable structured
 logging in JSON, set `AIRBYTE_STRUCTURED_LOGGING` to `True`.
+
+PyAirbyte supports different logging behaviors controlled by the `AIRBYTE_LOGGING_BEHAVIOR`
+environment variable:
+- `FILE_ONLY`: Write logs only to files (default)
+- `CONSOLE_ONLY`: Write logs only to stdout/stderr
+- `FILE_AND_CONSOLE`: Write logs to both files and stdout/stderr
 """
 
 from __future__ import annotations
 
+import enum
 import logging
 import os
 import platform
@@ -26,9 +33,26 @@ import ulid
 from airbyte_cdk.utils.datetime_helpers import ab_datetime_now
 
 
+class LoggingBehavior(enum.Enum):
+    """Enumeration for PyAirbyte logging behavior."""
+
+    FILE_ONLY = "FILE_ONLY"
+    CONSOLE_ONLY = "CONSOLE_ONLY"
+    FILE_AND_CONSOLE = "FILE_AND_CONSOLE"
+
+
 def _str_to_bool(value: str) -> bool:
     """Convert a string value of an environment values to a boolean value."""
     return bool(value) and value.lower() not in {"", "0", "false", "f", "no", "n", "off"}
+
+
+def _parse_logging_behavior(value: str) -> LoggingBehavior:
+    """Parse logging behavior from environment variable string."""
+    default_logging_behavior = LoggingBehavior.FILE_ONLY
+    try:
+        return LoggingBehavior(value.upper())
+    except ValueError:
+        return default_logging_behavior
 
 
 AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
@@ -41,6 +65,22 @@ AIRBYTE_STRUCTURED_LOGGING: bool = _str_to_bool(
 
 This value is read from the `AIRBYTE_STRUCTURED_LOGGING` environment variable. If the variable is
 not set, the default value is `False`.
+"""
+
+AIRBYTE_LOGGING_BEHAVIOR: LoggingBehavior = _parse_logging_behavior(
+    os.getenv(
+        key="AIRBYTE_LOGGING_BEHAVIOR",
+        default="FILE_ONLY",
+    )
+)
+"""The logging behavior for PyAirbyte.
+
+This value is read from the `AIRBYTE_LOGGING_BEHAVIOR` environment variable. Valid values are:
+- `FILE_ONLY`: Write logs only to files (default)
+- `CONSOLE_ONLY`: Write logs only to stdout/stderr
+- `FILE_AND_CONSOLE`: Write logs to both files and stdout/stderr
+
+If an invalid value is provided, the default `FILE_ONLY` behavior is used.
 """
 
 _warned_messages: set[str] = set()
@@ -129,48 +169,25 @@ set this value to `None`.
 def get_global_file_logger() -> logging.Logger | None:
     """Return the global logger for PyAirbyte.
 
-    This logger is configured to write logs to the console and to a file in the log directory.
+    This logger is configured based on the AIRBYTE_LOGGING_BEHAVIOR setting.
     """
     logger = logging.getLogger("airbyte")
     logger.setLevel(logging.INFO)
     logger.propagate = False
 
-    if AIRBYTE_LOGGING_ROOT is None:
-        # No temp directory available, so return None
+    handlers = _get_global_handlers()
+    if len(handlers) == 0:
         return None
 
-    # Else, configure the logger to write to a file
-
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
-
-    yyyy_mm_dd: str = ab_datetime_now().strftime("%Y-%m-%d")
-    folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        warn_once(
-            f"Failed to create logging directory at '{folder!s}'.",
-            with_stack=False,
-        )
-        return None
-
-    logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
-    print(f"Writing PyAirbyte logs to file: {logfile_path!s}", file=sys.stderr)
-
-    file_handler = logging.FileHandler(
-        filename=logfile_path,
-        encoding="utf-8",
-    )
+    # We are going to set our own handlers.
+    _remove_all_handlers(logger)
 
     if AIRBYTE_STRUCTURED_LOGGING:
-        # Create a formatter and set it for the handler
+        # Create a formatter and set it for the handlers
         formatter = logging.Formatter("%(message)s")
-        file_handler.setFormatter(formatter)
-
-        # Add the file handler to the logger
-        logger.addHandler(file_handler)
+        for handler in handlers:
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
         # Configure structlog
         structlog.configure(
@@ -191,34 +208,16 @@ def get_global_file_logger() -> logging.Logger | None:
         # Create a logger
         return structlog.get_logger("airbyte")
 
-    # Create and configure file handler
-    file_handler.setFormatter(
-        logging.Formatter(
-            fmt="%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
+    # Configure handlers
+    formatter = logging.Formatter(
+        fmt="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
-    logger.addHandler(file_handler)
     return logger
-
-
-def get_global_stats_log_path() -> Path | None:
-    """Return the path to the performance log file."""
-    if AIRBYTE_LOGGING_ROOT is None:
-        return None
-
-    folder = AIRBYTE_LOGGING_ROOT
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        warn_once(
-            f"Failed to create logging directory at '{folder!s}'.",
-            with_stack=False,
-        )
-        return None
-
-    return folder / "airbyte-stats.log"
 
 
 @lru_cache
@@ -241,38 +240,18 @@ def get_global_stats_logger() -> structlog.BoundLogger:
         cache_logger_on_first_use=True,
     )
 
-    logfile_path: Path | None = get_global_stats_log_path()
-    if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
-        # No temp directory available, so return no-op logger without handlers
+    handlers = _get_global_stats_handlers()
+    if len(handlers) == 0:
         return structlog.get_logger("airbyte.stats")
 
-    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}", file=sys.stderr)
-
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
-
-    folder = AIRBYTE_LOGGING_ROOT
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-    except Exception:
-        warn_once(
-            f"Failed to create logging directory at '{folder!s}'.",
-            with_stack=False,
-        )
-        return structlog.get_logger("airbyte.stats")
-
-    file_handler = logging.FileHandler(
-        filename=logfile_path,
-        encoding="utf-8",
-    )
+    # We are going to set our own handlers.
+    _remove_all_handlers(logger)
 
     # Create a formatter and set it for the handler
     formatter = logging.Formatter("%(message)s")
-    file_handler.setFormatter(formatter)
-
-    # Add the file handler to the logger
-    logger.addHandler(file_handler)
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
     # Create a logger
     return structlog.get_logger("airbyte.stats")
@@ -286,37 +265,19 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
     # Prevent logging to stderr by stopping propagation to the root logger
     logger.propagate = False
 
-    if AIRBYTE_LOGGING_ROOT is None:
-        # No temp directory available, so return a basic logger
+    handlers = _get_passthrough_handlers(connector_name)
+    if len(handlers) == 0:
         return logger
 
-    # Else, configure the logger to write to a file
-
-    # Remove any existing handlers
-    for handler in logger.handlers:
-        logger.removeHandler(handler)
-
-    folder = AIRBYTE_LOGGING_ROOT / connector_name
-    folder.mkdir(parents=True, exist_ok=True)
-
-    # Create a file handler
-    global_logger = get_global_file_logger()
-    logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
-    logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
-    print(logfile_msg, file=sys.stderr)
-    if global_logger:
-        global_logger.info(logfile_msg)
-
-    file_handler = logging.FileHandler(logfile_path)
-    file_handler.setLevel(logging.INFO)
+    # We are going to set our own handlers.
+    _remove_all_handlers(logger)
 
     if AIRBYTE_STRUCTURED_LOGGING:
         # Create a formatter and set it for the handler
         formatter = logging.Formatter("%(message)s")
-        file_handler.setFormatter(formatter)
-
-        # Add the file handler to the logger
-        logger.addHandler(file_handler)
+        for handler in handlers:
+            handler.setFormatter(formatter)
+            logger.addHandler(handler)
 
         # Configure structlog
         structlog.configure(
@@ -338,13 +299,134 @@ def new_passthrough_file_logger(connector_name: str) -> logging.Logger:
         return structlog.get_logger(f"airbyte.{connector_name}")
 
     # Else, write logs in plain text
+    formatter = logging.Formatter(
+        fmt="%(asctime)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    for handler in handlers:
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
-    file_handler.setFormatter(
-        logging.Formatter(
-            fmt="%(asctime)s - %(levelname)s - %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
+    return logger
+
+
+def _get_global_handlers() -> list[logging.Handler]:
+    handlers: list[logging.Handler | None] = []
+    match AIRBYTE_LOGGING_BEHAVIOR:
+        case LoggingBehavior.FILE_ONLY:
+            handlers.append(_get_global_file_handler())
+        case LoggingBehavior.CONSOLE_ONLY:
+            handlers.append(_get_console_handler())
+        case LoggingBehavior.FILE_AND_CONSOLE:
+            handlers.extend([_get_global_file_handler(), _get_console_handler()])
+
+    return [h for h in handlers if h is not None]
+
+
+def _get_global_stats_handlers() -> list[logging.Handler]:
+    handlers: list[logging.Handler | None] = []
+    match AIRBYTE_LOGGING_BEHAVIOR:
+        case LoggingBehavior.FILE_ONLY:
+            handlers.append(_get_global_stats_file_handler())
+        case LoggingBehavior.CONSOLE_ONLY:
+            handlers.append(_get_console_handler())
+        case LoggingBehavior.FILE_AND_CONSOLE:
+            handlers.extend([_get_global_stats_file_handler(), _get_console_handler()])
+    return [h for h in handlers if h is not None]
+
+
+def _get_passthrough_handlers(connector_name: str) -> list[logging.Handler]:
+    handlers: list[logging.Handler | None] = []
+    match AIRBYTE_LOGGING_BEHAVIOR:
+        case LoggingBehavior.FILE_ONLY:
+            handlers.append(_get_passthrough_file_handler(connector_name))
+        case LoggingBehavior.CONSOLE_ONLY:
+            handlers.append(_get_console_handler())
+        case LoggingBehavior.FILE_AND_CONSOLE:
+            handlers.extend([_get_passthrough_file_handler(connector_name), _get_console_handler()])
+    return [h for h in handlers if h is not None]
+
+
+def _get_global_file_handler() -> logging.FileHandler | None:
+    if AIRBYTE_LOGGING_ROOT is None:
+        # No temp directory available, so return None
+        return None
+
+    yyyy_mm_dd: str = ab_datetime_now().strftime("%Y-%m-%d")
+    folder = AIRBYTE_LOGGING_ROOT / yyyy_mm_dd
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
         )
+        return None
+
+    logfile_path = folder / f"airbyte-log-{str(ulid.ULID())[2:11]}.log"
+    print(f"Writing PyAirbyte logs to file: {logfile_path!s}", file=sys.stderr)
+
+    return logging.FileHandler(
+        filename=logfile_path,
+        encoding="utf-8",
     )
 
-    logger.addHandler(file_handler)
-    return logger
+
+def _get_global_stats_file_handler() -> logging.FileHandler | None:
+    logfile_path: Path | None = get_global_stats_log_path()
+    if AIRBYTE_LOGGING_ROOT is None or logfile_path is None:
+        return None
+
+    print(f"Writing PyAirbyte performance stats to file: {logfile_path!s}", file=sys.stderr)
+    return logging.FileHandler(
+        filename=logfile_path,
+        encoding="utf-8",
+    )
+
+
+def _get_passthrough_file_handler(connector_name: str) -> logging.FileHandler | None:
+    if AIRBYTE_LOGGING_ROOT is None:
+        return None
+
+    folder = AIRBYTE_LOGGING_ROOT / connector_name
+    folder.mkdir(parents=True, exist_ok=True)
+
+    # Create a file handler
+    global_logger = get_global_file_logger()
+    logfile_path = folder / f"{connector_name}-log-{str(ulid.ULID())[2:11]}.log"
+    logfile_msg = f"Writing `{connector_name}` logs to file: {logfile_path!s}"
+    print(logfile_msg, file=sys.stderr)
+    if global_logger:
+        global_logger.info(logfile_msg)
+
+    file_handler = logging.FileHandler(logfile_path)
+    file_handler.setLevel(logging.INFO)
+
+    return file_handler
+
+
+def _get_console_handler() -> logging.StreamHandler:
+    return logging.StreamHandler(sys.stdout)
+
+
+def get_global_stats_log_path() -> Path | None:
+    """Return the path to the performance log file."""
+    if AIRBYTE_LOGGING_ROOT is None:
+        return None
+
+    folder = AIRBYTE_LOGGING_ROOT
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        warn_once(
+            f"Failed to create logging directory at '{folder!s}'.",
+            with_stack=False,
+        )
+        return None
+
+    return folder / "airbyte-stats.log"
+
+
+def _remove_all_handlers(logger: logging.Logger) -> None:
+    """Remove all handlers from a logger."""
+    logger.handlers.clear()
