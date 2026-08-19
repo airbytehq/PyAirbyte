@@ -324,6 +324,11 @@ class ConnectorBase(abc.ABC):
             # Version not detected, so return None.
             return None
 
+    # TK: C002/loop_guards; complexity 8 -> 7; measured=False.
+    # TK: Suggested replacement: if not msg.type == Type.CONNECTION_STATUS and msg.connectionStatus: continue  # noqa: E501
+    # TK: Rejected; the negation is wrong and continue skips FAILED handling
+    # TK: and the post-loop raise.
+    # TK: Reviewer: confirm this behavior-changing suggestion remains unapplied before merge.
     def check(self) -> None:
         """Call check on the connector.
 

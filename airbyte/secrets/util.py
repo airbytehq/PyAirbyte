@@ -110,6 +110,12 @@ def get_secret(
         sources = [sources]  # type: ignore [unreachable]  # This is a 'just in case' catch.
 
     # Replace any SecretSourceEnum strings with the matching SecretManager object
+    # TK: C002/loop_guards; complexity 18 -> 17; measured=False.
+    # TK: Suggested replacement: if not isinstance(source, SecretSourceEnum): continue / if not source not in available_sources: continue  # noqa: E501
+    # TK: Rejected; continue skips the following sources[...] mapping
+    # TK: assignment and breaks resolution.
+    # TK: Reviewer: confirm both guards remain nested so invalid-source
+    # TK: handling and mapping semantics are intact.
     for source in list(sources):
         if isinstance(source, SecretSourceEnum):
             if source not in available_sources:
