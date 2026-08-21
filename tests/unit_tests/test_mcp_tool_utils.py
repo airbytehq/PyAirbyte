@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from unittest.mock import patch
 
 import pytest
+from fastmcp_extensions import MCPServerConfigArg
 
 from airbyte.mcp._tool_utils import (
     API_URL_CONFIG_ARG,
@@ -155,11 +156,11 @@ def test_duplicate_guid_registration_is_idempotent() -> None:
         pytest.param(TRUSTED_EXECUTION_CONFIG_ARG, id="trusted_execution"),
     ],
 )
-def test_config_args_are_not_caller_controllable(config_arg: object) -> None:
+def test_config_args_are_not_caller_controllable(config_arg: MCPServerConfigArg) -> None:
     """API roots, downstream credentials, and the trust gate are server-side only.
 
     A request header source for these would let a caller redirect the server's
     credentialed outbound requests, act as another Cloud identity, or widen the
     tool surface.
     """
-    assert config_arg.http_header_key is None  # type: ignore[attr-defined]
+    assert config_arg.http_header_key is None
