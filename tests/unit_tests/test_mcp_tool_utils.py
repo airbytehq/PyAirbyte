@@ -156,7 +156,9 @@ def test_duplicate_guid_registration_is_idempotent() -> None:
         pytest.param(TRUSTED_EXECUTION_CONFIG_ARG, id="trusted_execution"),
     ],
 )
-def test_config_args_are_not_caller_controllable(config_arg: MCPServerConfigArg) -> None:
+def test_config_args_are_not_caller_controllable(
+    config_arg: MCPServerConfigArg,
+) -> None:
     """API roots, downstream credentials, and the trust gate are server-side only.
 
     A request header source for these would let a caller redirect the server's
