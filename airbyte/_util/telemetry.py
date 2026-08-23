@@ -77,7 +77,7 @@ DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
 
 TELEMETRY_REQUEST_TIMEOUT_SECONDS = 2
-# Keep a stalled telemetry endpoint from blocking callers indefinitely.
+"""Keep a stalled telemetry endpoint from blocking callers indefinitely."""
 
 _ENV_ANALYTICS_ID = "AIRBYTE_ANALYTICS_ID"  # Allows user to override the anonymous user ID
 _ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.yml"
