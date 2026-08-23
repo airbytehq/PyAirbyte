@@ -51,7 +51,7 @@ from airbyte._util.connector_info import (
     WriterRuntimeInfo,
 )
 from airbyte._util.hashing import one_way_hash
-from airbyte.constants import AIRBYTE_OFFLINE_MODE
+from airbyte.constants import AIRBYTE_OFFLINE_MODE, is_hosted_mcp_mode
 from airbyte.version import get_version
 
 
@@ -184,14 +184,14 @@ class EventType(str, Enum):
     SYNC = "sync"
     VALIDATE = "validate"
     CHECK = "check"
+    MCP_TOOL_CALL = "mcp_tool_call"
 
 
 @lru_cache
-def get_env_flags() -> dict[str, Any]:
+def _get_static_env_flags() -> dict[str, Any]:
     flags: dict[str, bool | str] = {
         "CI": meta.is_ci(),
         "LANGCHAIN": meta.is_langchain(),
-        "MCP": meta.is_mcp_mode(),
         "NOTEBOOK_RUNTIME": (
             "GOOGLE_COLAB"
             if meta.is_colab()
@@ -206,7 +206,17 @@ def get_env_flags() -> dict[str, Any]:
     return {k: v for k, v in flags.items() if v is not None and v is not False}
 
 
-def send_telemetry(
+def get_env_flags() -> dict[str, Any]:
+    """Return the current environment flags used by telemetry."""
+    flags = {
+        **_get_static_env_flags(),
+        "MCP": meta.is_mcp_mode(),
+        "HOSTED_MCP": is_hosted_mcp_mode(),
+    }
+    return {k: v for k, v in flags.items() if v is not None and v is not False}
+
+
+def send_telemetry(  # noqa: PLR0913
     *,
     source: ConnectorRuntimeInfo | None,
     destination: ConnectorRuntimeInfo | None,
@@ -215,6 +225,8 @@ def send_telemetry(
     event_type: EventType,
     number_of_records: int | None = None,
     exception: Exception | None = None,
+    tool_name: str | None = None,
+    duration_ms: int | None = None,
 ) -> None:
     # If DO_NOT_TRACK is set, we don't send any telemetry
     if os.environ.get(DO_NOT_TRACK) or AIRBYTE_OFFLINE_MODE:
@@ -238,6 +250,12 @@ def send_telemetry(
 
     if cache:
         payload_props["cache"] = cache.to_dict()
+
+    if tool_name is not None:
+        payload_props["tool_name"] = tool_name
+
+    if duration_ms is not None:
+        payload_props["duration_ms"] = duration_ms
 
     if exception:
         if isinstance(exception, exc.AirbyteError):
@@ -299,6 +317,25 @@ def log_connector_check_result(
         cache=None,
         state=state,
         event_type=EventType.CHECK,
+        exception=exception,
+    )
+
+
+def log_mcp_tool_call(
+    tool_name: str,
+    state: EventState,
+    duration_ms: int,
+    exception: Exception | None = None,
+) -> None:
+    """Log an MCP tool call result."""
+    send_telemetry(
+        source=None,
+        destination=None,
+        cache=None,
+        state=state,
+        event_type=EventType.MCP_TOOL_CALL,
+        tool_name=tool_name,
+        duration_ms=duration_ms,
         exception=exception,
     )
 

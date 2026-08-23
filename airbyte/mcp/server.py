@@ -64,6 +64,7 @@ if TYPE_CHECKING:
 
 from airbyte._util.meta import set_mcp_mode
 from airbyte.mcp._config import load_secrets_to_env_vars
+from airbyte.mcp._telemetry import MCPToolCallTelemetryMiddleware
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
     AIRBYTE_INCLUDE_MODULES_CONFIG_ARG,
@@ -319,6 +320,7 @@ app = mcp_server(
         airbyte_readonly_mode_filter,
         airbyte_module_filter,
     ],
+    middleware=[MCPToolCallTelemetryMiddleware()],
     auth=_create_auth(),
 )
 """The Airbyte MCP Server application instance."""
