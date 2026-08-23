@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from threading import Event
 
 import pytest
 import responses
@@ -25,6 +27,17 @@ def _context() -> MiddlewareContext[CallToolRequestParams]:
     )
 
 
+async def _call_tool_and_wait(
+    call_next,
+):
+    try:
+        return await MCPToolCallTelemetryMiddleware().on_call_tool(
+            _context(), call_next
+        )
+    finally:
+        await mcp_telemetry._wait_for_pending_telemetry()
+
+
 @responses.activate
 def test_mcp_tool_call_telemetry_success_does_not_capture_arguments_or_result(
     monkeypatch,
@@ -37,9 +50,7 @@ def test_mcp_tool_call_telemetry_success_does_not_capture_arguments_or_result(
     ) -> dict[str, str]:
         return {"secret_result": "result_value"}
 
-    result = asyncio.run(
-        MCPToolCallTelemetryMiddleware().on_call_tool(_context(), call_next)
-    )
+    result = asyncio.run(_call_tool_and_wait(call_next))
 
     assert result == {"secret_result": "result_value"}
     assert len(responses.calls) == 1
@@ -64,9 +75,7 @@ def test_mcp_tool_call_telemetry_failure_reraises_original_exception(monkeypatch
         raise error
 
     with pytest.raises(RuntimeError) as raised:
-        asyncio.run(
-            MCPToolCallTelemetryMiddleware().on_call_tool(_context(), call_next)
-        )
+        asyncio.run(_call_tool_and_wait(call_next))
 
     assert raised.value is error
     body = json.loads(responses.calls[0].request.body)
@@ -84,12 +93,7 @@ def test_mcp_tool_call_telemetry_respects_do_not_track(monkeypatch, do_not_track
     async def call_next(_context: MiddlewareContext[CallToolRequestParams]) -> str:
         return "result"
 
-    assert (
-        asyncio.run(
-            MCPToolCallTelemetryMiddleware().on_call_tool(_context(), call_next)
-        )
-        == "result"
-    )
+    assert asyncio.run(_call_tool_and_wait(call_next)) == "result"
     assert not responses.calls
 
 
@@ -106,12 +110,43 @@ def test_mcp_tool_call_telemetry_swallows_telemetry_errors(monkeypatch):
     async def call_next(_context: MiddlewareContext[CallToolRequestParams]) -> str:
         return "result"
 
-    assert (
-        asyncio.run(
-            MCPToolCallTelemetryMiddleware().on_call_tool(_context(), call_next)
-        )
-        == "result"
+    assert asyncio.run(_call_tool_and_wait(call_next)) == "result"
+
+
+@responses.activate
+def test_mcp_tool_call_returns_before_slow_telemetry_finishes(monkeypatch):
+    monkeypatch.delenv("DO_NOT_TRACK", raising=False)
+    telemetry_started = Event()
+    telemetry_delay_seconds = 0.5
+
+    def slow_telemetry(request):
+        telemetry_started.set()
+        time.sleep(telemetry_delay_seconds)
+        return (200, {}, "")
+
+    responses.add_callback(
+        responses.POST,
+        "https://api.segment.io/v1/track",
+        callback=slow_telemetry,
     )
+
+    async def call_next(
+        _context: MiddlewareContext[CallToolRequestParams],
+    ) -> dict[str, str]:
+        return {"result": "value"}
+
+    async def call_tool():
+        started_at = time.perf_counter()
+        result = await MCPToolCallTelemetryMiddleware().on_call_tool(
+            _context(), call_next
+        )
+        elapsed_seconds = time.perf_counter() - started_at
+        assert await asyncio.to_thread(telemetry_started.wait, 1)
+        assert elapsed_seconds < telemetry_delay_seconds / 2
+        await mcp_telemetry._wait_for_pending_telemetry()
+        return result
+
+    assert asyncio.run(call_tool()) == {"result": "value"}
 
 
 def test_mcp_tool_call_telemetry_middleware_is_registered():

@@ -76,6 +76,9 @@ It is not a unique identifier for the user.
 DO_NOT_TRACK = "DO_NOT_TRACK"
 """Environment variable to opt-out of telemetry."""
 
+TELEMETRY_REQUEST_TIMEOUT_SECONDS = 2
+# Keep a stalled telemetry endpoint from blocking callers indefinitely.
+
 _ENV_ANALYTICS_ID = "AIRBYTE_ANALYTICS_ID"  # Allows user to override the anonymous user ID
 _ANALYTICS_FILE = Path.home() / ".airbyte" / "analytics.yml"
 _ANALYTICS_ID: str | bool | None = None
@@ -278,6 +281,7 @@ def send_telemetry(  # noqa: PLR0913
                 "properties": payload_props,
                 "timestamp": datetime.datetime.now(tz=datetime.timezone.utc).isoformat(),
             },
+            timeout=TELEMETRY_REQUEST_TIMEOUT_SECONDS,
         )
 
 
