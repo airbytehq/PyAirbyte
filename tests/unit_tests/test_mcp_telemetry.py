@@ -49,8 +49,9 @@ def test_mcp_tool_call_telemetry_success_does_not_capture_arguments_or_result(
     assert properties["tool_name"] == "secret_tool"
     assert properties["state"] == telemetry.EventState.SUCCEEDED
     assert isinstance(properties["duration_ms"], int)
-    assert "secret_argument" not in body["properties"]
-    assert "result_value" not in body["properties"]
+    serialized_properties = json.dumps(properties)
+    assert "secret_argument" not in serialized_properties
+    assert "result_value" not in serialized_properties
 
 
 @responses.activate
