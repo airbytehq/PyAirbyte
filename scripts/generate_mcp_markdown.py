@@ -89,7 +89,9 @@ from fastmcp import FastMCP
 from fastmcp.apps import UI_EXTENSION_ID
 from fastmcp.server.http import _current_http_request  # noqa: PLC2701
 from fastmcp.utilities.inspect import format_fastmcp_info, inspect_fastmcp
+from fastmcp_extensions import ANNOTATION_INTERACTIVE_UI
 from fastmcp_extensions.capability_tokens import DEFAULT_EXTENSIONS_HEADER
+from fastmcp_extensions.tool_filters import ANNOTATION_REQUIRES_CLIENT_FILESYSTEM
 from starlette.requests import Request
 
 from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
@@ -379,13 +381,13 @@ def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
     badges = [f"`{label}`" for key, label in _HINT_LABELS.items() if annotations.get(key) is True]
     if badges:
         lines.append("**Hints:** " + " · ".join(badges))
-    if annotations.get("requiresClientFilesystem") is True:
+    if annotations.get(ANNOTATION_REQUIRES_CLIENT_FILESYSTEM) is True:
         lines.append(
             "**Availability:** requires trusted execution "
             f"(`{MCP_TRUSTED_EXECUTION_ENV_VAR}=1`, stdio transport only); "
             "never available over HTTP."
         )
-    if annotations.get("interactive-ui") is True:
+    if annotations.get(ANNOTATION_INTERACTIVE_UI) is True:
         lines.append(
             "**Availability:** requires an MCP Apps UI-capable client "
             f"(declares the `{UI_EXTENSION_ID}` extension)."
@@ -685,6 +687,7 @@ def generate(server_spec: str, output: Path) -> None:
         print(f"Running two-pass `fastmcp inspect {server_spec}`...")
         report = _run_fastmcp_inspect(server_spec, report_path)
 
+    # Child metadata removes the need for a parent fallback map or server import.
     buckets = _bucket_by_module(report, {})
 
     # Use the resolved path returned by `_prepare_output_dir` for subsequent
