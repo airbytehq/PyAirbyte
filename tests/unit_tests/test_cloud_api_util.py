@@ -112,6 +112,90 @@ def _list_workspaces_response(
     )
 
 
+def test_get_user_id_from_bearer_token() -> None:
+    assert (
+        api_util.get_user_id_from_bearer_token(
+            SecretString("header.eyJ1c2VyX2lkIjoiYXV0aC11c2VyLWlkIn0.signature")
+        )
+        == "auth-user-id"
+    )
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-a-jwt",
+        "header.not-json.signature",
+    ],
+)
+def test_get_user_id_from_bearer_token_rejects_invalid_tokens(token: str) -> None:
+    with pytest.raises(PyAirbyteInputError):
+        api_util.get_user_id_from_bearer_token(SecretString(token))
+
+
+def test_get_user_id_from_bearer_token_requires_user_id() -> None:
+    with pytest.raises(PyAirbyteInputError, match="does not contain a user ID"):
+        api_util.get_user_id_from_bearer_token(
+            SecretString("header.e30.signature"),
+        )
+
+
+def test_get_user_by_auth_id_forwards_config_api_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_config_request(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"userId": "user-id"}
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.get_user_by_auth_id(
+        "auth-user-id",
+        api_root="https://api.example",
+        config_api_root="https://config.example",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result == {"userId": "user-id"}
+    assert captured["path"] == "/users/get_by_auth_id"
+    assert captured["json"] == {
+        "authUserId": "auth-user-id",
+        "authProvider": "keycloak",
+    }
+    assert captured["config_api_root"] == "https://config.example"
+
+
+def test_list_permissions_for_user_accepts_direct_list_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    permissions = [
+        {"permissionType": "organization_member", "organizationId": "org-id"}
+    ]
+
+    def fake_config_request(**kwargs: object) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return permissions
+
+    monkeypatch.setattr(api_util, "_make_config_api_request", fake_config_request)
+
+    result = api_util.list_permissions_for_user(
+        "user-id",
+        api_root="https://api.example",
+        client_id=None,
+        client_secret=None,
+        bearer_token=SecretString("token"),
+    )
+
+    assert result == permissions
+    assert captured["path"] == "/permissions/list_by_user"
+    assert captured["json"] == {"userId": "user-id"}
+
+
 def test_create_workspace_forwards_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

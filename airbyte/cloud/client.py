@@ -21,16 +21,12 @@ if TYPE_CHECKING:
     from airbyte.secrets.base import SecretString
 
 
-CROSS_ORG_WORKSPACE_DEFAULT_LIMIT = 100
-CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS = 100
-CLOUD_ORGANIZATION_DEFAULT_LIMIT = 100
-
-
 @dataclass(init=False, kw_only=True)
 class CloudClient:
     """Authenticated client for Airbyte Cloud and self-managed Airbyte APIs."""
 
     _credentials: _AirbyteCredentials
+    _membership_organization_ids: tuple[str, ...] | None
 
     def __init__(
         self,
@@ -54,6 +50,7 @@ class CloudClient:
             organization_id=organization_id,
             env_vars=False,
         )
+        self._membership_organization_ids = None
 
     @property
     def client_id(self) -> SecretString | None:
@@ -84,6 +81,11 @@ class CloudClient:
     def organization_id(self) -> str | None:
         """Default organization ID for organization-scoped operations."""
         return self._credentials.organization_id
+
+    @property
+    def workspace_id(self) -> str | None:
+        """Default workspace ID for workspace-scoped operations."""
+        return self._credentials.workspace_id
 
     @classmethod
     def from_auth(
@@ -211,9 +213,12 @@ class CloudClient:
         name: str | None = None,
         *,
         organization_id: None = None,
+        organization_name: str | None = None,
+        workspace_id: str | None = None,
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
+        all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
@@ -223,9 +228,12 @@ class CloudClient:
         name: str | None = None,
         *,
         organization_id: str,
+        organization_name: str | None = None,
+        workspace_id: str | None = None,
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
+        all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         raise NotImplementedError
 
@@ -234,68 +242,68 @@ class CloudClient:
         name: str | None = None,
         *,
         organization_id: str | None = None,
+        organization_name: str | None = None,
+        workspace_id: str | None = None,
         name_contains: str | None = None,
         name_filter: Callable[[str], bool] | None = None,
         limit: int | None = None,
+        all_organizations: bool = False,
     ) -> list[CloudWorkspaceInfo]:
         """List workspaces available to this client."""
-        if organization_id is not None or self.organization_id is not None:
-            resolved_organization_id = organization_id or self.organization_id
-            if not resolved_organization_id:
-                raise exc.PyAirbyteInputError(
-                    message="Organization ID is required.",
-                    guidance="Provide an organization ID.",
-                )
-            workspaces = api_util.list_workspaces_in_organization(
-                organization_id=resolved_organization_id,
-                api_root=self.public_api_root,
-                config_api_root=self.config_api_root,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
-                name_contains=name_contains or name,
-                limit=None if name_filter is not None else limit,
+        if limit is not None and limit <= 0:
+            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+        if organization_id is not None and organization_name is not None:
+            raise exc.PyAirbyteInputError(
+                message="Provide either organization ID or organization name."
             )
-            workspace_infos = [
-                CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces
-            ]
-            if name_filter is not None:
-                workspace_infos = [
-                    workspace for workspace in workspace_infos if name_filter(workspace.name)
-                ]
-                if limit is not None:
-                    workspace_infos = workspace_infos[:limit]
-            return workspace_infos
-        if name_contains is not None:
-            if name_filter is not None:
+        is_explicit_lookup = name is not None or name_filter is not None
+        has_explicit_organization = organization_id is not None or organization_name is not None
+        has_explicit_workspace = workspace_id is not None
+
+        if all_organizations:
+            if has_explicit_organization or has_explicit_workspace:
+                raise exc.PyAirbyteInputError(
+                    message=(
+                        "The all_organizations option cannot be combined with an "
+                        "organization or workspace ID."
+                    )
+                )
+            if name_contains is not None and name_filter is not None:
                 raise exc.PyAirbyteInputError(
                     message="You can provide name_contains or name_filter, but not both."
                 )
-            name_substring = name_contains
-            if limit is not None and limit <= 0:
-                raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+            if name_contains is not None:
+                name_substring = name_contains
+
+                def matches_name(workspace_name: str) -> bool:
+                    return name_substring in workspace_name
+
+                name_filter = matches_name
+                name = None
             workspaces = api_util.list_workspaces(
                 workspace_id="",
                 api_root=self.public_api_root,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
-                limit=CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS,
+                name_filter=name_filter,
+                name=name,
+                limit=limit,
             )
-            matching_workspaces = [
-                CloudWorkspaceInfo.from_api_response(workspace)
-                for workspace in workspaces
-                if name_substring in workspace.name
-            ]
-            return matching_workspaces[: limit or CROSS_ORG_WORKSPACE_DEFAULT_LIMIT]
+            return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
 
-        is_explicit_lookup = name is not None or name_filter is not None
-        effective_limit = (
-            limit if limit is not None or is_explicit_lookup else CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
-        )
-        return [
-            CloudWorkspaceInfo.from_api_response(workspace)
-            for workspace in api_util.list_workspaces(
+        if (
+            is_explicit_lookup
+            and not has_explicit_organization
+            and not has_explicit_workspace
+            and self.organization_id is None
+            and self.workspace_id is None
+        ):
+            if name_contains is not None:
+                raise exc.PyAirbyteInputError(
+                    message="You can provide name or name_contains, but not both."
+                )
+            workspaces = api_util.list_workspaces(
                 workspace_id="",
                 api_root=self.public_api_root,
                 name=name,
@@ -303,9 +311,160 @@ class CloudClient:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
-                limit=effective_limit,
+                limit=limit,
             )
-        ]
+            return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
+
+        resolved_organization_id = self._resolve_workspace_organization_id(
+            organization_id=organization_id,
+            organization_name=organization_name,
+            workspace_id=workspace_id,
+        )
+        if name_contains is not None and name_filter is not None:
+            raise exc.PyAirbyteInputError(
+                message="You can provide name_contains or name_filter, but not both."
+            )
+        workspaces = api_util.list_workspaces_in_organization(
+            organization_id=resolved_organization_id,
+            api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+            name_contains=name_contains or name,
+            limit=None if name_filter is not None else limit,
+        )
+        workspace_infos = [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
+        if name_filter is not None:
+            workspace_infos = [
+                workspace for workspace in workspace_infos if name_filter(workspace.name)
+            ]
+            if limit is not None:
+                workspace_infos = workspace_infos[:limit]
+        return workspace_infos
+
+    def _resolve_workspace_organization_id(
+        self,
+        *,
+        organization_id: str | None,
+        organization_name: str | None,
+        workspace_id: str | None,
+    ) -> str:
+        """Resolve the organization for a workspace listing."""
+        if organization_id is not None:
+            return organization_id
+        if organization_name is not None:
+            return self.get_organization(organization_name=organization_name).organization_id
+
+        if workspace_id is not None:
+            return self._get_workspace_parent_organization_id(workspace_id)
+
+        if self.organization_id is not None:
+            return self.organization_id
+
+        if self.workspace_id is not None:
+            return self._get_workspace_parent_organization_id(self.workspace_id)
+
+        organization_ids = self._get_membership_organization_ids()
+        if len(organization_ids) == 1:
+            return organization_ids[0]
+        if not organization_ids:
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "No organization membership was found for these credentials. "
+                    "Pass an organization_id to list workspaces."
+                ),
+                context={
+                    "organization_ids": [],
+                    "organization_candidates": [],
+                },
+            )
+        raise exc.PyAirbyteInputError(
+            message=(
+                "Multiple organization memberships were found for these credentials. "
+                "Pass one of the candidate organization IDs to list workspaces."
+            ),
+            context={
+                "organization_ids": list(organization_ids),
+                "organization_candidates": [
+                    {
+                        "organization_id": candidate_id,
+                        "organization_name": None,
+                    }
+                    for candidate_id in organization_ids
+                ],
+            },
+        )
+
+    def _get_workspace_parent_organization_id(self, workspace_id: str) -> str:
+        """Resolve a workspace's parent organization ID."""
+        organization = api_util.get_workspace_organization_info(
+            workspace_id=workspace_id,
+            api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=self.bearer_token,
+        )
+        resolved_organization_id = organization.get("organizationId")
+        if isinstance(resolved_organization_id, str) and resolved_organization_id:
+            return resolved_organization_id
+        raise exc.PyAirbyteInputError(
+            message="The workspace response did not include an organization ID.",
+            context={"workspace_id": workspace_id, "response": organization},
+        )
+
+    def _get_membership_organization_ids(self) -> tuple[str, ...]:
+        """Get and cache organization IDs from the caller's permissions."""
+        if self._membership_organization_ids is not None:
+            return self._membership_organization_ids
+
+        bearer_token = self.bearer_token
+        if bearer_token is None:
+            if self.client_id is None or self.client_secret is None:
+                raise exc.PyAirbyteInputError(
+                    message="No authentication credentials provided.",
+                    guidance="Provide either client credentials or a bearer token.",
+                )
+            bearer_token = api_util.get_bearer_token(
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                api_root=self.public_api_root,
+            )
+        auth_user_id = api_util.get_user_id_from_bearer_token(bearer_token)
+        user = api_util.get_user_by_auth_id(
+            auth_user_id,
+            api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=bearer_token,
+        )
+        user_id = user.get("userId")
+        if not isinstance(user_id, str) or not user_id:
+            raise exc.PyAirbyteInputError(
+                message="The Airbyte user response did not include a user ID.",
+                context={"response": user},
+            )
+        permissions = api_util.list_permissions_for_user(
+            user_id,
+            api_root=self.public_api_root,
+            config_api_root=self.config_api_root,
+            client_id=self.client_id,
+            client_secret=self.client_secret,
+            bearer_token=bearer_token,
+        )
+        organization_ids: list[str] = []
+        for permission in permissions:
+            permission_organization_id = permission.get("organizationId")
+            if (
+                isinstance(permission_organization_id, str)
+                and permission_organization_id
+                and permission_organization_id not in organization_ids
+            ):
+                organization_ids.append(permission_organization_id)
+        self._membership_organization_ids = tuple(organization_ids)
+        return self._membership_organization_ids
 
     def list_organizations(
         self,
@@ -317,7 +476,6 @@ class CloudClient:
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
 
-        effective_limit = limit if limit is not None else CLOUD_ORGANIZATION_DEFAULT_LIMIT
         organizations = self._fetch_organizations()
         if name_contains is not None:
             name_substring = name_contains.casefold()
@@ -326,7 +484,7 @@ class CloudClient:
                 for organization in organizations
                 if name_substring in (organization.organization_name or "").casefold()
             ]
-        return organizations[:effective_limit]
+        return organizations if limit is None else organizations[:limit]
 
     def _fetch_organizations(self) -> list[CloudOrganization]:
         """Fetch all organizations available to this client."""
@@ -356,11 +514,13 @@ class CloudClient:
         organization_name: str | None = None,
     ) -> CloudOrganization:
         """Resolve an organization by ID or exact name."""
-        resolved_organization_id = organization_id or self.organization_id
+        resolved_organization_id = organization_id
         if resolved_organization_id and organization_name:
             raise exc.PyAirbyteInputError(
                 message="Provide either organization ID or organization name."
             )
+        if resolved_organization_id is None and organization_name is None:
+            resolved_organization_id = self.organization_id
         if not resolved_organization_id and not organization_name:
             raise exc.PyAirbyteInputError(
                 message="Organization ID or organization name is required."

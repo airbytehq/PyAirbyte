@@ -160,12 +160,15 @@ def test_cloud_client_list_workspaces_forwards_limit(
 
     monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
 
-    CloudClient(bearer_token="token").list_workspaces(limit=3)
+    CloudClient(bearer_token="token").list_workspaces(
+        limit=3,
+        all_organizations=True,
+    )
 
     assert captured_limit == 3
 
 
-def test_cloud_client_list_workspaces_applies_name_contains_to_non_org_results(
+def test_cloud_client_list_workspaces_applies_name_contains_to_all_org_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -174,7 +177,7 @@ def test_cloud_client_list_workspaces_applies_name_contains_to_non_org_results(
         **kwargs: object,
     ) -> list[models.WorkspaceResponse]:
         captured.update(kwargs)
-        return [
+        workspaces = [
             models.WorkspaceResponse(
                 data_residency="auto",
                 name="target-one",
@@ -194,17 +197,26 @@ def test_cloud_client_list_workspaces_applies_name_contains_to_non_org_results(
                 workspace_id="workspace-target-two",
             ),
         ]
+        workspace_filter = kwargs["name_filter"]
+        assert callable(workspace_filter)
+        matching_workspaces = [
+            workspace for workspace in workspaces if workspace_filter(workspace.name)
+        ]
+        return matching_workspaces[
+            : kwargs["limit"] if isinstance(kwargs["limit"], int) else None
+        ]
 
     monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
 
     result = CloudClient(bearer_token="token").list_workspaces(
         name_contains="target",
         limit=1,
+        all_organizations=True,
     )
 
     assert captured.get("name") is None
-    assert captured.get("name_filter") is None
-    assert captured["limit"] == 100
+    assert callable(captured["name_filter"])
+    assert captured["limit"] == 1
     assert [workspace.name for workspace in result] == ["target-one"]
 
 
@@ -591,7 +603,7 @@ def test_cloud_client_list_organizations_filters_case_insensitively_and_limits(
     ]
 
 
-def test_cloud_client_list_organizations_applies_default_limit(
+def test_cloud_client_list_organizations_has_no_default_limit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     organizations = [
@@ -608,8 +620,8 @@ def test_cloud_client_list_organizations_applies_default_limit(
 
     result = CloudClient(bearer_token="token").list_organizations()
 
-    assert len(result) == 100
-    assert result[-1].organization_id == "organization-id-99"
+    assert len(result) == 101
+    assert result[-1].organization_id == "organization-id-100"
 
 
 def test_cloud_client_list_organizations_reports_ambiguity_candidates(
@@ -647,7 +659,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     }
 
 
-def test_cloud_client_list_workspaces_bounds_cross_organization_discovery(
+def test_cloud_client_list_workspaces_keeps_explicit_lookup_unbounded(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, object] = {}
@@ -659,11 +671,294 @@ def test_cloud_client_list_workspaces_bounds_cross_organization_discovery(
     monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
     client = CloudClient(bearer_token="token")
 
-    client.list_workspaces()
-    assert captured["limit"] == 100
-
     client.list_workspaces(name_filter=lambda _: True)
     assert captured["limit"] is None
+
+
+def test_cloud_client_list_workspaces_resolves_explicit_workspace_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        api_util,
+        "get_workspace_organization_info",
+        lambda **_: {"organizationId": "parent-organization-id"},
+    )
+
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    CloudClient(bearer_token="token").list_workspaces(workspace_id="workspace-id")
+
+    assert captured["organization_id"] == "parent-organization-id"
+
+
+def test_cloud_client_list_workspaces_uses_configured_organization_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    CloudClient(
+        bearer_token="token",
+        organization_id="configured-organization-id",
+    ).list_workspaces()
+
+    assert captured["organization_id"] == "configured-organization-id"
+
+
+def test_cloud_client_list_workspaces_resolves_configured_workspace_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        api_util,
+        "get_workspace_organization_info",
+        lambda **_: {"organizationId": "parent-organization-id"},
+    )
+
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    CloudClient(
+        bearer_token="token",
+        workspace_id="configured-workspace-id",
+    ).list_workspaces()
+
+    assert captured["organization_id"] == "parent-organization-id"
+
+
+def test_cloud_client_list_workspaces_prefers_configured_organization_over_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fail_workspace_lookup(**_: object) -> dict[str, object]:
+        pytest.fail("configured organization ID should take precedence")
+
+    monkeypatch.setattr(
+        api_util, "get_workspace_organization_info", fail_workspace_lookup
+    )
+
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    CloudClient(
+        bearer_token="token",
+        organization_id="configured-organization-id",
+        workspace_id="configured-workspace-id",
+    ).list_workspaces()
+
+    assert captured["organization_id"] == "configured-organization-id"
+
+
+def test_cloud_client_list_workspaces_resolves_single_membership_and_caches_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    calls = {"user": 0, "permissions": 0}
+
+    monkeypatch.setattr(
+        api_util,
+        "get_user_id_from_bearer_token",
+        lambda _: "auth-user-id",
+    )
+
+    def fake_get_user_by_auth_id(*_: object, **__: object) -> dict[str, object]:
+        calls["user"] += 1
+        return {"userId": "user-id"}
+
+    def fake_list_permissions_for_user(
+        *_: object, **__: object
+    ) -> list[dict[str, object]]:
+        calls["permissions"] += 1
+        return [
+            {"permissionType": "instance_admin"},
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-id",
+            },
+        ]
+
+    monkeypatch.setattr(api_util, "get_user_by_auth_id", fake_get_user_by_auth_id)
+    monkeypatch.setattr(
+        api_util, "list_permissions_for_user", fake_list_permissions_for_user
+    )
+
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+    client = CloudClient(bearer_token="token")
+    client.list_workspaces()
+    client.list_workspaces()
+
+    assert captured["organization_id"] == "organization-id"
+    assert calls == {"user": 1, "permissions": 1}
+
+
+def test_cloud_client_list_workspaces_rejects_ambiguous_memberships_with_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "get_user_id_from_bearer_token",
+        lambda _: "auth-user-id",
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": "user-id"},
+    )
+    monkeypatch.setattr(
+        api_util,
+        "list_permissions_for_user",
+        lambda *_, **__: [
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-1",
+            },
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-2",
+            },
+        ],
+    )
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        CloudClient(bearer_token="token").list_workspaces()
+
+    assert exc_info.value.context == {
+        "organization_ids": ["organization-1", "organization-2"],
+        "organization_candidates": [
+            {"organization_id": "organization-1", "organization_name": None},
+            {"organization_id": "organization-2", "organization_name": None},
+        ],
+    }
+
+
+def test_cloud_client_list_workspaces_rejects_missing_membership(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "get_user_id_from_bearer_token",
+        lambda _: "auth-user-id",
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": "user-id"},
+    )
+    monkeypatch.setattr(api_util, "list_permissions_for_user", lambda *_, **__: [])
+
+    with pytest.raises(PyAirbyteInputError, match="No organization membership"):
+        CloudClient(bearer_token="token").list_workspaces()
+
+
+def test_cloud_client_list_workspaces_all_organizations_is_explicit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_list_workspaces(**kwargs: object) -> list[models.WorkspaceResponse]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+
+    CloudClient(bearer_token="token").list_workspaces(all_organizations=True)
+
+    assert captured["limit"] is None
+
+
+def test_mcp_list_cloud_workspaces_returns_typed_organization_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DiscoveryClient:
+        def list_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
+            raise PyAirbyteInputError(
+                message="Multiple organization memberships were found.",
+                context={
+                    "organization_candidates": [
+                        {
+                            "organization_id": "organization-1",
+                            "organization_name": None,
+                        },
+                        {
+                            "organization_id": "organization-2",
+                            "organization_name": "Organization 2",
+                        },
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_workspaces(
+        None,
+        organization_id=None,
+        organization_name=None,
+        name_contains=None,
+        limit=None,
+        workspace_id=None,
+        all_organizations=False,
+    )
+
+    assert result.workspaces == []
+    assert result.candidate_organizations is not None
+    assert [candidate.id for candidate in result.candidate_organizations] == [
+        "organization-1",
+        "organization-2",
+    ]
+    assert result.candidate_organizations[1].name == "Organization 2"
 
 
 def test_cloud_client_get_organization_uses_unbounded_organization_list(
@@ -812,6 +1107,8 @@ def test_mcp_list_cloud_workspaces_discovery(
         organization_name=None,
         name_contains=None,
         limit=None,
+        workspace_id=None,
+        all_organizations=False,
     )
 
     assert captured_organization_id is None
@@ -851,20 +1148,6 @@ def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
     assert captured == {"name_contains": "develop", "limit": 1}
     assert len(result.organizations) == 1
     assert "capped at 1" in (result.message or "")
-
-
-def test_mcp_resolve_organization_id_skips_lookup_when_id_provided() -> None:
-    class FailingClient:
-        def get_organization(self, **_: object) -> object:
-            pytest.fail("get_organization should not be called")
-
-    resolved_organization_id = mcp_cloud._resolve_organization_id(  # noqa: SLF001
-        organization_id="organization-id",
-        organization_name=None,
-        client=FailingClient(),
-    )
-
-    assert resolved_organization_id == "organization-id"
 
 
 def test_cloud_organization_fetch_returns_cached_info_after_refresh_failure(

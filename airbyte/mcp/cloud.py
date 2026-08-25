@@ -22,9 +22,6 @@ from pydantic import BaseModel, Field
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.client import (
-    CLOUD_ORGANIZATION_DEFAULT_LIMIT,
-    CROSS_ORG_WORKSPACE_DEFAULT_LIMIT,
-    CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS,
     CloudClient,
 )
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
@@ -229,6 +226,15 @@ class CloudOrganizationResult(BaseModel):
     Defaults to False unless we have affirmative evidence of a locked state."""
 
 
+class CloudOrganizationCandidate(BaseModel):
+    """Organization candidate for resolving an ambiguous workspace listing."""
+
+    id: str
+    """Organization ID."""
+    name: str | None = None
+    """Organization name when available."""
+
+
 class CloudOrganizationListResult(BaseModel):
     """Result of discovering organizations in Airbyte Cloud."""
 
@@ -274,6 +280,9 @@ class CloudWorkspaceListResult(BaseModel):
 
     message: str | None = None
     """Additional guidance when discovery returns no results."""
+
+    candidate_organizations: list[CloudOrganizationCandidate] | None = None
+    """Organizations to choose from when the credentials match multiple organizations."""
 
 
 class LogReadResult(BaseModel):
@@ -1482,23 +1491,6 @@ def list_deployed_cloud_connections(
     return results
 
 
-def _resolve_organization_id(
-    organization_id: str | None,
-    organization_name: str | None,
-    *,
-    client: CloudClient,
-) -> str:
-    """Resolve organization ID from either ID or exact name match."""
-    if organization_id is not None:
-        return organization_id
-
-    org = client.get_organization(
-        organization_id=organization_id,
-        organization_name=organization_name,
-    )
-    return org.organization_id
-
-
 @mcp_tool(
     read_only=True,
     idempotent=True,
@@ -1536,33 +1528,64 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description="Optional workspace ID used to resolve its organization.",
+            default=None,
+        ),
+    ],
+    all_organizations: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether to explicitly list across all organizations instead of resolving "
+                "an organization context."
+            ),
+            default=False,
+        ),
+    ],
 ) -> CloudWorkspaceListResult:
     """List all workspaces visible to the authenticated credentials.
 
-    When an organization ID or exact organization name is provided, the Config API
-    lists workspaces in that organization. When neither is provided and the client
-    has no default organization, the public API lists workspaces across organizations
-    visible to the current credentials. Otherwise, results are scoped to the client's
-    default organization.
+    The client resolves an organization from the provided IDs, workspace context, or
+    the authenticated user's organization memberships. Set `all_organizations` to
+    explicitly search across all visible organizations.
     """
     client = _get_cloud_client(ctx)
-    is_cross_org = (
-        organization_id is None and organization_name is None and client.organization_id is None
-    )
 
     try:
         workspaces = client.list_workspaces(
-            organization_id=(
-                _resolve_organization_id(
-                    organization_id=organization_id,
-                    organization_name=organization_name,
-                    client=client,
-                )
-                if organization_id is not None or organization_name is not None
-                else None
-            ),
+            organization_id=organization_id,
+            organization_name=organization_name,
+            workspace_id=workspace_id,
             name_contains=name_contains,
             limit=limit,
+            all_organizations=all_organizations,
+        )
+    except PyAirbyteInputError as error:
+        context = error.context or {}
+        candidates = context.get("organization_candidates")
+        if not isinstance(candidates, list):
+            raise
+        candidate_organizations: list[CloudOrganizationCandidate] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_id = candidate.get("organization_id")
+            if not isinstance(candidate_id, str):
+                continue
+            candidate_name = candidate.get("organization_name")
+            candidate_organizations.append(
+                CloudOrganizationCandidate(
+                    id=candidate_id,
+                    name=candidate_name if isinstance(candidate_name, str) else None,
+                )
+            )
+        return CloudWorkspaceListResult(
+            workspaces=[],
+            candidate_organizations=candidate_organizations,
+            message=(f"{error.get_message()} Retry with one of the candidate organization IDs."),
         )
     except AirbyteError as error:
         return _handle_discovery_permission_error(
@@ -1583,38 +1606,12 @@ def list_cloud_workspaces(
     ]
     return CloudWorkspaceListResult(
         workspaces=results,
-        message=" ".join(
-            message
-            for message in [
-                (
-                    "Results may be partial because cross-organization name searches "
-                    f"scan at most {CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS} workspaces. "
-                    "Pass organization_id for complete results."
-                    if is_cross_org and name_contains is not None
-                    else None
-                ),
-                (
-                    f"Results are capped at {CROSS_ORG_WORKSPACE_DEFAULT_LIMIT} "
-                    "workspaces by default for "
-                    "cross-organization discovery. Provide limit to change the cap."
-                    if (
-                        is_cross_org
-                        and name_contains is None
-                        and limit is None
-                        and len(workspaces) == CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
-                    )
-                    else None
-                ),
-                (
-                    "No workspaces were returned for these credentials. Verify the "
-                    "credentials or ask the user to provide a workspace ID."
-                    if not results
-                    else None
-                ),
-            ]
-            if message is not None
-        )
-        or None,
+        message=(
+            "No workspaces were returned for these credentials. Verify the "
+            "credentials or ask the user to provide a workspace ID."
+            if not results
+            else None
+        ),
     )
 
 
@@ -1675,18 +1672,10 @@ def list_cloud_organizations(
             for organization in organizations
         ],
         message=(
-            (
-                f"Results are capped at {CLOUD_ORGANIZATION_DEFAULT_LIMIT} "
-                "organizations by default. Use name_contains to narrow the search "
-                "or provide limit to request a different cap."
-            )
-            if (limit is None and len(organizations) == CLOUD_ORGANIZATION_DEFAULT_LIMIT)
-            else (
-                f"Results are capped at {limit} organizations and may be truncated. "
-                "Use name_contains to narrow the search."
-                if len(organizations) == limit
-                else None
-            )
+            f"Results are capped at {limit} organizations and may be truncated. "
+            "Use name_contains to narrow the search."
+            if len(organizations) == limit
+            else None
         ),
     )
 

@@ -13,6 +13,7 @@ directly. This will ensure a single source of truth when mapping between the `ai
 
 from __future__ import annotations
 
+import base64
 import json
 from http import HTTPStatus
 from typing import TYPE_CHECKING, Any, Literal
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
 JOB_WAIT_INTERVAL_SECS = 2.0
 JOB_WAIT_TIMEOUT_SECS_DEFAULT = 60 * 60  # 1 hour
 PAGE_SIZE = 100
+JWT_PART_COUNT = 3
 
 # Job ordering constants for list_jobs API
 JOB_ORDER_BY_CREATED_AT_DESC = "createdAt|DESC"
@@ -2763,6 +2765,92 @@ def get_organization_info(
         client_id=client_id,
         client_secret=client_secret,
         bearer_token=bearer_token,
+    )
+
+
+def get_user_id_from_bearer_token(bearer_token: SecretString) -> str:
+    """Extract the authentication user ID from a bearer token."""
+    token_parts = str(bearer_token).split(".")
+    if len(token_parts) != JWT_PART_COUNT:
+        raise PyAirbyteInputError(
+            message="The bearer token is not a valid JWT.",
+            guidance="Provide a valid bearer token.",
+        )
+
+    try:
+        payload = json.loads(
+            base64.urlsafe_b64decode(
+                token_parts[1] + "=" * (-len(token_parts[1]) % 4),
+            ).decode("utf-8")
+        )
+    except (UnicodeDecodeError, ValueError) as error:
+        raise PyAirbyteInputError(
+            message="The bearer token payload could not be decoded.",
+            guidance="Provide a valid bearer token.",
+        ) from error
+
+    user_id = payload.get("user_id") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id:
+        raise PyAirbyteInputError(
+            message="The bearer token does not contain a user ID.",
+            guidance="Provide a bearer token issued for an Airbyte user.",
+        )
+    return user_id
+
+
+def get_user_by_auth_id(
+    auth_user_id: str,
+    *,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> dict[str, Any]:
+    """Get an Airbyte user by the authentication provider user ID."""
+    return _make_config_api_request(
+        path="/users/get_by_auth_id",
+        json={
+            "authUserId": auth_user_id,
+            "authProvider": "keycloak",
+        },
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+
+
+def list_permissions_for_user(
+    user_id: str,
+    *,
+    api_root: str,
+    config_api_root: str | None = None,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> list[dict[str, Any]]:
+    """List permissions granted to an Airbyte user."""
+    result = _make_config_api_request(
+        path="/permissions/list_by_user",
+        json={"userId": user_id},
+        api_root=api_root,
+        config_api_root=config_api_root,
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+    )
+    if isinstance(result, list):
+        return result
+
+    permissions = result.get("permissions")
+    if isinstance(permissions, list):
+        return permissions
+
+    raise AirbyteError(
+        message="The permissions API returned an unexpected response.",
+        context={"response": result},
     )
 
 
