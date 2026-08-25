@@ -1597,7 +1597,12 @@ def list_cloud_workspaces(
                     f"Results are capped at {CROSS_ORG_WORKSPACE_DEFAULT_LIMIT} "
                     "workspaces by default for "
                     "cross-organization discovery. Provide limit to change the cap."
-                    if is_cross_org and name_contains is None and limit is None
+                    if (
+                        is_cross_org
+                        and name_contains is None
+                        and limit is None
+                        and len(workspaces) == CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
+                    )
                     else None
                 ),
                 (
@@ -1675,7 +1680,7 @@ def list_cloud_organizations(
                 "organizations by default. Use name_contains to narrow the search "
                 "or provide limit to request a different cap."
             )
-            if limit is None
+            if (limit is None and len(organizations) == CLOUD_ORGANIZATION_DEFAULT_LIMIT)
             else (
                 f"Results are capped at {limit} organizations and may be truncated. "
                 "Use name_contains to narrow the search."

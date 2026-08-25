@@ -679,7 +679,7 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
                 )
             ],
             1,
-            "capped",
+            None,
             id="single-organization",
         ),
         pytest.param(
@@ -696,7 +696,7 @@ def test_cloud_client_get_organization_uses_unbounded_organization_list(
                 ),
             ],
             2,
-            "capped",
+            None,
             id="multiple-organizations",
         ),
         pytest.param(
@@ -803,7 +803,7 @@ def test_mcp_list_cloud_workspaces_discovery(
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
         assert result.workspaces[1].organization_id is None
-        assert "capped at 100" in (result.message or "")
+        assert result.message is None
 
 
 def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
