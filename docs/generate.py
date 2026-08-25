@@ -54,16 +54,24 @@ def _regenerate_mcp_markdown() -> None:
 _INCLUDE_DIRECTIVE = re.compile(r"^\s*\.\.\s+include::\s+(\S+)\s*$", re.MULTILINE)
 
 
+def _display_path(path: pathlib.Path, root: pathlib.Path) -> str:
+    """Return `path` relative to `root`, or absolute if it falls outside `root`."""
+    if path.is_relative_to(root):
+        return str(path.relative_to(root))
+    return str(path)
+
+
 def _validate_includes(root: pathlib.Path) -> None:
     """Raise if a reStructuredText include in an Airbyte source is missing."""
+    resolved_root = root.resolve()
     missing: list[str] = []
-    airbyte_root = root / "airbyte"
-    for source in sorted(airbyte_root.rglob("*.py")):
+    for source in sorted((resolved_root / "airbyte").rglob("*.py")):
         for match in _INCLUDE_DIRECTIVE.finditer(source.read_text(encoding="utf-8")):
             target = (source.parent / match.group(1)).resolve()
             if not target.exists():
                 missing.append(
-                    f"{source.relative_to(root)} includes missing {target.relative_to(root)}"
+                    f"{_display_path(source, resolved_root)} includes missing "
+                    f"{_display_path(target, resolved_root)}"
                 )
     if missing:
         raise RuntimeError("Unresolved documentation includes:\n" + "\n".join(missing))

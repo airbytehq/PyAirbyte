@@ -25,6 +25,15 @@ def test_validate_includes_raises_for_missing_target(tmp_path: Path) -> None:
         _validate_includes(tmp_path)
 
 
+def test_validate_includes_handles_target_outside_root(tmp_path: Path) -> None:
+    source = tmp_path / "airbyte" / "mcp" / "module.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(".. include:: ../../../../../outside.md\n")
+
+    with pytest.raises(RuntimeError, match="Unresolved documentation includes"):
+        _validate_includes(tmp_path)
+
+
 def test_validate_includes_passes_for_existing_target(tmp_path: Path) -> None:
     source = tmp_path / "airbyte" / "mcp" / "module.py"
     target = tmp_path / "docs" / "mcp-generated" / "module.md"
