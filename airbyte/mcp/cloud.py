@@ -293,6 +293,19 @@ class SyncJobResult(BaseModel):
     """URL to view the job in Airbyte Cloud."""
 
 
+class ConnectorCheckResult(BaseModel):
+    """Result of a connection check against a deployed Cloud connector."""
+
+    connector_id: str
+    """The deployed connector ID."""
+    connector_type: str
+    """The connector type: 'source' or 'destination'."""
+    succeeded: bool
+    """Whether the connector check succeeded."""
+    message: str | None
+    """The failure message when the check failed, otherwise None."""
+
+
 class SyncJobListResult(BaseModel):
     """Result of listing sync jobs with limit support."""
 
@@ -857,6 +870,51 @@ def list_cloud_sync_jobs(
 
 
 @mcp_tool(
+    destructive=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def cancel_cloud_sync(
+    ctx: Context,
+    connection_id: Annotated[
+        str,
+        Field(description="The ID of the Airbyte Cloud connection."),
+    ],
+    job_id: Annotated[
+        int | None,
+        Field(
+            description=(
+                "Optional job ID to cancel. If not provided, the connection's most recent "
+                "job will be cancelled."
+            ),
+            default=None,
+        ),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> SyncJobResult:
+    """Cancel a running sync job on an Airbyte Cloud connection."""
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    connection = workspace.get_connection(connection_id=connection_id)
+    # Deliberately omit check_guid_created_in_session: cancelling a sync is reversible.
+    sync_result = connection.cancel_sync(job_id=job_id)
+    return SyncJobResult(
+        job_id=sync_result.job_id,
+        status=sync_result.get_job_status().value,
+        bytes_synced=sync_result.bytes_synced,
+        records_synced=sync_result.records_synced,
+        start_time=sync_result.start_time.isoformat(),
+        job_url=sync_result.job_url,
+    )
+
+
+@mcp_tool(
     read_only=True,
     idempotent=True,
     open_world=True,
@@ -1029,6 +1087,80 @@ def describe_cloud_destination(
         destination_name=destination_name,
         destination_url=destination.connector_url,
         connector_definition_id=destination.definition_id,
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def check_cloud_source(
+    ctx: Context,
+    source_id: Annotated[
+        str,
+        Field(description="The ID of the deployed source connector to check."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> ConnectorCheckResult:
+    """Check the configuration and credentials of a deployed source connector."""
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    source = workspace.get_source(source_id=source_id)
+    check_result = source.check(raise_on_error=False)
+    return ConnectorCheckResult(
+        connector_id=source_id,
+        connector_type=source.connector_type,
+        succeeded=check_result.success,
+        message=(
+            None
+            if check_result.success
+            else check_result.error_message or check_result.internal_error
+        ),
+    )
+
+
+@mcp_tool(
+    read_only=True,
+    idempotent=True,
+    open_world=True,
+    extra_help_text=CLOUD_AUTH_TIP_TEXT,
+)
+def check_cloud_destination(
+    ctx: Context,
+    destination_id: Annotated[
+        str,
+        Field(description="The ID of the deployed destination connector to check."),
+    ],
+    *,
+    workspace_id: Annotated[
+        str | None,
+        Field(
+            description=WORKSPACE_ID_TIP_TEXT,
+            default=None,
+        ),
+    ],
+) -> ConnectorCheckResult:
+    """Check the configuration and credentials of a deployed destination connector."""
+    workspace: CloudWorkspace = _get_cloud_workspace(ctx, workspace_id)
+    destination = workspace.get_destination(destination_id=destination_id)
+    check_result = destination.check(raise_on_error=False)
+    return ConnectorCheckResult(
+        connector_id=destination_id,
+        connector_type=destination.connector_type,
+        succeeded=check_result.success,
+        message=(
+            None
+            if check_result.success
+            else check_result.error_message or check_result.internal_error
+        ),
     )
 
 

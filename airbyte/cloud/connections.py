@@ -300,6 +300,38 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
 
         return sync_result
 
+    def cancel_sync(self, job_id: int | None = None) -> SyncResult:
+        """Cancel a running sync job. Defaults to the connection's most recent job."""
+        if job_id is None:
+            sync_result = self.get_sync_result()
+            if sync_result is None:
+                raise PyAirbyteInputError(
+                    message="No sync jobs found for this connection.",
+                )
+            if sync_result.is_job_complete():
+                raise PyAirbyteInputError(
+                    message=(
+                        f"The latest sync job is already finished with status "
+                        f"'{sync_result.get_job_status().value}'. "
+                        "Pass an explicit job_id to target a different job."
+                    ),
+                )
+            job_id = sync_result.job_id
+
+        job_response = api_util.cancel_job(
+            job_id=job_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return SyncResult(
+            workspace=self.workspace,
+            connection=self,
+            job_id=job_response.job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
+        )
+
     def __repr__(self) -> str:
         """String representation of the connection."""
         return (
