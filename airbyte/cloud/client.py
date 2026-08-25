@@ -12,7 +12,7 @@ from airbyte.cloud._credentials import _AirbyteCredentials
 from airbyte.cloud.models import CloudWorkspaceInfo
 from airbyte.cloud.organizations import CloudOrganization
 from airbyte.cloud.workspaces import CloudWorkspace
-from airbyte.exceptions import AirbyteMissingResourceError
+from airbyte.exceptions import AirbyteError, AirbyteMissingResourceError
 
 
 if TYPE_CHECKING:
@@ -256,7 +256,6 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="Provide either organization ID or organization name."
             )
-        is_explicit_lookup = name is not None or name_filter is not None
         has_explicit_organization = organization_id is not None or organization_name is not None
         has_explicit_workspace = workspace_id is not None
 
@@ -288,29 +287,6 @@ class CloudClient:
                 bearer_token=self.bearer_token,
                 name_filter=name_filter,
                 name=name,
-                limit=limit,
-            )
-            return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
-
-        if (
-            is_explicit_lookup
-            and not has_explicit_organization
-            and not has_explicit_workspace
-            and self.organization_id is None
-            and self.workspace_id is None
-        ):
-            if name_contains is not None:
-                raise exc.PyAirbyteInputError(
-                    message="You can provide name or name_contains, but not both."
-                )
-            workspaces = api_util.list_workspaces(
-                workspace_id="",
-                api_root=self.public_api_root,
-                name=name,
-                name_filter=name_filter,
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                bearer_token=self.bearer_token,
                 limit=limit,
             )
             return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
@@ -354,6 +330,7 @@ class CloudClient:
         if organization_id is not None:
             return organization_id
         if organization_name is not None:
+            # Explicit name lookup scans all visible organizations; do not use it for defaults.
             return self.get_organization(organization_name=organization_name).organization_id
 
         if workspace_id is not None:
@@ -386,13 +363,7 @@ class CloudClient:
             ),
             context={
                 "organization_ids": list(organization_ids),
-                "organization_candidates": [
-                    {
-                        "organization_id": candidate_id,
-                        "organization_name": None,
-                    }
-                    for candidate_id in organization_ids
-                ],
+                "organization_candidates": self._get_organization_candidates(organization_ids),
             },
         )
 
@@ -465,6 +436,37 @@ class CloudClient:
                 organization_ids.append(permission_organization_id)
         self._membership_organization_ids = tuple(organization_ids)
         return self._membership_organization_ids
+
+    def _get_organization_candidates(
+        self,
+        organization_ids: tuple[str, ...],
+    ) -> list[dict[str, str | None]]:
+        """Get names for membership-derived organization candidates."""
+        candidates: list[dict[str, str | None]] = []
+        for organization_id in organization_ids:
+            organization_name = None
+            try:
+                organization_info = api_util.get_organization_info(
+                    organization_id=organization_id,
+                    api_root=self.public_api_root,
+                    config_api_root=self.config_api_root,
+                    client_id=self.client_id,
+                    client_secret=self.client_secret,
+                    bearer_token=self.bearer_token,
+                )
+            except AirbyteError:
+                pass
+            else:
+                candidate_name = organization_info.get("organizationName")
+                if isinstance(candidate_name, str):
+                    organization_name = candidate_name
+            candidates.append(
+                {
+                    "organization_id": organization_id,
+                    "organization_name": organization_name,
+                }
+            )
+        return candidates
 
     def list_organizations(
         self,

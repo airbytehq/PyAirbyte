@@ -664,15 +664,54 @@ def test_cloud_client_list_workspaces_keeps_explicit_lookup_unbounded(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_list_workspaces(**kwargs: object) -> list[object]:
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
         captured.update(kwargs)
-        return []
+        return [
+            {"workspaceId": f"workspace-{index}", "name": f"Workspace {index}"}
+            for index in range(101)
+        ]
 
-    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_user_id_from_bearer_token",
+        lambda _: "auth-user-id",
+    )
+    monkeypatch.setattr(
+        api_util,
+        "get_user_by_auth_id",
+        lambda *_, **__: {"userId": "user-id"},
+    )
+    monkeypatch.setattr(
+        api_util,
+        "list_permissions_for_user",
+        lambda *_, **__: [
+            {
+                "permissionType": "organization_member",
+                "organizationId": "organization-id",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces",
+        lambda **_: pytest.fail("implicit cross-organization lookup is not allowed"),
+    )
     client = CloudClient(bearer_token="token")
 
-    client.list_workspaces(name_filter=lambda _: True)
+    result = client.list_workspaces(
+        name_filter=lambda _: True,
+    )
+
+    assert captured["organization_id"] == "organization-id"
     assert captured["limit"] is None
+    assert len(result) == 101
 
 
 def test_cloud_client_list_workspaces_resolves_explicit_workspace_parent(
@@ -872,13 +911,23 @@ def test_cloud_client_list_workspaces_rejects_ambiguous_memberships_with_candida
         ],
     )
 
+    def fake_get_organization_info(**kwargs: object) -> dict[str, object]:
+        if kwargs["organization_id"] == "organization-2":
+            raise AirbyteError(message="Forbidden")
+        return {"organizationName": "Organization 1"}
+
+    monkeypatch.setattr(api_util, "get_organization_info", fake_get_organization_info)
+
     with pytest.raises(PyAirbyteInputError) as exc_info:
         CloudClient(bearer_token="token").list_workspaces()
 
     assert exc_info.value.context == {
         "organization_ids": ["organization-1", "organization-2"],
         "organization_candidates": [
-            {"organization_id": "organization-1", "organization_name": None},
+            {
+                "organization_id": "organization-1",
+                "organization_name": "Organization 1",
+            },
             {"organization_id": "organization-2", "organization_name": None},
         ],
     }
