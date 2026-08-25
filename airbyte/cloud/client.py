@@ -23,7 +23,8 @@ if TYPE_CHECKING:
 
 CROSS_ORG_WORKSPACE_DEFAULT_LIMIT = 100
 CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES = 1
-CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS = 100
+CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS = api_util.PAGE_SIZE * CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES
+CLOUD_ORGANIZATION_DEFAULT_LIMIT = 100
 
 
 @dataclass(init=False, kw_only=True)
@@ -295,15 +296,28 @@ class CloudClient:
 
     def list_organizations(
         self,
-        name_contains: str | None = None,
         *,
+        name_contains: str | None = None,
         limit: int | None = None,
     ) -> list[CloudOrganization]:
         """List organizations available to this client."""
         if limit is not None and limit <= 0:
             raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
 
-        organizations = [
+        effective_limit = limit if limit is not None else CLOUD_ORGANIZATION_DEFAULT_LIMIT
+        organizations = self._fetch_organizations()
+        if name_contains is not None:
+            name_substring = name_contains.casefold()
+            organizations = [
+                organization
+                for organization in organizations
+                if name_substring in (organization.organization_name or "").casefold()
+            ]
+        return organizations[:effective_limit]
+
+    def _fetch_organizations(self) -> list[CloudOrganization]:
+        """Fetch all organizations available to this client."""
+        return [
             CloudOrganization(
                 organization_id=organization.organization_id,
                 organization_name=organization.organization_name,
@@ -321,14 +335,6 @@ class CloudClient:
                 bearer_token=self.bearer_token,
             )
         ]
-        if name_contains is not None:
-            name_substring = name_contains.casefold()
-            organizations = [
-                organization
-                for organization in organizations
-                if name_substring in (organization.organization_name or "").casefold()
-            ]
-        return organizations if limit is None else organizations[:limit]
 
     def get_organization(
         self,
@@ -347,7 +353,7 @@ class CloudClient:
                 message="Organization ID or organization name is required."
             )
 
-        organizations = self.list_organizations()
+        organizations = self._fetch_organizations()
         if resolved_organization_id:
             matching_organizations = [
                 organization

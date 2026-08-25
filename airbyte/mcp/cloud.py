@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.client import (
+    CLOUD_ORGANIZATION_DEFAULT_LIMIT,
     CROSS_ORG_WORKSPACE_DEFAULT_LIMIT,
     CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS,
     CloudClient,
@@ -1545,6 +1546,9 @@ def list_cloud_workspaces(
     default organization.
     """
     client = _get_cloud_client(ctx)
+    is_cross_org = (
+        organization_id is None and organization_name is None and client.organization_id is None
+    )
 
     try:
         workspaces = client.list_workspaces(
@@ -1586,25 +1590,14 @@ def list_cloud_workspaces(
                     "Results are partial because cross-organization name searches "
                     f"scan at most {CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS} workspaces. "
                     "Pass organization_id for complete results."
-                    if (
-                        organization_id is None
-                        and organization_name is None
-                        and getattr(client, "organization_id", None) is None
-                        and name_contains is not None
-                    )
+                    if is_cross_org and name_contains is not None
                     else None
                 ),
                 (
                     f"Results are capped at {CROSS_ORG_WORKSPACE_DEFAULT_LIMIT} "
                     "workspaces by default for "
                     "cross-organization discovery. Provide limit to change the cap."
-                    if (
-                        organization_id is None
-                        and organization_name is None
-                        and getattr(client, "organization_id", None) is None
-                        and name_contains is None
-                        and limit is None
-                    )
+                    if is_cross_org and name_contains is None and limit is None
                     else None
                 ),
                 (
@@ -1677,10 +1670,18 @@ def list_cloud_organizations(
             for organization in organizations
         ],
         message=(
-            f"Results are capped at {limit} organizations and may be truncated. "
-            "Use name_contains to narrow the search."
-            if limit is not None and len(organizations) == limit
-            else None
+            (
+                f"Results are capped at {CLOUD_ORGANIZATION_DEFAULT_LIMIT} "
+                "organizations by default. Use name_contains to narrow the search "
+                "or provide limit to request a different cap."
+            )
+            if limit is None
+            else (
+                f"Results are capped at {limit} organizations and may be truncated. "
+                "Use name_contains to narrow the search."
+                if len(organizations) == limit
+                else None
+            )
         ),
     )
 

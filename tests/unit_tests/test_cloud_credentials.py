@@ -571,6 +571,27 @@ def test_cloud_client_list_organizations_filters_case_insensitively_and_limits(
     ]
 
 
+def test_cloud_client_list_organizations_applies_default_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organizations = [
+        models.OrganizationResponse(
+            organization_id=f"organization-id-{index}",
+            organization_name=f"Organization {index}",
+            email=f"test-{index}@example.com",
+        )
+        for index in range(101)
+    ]
+    monkeypatch.setattr(
+        api_util, "list_organizations_for_user", lambda **_: organizations
+    )
+
+    result = CloudClient(bearer_token="token").list_organizations()
+
+    assert len(result) == 100
+    assert result[-1].organization_id == "organization-id-99"
+
+
 def test_cloud_client_list_organizations_reports_ambiguity_candidates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -583,7 +604,7 @@ def test_cloud_client_list_organizations_reports_ambiguity_candidates(
         for index in range(11)
     ]
     client = CloudClient(bearer_token="token")
-    monkeypatch.setattr(client, "list_organizations", lambda: organizations)
+    monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
     with pytest.raises(PyAirbyteInputError) as exc_info:
         client.get_organization(organization_name="Duplicate")
@@ -627,7 +648,7 @@ def test_cloud_client_list_workspaces_bounds_cross_organization_discovery(
     assert captured["max_pages"] == 1
 
 
-def test_cloud_client_get_organization_reuses_list_organizations(
+def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     organizations = [
@@ -638,7 +659,7 @@ def test_cloud_client_get_organization_reuses_list_organizations(
         )
     ]
     client = CloudClient(bearer_token="token")
-    monkeypatch.setattr(client, "list_organizations", lambda: organizations)
+    monkeypatch.setattr(client, "_fetch_organizations", lambda: organizations)
 
     result = client.get_organization(organization_id="organization-id")
 
@@ -658,7 +679,7 @@ def test_cloud_client_get_organization_reuses_list_organizations(
                 )
             ],
             1,
-            None,
+            "capped",
             id="single-organization",
         ),
         pytest.param(
@@ -675,7 +696,7 @@ def test_cloud_client_get_organization_reuses_list_organizations(
                 ),
             ],
             2,
-            None,
+            "capped",
             id="multiple-organizations",
         ),
         pytest.param(
@@ -754,6 +775,8 @@ def test_mcp_list_cloud_workspaces_discovery(
     captured_organization_id: str | None = "unset"
 
     class DiscoveryClient:
+        organization_id: str | None = None
+
         def list_workspaces(
             self, *, organization_id: str | None = None, **_: object
         ) -> list[CloudWorkspaceInfo]:
