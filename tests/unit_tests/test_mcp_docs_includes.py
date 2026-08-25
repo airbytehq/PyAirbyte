@@ -12,6 +12,10 @@ import airbyte.mcp
 from docs.generate import _validate_includes
 
 
+# These process entry points have connectivity docs in `airbyte.mcp`'s docstring.
+DOCS_EXCLUDED_MODULES = frozenset({"http_main", "server"})
+
+
 def test_validate_includes_raises_for_missing_target(tmp_path: Path) -> None:
     source = tmp_path / "airbyte" / "mcp" / "module.py"
     source.parent.mkdir(parents=True)
@@ -51,4 +55,6 @@ def test_mcp_all_covers_public_submodules() -> None:
         for module in pkgutil.iter_modules(airbyte.mcp.__path__)
         if not module.name.startswith("_")
     }
-    assert public_modules <= set(airbyte.mcp.__all__)
+    exported_modules = set(airbyte.mcp.__all__)
+    assert public_modules - DOCS_EXCLUDED_MODULES <= exported_modules
+    assert DOCS_EXCLUDED_MODULES.isdisjoint(exported_modules)
