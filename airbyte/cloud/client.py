@@ -21,6 +21,11 @@ if TYPE_CHECKING:
     from airbyte.secrets.base import SecretString
 
 
+CROSS_ORG_WORKSPACE_DEFAULT_LIMIT = 100
+CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES = 1
+CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS = 100
+
+
 @dataclass(init=False, kw_only=True)
 class CloudClient:
     """Authenticated client for Airbyte Cloud and self-managed Airbyte APIs."""
@@ -271,6 +276,8 @@ class CloudClient:
             def name_filter(workspace_name: str) -> bool:
                 return name_substring in workspace_name
 
+        effective_limit = limit if limit is not None else CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
+        max_pages = CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES if name_contains is not None else None
         return [
             CloudWorkspaceInfo.from_api_response(workspace)
             for workspace in api_util.list_workspaces(
@@ -281,13 +288,22 @@ class CloudClient:
                 client_id=self.client_id,
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
-                limit=limit,
+                limit=effective_limit,
+                max_pages=max_pages,
             )
         ]
 
-    def list_organizations(self) -> list[CloudOrganization]:
-        """List all organizations available to this client."""
-        return [
+    def list_organizations(
+        self,
+        name_contains: str | None = None,
+        *,
+        limit: int | None = None,
+    ) -> list[CloudOrganization]:
+        """List organizations available to this client."""
+        if limit is not None and limit <= 0:
+            raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+
+        organizations = [
             CloudOrganization(
                 organization_id=organization.organization_id,
                 organization_name=organization.organization_name,
@@ -305,6 +321,14 @@ class CloudClient:
                 bearer_token=self.bearer_token,
             )
         ]
+        if name_contains is not None:
+            name_substring = name_contains.casefold()
+            organizations = [
+                organization
+                for organization in organizations
+                if name_substring in (organization.organization_name or "").casefold()
+            ]
+        return organizations if limit is None else organizations[:limit]
 
     def get_organization(
         self,
@@ -343,9 +367,29 @@ class CloudClient:
                 resource_name_or_id=resolved_organization_id or organization_name,
             )
         if len(matching_organizations) > 1:
+            total_matches = len(matching_organizations)
+            shown_matches = matching_organizations[:10]
+            match_details = ", ".join(
+                f"{organization.organization_id} ({organization.email or 'email unavailable'})"
+                for organization in shown_matches
+            )
             raise exc.PyAirbyteInputError(
-                message="Organization name matches multiple organizations.",
-                context={"organization_name": organization_name},
+                message=(
+                    "Organization name matches multiple organizations. Provide an "
+                    f"organization ID to disambiguate. Matching organizations "
+                    f"(showing {len(shown_matches)} of {total_matches}): {match_details}"
+                ),
+                context={
+                    "organization_name": organization_name,
+                    "matching_organizations": [
+                        {
+                            "organization_id": organization.organization_id,
+                            "email": organization.email,
+                        }
+                        for organization in shown_matches
+                    ],
+                    "total_matches": total_matches,
+                },
             )
 
         return matching_organizations[0]

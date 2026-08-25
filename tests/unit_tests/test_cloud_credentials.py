@@ -537,6 +537,96 @@ def test_cloud_client_list_organizations_returns_typed_resources(
     ]
 
 
+def test_cloud_client_list_organizations_filters_case_insensitively_and_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organizations = [
+        models.OrganizationResponse(
+            organization_id="organization-id-1",
+            organization_name="Development",
+            email="one@example.com",
+        ),
+        models.OrganizationResponse(
+            organization_id="organization-id-2",
+            organization_name="development-copy",
+            email="two@example.com",
+        ),
+        models.OrganizationResponse(
+            organization_id="organization-id-3",
+            organization_name="Production",
+            email="three@example.com",
+        ),
+    ]
+    monkeypatch.setattr(
+        api_util, "list_organizations_for_user", lambda **_: organizations
+    )
+
+    result = CloudClient(bearer_token="token").list_organizations(
+        name_contains="DEVELOP",
+        limit=1,
+    )
+
+    assert [organization.organization_id for organization in result] == [
+        "organization-id-1"
+    ]
+
+
+def test_cloud_client_list_organizations_reports_ambiguity_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    organizations = [
+        CloudOrganization(
+            organization_id=f"organization-id-{index}",
+            organization_name="Duplicate",
+            email=f"test-{index}@example.com",
+        )
+        for index in range(11)
+    ]
+    client = CloudClient(bearer_token="token")
+    monkeypatch.setattr(client, "list_organizations", lambda: organizations)
+
+    with pytest.raises(PyAirbyteInputError) as exc_info:
+        client.get_organization(organization_name="Duplicate")
+
+    error = exc_info.value
+    assert "showing 10 of 11" in str(error)
+    assert "organization-id-0" in str(error)
+    assert "test-0@example.com" in str(error)
+    assert "organization-id-10" not in str(error)
+    assert error.context == {
+        "organization_name": "Duplicate",
+        "matching_organizations": [
+            {
+                "organization_id": f"organization-id-{index}",
+                "email": f"test-{index}@example.com",
+            }
+            for index in range(10)
+        ],
+        "total_matches": 11,
+    }
+
+
+def test_cloud_client_list_workspaces_bounds_cross_organization_discovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_list_workspaces(**kwargs: object) -> list[object]:
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+    client = CloudClient(bearer_token="token")
+
+    client.list_workspaces()
+    assert captured["limit"] == 100
+    assert captured["max_pages"] is None
+
+    client.list_workspaces(name_contains="target", limit=10)
+    assert captured["limit"] == 10
+    assert captured["max_pages"] == 1
+
+
 def test_cloud_client_get_organization_reuses_list_organizations(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -609,7 +699,7 @@ def test_mcp_list_cloud_organizations_discovery(
     expected_message: str | None,
 ) -> None:
     class DiscoveryClient:
-        def list_organizations(self) -> list[CloudOrganization]:
+        def list_organizations(self, **_: object) -> list[CloudOrganization]:
             if isinstance(organizations_or_error, AirbyteError):
                 raise organizations_or_error
             return organizations_or_error
@@ -690,7 +780,36 @@ def test_mcp_list_cloud_workspaces_discovery(
     else:
         assert result.workspaces[0].workspace_id == "workspace-id"
         assert result.workspaces[1].organization_id is None
-        assert result.message is None
+        assert "capped at 100" in (result.message or "")
+
+
+def test_mcp_list_cloud_organizations_forwards_filter_and_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class DiscoveryClient:
+        def list_organizations(self, **kwargs: object) -> list[CloudOrganization]:
+            captured.update(kwargs)
+            return [
+                CloudOrganization(
+                    organization_id="organization-id",
+                    organization_name="Development",
+                    email="test@example.com",
+                )
+            ]
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_organizations(
+        None,
+        name_contains="develop",
+        limit=1,
+    )
+
+    assert captured == {"name_contains": "develop", "limit": 1}
+    assert len(result.organizations) == 1
+    assert "capped at 1" in (result.message or "")
 
 
 def test_mcp_resolve_organization_id_skips_lookup_when_id_provided() -> None:

@@ -21,7 +21,11 @@ from pydantic import BaseModel, Field
 
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
-from airbyte.cloud.client import CloudClient
+from airbyte.cloud.client import (
+    CROSS_ORG_WORKSPACE_DEFAULT_LIMIT,
+    CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS,
+    CloudClient,
+)
 from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import JobTypeEnum
@@ -1575,12 +1579,44 @@ def list_cloud_workspaces(
     ]
     return CloudWorkspaceListResult(
         workspaces=results,
-        message=(
-            "No workspaces were returned for these credentials. Verify the "
-            "credentials or ask the user to provide a workspace ID."
-            if not results
-            else None
-        ),
+        message=" ".join(
+            message
+            for message in [
+                (
+                    "Results are partial because cross-organization name searches "
+                    f"scan at most {CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS} workspaces. "
+                    "Pass organization_id for complete results."
+                    if (
+                        organization_id is None
+                        and organization_name is None
+                        and getattr(client, "organization_id", None) is None
+                        and name_contains is not None
+                    )
+                    else None
+                ),
+                (
+                    f"Results are capped at {CROSS_ORG_WORKSPACE_DEFAULT_LIMIT} "
+                    "workspaces by default for "
+                    "cross-organization discovery. Provide limit to change the cap."
+                    if (
+                        organization_id is None
+                        and organization_name is None
+                        and getattr(client, "organization_id", None) is None
+                        and name_contains is None
+                        and limit is None
+                    )
+                    else None
+                ),
+                (
+                    "No workspaces were returned for these credentials. Verify the "
+                    "credentials or ask the user to provide a workspace ID."
+                    if not results
+                    else None
+                ),
+            ]
+            if message is not None
+        )
+        or None,
     )
 
 
@@ -1592,10 +1628,27 @@ def list_cloud_workspaces(
 )
 def list_cloud_organizations(
     ctx: Context,
+    name_contains: Annotated[
+        str | None,
+        Field(
+            description="Optional case-insensitive substring to filter organization names.",
+            default=None,
+        ),
+    ] = None,
+    limit: Annotated[
+        int | None,
+        Field(
+            description="Optional maximum number of organizations to return.",
+            default=None,
+        ),
+    ] = None,
 ) -> CloudOrganizationListResult:
     """List organizations visible to the authenticated Airbyte Cloud credentials."""
     try:
-        organizations = _get_cloud_client(ctx).list_organizations()
+        organizations = _get_cloud_client(ctx).list_organizations(
+            name_contains=name_contains,
+            limit=limit,
+        )
     except AirbyteError as error:
         return _handle_discovery_permission_error(
             error,
@@ -1622,7 +1675,13 @@ def list_cloud_organizations(
                 email=organization.email or "",
             )
             for organization in organizations
-        ]
+        ],
+        message=(
+            f"Results are capped at {limit} organizations and may be truncated. "
+            "Use name_contains to narrow the search."
+            if limit is not None and len(organizations) == limit
+            else None
+        ),
     )
 
 
