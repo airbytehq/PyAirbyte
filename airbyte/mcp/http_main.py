@@ -33,6 +33,10 @@ Environment variables:
 - `MCP_SERVER_URL`: Public base URL. Used for OIDC redirect callbacks and to
   derive the MCP endpoint mount path (serves at `/` when the URL has a path
   prefix, otherwise defaults to `/mcp`).
+- `AIRBYTE_MCP_ALLOWED_HOSTS`: Comma-separated allowed hostnames or `fnmatch`
+  patterns for HTTP `Host` and `Origin` validation. Entries may include ports.
+- `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
+  to `0.0.0.0`.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:
@@ -86,6 +90,11 @@ from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
 )
+from airbyte.mcp._transport_security import (
+    HTTP_HOST_ENV,
+    HostOriginGuardMiddleware,
+    resolve_allowed_hosts,
+)
 from airbyte.mcp.server import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_PORT,
@@ -99,6 +108,7 @@ from airbyte.version import get_version
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
+    from starlette.types import ASGIApp
 
 logger = logging.getLogger(__name__)
 
@@ -234,9 +244,13 @@ def main() -> None:
 
     _log_auth_status()
 
+    http_host = _env_or_default(HTTP_HOST_ENV, DEFAULT_HTTP_HOST)
+    allowed_hosts = resolve_allowed_hosts(server_url)
+    logger.info("Resolved HTTP transport allowed hosts: %s", allowed_hosts)
+
     logger.info(
         "Starting Airbyte MCP HTTP server on %s:%d (mcp_path=%r)",
-        DEFAULT_HTTP_HOST,
+        http_host,
         DEFAULT_HTTP_PORT,
         mcp_path,
     )
@@ -247,14 +261,20 @@ def main() -> None:
     # entrypoint (a permanent gate; the per-request filter also forces it off).
     assert_http_trusted_execution_disabled(app)
 
+    def wrap_http_app(http_app: ASGIApp) -> ASGIApp:
+        return HostOriginGuardMiddleware(
+            wrap_if_enabled(http_app),
+            allowed_hosts,
+        )
+
     try:
         run_mcp_http_server(
             app,
             path=mcp_path,
             transport="streamable-http",
             stateless_http=True,
-            wrapper=wrap_if_enabled,
-            host=DEFAULT_HTTP_HOST,
+            wrapper=wrap_http_app,
+            host=http_host,
             port=DEFAULT_HTTP_PORT,
         )
     except KeyboardInterrupt:

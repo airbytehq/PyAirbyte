@@ -167,14 +167,13 @@ def test_http_main_delegates_http_serving_to_fastmcp_extensions(
 
     http_main.main()
 
-    assert config == {
-        "path": "/mcp",
-        "transport": "streamable-http",
-        "stateless_http": True,
-        "wrapper": http_main.wrap_if_enabled,
-        "host": http_main.DEFAULT_HTTP_HOST,
-        "port": http_main.DEFAULT_HTTP_PORT,
-    }
+    assert config["path"] == "/mcp"
+    assert config["transport"] == "streamable-http"
+    assert config["stateless_http"] is True
+    assert config["host"] == http_main.DEFAULT_HTTP_HOST
+    assert config["port"] == http_main.DEFAULT_HTTP_PORT
+    assert callable(config["wrapper"])
+    assert config["wrapper"] is not http_main.wrap_if_enabled
 
 
 @pytest.mark.parametrize(
