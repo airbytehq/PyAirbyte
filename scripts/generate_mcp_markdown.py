@@ -159,10 +159,9 @@ def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
-def _spec_to_module_name(server_spec: str) -> str:
-    """Normalize a file-path server spec to an importable module name."""
-    file_part = server_spec.split(":", 1)[0]
-    dotted = file_part.removesuffix(".py").replace("/", ".").replace("\\", ".")
+def _spec_to_module_name(module_path: str) -> str:
+    """Normalize a file path to an importable module name."""
+    dotted = module_path.removesuffix(".py").replace("/", ".").replace("\\", ".")
     if dotted.startswith("src."):
         dotted = dotted.removeprefix("src.")
     return dotted
@@ -170,10 +169,10 @@ def _spec_to_module_name(server_spec: str) -> str:
 
 def _import_server(server_spec: str) -> FastMCP[Any]:
     """Import and return the server object named by a FastMCP server spec."""
-    module_name, _, object_path = server_spec.partition(":")
-    if not object_path:
+    module_path, separator, object_path = server_spec.rpartition(":")
+    if not separator or not object_path:
         raise ValueError(f"Server spec must include an object name: {server_spec}")
-    server: object = importlib.import_module(_spec_to_module_name(module_name))
+    server: object = importlib.import_module(_spec_to_module_name(module_path))
     for component in object_path.split("."):
         server = getattr(server, component)
     return cast(FastMCP[Any], server)
@@ -188,10 +187,10 @@ def _build_extra_module_map() -> dict[str, str]:
     internal `_REGISTERED_*` lists only — it is not re-emitted as an MCP
     annotation, so it doesn't appear in the inspect JSON.
 
-    To still recover that information, we import the server module and read
-    those internal lists. If that fails (not a `fastmcp_extensions`-based
-    server, import errors, etc.), we silently return an empty map and the
-    caller falls back to `MISC_MODULE`.
+    To still recover that information, the caller must import the server module
+    before calling this helper, then this helper reads those internal lists. If
+    that fails (not a `fastmcp_extensions`-based server, import errors, etc.),
+    we silently return an empty map and the caller falls back to `MISC_MODULE`.
 
     Returns a map of `name/uri -> mcp_module` covering both prompts and
     resources.
