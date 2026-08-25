@@ -22,8 +22,7 @@ if TYPE_CHECKING:
 
 
 CROSS_ORG_WORKSPACE_DEFAULT_LIMIT = 100
-CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES = 1
-CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS = api_util.PAGE_SIZE * CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES
+CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS = 100
 CLOUD_ORGANIZATION_DEFAULT_LIMIT = 100
 
 
@@ -267,21 +266,33 @@ class CloudClient:
                 if limit is not None:
                     workspace_infos = workspace_infos[:limit]
             return workspace_infos
-        is_explicit_lookup = name is not None or name_filter is not None
         if name_contains is not None:
             if name_filter is not None:
                 raise exc.PyAirbyteInputError(
                     message="You can provide name_contains or name_filter, but not both."
                 )
             name_substring = name_contains
+            if limit is not None and limit <= 0:
+                raise exc.PyAirbyteInputError(message="`limit` must be greater than 0.")
+            workspaces = api_util.list_workspaces(
+                workspace_id="",
+                api_root=self.public_api_root,
+                client_id=self.client_id,
+                client_secret=self.client_secret,
+                bearer_token=self.bearer_token,
+                limit=CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS,
+            )
+            matching_workspaces = [
+                CloudWorkspaceInfo.from_api_response(workspace)
+                for workspace in workspaces
+                if name_substring in workspace.name
+            ]
+            return matching_workspaces[: limit or CROSS_ORG_WORKSPACE_DEFAULT_LIMIT]
 
-            def name_filter(workspace_name: str) -> bool:
-                return name_substring in workspace_name
-
+        is_explicit_lookup = name is not None or name_filter is not None
         effective_limit = (
             limit if limit is not None or is_explicit_lookup else CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
         )
-        max_pages = CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES if name_contains is not None else None
         return [
             CloudWorkspaceInfo.from_api_response(workspace)
             for workspace in api_util.list_workspaces(
@@ -293,7 +304,6 @@ class CloudClient:
                 client_secret=self.client_secret,
                 bearer_token=self.bearer_token,
                 limit=effective_limit,
-                max_pages=max_pages,
             )
         ]
 

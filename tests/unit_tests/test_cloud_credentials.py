@@ -168,24 +168,44 @@ def test_cloud_client_list_workspaces_forwards_limit(
 def test_cloud_client_list_workspaces_applies_name_contains_to_non_org_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    captured_filter = None
+    captured: dict[str, object] = {}
 
     def fake_list_workspaces(
-        *,
-        name_filter: object = None,
-        **_: object,
-    ) -> list[object]:
-        nonlocal captured_filter
-        captured_filter = name_filter
-        return []
+        **kwargs: object,
+    ) -> list[models.WorkspaceResponse]:
+        captured.update(kwargs)
+        return [
+            models.WorkspaceResponse(
+                data_residency="auto",
+                name="target-one",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-target-one",
+            ),
+            models.WorkspaceResponse(
+                data_residency="auto",
+                name="other",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-other",
+            ),
+            models.WorkspaceResponse(
+                data_residency="auto",
+                name="target-two",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-target-two",
+            ),
+        ]
 
     monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
 
-    CloudClient(bearer_token="token").list_workspaces(name_contains="target")
+    result = CloudClient(bearer_token="token").list_workspaces(
+        name_contains="target",
+        limit=1,
+    )
 
-    assert captured_filter is not None
-    assert captured_filter("a-target-workspace")
-    assert not captured_filter("other-workspace")
+    assert captured.get("name") is None
+    assert captured.get("name_filter") is None
+    assert captured["limit"] == 100
+    assert [workspace.name for workspace in result] == ["target-one"]
 
 
 def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before_limit(
@@ -641,15 +661,9 @@ def test_cloud_client_list_workspaces_bounds_cross_organization_discovery(
 
     client.list_workspaces()
     assert captured["limit"] == 100
-    assert captured["max_pages"] is None
-
-    client.list_workspaces(name_contains="target", limit=10)
-    assert captured["limit"] == 10
-    assert captured["max_pages"] == 1
 
     client.list_workspaces(name_filter=lambda _: True)
     assert captured["limit"] is None
-    assert captured["max_pages"] is None
 
 
 def test_cloud_client_get_organization_uses_unbounded_organization_list(

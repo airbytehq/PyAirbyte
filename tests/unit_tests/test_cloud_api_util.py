@@ -592,53 +592,6 @@ def test_list_workspaces_caps_unfiltered_api_page_size(
     ] == [(None, 1, 0)]
 
 
-def test_list_workspaces_stops_after_max_pages(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Verify filtered workspace listing stops at its scan ceiling."""
-    captured_requests: list[api.ListWorkspacesRequest] = []
-    pages = [
-        _list_workspaces_response(
-            [_workspace_response("first", 1)],
-            next_page="next",
-        ),
-        _list_workspaces_response(
-            [_workspace_response("second", 2)],
-            next_page=None,
-        ),
-    ]
-
-    def list_workspaces(
-        request: api.ListWorkspacesRequest,
-    ) -> api.ListWorkspacesResponse:
-        captured_requests.append(request)
-        return pages.pop(0)
-
-    airbyte_instance = SimpleNamespace(
-        workspaces=SimpleNamespace(list_workspaces=list_workspaces),
-    )
-    monkeypatch.setattr(
-        api_util,
-        "get_airbyte_server_instance",
-        lambda **_: airbyte_instance,
-    )
-
-    result = api_util.list_workspaces(
-        workspace_id="context-workspace-id",
-        api_root="https://api.airbyte.com/v1/",
-        client_id=SecretString("client-id"),
-        client_secret=SecretString("client-secret"),
-        bearer_token=None,
-        name_filter=lambda name: name == "second",
-        max_pages=1,
-    )
-
-    assert result == []
-    assert [(request.limit, request.offset) for request in captured_requests] == [
-        (100, 0)
-    ]
-
-
 @pytest.mark.parametrize("limit", [0, -1])
 def test_list_connections_rejects_invalid_limits(limit: int) -> None:
     """Verify connection list pagination rejects non-positive limits."""

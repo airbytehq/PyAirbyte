@@ -544,7 +544,7 @@ def list_connections(
     return result
 
 
-def list_workspaces(  # noqa: PLR0913  # Too many arguments - needed for pagination controls
+def list_workspaces(
     workspace_id: str,
     *,
     api_root: str,
@@ -554,9 +554,8 @@ def list_workspaces(  # noqa: PLR0913  # Too many arguments - needed for paginat
     name: str | None = None,
     name_filter: Callable[[str], bool] | None = None,
     limit: int | None = None,
-    max_pages: int | None = None,
 ) -> list[models.WorkspaceResponse]:
-    """List workspaces, optionally bounded to a maximum number of API pages.
+    """List workspaces.
 
     Args:
         workspace_id: Workspace context for the request.
@@ -567,14 +566,10 @@ def list_workspaces(  # noqa: PLR0913  # Too many arguments - needed for paginat
         name: Optional exact workspace name to match.
         name_filter: Optional predicate to match workspace names.
         limit: Optional maximum number of matching workspaces to return.
-        max_pages: Optional maximum number of API pages to scan. This is useful
-            when applying a client-side filter to a broad workspace listing.
     """
     if name is not None and name_filter:
         raise PyAirbyteInputError(message="You can provide name or name_filter, but not both.")
     _validate_pagination_params(limit=limit)
-    if max_pages is not None and max_pages <= 0:
-        raise PyAirbyteInputError(message="`max_pages` must be greater than 0.")
     has_name_filter = name is not None or name_filter is not None
     name_filter = (lambda n: n == name) if name is not None else name_filter or (lambda _: True)
 
@@ -587,7 +582,6 @@ def list_workspaces(  # noqa: PLR0913  # Too many arguments - needed for paginat
     result: list[models.WorkspaceResponse] = []
     current_offset = 0
     remaining = limit
-    pages_fetched = 0
     base_context = {"workspace_id": workspace_id, "api_root": api_root}
     while remaining is None or remaining > 0:
         page_limit = PAGE_SIZE if has_name_filter else _get_page_limit(remaining)
@@ -612,7 +606,6 @@ def list_workspaces(  # noqa: PLR0913  # Too many arguments - needed for paginat
 
         assert response.workspaces_response is not None
         page_data = response.workspaces_response.data
-        pages_fetched += 1
         if not page_data:
             break
 
@@ -621,9 +614,6 @@ def list_workspaces(  # noqa: PLR0913  # Too many arguments - needed for paginat
         result += page_results
         if remaining is not None:
             remaining -= len(page_results)
-
-        if max_pages is not None and pages_fetched >= max_pages:
-            break
 
         if not response.workspaces_response.next:
             break
