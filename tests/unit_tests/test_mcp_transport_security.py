@@ -24,7 +24,6 @@ async def _app(scope: Scope, receive: Receive, send: Send) -> None:
             elif message["type"] == "lifespan.shutdown":
                 await send({"type": "lifespan.shutdown.complete"})
                 return
-        return
     await PlainTextResponse("ok")(scope, receive, send)
 
 
