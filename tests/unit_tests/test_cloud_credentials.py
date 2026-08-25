@@ -647,6 +647,10 @@ def test_cloud_client_list_workspaces_bounds_cross_organization_discovery(
     assert captured["limit"] == 10
     assert captured["max_pages"] == 1
 
+    client.list_workspaces(name_filter=lambda _: True)
+    assert captured["limit"] is None
+    assert captured["max_pages"] is None
+
 
 def test_cloud_client_get_organization_uses_unbounded_organization_list(
     monkeypatch: pytest.MonkeyPatch,

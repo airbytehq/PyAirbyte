@@ -1587,7 +1587,7 @@ def list_cloud_workspaces(
             message
             for message in [
                 (
-                    "Results are partial because cross-organization name searches "
+                    "Results may be partial because cross-organization name searches "
                     f"scan at most {CROSS_ORG_WORKSPACE_SCAN_MAX_RECORDS} workspaces. "
                     "Pass organization_id for complete results."
                     if is_cross_org and name_contains is not None

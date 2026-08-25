@@ -267,6 +267,7 @@ class CloudClient:
                 if limit is not None:
                     workspace_infos = workspace_infos[:limit]
             return workspace_infos
+        is_explicit_lookup = name is not None or name_filter is not None
         if name_contains is not None:
             if name_filter is not None:
                 raise exc.PyAirbyteInputError(
@@ -277,7 +278,9 @@ class CloudClient:
             def name_filter(workspace_name: str) -> bool:
                 return name_substring in workspace_name
 
-        effective_limit = limit if limit is not None else CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
+        effective_limit = (
+            limit if limit is not None or is_explicit_lookup else CROSS_ORG_WORKSPACE_DEFAULT_LIMIT
+        )
         max_pages = CROSS_ORG_WORKSPACE_SCAN_MAX_PAGES if name_contains is not None else None
         return [
             CloudWorkspaceInfo.from_api_response(workspace)
