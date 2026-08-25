@@ -2,11 +2,13 @@
 # Copyright (c) 2026 Airbyte, Inc., all rights reserved.
 """Generate Markdown documentation for the Airbyte Replication MCP server.
 
-Runs `fastmcp inspect` against the default `airbyte/mcp/server.py:app` spec
+Runs a two-pass inspect against the default `airbyte/mcp/server.py:app` spec
 (override with `--server-spec`) to obtain the full FastMCP protocol surface
-(tools, resources, resource templates, prompts) as a JSON report, then
-renders it into one Markdown file **per MCP module** under
-`docs/mcp-generated/`, plus an `index.md` overview.
+(tools, resources, resource templates, prompts) as a JSON report, then renders
+it into one Markdown file **per MCP module** under `docs/mcp-generated/`, plus
+an `index.md` overview. The trusted-execution and interactive-UI gates cannot
+both be open in one request, so the passes are merged to document every
+registered tool.
 
 The per-module grouping uses the `mcp_module` annotation that
 `fastmcp_extensions.mcp_tool` attaches to every registered tool (derived from
@@ -71,15 +73,26 @@ poe mcp-docs-md
 from __future__ import annotations
 
 import argparse
+import asyncio
 import importlib
 import json
+import os
 import shutil
 import subprocess
 import sys
 import tempfile
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+
+from fastmcp import FastMCP
+from fastmcp.apps import UI_EXTENSION_ID
+from fastmcp.server.http import _current_http_request  # noqa: PLC2701
+from fastmcp.utilities.inspect import format_fastmcp_info, inspect_fastmcp
+from fastmcp_extensions.capability_tokens import DEFAULT_EXTENSIONS_HEADER
+from starlette.requests import Request
+
+from airbyte.constants import MCP_TRUSTED_EXECUTION_ENV_VAR
 
 
 DEFAULT_OUTPUT = Path("docs/mcp-generated")
@@ -101,39 +114,70 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _run_fastmcp_inspect(server_spec: str, report_path: Path) -> dict[str, Any]:
-    """Invoke `fastmcp inspect` and return the parsed JSON report."""
-    fastmcp_bin = shutil.which("fastmcp")
-    if fastmcp_bin is None:
-        raise RuntimeError(
-            "`fastmcp` CLI not found on PATH. Install project dev deps first "
-            "(e.g. `uv sync --group dev`) and re-run from the repo root."
-        )
+    """Run the two-pass inspect in a child process and parse its report."""
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--server-spec",
+        server_spec,
+        "--emit-inspect-json",
+        str(report_path),
+    ]
+    env = {**os.environ, MCP_TRUSTED_EXECUTION_ENV_VAR: "1"}
     try:
         subprocess.run(
-            [
-                fastmcp_bin,
-                "inspect",
-                server_spec,
-                "--format",
-                "fastmcp",
-                "--output",
-                str(report_path),
-            ],
+            command,
             check=True,
             timeout=_FASTMCP_INSPECT_TIMEOUT_SEC,
+            capture_output=True,
+            text=True,
+            env=env,
         )
     except subprocess.TimeoutExpired as ex:
         msg = (
-            f"`fastmcp inspect {server_spec}` timed out after "
+            f"Two-pass `fastmcp inspect {server_spec}` timed out after "
             f"{_FASTMCP_INSPECT_TIMEOUT_SEC}s. The server module likely hangs "
-            "on import (blocking network I/O during tool registration?). "
-            "Re-run with the server imported manually to investigate."
+            "on import (blocking network I/O during tool registration?)."
         )
+        for label, output in (("stderr", ex.stderr), ("stdout", ex.stdout)):
+            if output:
+                msg += f"\n\n{label}:\n{output.strip()}"
         raise RuntimeError(msg) from ex
+    except subprocess.CalledProcessError as ex:
+        stderr = (ex.stderr or "").strip()
+        stdout = (ex.stdout or "").strip()
+        parts = [
+            f"Two-pass `fastmcp inspect {server_spec}` failed with exit code " f"{ex.returncode}."
+        ]
+        if stderr:
+            parts.append(f"stderr:\n{stderr}")
+        if stdout:
+            parts.append(f"stdout:\n{stdout}")
+        raise RuntimeError("\n\n".join(parts)) from ex
     return json.loads(report_path.read_text(encoding="utf-8"))
 
 
-def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
+def _spec_to_module_name(server_spec: str) -> str:
+    """Normalize a file-path server spec to an importable module name."""
+    file_part = server_spec.split(":", 1)[0]
+    dotted = file_part.removesuffix(".py").replace("/", ".").replace("\\", ".")
+    if dotted.startswith("src."):
+        dotted = dotted.removeprefix("src.")
+    return dotted
+
+
+def _import_server(server_spec: str) -> FastMCP[Any]:
+    """Import and return the server object named by a FastMCP server spec."""
+    module_name, _, object_path = server_spec.partition(":")
+    if not object_path:
+        raise ValueError(f"Server spec must include an object name: {server_spec}")
+    server: object = importlib.import_module(_spec_to_module_name(module_name))
+    for component in object_path.split("."):
+        server = getattr(server, component)
+    return cast(FastMCP[Any], server)
+
+
+def _build_extra_module_map() -> dict[str, str]:
     """Best-effort import-based lookup of `mcp_module` for prompts/resources.
 
     `fastmcp_extensions`'s `mcp_tool` decorator embeds `mcp_module` in the MCP
@@ -150,8 +194,6 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     Returns a map of `name/uri -> mcp_module` covering both prompts and
     resources.
     """
-    file_part = server_spec.split(":", 1)[0]
-    module_name = file_part.removesuffix(".py").replace("/", ".")
     mapping: dict[str, str] = {}
     # The iteration sits inside the same `try` as the import so any shape
     # drift in the private `_REGISTERED_*` tuples (e.g. an added third element,
@@ -159,7 +201,6 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     # mapping — preserving this helper's documented best-effort semantics —
     # rather than aborting doc generation.
     try:
-        importlib.import_module(module_name)
         # Import private lists from fastmcp_extensions: these are the only
         # place `mcp_module` is recorded for prompts/resources, so we accept
         # the private-name coupling.
@@ -182,6 +223,63 @@ def _resolve_extra_module_map(server_spec: str) -> dict[str, str]:
     except Exception:
         return {}
     return mapping
+
+
+def _annotate_modules(report: dict[str, Any], module_map: dict[str, str]) -> None:
+    """Preserve prompt/resource module metadata in the inspect report."""
+    for section in ("prompts", "resources", "templates"):
+        for item in report.get(section) or []:
+            key = item.get("name") or item.get("uri") or item.get("uri_template")
+            if key in module_map:
+                item["meta"] = {**(item.get("meta") or {}), "mcp_module": module_map[key]}
+
+
+def _merge_reports(report_a: dict[str, Any], report_b: dict[str, Any]) -> dict[str, Any]:
+    """Merge unique protocol primitives from two inspect passes."""
+    merged = {**report_a}
+    for section in ("tools", "prompts", "resources", "templates"):
+        entries = list(report_a.get(section) or [])
+        seen = {item.get("name") or item.get("uri") or item.get("uri_template") for item in entries}
+        for item in report_b.get(section) or []:
+            key = item.get("name") or item.get("uri") or item.get("uri_template")
+            if key not in seen:
+                entries.append(item)
+                seen.add(key)
+        merged[section] = entries
+    return merged
+
+
+def _emit_inspect_json(server_spec: str, report_path: Path) -> None:
+    """Inspect a server with trusted and UI-capable request contexts."""
+    server = _import_server(server_spec)
+
+    async def inspect() -> dict[str, Any]:
+        report_a = json.loads(format_fastmcp_info(await inspect_fastmcp(server)))
+        scope = {
+            "type": "http",
+            "method": "POST",
+            "path": "/mcp",
+            "headers": [
+                (
+                    DEFAULT_EXTENSIONS_HEADER.lower().encode(),
+                    UI_EXTENSION_ID.encode(),
+                )
+            ],
+            "query_string": b"",
+        }
+        token = _current_http_request.set(Request(scope))
+        try:
+            report_b = json.loads(format_fastmcp_info(await inspect_fastmcp(server)))
+        finally:
+            _current_http_request.reset(token)
+        report = _merge_reports(report_a, report_b)
+        _annotate_modules(report, _build_extra_module_map())
+        return report
+
+    report_path.write_text(
+        json.dumps(asyncio.run(inspect()), indent=2),
+        encoding="utf-8",
+    )
 
 
 def _get_module(item: dict[str, Any], fallback_map: dict[str, str]) -> str:
@@ -281,6 +379,17 @@ def _render_hint_badges(annotations: dict[str, Any] | None) -> str:
     badges = [f"`{label}`" for key, label in _HINT_LABELS.items() if annotations.get(key) is True]
     if badges:
         lines.append("**Hints:** " + " · ".join(badges))
+    if annotations.get("requiresClientFilesystem") is True:
+        lines.append(
+            "**Availability:** requires trusted execution "
+            f"(`{MCP_TRUSTED_EXECUTION_ENV_VAR}=1`, stdio transport only); "
+            "never available over HTTP."
+        )
+    if annotations.get("interactive-ui") is True:
+        lines.append(
+            "**Availability:** requires an MCP Apps UI-capable client "
+            f"(declares the `{UI_EXTENSION_ID}` extension)."
+        )
     if title := annotations.get("title"):
         lines.append(f"**Title:** {title}")
     return ("\n\n".join(lines) + "\n\n") if lines else ""
@@ -570,14 +679,13 @@ def _prepare_output_dir(output: Path) -> Path:
 
 
 def generate(server_spec: str, output: Path) -> None:
-    """Run `fastmcp inspect`, render Markdown, and write files to `output/`."""
+    """Run a two-pass inspect, render Markdown, and write files to `output/`."""
     with tempfile.TemporaryDirectory() as tmp:
         report_path = Path(tmp) / "mcp-inspect.json"
-        print(f"Running `fastmcp inspect {server_spec}`...")
+        print(f"Running two-pass `fastmcp inspect {server_spec}`...")
         report = _run_fastmcp_inspect(server_spec, report_path)
 
-    fallback_map = _resolve_extra_module_map(server_spec)
-    buckets = _bucket_by_module(report, fallback_map)
+    buckets = _bucket_by_module(report, {})
 
     # Use the resolved path returned by `_prepare_output_dir` for subsequent
     # writes: when called from a subdirectory, the raw `output` is
@@ -615,9 +723,17 @@ def main() -> int:
         default=DEFAULT_OUTPUT,
         help=f"Output directory for generated Markdown (default: {DEFAULT_OUTPUT}).",
     )
+    parser.add_argument(
+        "--emit-inspect-json",
+        type=Path,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
     try:
-        generate(server_spec=args.server_spec, output=args.output)
+        if args.emit_inspect_json:
+            _emit_inspect_json(args.server_spec, args.emit_inspect_json)
+        else:
+            generate(server_spec=args.server_spec, output=args.output)
     except (subprocess.CalledProcessError, RuntimeError) as ex:
         print(f"MCP docs generation failed: {ex}", file=sys.stderr)
         return 1
