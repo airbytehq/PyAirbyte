@@ -312,12 +312,14 @@ For issues and questions:
 
 """  # noqa: D415
 
-from airbyte.mcp import cloud, local, registry, server
+from airbyte.mcp import cloud, interactive, local, prompts, registry, server
 
 
 __all__: list[str] = [
     "cloud",
+    "interactive",
     "local",
+    "prompts",
     "registry",
     "server",
 ]
