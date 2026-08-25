@@ -85,7 +85,7 @@ def run() -> None:
     # MCP module docstrings resolve on a clean checkout (docs/mcp-generated/
     # is git-ignored).
     _regenerate_mcp_markdown()
-    _validate_includes(pathlib.Path.cwd())
+    _validate_includes(pathlib.Path(__file__).parent.parent)
 
     # recursively delete the docs/generated folder if it exists
     if pathlib.Path("docs/generated").exists():
