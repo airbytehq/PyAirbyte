@@ -68,6 +68,44 @@ def test_airbyte_credentials_from_auth_defaults_to_env_var_lookup(
     assert credentials.bearer_token == "test-bearer-token"
 
 
+def test_airbyte_credentials_from_auth_ignores_legacy_api_root_env_vars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    legacy_public_api_root_env_var = "AIRBYTE_" + "API_ROOT"
+    legacy_config_api_root_env_var = "AIRBYTE_" + "CONFIG_API_ROOT"
+    for env_var in (
+        constants.CLOUD_API_ROOT_ENV_VAR,
+        constants.CLOUD_CONFIG_API_ROOT_ENV_VAR,
+        constants.CLOUD_BEARER_TOKEN_ENV_VAR,
+        constants.CLOUD_CLIENT_ID_ENV_VAR,
+        constants.CLOUD_CLIENT_SECRET_ENV_VAR,
+        cloud_credentials.BEARER_TOKEN_ENV_VAR,
+        cloud_credentials.CLIENT_ID_ENV_VAR,
+        cloud_credentials.CLIENT_SECRET_ENV_VAR,
+        legacy_public_api_root_env_var,
+        legacy_config_api_root_env_var,
+    ):
+        monkeypatch.delenv(env_var, raising=False)
+    monkeypatch.setenv(constants.CLOUD_BEARER_TOKEN_ENV_VAR, "test-bearer-token")
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(env_vars=True)
+
+    assert credentials.public_api_root == constants.CLOUD_API_ROOT
+    assert credentials.config_api_root is None
+
+    monkeypatch.setenv(
+        constants.CLOUD_API_ROOT_ENV_VAR,
+        "https://example.airbyte.com/api/public/v1",
+    )
+    monkeypatch.setenv(
+        constants.CLOUD_CONFIG_API_ROOT_ENV_VAR,
+        "https://example.airbyte.com/api/v1",
+    )
+    credentials = cloud_credentials._AirbyteCredentials.from_auth(env_vars=True)
+
+    assert credentials.public_api_root == "https://example.airbyte.com/api/public/v1"
+    assert credentials.config_api_root == "https://example.airbyte.com/api/v1"
+
+
 @pytest.mark.parametrize(
     "env_vars, expected_guidance",
     [
