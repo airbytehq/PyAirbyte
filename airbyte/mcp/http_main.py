@@ -34,7 +34,9 @@ Environment variables:
   derive the MCP endpoint mount path (serves at `/` when the URL has a path
   prefix, otherwise defaults to `/mcp`).
 - `AIRBYTE_MCP_ALLOWED_HOSTS`: Comma-separated allowed hostnames or `fnmatch`
-  patterns for HTTP `Host` and `Origin` validation. Entries may include ports.
+  patterns for HTTP `Host` and `Origin` validation. Ports are ignored: an entry
+  may carry one for readability, but matching is on hostname only, so
+  `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST`: Host interface to bind for the HTTP server. Defaults
   to `0.0.0.0`.
 

@@ -212,7 +212,9 @@ set; the interactive path activates once the OIDC client credentials are set.
 - `MCP_SERVER_URL` — public base URL of the server (also used for OIDC redirect
   callbacks); defaults to `http://localhost:8080`.
 - `AIRBYTE_MCP_ALLOWED_HOSTS` — comma-separated allowed hostnames or `fnmatch`
-  patterns for HTTP `Host` and `Origin` validation; entries may include ports.
+  patterns for HTTP `Host` and `Origin` validation. Ports are ignored: an entry
+  may carry one for readability, but matching is on hostname only, so
+  `example.com:8443` also allows `example.com` on any port.
 - `AIRBYTE_MCP_HTTP_HOST` — host interface to bind for the HTTP server (defaults
   to `0.0.0.0`).
 - `AIRBYTE_MCP_OIDC_CLIENT_ID`, `AIRBYTE_MCP_OIDC_CLIENT_SECRET` — enable
