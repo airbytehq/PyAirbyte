@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from airbyte import cloud, get_destination, get_source
 from airbyte._util import api_util
 from airbyte.cloud.client import CloudClient
-from airbyte.cloud.connectors import CustomCloudSourceDefinition
+from airbyte.cloud.connectors import CheckResult, CustomCloudSourceDefinition
 from airbyte.cloud.constants import FAILED_STATUSES
 from airbyte.cloud.models import JobTypeEnum
 from airbyte.cloud.workspaces import CloudWorkspace
@@ -71,6 +71,7 @@ WORKSPACE_ID_TIP_TEXT = (
     f"`{MCP_WORKSPACE_ID_HEADER}` header; local or stdio connections use the "
     f"`{CLOUD_WORKSPACE_ID_ENV_VAR}` environment variable."
 )
+CONNECTOR_CHECK_FAILURE_FALLBACK = "Connector check failed without a failure message."
 
 _DiscoveryResult = TypeVar("_DiscoveryResult")
 
@@ -88,6 +89,17 @@ def _handle_discovery_permission_error(
         "Organization or workspace discovery is unavailable because these credentials "
         "do not have the required permission or access. Provide an organization or "
         "workspace ID, or use credentials with the needed access."
+    )
+
+
+def _get_connector_check_message(check_result: CheckResult) -> str | None:
+    """Return the check failure message, if applicable."""
+    if check_result.success:
+        return None
+    return (
+        check_result.error_message
+        or check_result.internal_error
+        or CONNECTOR_CHECK_FAILURE_FALLBACK
     )
 
 
@@ -885,7 +897,7 @@ def cancel_cloud_sync(
         Field(
             description=(
                 "Optional job ID to cancel. If not provided, the connection's most recent "
-                "job will be cancelled."
+                "sync job will be cancelled. Other job types require an explicit job ID."
             ),
             default=None,
         ),
@@ -1119,11 +1131,7 @@ def check_cloud_source(
         connector_id=source_id,
         connector_type=source.connector_type,
         succeeded=check_result.success,
-        message=(
-            None
-            if check_result.success
-            else check_result.error_message or check_result.internal_error
-        ),
+        message=_get_connector_check_message(check_result),
     )
 
 
@@ -1156,11 +1164,7 @@ def check_cloud_destination(
         connector_id=destination_id,
         connector_type=destination.connector_type,
         succeeded=check_result.success,
-        message=(
-            None
-            if check_result.success
-            else check_result.error_message or check_result.internal_error
-        ),
+        message=_get_connector_check_message(check_result),
     )
 
 

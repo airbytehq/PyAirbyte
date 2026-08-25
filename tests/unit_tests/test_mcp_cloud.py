@@ -374,6 +374,12 @@ def test_mcp_cloud_connections_apply_limit_after_status_filter(
             "Check service unavailable",
             id="internal-error",
         ),
+        pytest.param(
+            CheckResult(success=False),
+            False,
+            "Connector check failed without a failure message.",
+            id="missing-message",
+        ),
     ],
 )
 def test_mcp_cloud_connector_checks_map_results(
