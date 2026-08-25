@@ -90,4 +90,4 @@ def test_configured_hosts_are_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_server_url_hostname_is_allowed() -> None:
     allowed_hosts = resolve_allowed_hosts("https://mcp.example.com:443/mcp")
 
-    assert "mcp.example.com" in allowed_hosts
+    assert allowed_hosts[-1:] == ("mcp.example.com",)
