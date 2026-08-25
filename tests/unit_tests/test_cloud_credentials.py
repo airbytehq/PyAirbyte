@@ -1,6 +1,8 @@
 # Copyright (c) 2024 Airbyte, Inc., all rights reserved.
 from __future__ import annotations
 
+import os
+
 import pytest
 from airbyte_api import models
 
@@ -91,6 +93,18 @@ def test_airbyte_credentials_from_auth_ignores_legacy_api_root_env_vars(
     monkeypatch.setenv(
         legacy_config_api_root_env_var, "http://legacy.example.com/api/v1"
     )
+
+    def fake_try_get_secret(
+        secret_name: str,
+        /,
+        *,
+        default: str | SecretString | None = None,
+        **_: object,
+    ) -> SecretString | str | None:
+        return os.environ.get(secret_name, default)
+
+    monkeypatch.setattr(cloud_credentials, "try_get_secret", fake_try_get_secret)
+
     credentials = cloud_credentials._AirbyteCredentials.from_auth(env_vars=True)
 
     assert credentials.public_api_root == constants.CLOUD_API_ROOT
