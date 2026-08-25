@@ -1000,6 +1000,61 @@ def get_job_info(
     )
 
 
+def cancel_job(
+    job_id: int,
+    *,
+    api_root: str,
+    client_id: SecretString | None,
+    client_secret: SecretString | None,
+    bearer_token: SecretString | None,
+) -> models.JobResponse:
+    """Cancel a running job."""
+    airbyte_instance = get_airbyte_server_instance(
+        client_id=client_id,
+        client_secret=client_secret,
+        bearer_token=bearer_token,
+        api_root=api_root,
+    )
+    response = airbyte_instance.jobs.cancel_job(
+        api.CancelJobRequest(
+            job_id=job_id,
+        ),
+    )
+    if status_ok(response.status_code):
+        if response.job_response:
+            return response.job_response
+        raise AirbyteError(
+            message="Job cancellation response payload was empty.",
+            response=response,
+            context={
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
+            },
+        )
+
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        raise AirbyteMissingResourceError(
+            resource_name_or_id=str(job_id),
+            resource_type="job",
+            response=response,
+            log_text=response.raw_response.text,
+            context={
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
+            },
+        )
+
+    raise AirbyteError(
+        message="Could not cancel job.",
+        response=response,
+        log_text=response.raw_response.text,
+        context={
+            "request_url": response.raw_response.url,
+            "status_code": response.status_code,
+        },
+    )
+
+
 # Create, get, and delete sources
 
 
