@@ -23,6 +23,7 @@ from airbyte.cloud._connection_state import (
     _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -299,6 +300,76 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
             )
 
         return sync_result
+
+    def _get_latest_cancellable_sync_job_id(self) -> int:
+        """Get the latest cancellable sync job ID."""
+        sync_results = self.get_previous_sync_logs(
+            limit=1,
+            job_type=JobTypeEnum.SYNC,
+        )
+        sync_result = sync_results[0] if sync_results else None
+        if sync_result is None:
+            raise PyAirbyteInputError(
+                message="No sync jobs found for this connection.",
+            )
+        if sync_result.is_job_complete():
+            raise PyAirbyteInputError(
+                message=(
+                    f"The latest sync job is already finished with status "
+                    f"'{sync_result.get_job_status().value}'. "
+                    "Pass an explicit job_id to target a different job."
+                ),
+            )
+        return sync_result.job_id
+
+    def _validated_cancellable_job_id(self, job_id: int) -> int:
+        """Validate an explicit cancellable job ID."""
+        job_info = api_util.get_job_info(
+            job_id=job_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        if job_info.connection_id != self.connection_id:
+            raise PyAirbyteInputError(
+                message=(
+                    f"Job {job_id} belongs to connection '{job_info.connection_id}', "
+                    f"not '{self.connection_id}'."
+                ),
+            )
+        job_status = CloudJobInfo.from_api_response(job_info).status
+        if job_status in FINAL_STATUSES:
+            raise PyAirbyteInputError(
+                message=f"Job {job_id} is already finished with status " f"'{job_status.value}'.",
+            )
+        return job_id
+
+    def cancel_sync(self, job_id: int | None = None) -> SyncResult:
+        """Cancel a running sync job.
+
+        Defaults to the connection's most recent sync job. Other job types must be
+        targeted with an explicit `job_id`.
+        """
+        target_job_id: int = (
+            self._get_latest_cancellable_sync_job_id()
+            if job_id is None
+            else self._validated_cancellable_job_id(job_id)
+        )
+
+        job_response = api_util.cancel_job(
+            job_id=target_job_id,
+            api_root=self.workspace.api_root,
+            client_id=self.workspace.client_id,
+            client_secret=self.workspace.client_secret,
+            bearer_token=self.workspace.bearer_token,
+        )
+        return SyncResult(
+            workspace=self.workspace,
+            connection=self,
+            job_id=job_response.job_id,
+            _latest_job_info=CloudJobInfo.from_api_response(job_response),
+        )
 
     def __repr__(self) -> str:
         """String representation of the connection."""

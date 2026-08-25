@@ -8,7 +8,12 @@ from types import SimpleNamespace
 import pytest
 import requests
 from airbyte._util import api_util
-from airbyte.exceptions import AirbyteWorkspaceNotEmptyError, PyAirbyteInputError
+from airbyte.exceptions import (
+    AirbyteError,
+    AirbyteMissingResourceError,
+    AirbyteWorkspaceNotEmptyError,
+    PyAirbyteInputError,
+)
 from airbyte.secrets.base import SecretString
 from airbyte_api import api, models
 
@@ -688,3 +693,113 @@ def test_get_job_logs_uses_offset_and_allows_unbounded_limit(
         (100, 10),
         (100, 110),
     ]
+
+
+def test_cancel_job_forwards_request_and_returns_job_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify cancelling a job forwards its ID and returns the API job response."""
+    captured_request: api.CancelJobRequest | None = None
+    job_response = _job_response(42)
+    raw_response = requests.Response()
+    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+
+    def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
+        """Capture the cancellation request."""
+        nonlocal captured_request
+        captured_request = request
+        return api.CancelJobResponse(
+            content_type="application/json",
+            status_code=200,
+            raw_response=raw_response,
+            job_response=job_response,
+        )
+
+    airbyte_instance = SimpleNamespace(jobs=SimpleNamespace(cancel_job=cancel_job))
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    result = api_util.cancel_job(
+        job_id=42,
+        api_root="https://api.airbyte.com/v1/",
+        client_id=SecretString("client-id"),
+        client_secret=SecretString("client-secret"),
+        bearer_token=None,
+    )
+
+    assert result is job_response
+    assert captured_request is not None
+    assert captured_request.job_id == 42
+
+
+def test_cancel_job_raises_for_non_ok_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify cancelling a job raises when the API response is not successful."""
+    raw_response = requests.Response()
+    raw_response.status_code = 404
+    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+
+    def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
+        """Return a not-found cancellation response."""
+        _ = request
+        return api.CancelJobResponse(
+            content_type="application/json",
+            status_code=404,
+            raw_response=raw_response,
+        )
+
+    airbyte_instance = SimpleNamespace(jobs=SimpleNamespace(cancel_job=cancel_job))
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteMissingResourceError):
+        api_util.cancel_job(
+            job_id=42,
+            api_root="https://api.airbyte.com/v1/",
+            client_id=SecretString("client-id"),
+            client_secret=SecretString("client-secret"),
+            bearer_token=None,
+        )
+
+
+def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-not-found cancellation failures use a general API error."""
+    raw_response = requests.Response()
+    raw_response.status_code = 409
+    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+
+    def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
+        """Return a conflict cancellation response."""
+        _ = request
+        return api.CancelJobResponse(
+            content_type="application/json",
+            status_code=409,
+            raw_response=raw_response,
+        )
+
+    airbyte_instance = SimpleNamespace(jobs=SimpleNamespace(cancel_job=cancel_job))
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteError) as error:
+        api_util.cancel_job(
+            job_id=42,
+            api_root="https://api.airbyte.com/v1/",
+            client_id=SecretString("client-id"),
+            client_secret=SecretString("client-secret"),
+            bearer_token=None,
+        )
+
+    assert not isinstance(error.value, AirbyteMissingResourceError)
