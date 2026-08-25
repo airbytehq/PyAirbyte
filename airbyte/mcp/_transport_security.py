@@ -71,10 +71,14 @@ def resolve_allowed_hosts(server_url: str) -> tuple[str, ...]:
 
 
 def _request_host(scope: Scope) -> str | None:
-    for name, value in scope.get("headers", []):
-        if name.lower() == b"host":
-            return _strip_host_port(value.decode("latin-1")) or None
-    return None
+    hosts = [
+        value.decode("latin-1")
+        for name, value in scope.get("headers", [])
+        if name.lower() == b"host"
+    ]
+    if len(hosts) != 1:
+        return None
+    return _strip_host_port(hosts[0]) or None
 
 
 def _origin_hosts(scope: Scope) -> tuple[str | None, ...]:

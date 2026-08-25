@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from starlette.responses import PlainTextResponse
 from starlette.testclient import TestClient
@@ -74,6 +76,35 @@ def test_missing_host_is_rejected() -> None:
         response = client.get("/", headers={"host": ""})
 
     assert response.status_code == 421
+
+
+def test_duplicate_hosts_are_rejected() -> None:
+    messages: list[dict[str, object]] = []
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b""}
+
+    async def send(message: dict[str, object]) -> None:
+        messages.append(message)
+
+    scope: Scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "raw_path": b"/",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"localhost"),
+            (b"host", b"attacker.example"),
+        ],
+    }
+
+    async def call_middleware() -> None:
+        await HostOriginGuardMiddleware(_app, ("localhost",))(scope, receive, send)
+
+    asyncio.run(call_middleware())
+
+    assert messages[0]["status"] == 421
 
 
 def test_configured_hosts_are_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
