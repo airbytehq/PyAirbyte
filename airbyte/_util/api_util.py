@@ -1020,12 +1020,33 @@ def cancel_job(
             job_id=job_id,
         ),
     )
-    if status_ok(response.status_code) and response.job_response:
-        return response.job_response
+    if status_ok(response.status_code):
+        if response.job_response:
+            return response.job_response
+        raise AirbyteError(
+            message="Job cancellation response payload was empty.",
+            response=response,
+            context={
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
+            },
+        )
 
-    raise AirbyteMissingResourceError(
-        resource_name_or_id=str(job_id),
-        resource_type="job",
+    if response.status_code == HTTPStatus.NOT_FOUND:
+        raise AirbyteMissingResourceError(
+            resource_name_or_id=str(job_id),
+            resource_type="job",
+            response=response,
+            log_text=response.raw_response.text,
+            context={
+                "request_url": response.raw_response.url,
+                "status_code": response.status_code,
+            },
+        )
+
+    raise AirbyteError(
+        message="Could not cancel job.",
+        response=response,
         log_text=response.raw_response.text,
         context={
             "request_url": response.raw_response.url,

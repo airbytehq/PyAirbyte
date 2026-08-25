@@ -9,6 +9,7 @@ import pytest
 import requests
 from airbyte._util import api_util
 from airbyte.exceptions import (
+    AirbyteError,
     AirbyteMissingResourceError,
     AirbyteWorkspaceNotEmptyError,
     PyAirbyteInputError,
@@ -766,3 +767,39 @@ def test_cancel_job_raises_for_non_ok_response(
             client_secret=SecretString("client-secret"),
             bearer_token=None,
         )
+
+
+def test_cancel_job_raises_airbyte_error_for_non_not_found_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify non-not-found cancellation failures use a general API error."""
+    raw_response = requests.Response()
+    raw_response.status_code = 409
+    raw_response.url = "https://api.airbyte.com/v1/jobs/42"
+
+    def cancel_job(request: api.CancelJobRequest) -> api.CancelJobResponse:
+        """Return a conflict cancellation response."""
+        _ = request
+        return api.CancelJobResponse(
+            content_type="application/json",
+            status_code=409,
+            raw_response=raw_response,
+        )
+
+    airbyte_instance = SimpleNamespace(jobs=SimpleNamespace(cancel_job=cancel_job))
+    monkeypatch.setattr(
+        api_util,
+        "get_airbyte_server_instance",
+        lambda **_: airbyte_instance,
+    )
+
+    with pytest.raises(AirbyteError) as error:
+        api_util.cancel_job(
+            job_id=42,
+            api_root="https://api.airbyte.com/v1/",
+            client_id=SecretString("client-id"),
+            client_secret=SecretString("client-secret"),
+            bearer_token=None,
+        )
+
+    assert not isinstance(error.value, AirbyteMissingResourceError)

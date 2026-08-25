@@ -298,7 +298,7 @@ class ConnectorCheckResult(BaseModel):
 
     connector_id: str
     """The deployed connector ID."""
-    connector_type: str
+    connector_type: Literal["source", "destination"]
     """The connector type: 'source' or 'destination'."""
     succeeded: bool
     """Whether the connector check succeeded."""

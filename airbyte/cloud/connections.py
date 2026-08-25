@@ -23,6 +23,7 @@ from airbyte.cloud._connection_state import (
     _normalize_state_to_protocol,
 )
 from airbyte.cloud.connectors import CloudDestination, CloudSource
+from airbyte.cloud.constants import FINAL_STATUSES
 from airbyte.cloud.models import (
     CloudConnectionInfo,
     CloudJobInfo,
@@ -301,9 +302,17 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
         return sync_result
 
     def cancel_sync(self, job_id: int | None = None) -> SyncResult:
-        """Cancel a running sync job. Defaults to the connection's most recent job."""
+        """Cancel a running sync job.
+
+        Defaults to the connection's most recent sync job. Other job types must be
+        targeted with an explicit `job_id`.
+        """
         if job_id is None:
-            sync_result = self.get_sync_result()
+            sync_results = self.get_previous_sync_logs(
+                limit=1,
+                job_type=JobTypeEnum.SYNC,
+            )
+            sync_result = sync_results[0] if sync_results else None
             if sync_result is None:
                 raise PyAirbyteInputError(
                     message="No sync jobs found for this connection.",
@@ -317,6 +326,28 @@ class CloudConnection:  # noqa: PLR0904  # Too many public methods
                     ),
                 )
             job_id = sync_result.job_id
+        else:
+            job_info = api_util.get_job_info(
+                job_id=job_id,
+                api_root=self.workspace.api_root,
+                client_id=self.workspace.client_id,
+                client_secret=self.workspace.client_secret,
+                bearer_token=self.workspace.bearer_token,
+            )
+            if job_info.connection_id != self.connection_id:
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Job {job_id} belongs to connection '{job_info.connection_id}', "
+                        f"not '{self.connection_id}'."
+                    ),
+                )
+            job_status = CloudJobInfo.from_api_response(job_info).status
+            if job_status in FINAL_STATUSES:
+                raise PyAirbyteInputError(
+                    message=(
+                        f"Job {job_id} is already finished with status " f"'{job_status.value}'."
+                    ),
+                )
 
         job_response = api_util.cancel_job(
             job_id=job_id,
