@@ -209,7 +209,7 @@ def test_cloud_client_list_workspaces_applies_name_contains_to_all_org_results(
     monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
 
     result = CloudClient(bearer_token="token").list_workspaces(
-        name_contains="target",
+        name_contains="TARGET",
         limit=1,
         all_organizations=True,
     )
@@ -256,6 +256,39 @@ def test_cloud_client_list_workspaces_in_organization_applies_name_filter_before
     assert all(isinstance(workspace, CloudWorkspaceInfo) for workspace in result)
     assert [workspace.name for workspace in result] == ["target-one"]
     assert [workspace.workspace_id for workspace in result] == ["workspace-target-one"]
+
+
+def test_cloud_client_list_workspaces_matches_exact_name_after_server_filter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_list_workspaces_in_organization(
+        **kwargs: object,
+    ) -> list[dict[str, object]]:
+        captured.update(kwargs)
+        return [
+            {"name": "Production-old", "workspaceId": "workspace-production-old"},
+            {"name": "Prod", "workspaceId": "workspace-prod"},
+        ]
+
+    monkeypatch.setattr(
+        api_util,
+        "list_workspaces_in_organization",
+        fake_list_workspaces_in_organization,
+    )
+
+    result = CloudClient(
+        bearer_token="token",
+        organization_id="organization-id",
+    ).list_workspaces(
+        name="Prod",
+        limit=1,
+    )
+
+    assert captured["name_contains"] == "Prod"
+    assert captured["limit"] is None
+    assert [workspace.name for workspace in result] == ["Prod"]
 
 
 def test_cloud_client_create_workspace_uses_default_organization_id(
@@ -1008,6 +1041,33 @@ def test_mcp_list_cloud_workspaces_returns_typed_organization_candidates(
         "organization-2",
     ]
     assert result.candidate_organizations[1].name == "Organization 2"
+    assert "Retry with one of the candidate organization IDs." in (result.message or "")
+
+
+def test_mcp_list_cloud_workspaces_without_candidates_omits_retry_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class DiscoveryClient:
+        def list_workspaces(self, **_: object) -> list[CloudWorkspaceInfo]:
+            raise PyAirbyteInputError(
+                message="No organization membership was found.",
+                context={"organization_candidates": []},
+            )
+
+    monkeypatch.setattr(mcp_cloud, "_get_cloud_client", lambda _: DiscoveryClient())
+
+    result = mcp_cloud.list_cloud_workspaces(
+        None,
+        organization_id=None,
+        organization_name=None,
+        name_contains=None,
+        limit=None,
+        workspace_id=None,
+        all_organizations=False,
+    )
+
+    assert result.candidate_organizations == []
+    assert result.message == "No organization membership was found."
 
 
 def test_cloud_client_get_organization_uses_unbounded_organization_list(

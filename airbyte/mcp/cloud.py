@@ -1582,10 +1582,13 @@ def list_cloud_workspaces(
                     name=candidate_name if isinstance(candidate_name, str) else None,
                 )
             )
+        message = error.get_message()
+        if candidate_organizations:
+            message += " Retry with one of the candidate organization IDs."
         return CloudWorkspaceListResult(
             workspaces=[],
             candidate_organizations=candidate_organizations,
-            message=(f"{error.get_message()} Retry with one of the candidate organization IDs."),
+            message=message,
         )
     except AirbyteError as error:
         return _handle_discovery_permission_error(

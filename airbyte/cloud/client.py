@@ -272,10 +272,10 @@ class CloudClient:
                     message="You can provide name_contains or name_filter, but not both."
                 )
             if name_contains is not None:
-                name_substring = name_contains
+                name_substring = name_contains.casefold()
 
                 def matches_name(workspace_name: str) -> bool:
-                    return name_substring in workspace_name
+                    return name_substring in workspace_name.casefold()
 
                 name_filter = matches_name
                 name = None
@@ -300,6 +300,7 @@ class CloudClient:
             raise exc.PyAirbyteInputError(
                 message="You can provide name_contains or name_filter, but not both."
             )
+        # The organization-scoped path delegates `name_contains` casing to the server.
         workspaces = api_util.list_workspaces_in_organization(
             organization_id=resolved_organization_id,
             api_root=self.public_api_root,
@@ -308,15 +309,17 @@ class CloudClient:
             client_secret=self.client_secret,
             bearer_token=self.bearer_token,
             name_contains=name_contains or name,
-            limit=None if name_filter is not None else limit,
+            limit=None if name is not None or name_filter is not None else limit,
         )
         workspace_infos = [CloudWorkspaceInfo.from_mapping(workspace) for workspace in workspaces]
+        if name is not None:
+            workspace_infos = [workspace for workspace in workspace_infos if workspace.name == name]
         if name_filter is not None:
             workspace_infos = [
                 workspace for workspace in workspace_infos if name_filter(workspace.name)
             ]
-            if limit is not None:
-                workspace_infos = workspace_infos[:limit]
+        if limit is not None and (name is not None or name_filter is not None):
+            workspace_infos = workspace_infos[:limit]
         return workspace_infos
 
     def _resolve_workspace_organization_id(
