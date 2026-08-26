@@ -196,6 +196,25 @@ def test_list_permissions_for_user_accepts_direct_list_response(
     assert captured["json"] == {"userId": "user-id"}
 
 
+def test_list_permissions_for_user_rejects_unexpected_response(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        api_util,
+        "_make_config_api_request",
+        lambda **_: "unexpected",
+    )
+
+    with pytest.raises(AirbyteError):
+        api_util.list_permissions_for_user(
+            "user-id",
+            api_root="https://api.example",
+            client_id=None,
+            client_secret=None,
+            bearer_token=SecretString("token"),
+        )
+
+
 def test_create_workspace_forwards_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

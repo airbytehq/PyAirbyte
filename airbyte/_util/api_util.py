@@ -2844,7 +2844,7 @@ def list_permissions_for_user(
     if isinstance(result, list):
         return result
 
-    permissions = result.get("permissions")
+    permissions = result.get("permissions") if isinstance(result, dict) else None
     if isinstance(permissions, list):
         return permissions
 
