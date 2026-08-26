@@ -24,9 +24,7 @@ CLIENT_ID_ENV_VAR = "AIRBYTE_CLIENT_ID"
 CLIENT_SECRET_ENV_VAR = "AIRBYTE_CLIENT_SECRET"
 WORKSPACE_ID_ENV_VAR = "AIRBYTE_WORKSPACE_ID"
 ORGANIZATION_ID_ENV_VAR = "AIRBYTE_ORGANIZATION_ID"
-PUBLIC_API_ROOT_ENV_VAR = "AIRBYTE_API_ROOT"
 BEARER_TOKEN_ENV_VAR = "AIRBYTE_BEARER_TOKEN"
-CONFIG_API_ROOT_ENV_VAR = "AIRBYTE_CONFIG_API_ROOT"
 
 
 @dataclass(frozen=True)
@@ -94,14 +92,12 @@ class _AirbyteCredentials:
             bearer_token=SecretString(resolved_bearer_token) if resolved_bearer_token else None,
             public_api_root=_first_value(
                 public_api_root,
-                _env_value(PUBLIC_API_ROOT_ENV_VAR, CLOUD_API_ROOT_ENV_VAR) if env_vars else None,
+                _env_value(CLOUD_API_ROOT_ENV_VAR) if env_vars else None,
             )
             or CLOUD_API_ROOT,
             config_api_root=_first_value(
                 config_api_root,
-                _env_value(CONFIG_API_ROOT_ENV_VAR, CLOUD_CONFIG_API_ROOT_ENV_VAR)
-                if env_vars
-                else None,
+                _env_value(CLOUD_CONFIG_API_ROOT_ENV_VAR) if env_vars else None,
             ),
             workspace_id=_first_value(
                 workspace_id,
