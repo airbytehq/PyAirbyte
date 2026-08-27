@@ -83,7 +83,7 @@ class AgentOrganization:
         """Get a workspace in this organization, by ID or by name.
 
         Lookup by `workspace_id` does not call the Agents API. Lookup by `name` lists the
-        organization's workspaces and matches the name exactly.
+        organization's workspaces and matches the name exactly, ignoring case.
         """
         if bool(workspace_id) == bool(name):
             raise PyAirbyteInputError(
@@ -94,7 +94,12 @@ class AgentOrganization:
         if workspace_id:
             return self._as_workspace(AgentWorkspaceInfo(id=workspace_id))
 
-        matches = [workspace for workspace in self.list_workspaces() if workspace.name == name]
+        name_lower = (name or "").lower()
+        matches = [
+            workspace
+            for workspace in self.list_workspaces()
+            if workspace.name and workspace.name.lower() == name_lower
+        ]
         if not matches:
             raise AirbyteError(
                 message="No workspace found with the given name.",

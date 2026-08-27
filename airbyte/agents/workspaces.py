@@ -135,8 +135,8 @@ class AgentWorkspace:
 
         Lookup by `connector_id` does not call the Agents API. Lookup by `name` lists the
         workspace's connectors and matches on an exact name first, falling back to a
-        unique case-insensitive substring match, so `name="GitHub"` finds a connector
-        named `GitHub - <workspace_id>`.
+        unique substring match, so `name="GitHub"` finds a connector named
+        `GitHub - <workspace_id>`. Both tiers are case-insensitive.
         """
         if bool(connector_id) == bool(name):
             raise PyAirbyteInputError(
@@ -148,10 +148,15 @@ class AgentWorkspace:
             return AgentConnector(connector_id=connector_id, credentials=self._credentials)
 
         connectors = self.list_connectors()
-        matches = [connector for connector in connectors if connector.name == name] or [
+        name_lower = (name or "").lower()
+        matches = [
             connector
             for connector in connectors
-            if connector.name and name and name.lower() in connector.name.lower()
+            if connector.name and connector.name.lower() == name_lower
+        ] or [
+            connector
+            for connector in connectors
+            if connector.name and name_lower in connector.name.lower()
         ]
         if not matches:
             raise AirbyteError(

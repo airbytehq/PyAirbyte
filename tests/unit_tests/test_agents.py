@@ -324,6 +324,12 @@ def test_list_connectors(captured_requests: list[dict[str, Any]]) -> None:
         pytest.param({"connector_id": "explicit-id"}, "explicit-id", None, id="by_id"),
         pytest.param({"name": "Slack"}, "connector-2", None, id="by_exact_name"),
         pytest.param({"name": "GitHub"}, "connector-1", None, id="by_partial_name"),
+        pytest.param(
+            {"name": "slack"}, "connector-2", None, id="by_exact_name_other_case"
+        ),
+        pytest.param(
+            {"name": "github"}, "connector-1", None, id="by_partial_name_other_case"
+        ),
         pytest.param({"name": "Missing"}, None, "No connector found", id="no_match"),
         pytest.param({}, None, "Exactly one of", id="no_args"),
         pytest.param(
@@ -374,6 +380,9 @@ def test_list_workspaces(captured_requests: list[dict[str, Any]]) -> None:
     [
         pytest.param({"workspace_id": "explicit-id"}, "explicit-id", None, id="by_id"),
         pytest.param({"name": "secondary"}, "workspace-2", None, id="by_name"),
+        pytest.param(
+            {"name": "SECONDARY"}, "workspace-2", None, id="by_name_other_case"
+        ),
         pytest.param({"name": "missing"}, None, "No workspace found", id="no_match"),
         pytest.param({}, None, "Exactly one of", id="no_args"),
     ],
