@@ -259,18 +259,27 @@ class CloudClient:
         has_explicit_organization = organization_id is not None or organization_name is not None
         has_explicit_workspace = workspace_id is not None
 
-        if all_organizations:
-            if has_explicit_organization or has_explicit_workspace:
-                raise exc.PyAirbyteInputError(
-                    message=(
-                        "The all_organizations option cannot be combined with an "
-                        "organization or workspace ID."
-                    )
+        if all_organizations and (has_explicit_organization or has_explicit_workspace):
+            raise exc.PyAirbyteInputError(
+                message=(
+                    "The all_organizations option cannot be combined with an "
+                    "organization or workspace ID."
                 )
-            if name_contains is not None and name_filter is not None:
-                raise exc.PyAirbyteInputError(
-                    message="You can provide name_contains or name_filter, but not both."
-                )
+            )
+        if name_contains is not None and name_filter is not None:
+            raise exc.PyAirbyteInputError(
+                message="You can provide name_contains or name_filter, but not both."
+            )
+        resolved_organization_id = (
+            None
+            if all_organizations
+            else self._resolve_workspace_organization_id(
+                organization_id=organization_id,
+                organization_name=organization_name,
+                workspace_id=workspace_id,
+            )
+        )
+        if resolved_organization_id is None:
             if name_contains is not None:
                 name_substring = name_contains.casefold()
 
@@ -291,15 +300,6 @@ class CloudClient:
             )
             return [CloudWorkspaceInfo.from_api_response(workspace) for workspace in workspaces]
 
-        resolved_organization_id = self._resolve_workspace_organization_id(
-            organization_id=organization_id,
-            organization_name=organization_name,
-            workspace_id=workspace_id,
-        )
-        if name_contains is not None and name_filter is not None:
-            raise exc.PyAirbyteInputError(
-                message="You can provide name_contains or name_filter, but not both."
-            )
         # The organization-scoped path delegates `name_contains` casing to the server.
         workspaces = api_util.list_workspaces_in_organization(
             organization_id=resolved_organization_id,
@@ -328,7 +328,7 @@ class CloudClient:
         organization_id: str | None,
         organization_name: str | None,
         workspace_id: str | None,
-    ) -> str:
+    ) -> str | None:
         """Resolve the organization for a workspace listing."""
         if organization_id is not None:
             return organization_id
@@ -339,26 +339,19 @@ class CloudClient:
         if workspace_id is not None:
             return self._get_workspace_parent_organization_id(workspace_id)
 
-        if self.organization_id is not None:
-            return self.organization_id
-
-        if self.workspace_id is not None:
-            return self._get_workspace_parent_organization_id(self.workspace_id)
+        configured_organization_id = self.organization_id
+        if configured_organization_id is None and self.workspace_id is not None:
+            configured_organization_id = self._get_workspace_parent_organization_id(
+                self.workspace_id
+            )
+        if configured_organization_id is not None:
+            return configured_organization_id
 
         organization_ids = self._get_membership_organization_ids()
         if len(organization_ids) == 1:
             return organization_ids[0]
         if not organization_ids:
-            raise exc.PyAirbyteInputError(
-                message=(
-                    "No organization membership was found for these credentials. "
-                    "Pass an organization_id to list workspaces."
-                ),
-                context={
-                    "organization_ids": [],
-                    "organization_candidates": [],
-                },
-            )
+            return None
         raise exc.PyAirbyteInputError(
             message=(
                 "Multiple organization memberships were found for these credentials. "

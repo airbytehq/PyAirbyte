@@ -1528,22 +1528,11 @@ def list_cloud_workspaces(
             default=None,
         ),
     ],
-    all_organizations: Annotated[
-        bool,
-        Field(
-            description=(
-                "Whether to explicitly list across all organizations instead of resolving "
-                "an organization context."
-            ),
-            default=False,
-        ),
-    ],
 ) -> CloudWorkspaceListResult:
     """List all workspaces visible to the authenticated credentials.
 
     The client resolves an organization from the provided IDs, workspace context, or
-    the authenticated user's organization memberships. Set `all_organizations` to
-    explicitly search across all visible organizations.
+    the authenticated user's organization memberships.
     """
     client = _get_cloud_client(ctx)
 
@@ -1553,7 +1542,6 @@ def list_cloud_workspaces(
             organization_name=organization_name,
             name_contains=name_contains,
             limit=limit,
-            all_organizations=all_organizations,
         )
     except PyAirbyteInputError as error:
         context = error.context or {}

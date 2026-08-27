@@ -966,9 +966,11 @@ def test_cloud_client_list_workspaces_rejects_ambiguous_memberships_with_candida
     }
 
 
-def test_cloud_client_list_workspaces_rejects_missing_membership(
+def test_cloud_client_list_workspaces_falls_back_to_all_organizations_without_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    captured: dict[str, object] = {}
+
     monkeypatch.setattr(
         api_util,
         "get_user_id_from_bearer_token",
@@ -981,8 +983,24 @@ def test_cloud_client_list_workspaces_rejects_missing_membership(
     )
     monkeypatch.setattr(api_util, "list_permissions_for_user", lambda *_, **__: [])
 
-    with pytest.raises(PyAirbyteInputError, match="No organization membership"):
-        CloudClient(bearer_token="token").list_workspaces()
+    def fake_list_workspaces(**kwargs: object) -> list[models.WorkspaceResponse]:
+        captured.update(kwargs)
+        return [
+            models.WorkspaceResponse(
+                data_residency="auto",
+                name="Workspace",
+                notifications=models.NotificationsConfig(),
+                workspace_id="workspace-id",
+            )
+        ]
+
+    monkeypatch.setattr(api_util, "list_workspaces", fake_list_workspaces)
+
+    result = CloudClient(bearer_token="token").list_workspaces()
+
+    assert captured["workspace_id"] == ""
+    assert captured["limit"] is None
+    assert [workspace.workspace_id for workspace in result] == ["workspace-id"]
 
 
 def test_cloud_client_list_workspaces_all_organizations_is_explicit(
@@ -1030,7 +1048,6 @@ def test_mcp_list_cloud_workspaces_returns_typed_organization_candidates(
         organization_name=None,
         name_contains=None,
         limit=None,
-        all_organizations=False,
     )
 
     assert result.workspaces == []
@@ -1061,7 +1078,6 @@ def test_mcp_list_cloud_workspaces_without_candidates_omits_retry_guidance(
         organization_name=None,
         name_contains=None,
         limit=None,
-        all_organizations=False,
     )
 
     assert result.candidate_organizations == []
@@ -1214,7 +1230,6 @@ def test_mcp_list_cloud_workspaces_discovery(
         organization_name=None,
         name_contains=None,
         limit=None,
-        all_organizations=False,
     )
 
     assert captured_organization_id is None
