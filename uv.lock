@@ -201,7 +201,7 @@ requires-dist = [
     { name = "duckdb", specifier = "==1.4.3" },
     { name = "duckdb-engine", specifier = "==0.17.0" },
     { name = "fastmcp", specifier = ">=3.0,<4.0" },
-    { name = "fastmcp-extensions", specifier = "==0.21.0.dev11033089788126" },
+    { name = "fastmcp-extensions", specifier = ">=0.22.0,<1.0.0" },
     { name = "google-auth", specifier = ">=2.27.0,<3.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.12.0,<4.0" },
     { name = "google-cloud-bigquery-storage", specifier = ">=2.25.0,<3.0" },
@@ -1129,7 +1129,7 @@ wheels = [
 
 [[package]]
 name = "fastmcp-extensions"
-version = "0.21.0.dev11033089788126"
+version = "0.22.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastmcp" },
@@ -1143,9 +1143,9 @@ dependencies = [
     { name = "starlette" },
     { name = "uvicorn" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/5c/d7/3f3e1d8e255cbccc1d53330d623eb1b98dbbefe71ad519b8b4d19fc2a215/fastmcp_extensions-0.21.0.dev11033089788126.tar.gz", hash = "sha256:4f451885116a592742c4b486f30bf58712821dac5b7b1f034645d0f1aeaa3530", size = 255419, upload-time = "2026-08-27T15:48:30.248Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/02/b2056372f671b36291cc127ddc0a20e6a5463beadc45e00eb2c4a55e2d26/fastmcp_extensions-0.22.0.tar.gz", hash = "sha256:0d1484bccab4cc41545cdb3d66256b40ab30ca68aadf402d6ca5b16003eb3070", size = 255687, upload-time = "2026-08-27T18:56:21.995Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/31/9388922a5ec38033f11d2aa7ed2db9f6cdc44c2ab242116c247396ec6ae9/fastmcp_extensions-0.21.0.dev11033089788126-py3-none-any.whl", hash = "sha256:ac4820679835d30494671c03d453616e05f328bc22d5ac4b51b6ce0e4bcf875d", size = 98031, upload-time = "2026-08-27T15:48:28.758Z" },
+    { url = "https://files.pythonhosted.org/packages/a6/e4/e307efa7d7709b50f192d316bbc635ae4696016b3225f21dd1c2b17d3606/fastmcp_extensions-0.22.0-py3-none-any.whl", hash = "sha256:98ec194cada519d06bbaeeef32cf6e4d7332df3ad8574b3c50d91efa8d5665bd", size = 97947, upload-time = "2026-08-27T18:56:20.283Z" },
 ]
 
 [[package]]
