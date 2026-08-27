@@ -216,7 +216,7 @@ def test_execute_request_body(
 
     assert captured_requests[0]["json"] == expected_body
     assert captured_requests[0]["url"].endswith("/connectors/connector-id/execute")
-    assert result.records == [{"title": "Some issue"}]
+    assert result.entities == [{"title": "Some issue"}]
     assert result.has_next_page is True
     assert result.end_cursor == "cursor-1"
     assert result.execution_metadata.execution_time_ms == 42
@@ -268,21 +268,23 @@ def test_convenience_methods(
 @pytest.mark.parametrize(
     ("result_payload", "expectation"),
     [
-        pytest.param([{"a": 1}], [{"a": 1}], id="list_of_records"),
+        pytest.param([{"a": 1}], [{"a": 1}], id="list_of_entities"),
         pytest.param([], [], id="empty_list"),
         pytest.param({"a": 1}, None, id="single_object_raises"),
         pytest.param([{"a": 1}, "not-a-record"], None, id="mixed_list_raises"),
         pytest.param(None, None, id="null_raises"),
     ],
 )
-def test_records(result_payload: Any, expectation: list[dict[str, Any]] | None) -> None:
-    """`records` returns record lists and raises on any other payload shape."""
+def test_entities(
+    result_payload: Any, expectation: list[dict[str, Any]] | None
+) -> None:
+    """`entities` returns entity lists and raises on any other payload shape."""
     result = AgentExecuteResult(status="success", result=result_payload)
     if expectation is None:
         with pytest.raises(PyAirbyteInputError):
-            _ = result.records
+            _ = result.entities
     else:
-        assert result.records == expectation
+        assert result.entities == expectation
 
 
 def test_describe(captured_requests: list[dict[str, Any]]) -> None:

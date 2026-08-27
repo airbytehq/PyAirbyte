@@ -37,8 +37,8 @@ class AgentConnector:
     workspace = agents.AgentWorkspace.from_env()
     connector = workspace.get_connector(name="GitHub")
     result = connector.list_entities("issues", api_args={"repository": "airbytehq/PyAirbyte"})
-    for record in result.records:
-        print(record["title"])
+    for entity in result.entities:
+        print(entity["title"])
     ```
     """
 
@@ -102,7 +102,7 @@ class AgentConnector:
         example `{"repository": "airbytehq/PyAirbyte"}`. All other arguments are interpreted
         by PyAirbyte or by the Agents API itself:
 
-        - `select_fields` and `exclude_fields` prune fields from returned records.
+        - `select_fields` and `exclude_fields` prune fields from returned entities.
         - `limit` and `cursor` are merged into `api_args` as pagination arguments. Pass the
           `end_cursor` of a previous result as `cursor` to fetch the next page.
         - `skip_truncation` disables the Agents API's default truncation of large payloads.
@@ -150,7 +150,7 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `list` action, which returns a page of records for `entity`."""
+        """Run the `list` action, which returns a page of entities for `entity`."""
         return self.execute(entity, "list", api_args, **kwargs)
 
     def search_entities(
@@ -159,7 +159,7 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `search` action, which returns matching records for `entity`."""
+        """Run the `search` action, which returns matching entities for `entity`."""
         return self.execute(entity, "search", api_args, **kwargs)
 
     def get_entity(
@@ -168,7 +168,7 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `get` action, which returns a single record of `entity`."""
+        """Run the `get` action, which returns a single entity of type `entity`."""
         return self.execute(entity, "get", api_args, **kwargs)
 
     def create_entity(
@@ -177,7 +177,7 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `create` action, which creates a record of `entity`."""
+        """Run the `create` action, which creates an entity of type `entity`."""
         return self.execute(entity, "create", api_args, **kwargs)
 
     def update_entity(
@@ -186,7 +186,7 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `update` action, which updates a record of `entity`."""
+        """Run the `update` action, which updates an entity of type `entity`."""
         return self.execute(entity, "update", api_args, **kwargs)
 
     def delete_entity(
@@ -195,7 +195,7 @@ class AgentConnector:
         api_args: dict[str, Any] | None = None,
         **kwargs: Any,  # noqa: ANN401  # Forwarded verbatim to `execute()`.
     ) -> AgentExecuteResult:
-        """Run the `delete` action, which deletes a record of `entity`."""
+        """Run the `delete` action, which deletes an entity of type `entity`."""
         return self.execute(entity, "delete", api_args, **kwargs)
 
 

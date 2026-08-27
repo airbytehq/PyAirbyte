@@ -131,7 +131,7 @@ class AgentConnectorMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     has_next_page: bool | None = None
-    """Whether more records are available after this page, when the connector reports it."""
+    """Whether more entities are available after this page, when the connector reports it."""
 
     end_cursor: str | None = None
     """The cursor to pass as `cursor` to fetch the next page, when one is available."""
@@ -146,7 +146,7 @@ class AgentExecuteResult(BaseModel):
     """The execution status reported by the Agents API, for example `success`."""
 
     result: Any = None
-    """The action's payload. Record-returning actions put a list of records here."""
+    """The action's payload. Entity-returning actions put a list of entities here."""
 
     connector_metadata: AgentConnectorMetadata = Field(default_factory=AgentConnectorMetadata)
     """Connector-reported metadata about the result, including pagination cursors."""
@@ -158,33 +158,33 @@ class AgentExecuteResult(BaseModel):
     """A warning reported alongside an otherwise successful result."""
 
     @property
-    def records(self) -> list[dict[str, Any]]:
-        """The result as a list of records.
+    def entities(self) -> list[dict[str, Any]]:
+        """The result as a list of entities.
 
-        Raises `PyAirbyteInputError` if the action did not return a list of records. Use
-        `result` for actions whose payload is not a list of records.
+        Raises `PyAirbyteInputError` if the action did not return a list of entities. Use
+        `result` for actions whose payload is not a list of entities.
         """
         if not isinstance(self.result, list):
             raise PyAirbyteInputError(
-                message="This action did not return a list of records.",
-                guidance="Use the `result` attribute to read non-record result payloads.",
+                message="This action did not return a list of entities.",
+                guidance="Use the `result` attribute to read non-entity result payloads.",
                 context={"result_type": type(self.result).__name__},
             )
 
         invalid_types = sorted(
-            {type(record).__name__ for record in self.result if not isinstance(record, dict)}
+            {type(entity).__name__ for entity in self.result if not isinstance(entity, dict)}
         )
         if invalid_types:
             raise PyAirbyteInputError(
-                message="This action returned a list that is not a list of records.",
-                guidance="Use the `result` attribute to read non-record result payloads.",
+                message="This action returned a list that is not a list of entities.",
+                guidance="Use the `result` attribute to read non-entity result payloads.",
                 context={"unexpected_item_types": invalid_types},
             )
         return self.result
 
     @property
     def has_next_page(self) -> bool:
-        """Whether the connector reported more records after this page."""
+        """Whether the connector reported more entities after this page."""
         return bool(self.connector_metadata.has_next_page)
 
     @property

@@ -23,8 +23,8 @@ result = connector.list_entities(
     api_args={"repository": "airbytehq/PyAirbyte"},
     limit=50,
 )
-for record in result.records:
-    print(record["title"])
+for entity in result.entities:
+    print(entity["title"])
 ```
 
 Page through results using the cursor the connector reports:
@@ -35,7 +35,7 @@ while True:
     result = connector.list_entities(
         "issues", api_args={"repository": "airbytehq/PyAirbyte"}, cursor=cursor
     )
-    print(len(result.records))
+    print(len(result.entities))
     if not result.has_next_page:
         break
     cursor = result.end_cursor
