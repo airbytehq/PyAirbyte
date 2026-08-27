@@ -37,6 +37,12 @@ For the headless path, an agent mints an access token from its client id/secret
 single token both authenticates transport (verified here) and authorizes
 downstream Cloud API calls, because an Airbyte-Cloud-issued JWT is itself a valid
 Cloud API bearer.
+
+Environment variables:
+
+- `AIRBYTE_MCP_SEGMENT_WRITE_KEY`: Segment write key for MCP tool-call telemetry
+  across all transports. Defaults to the PyAirbyte application key and is
+  ignored when `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set.
 """
 
 from __future__ import annotations
@@ -51,6 +57,7 @@ from typing import TYPE_CHECKING, Protocol
 from fastmcp_extensions import (
     JWTAuthConfig,
     OIDCAuthConfig,
+    ToolCallTelemetryMiddleware,
     build_mcp_auth,
     mcp_server,
 )
@@ -63,6 +70,8 @@ if TYPE_CHECKING:
     from starlette.requests import Request
 
 from airbyte._util.meta import set_mcp_mode
+from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
+from airbyte.constants import AIRBYTE_OFFLINE_MODE
 from airbyte.mcp._config import load_secrets_to_env_vars
 from airbyte.mcp._tool_utils import (
     AIRBYTE_EXCLUDE_MODULES_CONFIG_ARG,
@@ -295,6 +304,44 @@ def _create_auth() -> AuthProvider | None:
     return build_mcp_auth(oidc=oidc, jwt=jwt, base_url=base_url)
 
 
+SEGMENT_WRITE_KEY_ENV = "AIRBYTE_MCP_SEGMENT_WRITE_KEY"
+
+SEGMENT_USER_ID = "airbyte-mcp"
+"""Identifies the PyAirbyte MCP server as the event source.
+
+This applies to both hosted and local transports. The server has no per-caller
+identity to attribute a tool call to.
+"""
+
+
+def _segment_write_key() -> str | None:
+    """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
+    if os.environ.get(DO_NOT_TRACK) or AIRBYTE_OFFLINE_MODE:
+        return None
+
+    return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
+
+
+def _register_tool_call_telemetry() -> None:
+    """Record an `mcp_tool_call` event per tool invocation on this MCP server.
+
+    The Segment sink queues events on a background thread, so it does not add
+    latency to the tool call it reports on.
+    """
+    write_key = _segment_write_key()
+    if write_key is None:
+        logger.info("Tool-call telemetry is disabled.")
+        return
+
+    app.add_middleware(
+        ToolCallTelemetryMiddleware(
+            package_name="airbyte",
+            segment_write_key=write_key,
+            segment_user_id=SEGMENT_USER_ID,
+        )
+    )
+
+
 set_mcp_mode()
 load_secrets_to_env_vars()
 
@@ -322,6 +369,8 @@ app = mcp_server(
     auth=_create_auth(),
 )
 """The Airbyte MCP Server application instance."""
+
+_register_tool_call_telemetry()
 
 # Register tools from each module
 register_cloud_tools(app)

@@ -33,9 +33,6 @@ Environment variables:
 - `MCP_SERVER_URL`: Public base URL. Used for OIDC redirect callbacks and to
   derive the MCP endpoint mount path (serves at `/` when the URL has a path
   prefix, otherwise defaults to `/mcp`).
-- `AIRBYTE_MCP_SEGMENT_WRITE_KEY`: Segment write key for hosted tool-call
-  telemetry. Defaults to the PyAirbyte application key, and is ignored when
-  `DO_NOT_TRACK` or `AIRBYTE_OFFLINE_MODE` is set.
 
 Interactive OIDC (Keycloak Authorization Code + PKCE), enabled when the client
 credentials are set:
@@ -73,21 +70,18 @@ Opt-in static client credentials:
 from __future__ import annotations
 
 import logging
-import os
 import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from fastmcp.server.auth import MultiAuth
 from fastmcp_extensions import (
-    ToolCallTelemetryMiddleware,
     assert_http_trusted_execution_disabled,
     register_landing_page,
     run_mcp_http_server,
 )
 
-from airbyte._util.telemetry import DO_NOT_TRACK, PYAIRBYTE_APP_TRACKING_KEY
-from airbyte.constants import AIRBYTE_OFFLINE_MODE, set_hosted_mcp_mode
+from airbyte.constants import set_hosted_mcp_mode
 from airbyte.mcp._client_credentials import (
     client_credentials_enabled,
     wrap_if_enabled,
@@ -117,16 +111,6 @@ RELEASES_URL = "https://github.com/airbytehq/PyAirbyte/releases"
 _FINAL_VERSION_PATTERN = re.compile(r"\d+(?:\.\d+)*")
 _COMMIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
 
-SEGMENT_WRITE_KEY_ENV = "AIRBYTE_MCP_SEGMENT_WRITE_KEY"
-
-SEGMENT_USER_ID = "airbyte-cloud-mcp"
-"""Identifies this hosted server as the event source.
-
-The hosted server has no per-user identity to attribute a tool call to: the
-local anonymous ID that other PyAirbyte events carry is a per-container file
-here, so it would describe the deployment rather than a caller.
-"""
-
 
 def _landing_version_str() -> str:
     """Return the installed PyAirbyte version for the landing-page footer."""
@@ -149,35 +133,6 @@ def _landing_version_url() -> str:
     if not _FINAL_VERSION_PATTERN.fullmatch(public):
         return RELEASES_URL
     return RELEASE_TAG_URL_TEMPLATE.format(public)
-
-
-def _segment_write_key() -> str | None:
-    """Return the Segment write key for tool-call telemetry, or `None` when opted out."""
-    if os.environ.get(DO_NOT_TRACK) or AIRBYTE_OFFLINE_MODE:
-        return None
-
-    return _env_or_default(SEGMENT_WRITE_KEY_ENV, PYAIRBYTE_APP_TRACKING_KEY) or None
-
-
-def _register_tool_call_telemetry() -> None:
-    """Record an `mcp_tool_call` event per tool invocation on this hosted server.
-
-    Only the hosted entrypoint registers this, so a local stdio server stays
-    untouched. The Segment sink queues events on a background thread, so it does
-    not add latency to the tool call it reports on.
-    """
-    write_key = _segment_write_key()
-    if write_key is None:
-        logger.info("Tool-call telemetry is disabled.")
-        return
-
-    app.add_middleware(
-        ToolCallTelemetryMiddleware(
-            package_name="airbyte",
-            segment_write_key=write_key,
-            segment_user_id=SEGMENT_USER_ID,
-        )
-    )
 
 
 def _get_server_url() -> str:
@@ -248,7 +203,6 @@ def main() -> None:
     """Start the Airbyte MCP server with HTTP transport."""
     logging.basicConfig(level=logging.INFO)
     set_hosted_mcp_mode()
-    _register_tool_call_telemetry()
 
     # When deployed behind a path-stripping LB (MCP_SERVER_URL has a path
     # component like /cloud-mcp), serve the MCP endpoint at root so the

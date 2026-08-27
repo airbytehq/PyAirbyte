@@ -15,15 +15,13 @@ import asyncio
 import pytest
 from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.auth import TokenVerifier
-from fastmcp_extensions import ToolCallTelemetryMiddleware, run_mcp_http_server
-from segment import analytics
+from fastmcp_extensions import run_mcp_http_server
 
 from airbyte.mcp import http_main
 from airbyte.mcp.http_main import _advertise_root_mount_resource
 
 
 _BASE_URL = "https://mcp.example.com/cloud-mcp"
-_DUMMY_SEGMENT_WRITE_KEY = "dummy-segment-write-key"
 
 
 class _FakeProvider(TokenVerifier):
@@ -110,79 +108,6 @@ def test_landing_version_url(
 
     assert http_main._landing_version_url() == expected
     assert http_main._landing_version_str() == f"v{installed}"
-
-
-def test_segment_write_key_defaults_to_app_tracking_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The hosted telemetry key defaults to PyAirbyte's application key."""
-    monkeypatch.delenv(http_main.SEGMENT_WRITE_KEY_ENV, raising=False)
-    monkeypatch.delenv(http_main.DO_NOT_TRACK, raising=False)
-
-    assert http_main._segment_write_key() == http_main.PYAIRBYTE_APP_TRACKING_KEY
-
-
-def test_segment_write_key_uses_hosted_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The hosted entrypoint can use its deployment-specific Segment key."""
-    monkeypatch.delenv(http_main.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(http_main.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert http_main._segment_write_key() == _DUMMY_SEGMENT_WRITE_KEY
-
-
-def test_segment_write_key_respects_do_not_track(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The hosted telemetry sink is disabled when tracking is opted out."""
-    monkeypatch.setenv(http_main.DO_NOT_TRACK, "1")
-    monkeypatch.setenv(http_main.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    assert http_main._segment_write_key() is None
-
-
-def test_register_tool_call_telemetry_adds_middleware(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Enabled hosted telemetry adds exactly one middleware without sending an event."""
-    monkeypatch.delenv(http_main.DO_NOT_TRACK, raising=False)
-    monkeypatch.setenv(http_main.SEGMENT_WRITE_KEY_ENV, _DUMMY_SEGMENT_WRITE_KEY)
-
-    def fail_if_called(*_: object, **__: object) -> None:
-        pytest.fail("middleware registration must not send Segment traffic")
-
-    monkeypatch.setattr(analytics, "track", fail_if_called)
-    # Constructing the middleware configures the module-level Segment client, so
-    # snapshot the client state that registration mutates.
-    monkeypatch.setattr(analytics, "write_key", analytics.write_key)
-    monkeypatch.setattr(analytics, "send", analytics.send)
-    monkeypatch.setattr(analytics, "on_error", analytics.on_error)
-    original_middleware = list(http_main.app.middleware)
-    try:
-        http_main._register_tool_call_telemetry()
-        added_middleware = [
-            middleware
-            for middleware in http_main.app.middleware
-            if middleware not in original_middleware
-        ]
-        assert len(added_middleware) == 1
-        assert isinstance(added_middleware[0], ToolCallTelemetryMiddleware)
-    finally:
-        http_main.app.middleware[:] = original_middleware
-
-
-def test_register_tool_call_telemetry_is_disabled(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Opting out leaves the hosted app middleware unchanged."""
-    monkeypatch.setenv(http_main.DO_NOT_TRACK, "1")
-    original_middleware = list(http_main.app.middleware)
-    try:
-        http_main._register_tool_call_telemetry()
-        assert http_main.app.middleware == original_middleware
-    finally:
-        http_main.app.middleware[:] = original_middleware
 
 
 @pytest.mark.parametrize(
