@@ -153,6 +153,11 @@ def test_register_tool_call_telemetry_adds_middleware(
         pytest.fail("middleware registration must not send Segment traffic")
 
     monkeypatch.setattr(analytics, "track", fail_if_called)
+    # Constructing the middleware configures the module-level Segment client, so
+    # snapshot the client state that registration mutates.
+    monkeypatch.setattr(analytics, "write_key", analytics.write_key)
+    monkeypatch.setattr(analytics, "send", analytics.send)
+    monkeypatch.setattr(analytics, "on_error", analytics.on_error)
     original_middleware = list(http_main.app.middleware)
     try:
         http_main._register_tool_call_telemetry()
