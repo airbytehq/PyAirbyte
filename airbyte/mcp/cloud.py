@@ -1555,7 +1555,10 @@ def list_cloud_workspaces(
             )
         message = error.get_message()
         if available_organizations:
-            message += " Retry with one of the candidate organization IDs."
+            message += (
+                " Retry with an explicit organization ID from the provided list of the "
+                "available organizations."
+            )
         return CloudWorkspaceListResult(
             workspaces=[],
             available_organizations=available_organizations,

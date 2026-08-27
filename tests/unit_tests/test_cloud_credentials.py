@@ -1061,7 +1061,10 @@ def test_mcp_list_cloud_workspaces_returns_typed_organization_candidates(
         "organization-2",
     ]
     assert result.available_organizations[1].name == "Organization 2"
-    assert "Retry with one of the candidate organization IDs." in (result.message or "")
+    assert (
+        "Retry with an explicit organization ID from the provided list of the "
+        "available organizations." in (result.message or "")
+    )
 
 
 def test_mcp_list_cloud_workspaces_without_candidates_omits_retry_guidance(
